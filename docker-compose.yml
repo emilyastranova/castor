@@ -1,0 +1,36 @@
+version: "3.1"
+name: castor
+services:
+  mongo:
+    image: mongo
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    ports:
+      - 27017:27017
+    volumes:
+      - mongo:/data/db
+
+  agent:
+    image: castor/agent:latest
+    build: ./agent
+    restart: always
+    environment:
+      SERVER_IP: ${SERVER_IP}
+      SERVER_PORT: ${SERVER_PORT}
+    deploy:
+      replicas: 1 # Change this to the number of agents you want
+
+  worker:
+    image: castor/worker:latest
+    build: ./worker
+    restart: always
+    environment:
+      SERVER_PORT: ${SERVER_PORT}
+      DATABASE_URI: mongodb://root:${MONGO_ROOT_PASSWORD}@${DATABASE_HOST}:${DATABASE_PORT}/
+    ports:
+      - ${SERVER_PORT}:${SERVER_PORT}
+
+volumes:
+  mongo:

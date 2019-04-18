@@ -1,0 +1,31 @@
+---
+id: nmap
+name: Run Nmap
+schema_version: 1.0
+description: Scans a CIDR range or host with Nmap
+created_by: built-in
+checks:
+  - is_nmap_installed
+tags:
+  - nmap
+  - network
+  - security
+  - scan
+args:
+  # Variable name
+  - name: cidr
+    # Variable type. Possible types are: [string, number, boolean]
+    type: string
+    # Variable description
+    description: CIDR range to scan
+    # Variable default value
+    default:
+    # Variable required
+    required: true
+    # Variable example value
+    example: 192.168.0.1/24
+    # Variable validation regex
+    regex:
+    # Set a different name for the variable
+    export:
+command: nmap {{ cidr }}

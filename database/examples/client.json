@@ -1,0 +1,20 @@
+{
+    "client_name": "Aperture Science",
+    "client_contacts": [
+        {
+            "name": "Cave Johnson",
+            "email": "cave.johnson@aperturescience.com",
+            "phone": "555-555-5555"
+        },
+        {
+            "name": "Caroline Johnson",
+            "email": "caroline.johnson@aperturescience.com",
+            "phone": "555-555-5556"
+        }
+    ],
+    "client_notes": "This is a note about the client",
+    "client_logo": "https://www.aperturescience.com/logo.png",
+    "projects": [
+        "_65b6eaw5da65wd1aw6d51"
+    ]
+}

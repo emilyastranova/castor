@@ -1,0 +1,9 @@
+.env
+*/.env
+.venv/
+.vscode/
+**/node_modules/
+**/venv/
+**/.svelte-kit/
+**/__pycache__/
+**.pytest_cache/

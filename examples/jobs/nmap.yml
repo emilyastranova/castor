@@ -1,0 +1,12 @@
+---
+name: Run Nmap on CIDR Range
+schema_version: 1.0
+description: Scans a CIDR range with Nmap
+created_by: built-in
+tags:
+  - nmap
+  - network
+  - security
+  - scan
+commands:
+  - nmap

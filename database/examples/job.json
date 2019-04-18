@@ -1,0 +1,63 @@
+{
+    "task_id": "_65b6e1c2840cd59b11c90722",
+    "name": "Run Nmap on CIDR Range",
+    "description": "Runs nmap on the given CIDR range",
+    "tags": [
+        "nmap",
+        "network",
+        "security"
+    ],
+    "args": {
+        "cidr": "192.168.0.1/24"
+    },
+    "command": "_65b6e06e840cd59b11c9071f",
+    "start_date": "2024-01-28T01:18:14.000Z",
+    "end_date": "2024-01-28T01:19:02.000Z",
+    "duration": "124.10",
+    "created_by": "user98123",
+    "type": "automated",
+    "depends_on": [
+        "_65b6e06e840cd59b11c9071f",
+        "_6685gd6he840cd5awd65a1wd6",
+        "_65ba6wd5a6kyu6vwdawd31fh"
+    ],
+    "status": "running",
+    "logs": {
+        "stdin": "nmap 192.168.0.1/24",
+        "stdout": "Starting Nmap 7.80 ( https://nmap.org ) at 2020-04-26 12:24 EDT",
+        "stderr": ""
+    },
+    "exit_code": 0,
+    "hostname": "agent1.example.com",
+    "username": "runner_user",
+    "environment_variables": [
+        {
+            "name": "HOME",
+            "value": "/home/runner_user"
+        },
+        {
+            "name": "PATH",
+            "value": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        }
+    ],
+    "artifacts": [
+        {
+            "name": "nmap_output.txt",
+            "path": "/home/runner_user/nmap_output.txt"
+        },
+        {
+            "name": "nmap_output.xml",
+            "path": "/home/runner_user/nmap_output.xml"
+        }
+    ],
+    "screenshots": [
+        {
+            "name": "nmap_output.png",
+            "path": "/home/runner_user/nmap_output.png"
+        },
+        {
+            "name": "nmap_output2.png",
+            "path": "/home/runner_user/nmap_output2.png"
+        }
+    ]
+}

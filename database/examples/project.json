@@ -1,0 +1,44 @@
+{
+    "codename": "borealis",
+    "project_name": "Borealis",
+    "client_id": "_6a5wwshear4r5gf2ef4",
+    "start_date": "2024-01-28T01:18:14.000Z",
+    "end_date": "2024-01-29T01:18:14.000Z",
+    "type": "Nautical Experiment",
+    "tasks": [
+        "_65b6jy684dsr563thg4aerg3",
+        "_6a5wwshear4r5gf2ef4awef5"
+    ],
+    "users": [
+        "_6a5wwshear4r5gf2ef4awef5",
+        "_6a5wwshear4r5gf2ef4awef5"
+    ],
+    "notes": "This is a note",
+    "comments": [
+        "_s6t6a5w1da56wd41awda"
+    ],
+    "screenshots": [
+        "_751hh6w457w45y165hw1"
+    ],
+    "attachments": [
+        "_s6trhgae5rgaewf7ef4h"
+    ],
+    "budget": 100000,
+    "expenses": [
+        "_6a5wwshear4r5gf2ef4awef5"
+    ],
+    "activity_logs": [
+        "_6a5wwshear4r5gf2ef4awef5"
+    ],
+    "secrets": [
+        "_6a5wwshear4r5gf2ef4awef5"
+    ],
+    "created_by": "_6a5wwshear4r5gf2ef4awef5",
+    "created_at": "2019-01-01T00:00:00.000Z",
+    "bookmarks": [
+        {
+            "name": "Client Website",
+            "url": "https://www.aperturescience.com"
+        }
+    ]
+}

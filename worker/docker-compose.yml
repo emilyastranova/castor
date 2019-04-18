@@ -1,0 +1,10 @@
+version: "3.1"
+name: castor-worker
+services:
+  worker:
+    image: castor/worker:latest
+    build: .
+    restart: always
+    environment:
+      SERVER_PORT: ${SERVER_PORT}
+      DATABASE_URI: mongodb://root:${MONGO_ROOT_PASSWORD}@${DATABASE_HOST}:${DATABASE_PORT}/
