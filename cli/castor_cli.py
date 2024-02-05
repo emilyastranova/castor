@@ -1,7 +1,10 @@
 """Connect to the MongoDB database and ask user for command to execute"""
 
+import os
+import sys
 from pymongo import MongoClient, database
-
+sys.path.insert(0, os.path.abspath("../api"))
+from castor.core.models.job import Job #pylint: disable=import-error
 
 def get_database():
     """Get the database"""
@@ -11,14 +14,17 @@ def get_database():
 
 def send_command(db: database, command: str):
     """Send command to agent"""
-    job = {
-        "command": command,
-        "status": "pending",
+    job_data = {
+        "name": "CLI Command",
+        "task_id": "CLI",
+        "description": "Command sent from CLI",
+        "command": "shell",
+        "args": {"command": command},
     }
-    result = db.jobs.insert_one(job)
+    job = Job(**job_data)
+    result = db.jobs.insert_one(dict(job))
     # Add job to list using _id
-    job["_id"] = result.inserted_id
-    print(f"Job {job['_id']} created\n")
+    print(f"Job {result.inserted_id} created\n")
 
 
 def command_loop(db: database):

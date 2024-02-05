@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Script to connect to MongoDB and read jobs collection."""
+"""Script to connect to MongoDB and put a JSON job in jobs collection."""
+import json
 from pymongo import MongoClient
 from castor.core.models.job import Job # pylint: disable=import-error
 
@@ -8,8 +9,13 @@ client = MongoClient("mongodb://root:changeme@localhost:27017/")
 db = client["castor"]
 collection = db["jobs"]
 
-# Read all jobs from the collection
-jobs = collection.find()
-for job in jobs:
-    print(Job(**job).model_dump_json(indent=2))
+# Get job from ../examples/job.json
+with open("../database/examples/job.json", "r") as file:
+    job = json.load(file)
+
+# Create Job object
+job = Job(**job)
+
+# Insert job in MongoDB
+collection.insert_one(dict(job))
 client.close()
