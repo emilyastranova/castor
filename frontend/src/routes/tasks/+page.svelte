@@ -16,7 +16,8 @@
   $: console.log("selectedIds", selectedIds);
   let target;
   export let data;
-  console.log(data);
+  let tasks = data.data;
+  console.log(tasks);
 </script>
 <ContextMenu {target}>
     <ContextMenuOption
@@ -65,41 +66,52 @@
 		<Row>
 			<!-- Todo Column -->
 			<Column>
-                <div bind:this={target}>
-
-                    <ClickableTile href="/tasks/1">
-                        <h4>Task 1</h4>
-                        <p>Task 1 description</p>
-                    </ClickableTile>
-                </div>
+				<!-- If task.status is todo -->
+				{#each tasks as task}
+					{#if task.status === "todo"}
+						<ClickableTile href="/tasks/{task.id}" on:contextmenu={e => e.preventDefault()} bind:this={target}>
+							<h4>{task.title}</h4>
+							<p>{task.description}</p>
+						</ClickableTile>
+					{/if}
+				{/each}
 			</Column>
 
 			<!-- In-Progress Column -->
 			<Column>
-				<ClickableTile href="/tasks/2">
-					<h4>Task 2</h4>
-					<p>Task 2 description</p>
-				</ClickableTile>
-                <ClickableTile href="/tasks/1" class="mt-4">
-					<h4>Task 4</h4>
-					<p>Task 4 description</p>
-				</ClickableTile>
+				<!-- If task.status is in_progress -->
+				{#each tasks as task}
+					{#if task.status === "in_progress"}
+						<ClickableTile href="/tasks/{task.id}" on:contextmenu={e => e.preventDefault()}>
+							<h4>{task.title}</h4>
+							<p>{task.description}</p>
+						</ClickableTile>
+					{/if}
+				{/each}
 			</Column>
 
 			<!-- Complete Column -->
 			<Column>
-				<ClickableTile href="/tasks/3">
-					<h4>Task 3</h4>
-					<p>Task 3 description</p>
-				</ClickableTile>
+				<!-- If task.status is complete -->
+				{#each tasks as task}
+					{#if task.status === "complete"}
+						<ClickableTile href="/tasks/{task.id}" on:contextmenu={e => e.preventDefault()}>
+							<h4>{task.title}</h4>
+							<p>{task.description}</p>
+						</ClickableTile>
+					{/if}
+				{/each}
 			</Column>
             <Column>
-				<!-- None blocked, placeholder -->
-                <ClickableTile disabled href="https://www.carbondesignsystem.com/">
-                    <h4>None</h4>
-                    <p>No tasks</p>
-                  </ClickableTile>
-                  
+				<!-- If task.status is blocked -->
+				{#each tasks as task}
+					{#if task.status === "blocked"}
+						<ClickableTile href="/tasks/{task.id}" on:contextmenu={e => e.preventDefault()}>
+							<h4>{task.title}</h4>
+							<p>{task.description}</p>
+						</ClickableTile>
+					{/if}
+				{/each}
 			</Column>
 		</Row>
 	</Grid>
