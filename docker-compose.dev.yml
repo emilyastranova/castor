@@ -53,7 +53,7 @@ services:
 
   api:
     build:
-      context: ./server
+      context: ./castor_server
       dockerfile: ./deploy/Dockerfile
       target: dev
     image: castor_server:${CASTOR_SERVER_VERSION:-latest}
@@ -61,8 +61,7 @@ services:
     ports:
       - 8000:8000
     volumes:
-      # Adds current directory as volume.
-      - ./server:/app/src/
+      - ./castor_server:/app/src/
     env_file:
     - .env
     environment:

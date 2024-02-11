@@ -1,0 +1,3 @@
+[submodule "castor_server"]
+	path = castor_server
+	url = git@github.com:emilyastranova/castor-server.git

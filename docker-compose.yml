@@ -34,7 +34,7 @@ services:
 
   api:
     build:
-      context: ./server
+      context: ./castor_server
       dockerfile: ./deploy/Dockerfile
       target: prod
     image: castor_server:${CASTOR_SERVER_VERSION:-latest}
