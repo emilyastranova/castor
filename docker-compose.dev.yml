@@ -66,6 +66,7 @@ services:
     - .env
     environment:
       CASTOR_SERVER_HOST: 0.0.0.0
+      CASTOR_SERVER_DB_HOST: mongo
 
 volumes:
   mongo-dev:
