@@ -51,5 +51,22 @@ services:
     volumes:
       - ./frontend/src:/app/src
 
+  api:
+    build:
+      context: ./server
+      dockerfile: ./deploy/Dockerfile
+      target: dev
+    image: castor_server:${CASTOR_SERVER_VERSION:-latest}
+    restart: always
+    ports:
+      - 8000:8000
+    volumes:
+      # Adds current directory as volume.
+      - ./server:/app/src/
+    env_file:
+    - .env
+    environment:
+      CASTOR_SERVER_HOST: 0.0.0.0
+
 volumes:
   mongo-dev:

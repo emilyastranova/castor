@@ -32,5 +32,17 @@ services:
     ports:
       - ${SERVER_PORT}:${SERVER_PORT}
 
+  api:
+    build:
+      context: ./server
+      dockerfile: ./deploy/Dockerfile
+      target: prod
+    image: castor_server:${CASTOR_SERVER_VERSION:-latest}
+    restart: always
+    env_file:
+    - .env
+    environment:
+      CASTOR_SERVER_HOST: 0.0.0.0
+
 volumes:
   mongo:
