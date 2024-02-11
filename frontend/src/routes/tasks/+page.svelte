@@ -15,6 +15,8 @@
 
   $: console.log("selectedIds", selectedIds);
   let target;
+  export let data;
+  console.log(data);
 </script>
 <ContextMenu {target}>
     <ContextMenuOption

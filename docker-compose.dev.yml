@@ -50,6 +50,9 @@ services:
       - 5173:5173
     volumes:
       - ./frontend/src:/app/src
+    environment:
+      - CASTOR_SERVER_HOST=api
+      - CASTOR_SERVER_PORT=8000
 
   api:
     build:
