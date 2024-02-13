@@ -33,11 +33,24 @@
 	  key: "description",
 	  value: "Description",
 	},
+	{
+	  key: "agent_id",
+	  value: "Agent",},
+	{
+	  key: "start_date",
+	  value: "Created At",
+	}
   ];
 
   let rows = data.data;
 //   Take the rows and add an id key to the object
   let keyed_rows = rows.map((row, index) => {
+	  //   Convert any null values into a string
+		Object.keys(row).forEach((key) => {
+			if (row[key] === null) {
+				row[key] = "N/A";
+			}
+		});
 	return {
 	  ...row,
 	  id: index,
