@@ -59,7 +59,7 @@
 
   const colorMap = {
 	"pending": "gray",
-	"complete": "green",
+	"completed": "green",
 	"failed": "red",
 	"running": "purple",
   };
