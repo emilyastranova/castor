@@ -1,18 +1,12 @@
 """Connect to the MongoDB database and ask user for command to execute"""
 
 import os
-import sys
-from pymongo import MongoClient, database
-sys.path.insert(0, os.path.abspath("../api"))
-from castor.core.models.job import Job #pylint: disable=import-error
+from castor_lib.core.models.job import Job
+from castor_lib.core.database import CastorDatabase, DatabaseConfig
+from loguru import logger
+from dotenv import load_dotenv
 
-def get_database():
-    """Get the database"""
-    client = MongoClient("mongodb://root:changeme@127.0.0.1:27017/")
-    return client["castor"]
-
-
-def send_command(db: database, command: str):
+def send_command(db: CastorDatabase, command: str):
     """Send command to agent"""
     job_data = {
         "name": "CLI Command",
@@ -22,12 +16,12 @@ def send_command(db: database, command: str):
         "args": {"command": command},
     }
     job = Job(**job_data)
-    result = db.jobs.insert_one(dict(job))
+    db.insert(job)
     # Add job to list using _id
-    print(f"Job {result.inserted_id} created\n")
+    logger.debug("Job created\n")
 
 
-def command_loop(db: database):
+def command_loop(db: CastorDatabase):
     """Get command from user"""
     while True:
         command = input("castor@agent:~$ ")
@@ -35,11 +29,18 @@ def command_loop(db: database):
             break
         send_command(db, command)
 
-
+@logger.catch
 def main():
     """Main loop"""
-    # Get database
-    db = get_database()
+    # Setup database connection
+    load_dotenv()
+    config = DatabaseConfig(
+        host=os.getenv("CASTOR_SERVER_DB_HOST"),
+        port=int(os.getenv("CASTOR_SERVER_DB_PORT")),
+        username=os.getenv("CASTOR_SERVER_DB_USERNAME"),
+        password=os.getenv("CASTOR_SERVER_DB_PASSWORD"),
+    )
+    db = CastorDatabase(config)
     print("Castor CLI\n----------")
 
     # Start command loop

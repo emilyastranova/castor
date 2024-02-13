@@ -5,8 +5,8 @@ services:
     image: mongo
     restart: always
     environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_ROOT_USERNAME: ${CASTOR_SERVER_DB_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${CASTOR_SERVER_DB_PASSWORD}
     ports:
       - 27017:27017
     volumes:
@@ -19,8 +19,8 @@ services:
       - 8081:8081
     environment:
       ME_CONFIG_MONGODB_ADMINUSERNAME: root
-      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_ROOT_PASSWORD}
-      ME_CONFIG_MONGODB_URL: mongodb://root:${MONGO_ROOT_PASSWORD}@mongo:27017/
+      ME_CONFIG_MONGODB_ADMINPASSWORD: ${CASTOR_SERVER_DB_PASSWORD}
+      ME_CONFIG_MONGODB_URL: mongodb://${CASTOR_SERVER_DB_USERNAME}:${CASTOR_SERVER_DB_PASSWORD}@mongo:${CASTOR_SERVER_DB_PORT}/
 
   agent:
     image: castor-dev/agent:latest
@@ -38,7 +38,7 @@ services:
     restart: always
     environment:
       SERVER_PORT: ${SERVER_PORT}
-      DATABASE_URI: mongodb://root:${MONGO_ROOT_PASSWORD}@${DATABASE_HOST}:${DATABASE_PORT}/
+      DATABASE_URI: mongodb://CASTOR_SERVER_DB_USERNAME:${CASTOR_SERVER_DB_PASSWORD}@mongo:${CASTOR_SERVER_DB_PORT}/
     ports:
       - ${SERVER_PORT}:${SERVER_PORT}
 
