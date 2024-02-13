@@ -4,38 +4,12 @@
 		Grid,
 		Row,
 		Column,
-		ClickableTile,
-        ContextMenu,
-    ContextMenuDivider,
-    ContextMenuGroup,
-    ContextMenuOption,
+		ClickableTile
 	} from "carbon-components-svelte";
-    import CopyFile from "carbon-icons-svelte/lib/CopyFile.svelte";
-  let selectedIds = [];
-  let target;
   export let data;
   let tasks = data.data;
 </script>
-<ContextMenu {target}>
-    <ContextMenuOption
-      indented
-      labelText="Copy"
-      shortcutText="⌘C"
-      icon={CopyFile}
-    />
-    <ContextMenuDivider />
-    <ContextMenuOption indented labelText="Change status">
-      <ContextMenuGroup labelText="Move to" bind:selectedIds>
-        <ContextMenuOption id="todo" labelText="Todo" />
-        <ContextMenuOption id="inprogress" labelText="In-Progress" />
-        <ContextMenuOption id="complete" labelText="Complete" />
-        <ContextMenuOption id="blocked" labelText="Blocked" />
-      </ContextMenuGroup>
-    </ContextMenuOption>
-    <ContextMenuDivider />
-    <ContextMenuOption indented kind="danger" labelText="Delete" />
-  </ContextMenu>
-  
+
 <Content>
 	<Grid>
 		<Row>
@@ -66,7 +40,7 @@
 				<!-- If task.status is todo -->
 				{#each tasks as task}
 					{#if task.status === "todo"}
-						<ClickableTile class="mb-4" href="/tasks/{task._id}" on:contextmenu={e => e.preventDefault()} bind:this={target}>
+						<ClickableTile class="mb-4" href="/tasks/{task._id}">
 							<h4>{task.title}</h4>
 							<p>{task.description}</p>
 						</ClickableTile>
@@ -79,7 +53,7 @@
 				<!-- If task.status is in_progress -->
 				{#each tasks as task}
 					{#if task.status === "in_progress"}
-						<ClickableTile class="mb-4" href="/tasks/{task._id}" on:contextmenu={e => e.preventDefault()}>
+						<ClickableTile class="mb-4" href="/tasks/{task._id}" >
 							<h4>{task.title}</h4>
 							<p>{task.description}</p>
 						</ClickableTile>
@@ -92,7 +66,7 @@
 				<!-- If task.status is complete -->
 				{#each tasks as task}
 					{#if task.status === "complete"}
-						<ClickableTile class="mb-4" href="/tasks/{task._id}" on:contextmenu={e => e.preventDefault()}>
+						<ClickableTile class="mb-4" href="/tasks/{task._id}">
 							<h4>{task.title}</h4>
 							<p>{task.description}</p>
 						</ClickableTile>
@@ -103,7 +77,7 @@
 				<!-- If task.status is blocked -->
 				{#each tasks as task}
 					{#if task.status === "blocked"}
-						<ClickableTile class="mb-4" href="/tasks/{task._id}" on:contextmenu={e => e.preventDefault()}>
+						<ClickableTile class="mb-4" href="/tasks/{task._id}">
 							<h4>{task.title}</h4>
 							<p>{task.description}</p>
 						</ClickableTile>
