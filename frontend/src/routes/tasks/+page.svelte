@@ -12,12 +12,9 @@
 	} from "carbon-components-svelte";
     import CopyFile from "carbon-icons-svelte/lib/CopyFile.svelte";
   let selectedIds = [];
-
-  $: console.log("selectedIds", selectedIds);
   let target;
   export let data;
   let tasks = data.data;
-  console.log(tasks);
 </script>
 <ContextMenu {target}>
     <ContextMenuOption
