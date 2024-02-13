@@ -36,12 +36,12 @@
 		<HeaderNavItem href="/" text="Dashboard" />
 		<HeaderNavItem href="/tasks" text="Tasks" />
 		<HeaderNavItem href="/journal" text="Journal" />
+		<HeaderNavMenu text="Manage">
+			<HeaderNavItem href="/jobs" text="Jobs" />
+			<HeaderNavItem href="/agents" text="Agents" />
+		</HeaderNavMenu>
 		<HeaderNavMenu text="Tools">
 			<HeaderNavItem href="/" text="CyberChef" />
-		</HeaderNavMenu>
-		<HeaderNavMenu text="Manage">
-			<HeaderNavItem href="/agents" text="Agents" />
-			<HeaderNavItem href="/jobs" text="Jobs" />
 		</HeaderNavMenu>
 		<HeaderNavMenu text="Bookmarks">
 			<HeaderNavItem href="/" text="Test Bookmark" />
