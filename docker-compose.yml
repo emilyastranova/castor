@@ -14,7 +14,9 @@ services:
 
   agent:
     image: castor/agent:latest
-    build: ./agent
+    build:
+      context: ./
+      dockerfile: ./agent/Dockerfile
     restart: always
     environment:
       SERVER_IP: ${SERVER_IP}
@@ -24,11 +26,18 @@ services:
 
   worker:
     image: castor/worker:latest
-    build: ./worker
+    build:
+      context: ./
+      dockerfile: ./worker/Dockerfile
     restart: always
     environment:
       SERVER_PORT: ${SERVER_PORT}
       DATABASE_URI: mongodb://${CASTOR_SERVER_DB_HOST}:${CASTOR_SERVER_DB_PASSWORD}@mongo:${CASTOR_SERVER_DB_PORT}/
+      CASTOR_SERVER_DB_HOST: mongo
+      CASTOR_SERVER_DB_PORT: ${CASTOR_SERVER_DB_PORT}
+      CASTOR_SERVER_DB_USERNAME: ${CASTOR_SERVER_DB_USERNAME}
+      CASTOR_SERVER_DB_PASSWORD: ${CASTOR_SERVER_DB_PASSWORD}
+
     ports:
       - ${SERVER_PORT}:${SERVER_PORT}
 
