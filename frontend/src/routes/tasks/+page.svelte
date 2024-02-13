@@ -66,7 +66,7 @@
 				<!-- If task.status is todo -->
 				{#each tasks as task}
 					{#if task.status === "todo"}
-						<ClickableTile class="mb-4" href="/tasks/{task.id}" on:contextmenu={e => e.preventDefault()} bind:this={target}>
+						<ClickableTile class="mb-4" href="/tasks/{task._id}" on:contextmenu={e => e.preventDefault()} bind:this={target}>
 							<h4>{task.title}</h4>
 							<p>{task.description}</p>
 						</ClickableTile>
@@ -79,7 +79,7 @@
 				<!-- If task.status is in_progress -->
 				{#each tasks as task}
 					{#if task.status === "in_progress"}
-						<ClickableTile class="mb-4" href="/tasks/{task.id}" on:contextmenu={e => e.preventDefault()}>
+						<ClickableTile class="mb-4" href="/tasks/{task._id}" on:contextmenu={e => e.preventDefault()}>
 							<h4>{task.title}</h4>
 							<p>{task.description}</p>
 						</ClickableTile>
@@ -92,7 +92,7 @@
 				<!-- If task.status is complete -->
 				{#each tasks as task}
 					{#if task.status === "complete"}
-						<ClickableTile class="mb-4" href="/tasks/{task.id}" on:contextmenu={e => e.preventDefault()}>
+						<ClickableTile class="mb-4" href="/tasks/{task._id}" on:contextmenu={e => e.preventDefault()}>
 							<h4>{task.title}</h4>
 							<p>{task.description}</p>
 						</ClickableTile>
@@ -103,7 +103,7 @@
 				<!-- If task.status is blocked -->
 				{#each tasks as task}
 					{#if task.status === "blocked"}
-						<ClickableTile class="mb-4" href="/tasks/{task.id}" on:contextmenu={e => e.preventDefault()}>
+						<ClickableTile class="mb-4" href="/tasks/{task._id}" on:contextmenu={e => e.preventDefault()}>
 							<h4>{task.title}</h4>
 							<p>{task.description}</p>
 						</ClickableTile>
