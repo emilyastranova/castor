@@ -81,6 +81,7 @@
      - `stdout`: String
      - `stderr`: String
    - `exit_code`: Number
+   - `agent_id`: ObjectId (reference to Agents Collection)
    - `hostname`: String
    - `username`: String
    - `environment_variables`: Array of object documents
