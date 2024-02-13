@@ -7,9 +7,12 @@
 	DataTable,
 	Tag,
 	CodeSnippet,
+	Toolbar,
+	ToolbarContent,
+	ToolbarSearch,
 	} from "carbon-components-svelte";
   export let data;
-
+  let filteredRowIds = [];
   let columns = [
 	{
 	  key: "_id",
@@ -72,6 +75,16 @@
 			<Column>
 				{#if rows}
 					<DataTable batchExpansion sortable rows={keyed_rows} headers={columns}>
+						<Toolbar>
+							<ToolbarContent>
+							  <ToolbarSearch
+								persistent
+								value=""
+								shouldFilterRows
+								bind:filteredRowIds
+							  />
+							</ToolbarContent>
+						  </Toolbar>
 						<svelte:fragment slot="cell" let:row let:cell>
 							{#if cell.key === "status"}
 							  <Tag type={colorMap[cell.value]}>{cell.value}</Tag>
