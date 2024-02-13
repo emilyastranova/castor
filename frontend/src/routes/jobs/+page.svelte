@@ -4,12 +4,12 @@
 		Grid,
 		Row,
 		Column,
-		ClickableTile,
         ContextMenu,
     ContextMenuDivider,
     ContextMenuGroup,
     ContextMenuOption,
 	DataTable,
+	Tag
 	} from "carbon-components-svelte";
     import CopyFile from "carbon-icons-svelte/lib/CopyFile.svelte";
   let selectedIds = [];
@@ -43,7 +43,14 @@
 	  id: index,
 	};
   });
-console.log(rows)
+
+  const colorMap = {
+	"pending": "gray",
+	"complete": "green",
+	"failed": "red",
+	"running": "purple",
+  };
+
 </script>
 <ContextMenu {target}>
     <ContextMenuOption
@@ -76,7 +83,15 @@ console.log(rows)
 		<Row>
 			<Column>
 				{#if rows}
-					<DataTable rows={keyed_rows} headers={columns}/>
+					<DataTable rows={keyed_rows} headers={columns}>
+						<svelte:fragment slot="cell" let:row let:cell>
+							{#if cell.key === "status"}
+							  <Tag type={colorMap[cell.value]}>{cell.value}</Tag>
+							{:else}
+							  {cell.value}
+							{/if}
+						  </svelte:fragment>
+					</DataTable>
 				{:else}
 					<p>Loading...</p>
 				{/if}
