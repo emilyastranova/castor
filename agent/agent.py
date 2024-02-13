@@ -11,6 +11,7 @@ import sys
 import websockets
 from loguru import logger
 from dotenv import load_dotenv
+from castor_lib.core.models.job import Job
 
 # Load environment variables
 load_dotenv()
@@ -52,8 +53,9 @@ def get_path():
     return os.getenv("PATH")
 
 
-async def execute_command(command):
+async def execute_job(job: Job):
     """Execute a command using asyncio and return the output."""
+    command = job.command
     try:
         output = await asyncio.create_subprocess_shell(
             command,
@@ -84,9 +86,11 @@ def get_agent_info() -> dict:
 async def process_message(message: dict) -> str:
     """Process the message and return the output."""
     if message["type"] == "job":
-        command_output = await execute_command(message["data"]["command"])
+        # Convert into Job model
+        job = Job(**message["data"])
+        command_output = await execute_job(job)
         command_output = command_output.decode("utf-8")
-        output = {"_id": message["data"]["_id"],
+        output = {"_id": message["data"]["id"],
                   "output": command_output, "status": "completed"}
     elif message["type"] == "info":
         output = get_agent_info()

@@ -7,9 +7,10 @@ import json
 import asyncio
 from bson.objectid import ObjectId
 import websockets
-from pymongo import MongoClient
 from dotenv import load_dotenv
 from loguru import logger
+from castor_lib.core.models import Job
+from castor_lib.core.database import CastorDatabase, DatabaseConfig
 
 # Load environment variables
 load_dotenv()
@@ -36,33 +37,48 @@ async def get_ready_agent():
         await asyncio.sleep(1)
 
 
-async def get_database_jobs():
+async def get_database_jobs() -> list[Job]:
     """Get all the jobs from the database"""
     logger.debug("Getting jobs from database...")
     jobs = []
     # While there are no jobs, wait for 1 second
     while len(jobs) == 0:
         # Get all pending jobs
-        for job in DB["jobs"].find({"status": "pending"}):
-            jobs.append(job)
+        jobs = DB.get_collection(Job)
+        # Get all pending jobs
+        jobs = [job for job in jobs if job.status == "pending"]
         await asyncio.sleep(1)
     return jobs
 
+async def job_builder(job: Job):
+    """Takes a Job and builds the command from args"""
+    command = job.command
+    args = job.args
+    # Build the command
+    if command == "shell":
+        return f"{args['command']}"
+    else:
+        # TODO: Add support for other commands
+        return None
 
-async def execute_job(job: dict):
+async def execute_job(job: Job):
     """Send a job to the next available agent"""
     agent = await get_ready_agent()
-    # Fix ObjectId serialization issue
-    job["_id"] = str(job["_id"])
     if agent is not None:
         logger.info(f"Sending job to {agent.id}")
-        await agent.send(json.dumps({"type": "job", "data": job}))
+        job.command = await job_builder(job)
+        if job.command is None:
+            logger.error(f"Unknown command: {job.command}")
+            return {"status": "error", "message": "Unknown command"}
+        # Send job to agent
+        await agent.send(json.dumps({"type": "job", "data": dict(job)}, default=str))
         # Update agent status
-        # Fix ObjectId serialization issue
-        job_id = ObjectId(job["_id"])
         agent_connections[agent.id]["status"] = "busy"
-        DB["jobs"].update_one({"_id": job_id}, {
-            "$set": {"status": "running"}})
+        # Make dollar sign query
+        DB.update(Job, {"_id": ObjectId(job.id)}, {"status": "running"})
+        # TODO: Need to get agent ID from database once agents are implemented
+        # in the DB
+        # DB.update(Job, {"_id": ObjectId(job.id)}, {"agent_id": agent.id})
         return {"status": "success", "message": f"Job sent to {agent.id}"}
     logger.info("No agents available")
     return {"status": "error", "message": "No agents available"}
@@ -96,11 +112,9 @@ async def process_message(message: dict):
             if output.endswith("\n"):
                 output = output[:-1]
             logger.debug(f"Command output: {output}")
-            # Fix ObjectId serialization issue
-            job_id = ObjectId(job_id)
             # Update job status
-            DB["jobs"].update_one(
-                {"_id": job_id}, {"$set": {"output": output, "status": "completed"}})
+            output_formatted = {"stdout": output}
+            DB.update(Job, {"_id": ObjectId(job_id)}, {"logs": output_formatted, "status": "completed"})
         elif message["type"] == "checkin":
             logger.info("Agent checked in")
             # Get OS, user and hostname
@@ -134,8 +148,7 @@ async def database_poller():
             # Add jobs to queue
             for job in jobs:
                 # Mark as received
-                DB["jobs"].update_one({"_id": job["_id"]}, {
-                                      "$set": {"status": "received"}})
+                DB.update(Job, {"_id": ObjectId(job.id)}, {"status": "received"})
                 command_queue.put_nowait(job)
             # Sleep for 5 seconds
             await asyncio.sleep(1)
@@ -150,13 +163,12 @@ async def job_handler():
             logger.debug("Waiting for jobs...")
             job = await command_queue.get()
             logger.debug(
-                f"Job {job['_id']} received, sending to next available agent")
+                f"Job {job.id} received, sending to next available agent")
             # Let database know that job is looking for an agent
-            DB["jobs"].update_one({"_id": job["_id"]}, {
-                                  "$set": {"status": "allocating"}})
+            DB.update(Job, {"_id": ObjectId(job.id)}, {"status": "allocating"})
             # Send job to next available agent
             await execute_job(job)
-            logger.debug(f"Job {job['_id']} sent to agent")
+            logger.debug(f"Job {job.id} sent to agent")
             # Sleep for 5 seconds
             await asyncio.sleep(1)
     except websockets.exceptions.ConnectionClosedError:
@@ -211,24 +223,17 @@ async def main():
         await asyncio.Future()  # run forever
 
 
-def get_database():
-    """Get the database"""
-    # Get database
-    try:
-        DATABASE_URI = os.getenv("DATABASE_URI")
-        if not DATABASE_URI:
-            raise IndexError
-    except IndexError:
-        logger.error("Please provide the database URI")
-        sys.exit(1)
-    client = MongoClient(DATABASE_URI)
-    return client["castor"]
-
-
 if __name__ == "__main__":
+    logger.disable("castor_lib")
     logger.info("Starting server")
     logger.info("Connecting to the MongoDB database...")
-    DB = get_database()
+    database_config = DatabaseConfig(
+        host=os.getenv("CASTOR_SERVER_DB_HOST"),
+        port=int(os.getenv("CASTOR_SERVER_DB_PORT")),
+        username=os.getenv("CASTOR_SERVER_DB_USERNAME"),
+        password=os.getenv("CASTOR_SERVER_DB_PASSWORD"),
+    )
+    DB = CastorDatabase(database_config)
     logger.info("Connected to the MongoDB database")
     logger.info("Starting main loop")
     asyncio.run(main())
