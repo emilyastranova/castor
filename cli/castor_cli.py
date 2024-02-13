@@ -9,9 +9,9 @@ from dotenv import load_dotenv
 def send_command(db: CastorDatabase, command: str):
     """Send command to agent"""
     job_data = {
-        "name": "CLI Command",
-        "task_id": "CLI",
-        "description": "Command sent from CLI",
+        "name": command,
+        "task_id": "shell",
+        "description": "Command sent from Castor CLI",
         "command": "shell",
         "args": {"command": command},
     }
