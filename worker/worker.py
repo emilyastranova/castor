@@ -9,7 +9,7 @@ from bson.objectid import ObjectId
 import websockets
 from dotenv import load_dotenv
 from loguru import logger
-from castor_lib.core.models import Job
+from castor_lib.core.models import Job, Agent
 from castor_lib.core.database import CastorDatabase, DatabaseConfig
 
 # Load environment variables
@@ -118,12 +118,12 @@ async def process_message(message: dict):
         elif message["type"] == "checkin":
             logger.info("Agent checked in")
             # Get OS, user and hostname
-            os = message["data"]["os"]
+            agent_os = message["data"]["os"]
             user = message["data"]["user"]
             hostname = message["data"]["hostname"]
-            logger.debug(f"Agent information: {os}, {user}, {hostname}")
+            logger.debug(f"Agent information: {agent_os}, {user}, {hostname}")
             # Update agent info
-            return {"action": "update_info", "data": {"os": os, "user": user, "hostname": hostname}}
+            return {"action": "update_info", "data": {"os": agent_os, "user": user, "hostname": hostname}}
         elif message["type"] == "status":
             logger.debug(f"Agent status updated to {message['data']}")
             # Update agent status
@@ -193,6 +193,15 @@ async def agent_handler(websocket: websockets.WebSocketServerProtocol):
                         f"Updated status for {websocket.id} to {action['data']['status']}")
                 elif action["action"] == "update_info":
                     agent_connections[websocket.id]["info"] = action["data"]
+                    # Add agent to the database
+                    agent = Agent(
+                        os=action["data"]["os"],
+                        username=action["data"]["user"],
+                        hostname=action["data"]["hostname"],
+                        websocket_id=str(websocket.id),
+                        status="ready"
+                    )
+                    DB.insert(Agent, agent)
                     logger.debug(f"Updated info for {websocket.id}")
     except websockets.exceptions.ConnectionClosedError:
         pass
