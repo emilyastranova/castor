@@ -16,7 +16,7 @@ def send_command(db: CastorDatabase, command: str):
         "args": {"command": command},
     }
     job = Job(**job_data)
-    db.insert(job)
+    db.insert(Job, job)
     # Add job to list using _id
     logger.debug("Job created\n")
 
