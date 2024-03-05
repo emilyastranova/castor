@@ -11,6 +11,7 @@
 	ToolbarContent,
 	ToolbarSearch,
 	} from "carbon-components-svelte";
+	import { onMount } from 'svelte';
   export let data;
   let filteredRowIds = [];
   let columns = [
