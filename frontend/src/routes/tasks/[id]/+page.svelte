@@ -1,5 +1,6 @@
 <script>
 	import {
+		Button,
 		Content,
 		Grid,
 		Row,
@@ -44,6 +45,9 @@
 			<Column sm={{ span: 3 }}>
 				<Row>
 					<Column>
+						<a href="/tasks">Back to Tasks</a>
+						<br/>
+						<br/>
 						<h3>
 							{task_data.title}
 						</h3>
