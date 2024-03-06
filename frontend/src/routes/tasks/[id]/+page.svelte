@@ -13,6 +13,7 @@
 		TabContent
 	} from "carbon-components-svelte";
 	/** @type {import('./$types').PageData} */
+	// import Editor from "$lib/Editor.svelte"
 	export let data;
 	let task_data = data.task_data;
 	console.log(task_data);
@@ -73,10 +74,14 @@
 						<h4>Comments</h4>
 						<hr />
 						<br />
+						<!-- New Comment -->
+						<TextArea labelText="New Comment" placeholder="Enter a comment..." />
+						<!-- Save and cancel buttons -->
+						<br />
+						<Button kind="primary">Save</Button>
+						<Button kind="secondary">Cancel</Button>
 						<!-- Display comments -->
-						{#each task_data.comments as comment}
-							<TextArea labelText={comment.author} value={comment.text} readonly />
-						{/each}
+						<!-- TODO -->
 					</Column>
 				</Row>
 			</Column>
