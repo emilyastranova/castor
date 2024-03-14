@@ -27,11 +27,11 @@
 				</div>
 				<!-- Display dummy "posts" -->
 				<ClickableTile class="my-4">
-					<h4>Post 1</h4>
+					<p class="text-sm mb-2">20 minutes ago</p>
 					<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla accumsan, metus ultrices eleifend gravida, nulla nunc varius lectus, nec rutrum justo nibh eu lectus. Ut vulputate semper dui. Fusce erat odio, sollicitudin vel erat vel, interdum mattis neque.</p>
 				</ClickableTile>
 				<ClickableTile class="my-4">
-					<h4>Post 2</h4>
+					<p class="text-sm mb-2">8 hours ago</p>
 					<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla accumsan, metus ultrices eleifend gravida, nulla nunc varius lectus, nec rutrum justo nibh eu lectus. Ut vulputate semper dui. Fusce erat odio, sollicitudin vel erat vel, interdum mattis neque.</p>
 					<!-- Insert 2 dummy pictures side-by-side, make them take up the entire width -->
 					<div class="flex gap-2 mt-4">
@@ -42,7 +42,9 @@
 				</ClickableTile>
 				{#each [3, 4, 5] as post}
 					<ClickableTile class="my-4">
-						<h4>Post {post}</h4>
+						<!-- Small text for time, slightly bigger for content -->
+						<p class="text-sm mb-2">03/14/2024, 12:0{post} PM</p>
+						<!-- Content -->
 						<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla accumsan, metus ultrices eleifend gravida, nulla nunc varius lectus, nec rutrum justo nibh eu lectus. Ut vulputate semper dui. Fusce erat odio, sollicitudin vel erat vel, interdum mattis neque.</p>
 					</ClickableTile>
 				{/each}
