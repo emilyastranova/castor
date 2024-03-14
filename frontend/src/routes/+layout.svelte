@@ -35,16 +35,21 @@
 	<HeaderNav>
 		<HeaderNavItem href="/" text="Dashboard" />
 		<HeaderNavItem href="/tasks" text="Tasks" />
-		<HeaderNavItem href="/journal" text="Journal" />
 		<HeaderNavMenu text="Manage">
 			<HeaderNavItem href="/jobs" text="Jobs" />
 			<HeaderNavItem href="/agents" text="Agents" />
 		</HeaderNavMenu>
 		<HeaderNavMenu text="Tools">
-			<HeaderNavItem href="/" text="CyberChef" />
+			<HeaderNavItem href="/" text="Base64 Encode/Decode" />
+			<HeaderNavItem href="/" text="NTLM Hash Generator" />
+			<HeaderNavItem href="/" text="Certificate Inspector" />
+			<HeaderNavItem href="/" text="Journal" />
+			<HeaderNavItem href="/" text="Command Generator" />
 		</HeaderNavMenu>
 		<HeaderNavMenu text="Bookmarks">
-			<HeaderNavItem href="/" text="Test Bookmark" />
+			<HeaderNavItem href="https://book.hacktricks.xyz/" text="HackTricks" />
+			<HeaderNavItem href="https://www.ired.team" text="Red Team Notes" />
+			<HeaderNavItem href="https://www.aperisolve.com/" text="Aperi'Solve" />
 		</HeaderNavMenu>
 		<HeaderNavItem href="/console" text="Console" />
 	</HeaderNav>

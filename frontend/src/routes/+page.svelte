@@ -1,40 +1,6 @@
 <script>
-	import { Content, Grid, Row, Column } from "carbon-components-svelte";
-	import { BarChartSimple } from "@carbon/charts-svelte";
-	export let data;
-	let tasks = data.data.tasks;
-	let jobs = data.data.jobs;
-	// Make a dictionary to hold the counts of each status
-	let status_counts_tasks = {};
-	// Loop through the tasks and count the status
-	tasks.forEach((task) => {
-		if (status_counts_tasks[task.status]) {
-			status_counts_tasks[task.status] += 1;
-		} else {
-			status_counts_tasks[task.status] = 1;
-		}
-	});
-	// Create a new array of objects to hold the status and count
-	let status_counts_array = [];
-	Object.keys(status_counts_tasks).forEach((key) => {
-		status_counts_array.push({ group: key, value: status_counts_tasks[key] });
-	});
-
-		// Make a dictionary to hold the counts of each status
-		let status_counts_jobs = {};
-	// Loop through the jobs and count the status
-	jobs.forEach((task) => {
-		if (status_counts_jobs[task.status]) {
-			status_counts_jobs[task.status] += 1;
-		} else {
-			status_counts_jobs[task.status] = 1;
-		}
-	});
-	// Create a new array of objects to hold the status and count
-	let status_counts_array_jobs = [];
-	Object.keys(status_counts_jobs).forEach((key) => {
-		status_counts_array_jobs.push({ group: key, value: status_counts_jobs[key] });
-	});
+	import { Content, Grid, Row, Column, ClickableTile, Tag, TextArea, Button } from "carbon-components-svelte";
+	import SendAlt from "carbon-icons-svelte/lib/SendAlt.svelte";
 
 </script>
 
@@ -47,43 +13,28 @@
 		</Row>
 		<br/>
 		<Row>
-			<Column>
-				<h2>Tasks</h2>
-				<BarChartSimple
-					data={status_counts_array}
-					options={{
-						theme: "g100",
-						title: "Tasks by Category",
-						height: "400px",
-						axes: {
-							left: { mapsTo: "value" },
-							bottom: { mapsTo: "group", scaleType: "labels" },
-						},
-                        data:
-                        {
-                            loading: false
-                        }
-					}}
-				/>
+			<Column sm={{ span: 3}}>
+				<h2>Feed</h2>
+				<!-- Create post with text box -->
+				<TextArea id="post" labelText="Create a post" placeholder="Enter your post here" />
+				<Button icon={SendAlt} kind="primary">Send</Button>
+				<!-- Display dummy "posts" -->
+				{#each [1, 2, 3, 4, 5] as post}
+					<ClickableTile class="my-4">
+						<h4>Post {post}</h4>
+						<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla accumsan, metus ultrices eleifend gravida, nulla nunc varius lectus, nec rutrum justo nibh eu lectus. Ut vulputate semper dui. Fusce erat odio, sollicitudin vel erat vel, interdum mattis neque.</p>
+					</ClickableTile>
+				{/each}
 			</Column>
-			<Column>
-				<h2>Jobs</h2>
-				<BarChartSimple
-					data={status_counts_array_jobs}
-					options={{
-						theme: "g100",
-						title: "Tasks by Category",
-						height: "400px",
-						axes: {
-							left: { mapsTo: "value" },
-							bottom: { mapsTo: "group", scaleType: "labels" },
-						},
-                        data:
-                        {
-                            loading: false
-                        }
-					}}
-				/>
+			<Column sm={{ span: 1}}>
+				<h2>Tags</h2>
+				<div class="my-4">
+					<!-- Display dummy "tags" -->
+					<Tag type="blue">#priv-esc</Tag>
+					<Tag type="red">#exfil</Tag>
+					<Tag type="green">#adcs</Tag>
+					<Tag type="purple">#execute-assembly</Tag>
+				</div>
 			</Column>
 		</Row>
 	</Grid>
