@@ -38,6 +38,18 @@
 					<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla accumsan, metus ultrices eleifend gravida, nulla nunc varius lectus, nec rutrum justo nibh eu lectus. Ut vulputate semper dui. Fusce erat odio, sollicitudin vel erat vel, interdum mattis neque.</p>
 				</ClickableTile>
 				<ClickableTile class="my-4">
+					<div class="flex items-center mb-2">
+						<img src="https://via.placeholder.com/50" alt="placeholder" class="rounded-full w-6 h-6" />
+						<p class="text-sm ml-2">
+							<span class="text-gray-500">@castor_bot</span>
+							<span class="mx-1 text-gray-500"> • </span>
+							<span class="mr-1 text-gray-500">1 hour ago</span>
+							<Tag type="purple">automated</Tag>
+						</p>
+					</div>
+					<p>Task: "Scan the Borealis network" moved to <Tag type="green">completed</Tag></p>
+				</ClickableTile>
+				<ClickableTile class="my-4">
 					<!-- Profile picture and username aligned -->
 					<div class="flex items-center mb-2">
 						<img src="https://via.placeholder.com/50" alt="placeholder" class="rounded-full w-6 h-6" />
@@ -55,7 +67,7 @@
 					</div>
 					
 				</ClickableTile>
-				{#each [3, 4, 5] as post}
+				{#each [1, 2, 3] as post}
 					<ClickableTile class="my-4">
 						<!-- Small text for time, slightly bigger for content -->
 						<div class="flex items-center mb-2">
