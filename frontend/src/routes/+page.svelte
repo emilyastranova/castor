@@ -27,11 +27,26 @@
 				</div>
 				<!-- Display dummy "posts" -->
 				<ClickableTile class="my-4">
-					<p class="text-sm mb-2">20 minutes ago</p>
+					<div class="flex items-center mb-2">
+						<img src="https://via.placeholder.com/50" alt="placeholder" class="rounded-full w-6 h-6" />
+						<p class="text-sm ml-2">
+							<span class="text-gray-500">@emilyastranova</span>
+							<span class="mx-1 text-gray-500"> • </span>
+							<span class="text-gray-500">20 minutes ago</span>
+						</p>
+					</div>
 					<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla accumsan, metus ultrices eleifend gravida, nulla nunc varius lectus, nec rutrum justo nibh eu lectus. Ut vulputate semper dui. Fusce erat odio, sollicitudin vel erat vel, interdum mattis neque.</p>
 				</ClickableTile>
 				<ClickableTile class="my-4">
-					<p class="text-sm mb-2">8 hours ago</p>
+					<!-- Profile picture and username aligned -->
+					<div class="flex items-center mb-2">
+						<img src="https://via.placeholder.com/50" alt="placeholder" class="rounded-full w-6 h-6" />
+						<p class="text-sm ml-2">
+							<span class="text-gray-500">@emilyastranova</span>
+							<span class="mx-1 text-gray-500"> • </span>
+							<span class="text-gray-500">8 hours ago</span>
+						</p>
+					</div>
 					<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla accumsan, metus ultrices eleifend gravida, nulla nunc varius lectus, nec rutrum justo nibh eu lectus. Ut vulputate semper dui. Fusce erat odio, sollicitudin vel erat vel, interdum mattis neque.</p>
 					<!-- Insert 2 dummy pictures side-by-side, make them take up the entire width -->
 					<div class="flex gap-2 mt-4">
@@ -43,7 +58,14 @@
 				{#each [3, 4, 5] as post}
 					<ClickableTile class="my-4">
 						<!-- Small text for time, slightly bigger for content -->
-						<p class="text-sm mb-2">03/14/2024, 12:0{post} PM</p>
+						<div class="flex items-center mb-2">
+							<img src="https://via.placeholder.com/50" alt="placeholder" class="rounded-full w-6 h-6" />
+							<p class="text-sm ml-2">
+								<span class="text-gray-500">@emilyastranova</span>
+								<span class="mx-1 text-gray-500"> • </span>
+								<span class="text-gray-500">03/14/2024, 12:0{post} PM</span>
+							</p>
+						</div>
 						<!-- Content -->
 						<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla accumsan, metus ultrices eleifend gravida, nulla nunc varius lectus, nec rutrum justo nibh eu lectus. Ut vulputate semper dui. Fusce erat odio, sollicitudin vel erat vel, interdum mattis neque.</p>
 					</ClickableTile>
