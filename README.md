@@ -35,7 +35,7 @@ Castor is made up of 6 components:
 1. Clone the repository
 
     ```bash
-    git clone git@github.com:tyleraharrison/castor.git
+    git clone git@github.com: emilyastranova/castor.git
     ```
 
 2. Change directory
