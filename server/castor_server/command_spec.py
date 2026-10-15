@@ -51,6 +51,7 @@ class OutputSpec(BaseModel):
     type: str | None = None
     parser: str | None = None
     source: str | None = None  # path or glob under /work, e.g. /work/scan.xml; none = stdout
+    options: dict[str, Any] = Field(default_factory=dict)  # parser options (Parsers page)
 
     @field_validator("name")
     @classmethod
@@ -62,6 +63,8 @@ class OutputSpec(BaseModel):
     @model_validator(mode="after")
     def check_parser(self) -> OutputSpec:
         if self.parser is None:
+            if self.options:
+                raise ValueError(f"output {self.name}: options need a parser")
             if self.source is None:
                 raise ValueError(f"output {self.name}: needs a parser, a source file, or both")
             return self
@@ -69,6 +72,10 @@ class OutputSpec(BaseModel):
         if found is None:
             known = ", ".join(sorted(parsers.PARSERS))
             raise ValueError(f"output {self.name}: unknown parser {self.parser!r} (known: {known})")
+        try:
+            found.configure(self.options)
+        except parsers.OptionsError as exc:
+            raise ValueError(f"output {self.name}: {exc}") from exc
         # "list" was the pre-2b spelling; the parser knows the precise type.
         if self.type in (None, "list"):
             self.type = found.type

@@ -96,8 +96,15 @@ Output types are a fixed set so playbook steps can be type-checked: `string`, `n
 `boolean`, `list<string>`, `host`/`list<host>` (`{ip, hostnames[], status}`),
 `service`/`list<service>` (`{host, port, proto, state, name, product, version}`),
 `url`/`list<url>` (`{url, status, length, words, lines}`). Parsers: `nmap.hosts`,
-`nmap.services` (open ports only), `ffuf.results`, `lines`, `text`. XML goes through
-`defusedxml`, since tool output can carry target-controlled content.
+`nmap.services`, `ffuf.results`, `lines`, `regex`, `text`. XML goes through `defusedxml`,
+since tool output can carry target-controlled content.
+
+Each parser has an options model (pydantic, `extra="forbid"`); an output's `options` are
+validated when the definition is saved. User-supplied regular expressions run with the
+`regex` module and a 2 s timeout so a pathological pattern can't wedge a worker thread.
+`GET /api/parsers` lists parsers with their option fields and a built-in sample
+(`castor_server/parser_samples/`); `POST /api/parsers/{name}/test` (`{input, options}`,
+input capped at 2 MB) returns `{value, error, option_errors}` for the Parsers page.
 
 ## Command library
 

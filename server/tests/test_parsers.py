@@ -2,14 +2,13 @@
 
 import json
 import time
-from pathlib import Path
 
 import pytest
 
 from castor_server import parsers
 from castor_server.command_spec import parse_spec
 
-FIXTURES = Path(__file__).parent / "fixtures"
+FIXTURES = parsers.SAMPLES_DIR
 
 
 def test_nmap_hosts():
@@ -72,6 +71,62 @@ def test_output_spec_types_come_from_the_parser():
         parse_spec(base + "  - {name: hosts, type: list<url>, parser: nmap.hosts}\n")
     with pytest.raises(ValueError, match="needs a parser"):
         parse_spec(base + "  - {name: hosts}\n")
+
+
+def test_parser_options():
+    sweep = (FIXTURES / "nmap-ping-sweep.xml").read_bytes()
+    hosts = parsers.get("nmap.hosts")
+    assert [h["ip"] for h in hosts.run(sweep, hosts.configure({"include_down": False}))] == ["10.10.0.1", "10.10.0.5"]
+
+    scan = (FIXTURES / "nmap-service-scan.xml").read_bytes()
+    services = parsers.get("nmap.services")
+    assert len(services.run(scan, services.configure({"include_closed": True}))) == 4
+
+    ffuf = parsers.get("ffuf.results")
+    assert [r["status"] for r in ffuf.run(ffuf.sample_text().encode(), ffuf.configure({"status": [200]}))] == [200, 200]
+
+    rx = parsers.get("regex")
+    text = b"user=alice id=1\nuser=bob id=2\nuser=alice id=3"
+    assert rx.run(text, rx.configure({"pattern": r"user=(\w+)", "group": 1})) == ["alice", "bob"]
+    assert rx.run(text, rx.configure({"pattern": r"user=(?P<who>\w+)", "group": "who", "unique": False})) == ["alice", "bob", "alice"]
+    assert rx.run(text, rx.configure({"pattern": "USER=b", "ignore_case": True})) == ["user=b"]
+    with pytest.raises(parsers.ParseError, match="1 capture group"):
+        rx.run(text, rx.configure({"pattern": "(a)", "group": 2}))
+    with pytest.raises(parsers.OptionsError) as exc:
+        rx.configure({"pattern": "(unclosed", "colour": "red"})
+    assert set(exc.value.errors) == {"pattern", "colour"}
+
+
+def test_every_sample_parses():
+    for p in parsers.PARSERS.values():
+        assert p.sample, f"{p.name} has no sample"
+        value = p.run(p.sample_text().encode(), p.configure(p.sample_options))
+        assert value, f"{p.name} sample produced nothing"
+
+
+def test_output_spec_options_are_validated():
+    base = "id: x\nname: X\ncommand: echo\noutputs:\n"
+    spec = parse_spec(base + "  - {name: ids, parser: regex, options: {pattern: 'id=(\\d+)', group: 1}}\n")
+    assert spec.outputs[0].options == {"pattern": "id=(\\d+)", "group": 1}
+    with pytest.raises(ValueError, match="output ids: pattern: Field required"):
+        parse_spec(base + "  - {name: ids, parser: regex}\n")
+    with pytest.raises(ValueError, match="options need a parser"):
+        parse_spec(base + "  - {name: f, source: /work/f, options: {a: 1}}\n")
+
+
+def test_parsers_api(client, auth):
+    listed = {p["name"]: p for p in client.get("/api/parsers", headers=auth).json()}
+    assert listed["regex"]["options"][0]["name"] == "pattern" and listed["regex"]["options"][0]["required"]
+    assert listed["nmap.hosts"]["sample"].startswith("<?xml")
+
+    ok = client.post("/api/parsers/lines/test", json={"input": "a\nb\na", "options": {"unique": True}}, headers=auth).json()
+    assert ok["value"] == ["a", "b"] and ok["error"] is None and ok["type"] == "list<string>"
+    bad = client.post("/api/parsers/regex/test", json={"input": "x", "options": {"pattern": "("}}, headers=auth).json()
+    assert "pattern" in bad["option_errors"] and bad["value"] is None
+    broken = client.post("/api/parsers/nmap.hosts/test", json={"input": "<nmaprun>"}, headers=auth).json()
+    assert "interrupted" in broken["error"]
+    assert client.post("/api/parsers/nope/test", json={}, headers=auth).status_code == 404
+    assert client.post("/api/parsers/lines/test", json={"input": "x"}).status_code == 401
 
 
 # ---------- end to end through the fake agent ----------

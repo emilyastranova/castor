@@ -76,12 +76,13 @@ def _read_all(paths: list[Path]) -> list[bytes]:
     return [p.read_bytes() for p in paths]
 
 
-def _parse_one(parser: parsers.Parser, blobs: list[bytes]) -> Any:
+def run_parser(parser: parsers.Parser, options: parsers.Options, blobs: list[bytes]) -> Any:
+    """Parse one or more inputs; list types are concatenated, scalars use the first."""
     if not parser.is_list:
-        return parser.func(blobs[0])
+        return parser.run(blobs[0], options)
     merged: list[Any] = []
     for blob in blobs:
-        merged.extend(parser.func(blob))
+        merged.extend(parser.run(blob, options))
     return merged
 
 
@@ -118,8 +119,9 @@ async def parse_job(db: AsyncSession, job: m.Job) -> list[m.JobOutput]:
             else:
                 row.sources = ["stdout"]
                 blobs = [await _stdout(db, job.id)]
-            row.value = await asyncio.to_thread(_parse_one, parser, blobs)
-        except parsers.ParseError as exc:
+            options = parser.configure(spec.options)
+            row.value = await asyncio.to_thread(run_parser, parser, options, blobs)
+        except (parsers.ParseError, parsers.OptionsError) as exc:
             row.error = str(exc)
         except OSError as exc:
             row.error = f"could not read the artifact: {exc.strerror or exc}"

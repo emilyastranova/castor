@@ -115,6 +115,36 @@ export interface OutputSpec {
 	parser: string | null;
 	/** Path or glob under /work; null means the parser reads stdout. */
 	source: string | null;
+	/** Parser options (see the Parsers page). */
+	options?: Record<string, unknown>;
+}
+
+export interface ParserOption {
+	name: string;
+	kind: 'boolean' | 'number' | 'string' | 'list';
+	description: string;
+	required: boolean;
+	default: unknown;
+	example: unknown;
+}
+
+export interface ParserInfo {
+	name: string;
+	type: string;
+	description: string;
+	options: ParserOption[];
+	/** Built-in sample input for trying the parser. */
+	sample: string;
+	/** Options that suit the sample (e.g. a pattern for the regex parser). */
+	sample_options: Record<string, unknown>;
+}
+
+export interface ParseTestResult {
+	type: string;
+	value: unknown;
+	error: string | null;
+	option_errors: Record<string, string>;
+	elapsed_ms: number;
 }
 
 /** A parsed result of a job; `type` says the shape of `value` (null when `error` is set). */
@@ -385,6 +415,11 @@ export function api(fetchFn: Fetch = fetch) {
 			artifacts: (id: UUID) => get<Attachment[]>(`/jobs/${id}/artifacts`),
 			outputs: (id: UUID) => get<JobOutput[]>(`/jobs/${id}/outputs`),
 			parse: (id: UUID) => post<JobOutput[]>(`/jobs/${id}/outputs/parse`)
+		},
+		parsers: {
+			list: () => get<ParserInfo[]>('/parsers'),
+			test: (name: string, input: string, options: Record<string, unknown>) =>
+				post<ParseTestResult>(`/parsers/${encodeURIComponent(name)}/test`, { input, options })
 		},
 		commands: {
 			list: () => get<CommandDefinition[]>('/commands'),

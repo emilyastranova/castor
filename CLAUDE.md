@@ -100,7 +100,10 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   SHA-256 is stored) and sends it with the paths to collect in `job.run`; the agent uploads
   to `POST /api/jobs/{id}/artifacts`, which creates `kind = artifact` attachments.
 - Parsed outputs (Phase 2b): `parsers.py` is the registry (`@parser(name, type, ...)`, pure
-  bytes → JSON functions, raise `ParseError`; parse XML only through `defusedxml`).
+  `(bytes, options)` → JSON functions, raise `ParseError`; parse XML only through
+  `defusedxml`; run user regexes through `regex` with a timeout). Each parser declares an
+  `Options` model and a sample file in `parser_samples/` (the Parsers page and
+  `test_every_sample_parses` rely on it).
   `outputs.py` runs them after `job.finished` in a background task using the job's
   `output_specs` snapshot and stores `JobOutput` rows, publishing `job.outputs`.
 - Auth: `POST /api/auth/login` sets an httpOnly cookie; the same JWT works as
@@ -153,6 +156,7 @@ agent stays trivially installable on target boxes.
   the new position from neighbours, and the receiving column reports the move.
 - `JobResults.svelte` renders a run's parsed outputs (tables per output type, CSV copy that
   neutralises spreadsheet formulas via `lib/csv.ts`); the card's Output tab toggles it
-  against `JobConsole`.
+  against `JobConsole`. Both it and `routes/parsers` (live parser playground) render values
+  with `OutputCard.svelte`.
 - `JobConsole.svelte` loads `/api/jobs/{id}` then appends `job.log` events, buffering any
   that arrive during the initial load and de-duplicating by `seq`.

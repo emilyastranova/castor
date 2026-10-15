@@ -33,16 +33,24 @@ outputs:                          # files collected from /work after the job
     parser: nmap.hosts            # turns the file into a typed value (see below)
     type: list<host>              # optional; defaults to the parser's type
     source: /work/ping-sweep.xml  # path or glob under /work; omit to parse stdout
+    options:                      # optional parser options
+      include_down: false
 ```
 
 When the job finishes, each output with a `parser` is parsed and shown under **Results** on
 the card. A parse failure is shown there too and doesn't fail the job. An output with only a
 `source` is just collected as a file.
 
-| Parser | Type | Reads |
-| --- | --- | --- |
-| `nmap.hosts` | `list<host>` `{ip, hostnames, status}` | nmap `-oX` XML |
-| `nmap.services` | `list<service>` `{host, port, proto, state, name, product, version}` (open ports) | nmap `-oX` XML |
-| `ffuf.results` | `list<url>` `{url, status, length, words, lines}` | ffuf `-of json` |
-| `lines` | `list<string>` | any text, one value per non-empty line |
-| `text` | `string` | any text |
+| Parser | Type | Reads | Options |
+| --- | --- | --- | --- |
+| `nmap.hosts` | `list<host>` `{ip, hostnames, status}` | nmap `-oX` XML | `include_down` (default true) |
+| `nmap.services` | `list<service>` `{host, port, proto, state, name, product, version}` | nmap `-oX` XML | `include_closed` (default false: open ports only) |
+| `ffuf.results` | `list<url>` `{url, status, length, words, lines}` | ffuf `-of json` | `status`: list of codes to keep |
+| `lines` | `list<string>` | any text, one value per non-empty line | `match` (regex filter), `ignore_case`, `unique` |
+| `regex` | `list<string>` | any text | `pattern` (required), `group` (number or name, default 0), `ignore_case`, `unique` (default true) |
+| `text` | `string` | any text | |
+
+The **Parsers** page in the UI lists these with their options and lets you try each one on
+built-in sample data or your own pasted output, with the result updating as you type. It
+also writes the `outputs:` entry for you to paste here. Options are checked when a command
+is saved, so a typo or an invalid pattern is reported then rather than after a run.

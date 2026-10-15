@@ -1,0 +1,8 @@
+www.acme.example
+mail.acme.example
+
+vpn.acme.example
+  dev.acme.example
+www.acme.example
+staging-api.acme.example
+autodiscover.acme.example

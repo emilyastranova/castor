@@ -18,6 +18,7 @@ dependencies = [
   "pyyaml>=6.0",
   "aiofiles>=23.2",
   "defusedxml>=0.7",
+  "regex>=2024.4",
 ]
 
 [project.optional-dependencies]
@@ -34,7 +35,7 @@ build-backend = "setuptools.build_meta"
 include = ["castor_server*"]
 
 [tool.setuptools.package-data]
-castor_server = ["migrations/script.py.mako"]
+castor_server = ["migrations/script.py.mako", "parser_samples/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

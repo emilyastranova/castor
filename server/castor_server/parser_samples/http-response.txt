@@ -1,0 +1,12 @@
+HTTP/1.1 200 OK
+Server: nginx/1.24.0
+Content-Type: text/html; charset=utf-8
+
+<html><head><title>ACME Intranet</title></head>
+<body>
+  <a href="/login">Sign in</a>
+  <a href="https://helpdesk.acme.example/new">Raise a ticket</a>
+  <a href="/docs/onboarding.pdf">Onboarding guide</a>
+  <a href='/login'>Sign in again</a>
+  <!-- contact: it-ops@acme.example, backup admin: j.doe@acme.example -->
+</body></html>
