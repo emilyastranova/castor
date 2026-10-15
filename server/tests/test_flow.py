@@ -178,3 +178,39 @@ def test_attachment_roundtrip(client, auth):
     r = client.get(f"/api/attachments/{att['id']}/download", headers=auth)
     assert r.content == b"\x89PNG fake"
     assert client.get(f"/api/tasks/{task['id']}", headers=auth).json()["attachment_count"] == 1
+
+
+def test_run_moves_card_to_in_progress(client, auth):
+    project = client.get("/api/projects", headers=auth).json()[0]
+    board = client.get(f"/api/projects/{project['id']}/board", headers=auth).json()
+    roles = {c["role"]: c["id"] for c in board["columns"]}
+    # run_on_move is on (the default): a naive "move then run" would queue two jobs.
+    r = client.post(
+        f"/api/projects/{project['id']}/tasks",
+        json={"title": "Run me", "kind": "command", "command": "id", "column_id": roles["todo"]},
+        headers=auth,
+    )
+    task = r.json()
+    assert task["column_id"] == roles["todo"]
+
+    r = client.post(f"/api/tasks/{task['id']}/run", headers=auth)
+    assert r.status_code == 201, r.text
+    after = client.get(f"/api/tasks/{task['id']}", headers=auth).json()
+    assert after["column_id"] == roles["active"]
+    jobs = client.get(f"/api/tasks/{task['id']}/jobs", headers=auth).json()
+    assert len(jobs) == 1 and jobs[0]["status"] == "queued"
+    history = client.get(f"/api/tasks/{task['id']}/activity", headers=auth).json()
+    moves = [h for h in history if h["type"] == "task.moved"]
+    assert len(moves) == 1 and moves[0]["payload"]["reason"] == "run"
+
+    # Already queued: a second Run is refused and nothing moves.
+    assert client.post(f"/api/tasks/{task['id']}/run", headers=auth).status_code == 409
+    client.post(f"/api/jobs/{jobs[0]['id']}/cancel", headers=auth)
+
+    # Running a card that is already in In Progress leaves it where it is.
+    position = client.get(f"/api/tasks/{task['id']}", headers=auth).json()["position"]
+    assert client.post(f"/api/tasks/{task['id']}/run", headers=auth).status_code == 201
+    again = client.get(f"/api/tasks/{task['id']}", headers=auth).json()
+    assert again["column_id"] == roles["active"] and again["position"] == position
+    history = client.get(f"/api/tasks/{task['id']}/activity", headers=auth).json()
+    assert len([h for h in history if h["type"] == "task.moved"]) == 1

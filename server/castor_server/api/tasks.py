@@ -27,6 +27,7 @@ from ..services import (
     next_position,
     publish_task,
     record_activity,
+    start_run,
     task_out,
 )
 
@@ -147,9 +148,9 @@ async def run(task_id: str, db: DB, user: CurrentUser):
         raise HTTPException(400, "This card has no command to run")
     if await active_job_for(db, task.id) is not None:
         raise HTTPException(409, "A job for this card is already queued or running")
-    job = await enqueue_job(db, task, user)
+    job, moved = await start_run(db, task, user)
     await db.commit()
-    await publish_task(db, task)
+    await publish_task(db, task, "task.moved" if moved else "task.updated")
     dispatcher.wake()
     return job
 

@@ -4,6 +4,7 @@
 	import { Button, Dialog, TextField, Select, Chip, Switch } from '$lib/m3';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import ColumnGlyph from './ColumnGlyph.svelte';
+	import PriorityGlyph, { priorityOptions } from './PriorityGlyph.svelte';
 
 	interface Props {
 		open?: boolean;
@@ -95,7 +96,9 @@
 			<Select label="Column" bind:value={columnId} options={columns.map((c) => ({ value: c.id, label: c.name }))}>
 				{#snippet leading(id)}<ColumnGlyph role={columns.find((c) => c.id === id)?.role} />{/snippet}
 			</Select>
-			<Select label="Priority" bind:value={priority} options={[{ value: '0', label: 'None' }, { value: '1', label: 'Low' }, { value: '2', label: 'Medium' }, { value: '3', label: 'High' }]} />
+			<Select label="Priority" bind:value={priority} options={priorityOptions}>
+				{#snippet leading(level)}<PriorityGlyph {level} />{/snippet}
+			</Select>
 			<TextField label="Tags" bind:value={tagsText} placeholder="recon, web" />
 		</div>
 		{#if kind === 'command' && targetColumn?.role === 'active' && runOnMove}

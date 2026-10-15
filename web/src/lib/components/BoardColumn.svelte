@@ -49,7 +49,7 @@
 </script>
 
 <section class="flex h-full w-80 shrink-0 flex-col rounded-lg bg-surface-container-low">
-	<header class="flex items-center gap-2 px-3 pt-3 pb-2">
+	<header class="flex items-center gap-2 px-3 pt-3 {column.role === 'active' ? 'pb-2' : ''}">
 		<ColumnGlyph role={column.role} size={18} />
 		<h2 class="flex-1 truncate title-medium text-on-surface">{column.name}</h2>
 		<span class="rounded-full px-2 py-0.5 label-small {overLimit ? 'bg-error-container text-on-error-container' : 'bg-surface-container-highest text-on-surface-variant'}">
@@ -58,10 +58,12 @@
 		<IconButton icon="add" label="Add card to {column.name}" size="sm" onclick={() => onadd(column)} />
 	</header>
 	{#if column.role === 'active'}
-		<p class="px-4 pb-2 label-small text-on-surface-variant">Command cards dropped here run on an agent</p>
+		<p class="px-4 label-small text-on-surface-variant">Command cards dropped here run on an agent</p>
 	{/if}
+	<!-- The gap above the first card is padding inside the scroll area (not margin on the
+	     header) so a running card's outline and hover shadow aren't clipped at the top. -->
 	<div
-		class="flex min-h-24 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2"
+		class="flex min-h-24 flex-1 flex-col gap-2 overflow-y-auto px-2 pt-2 pb-2"
 		use:dndzone={{ items, flipDurationMs: 150, type: 'task', dropTargetStyle: {}, dropTargetClasses: ['outline-2', 'outline-dashed', 'outline-primary/40', 'rounded-md'] }}
 		onconsider={consider}
 		onfinalize={finalize}

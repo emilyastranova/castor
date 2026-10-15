@@ -2,14 +2,13 @@
 	import type { Task } from '$lib/api';
 	import { Icon } from '$lib/m3';
 	import StatusChip from './StatusChip.svelte';
+	import PriorityGlyph, { priorityLabels } from './PriorityGlyph.svelte';
 
 	interface Props {
 		task: Task;
 		onopen: (task: Task) => void;
 	}
 	let { task, onopen }: Props = $props();
-	const priorityMeta = ['', 'Low', 'Medium', 'High'];
-	const priorityCls = ['', 'text-on-surface-variant', 'text-tertiary', 'text-error'];
 	let running = $derived(task.latest_job?.status === 'running' || task.latest_job?.status === 'dispatched');
 </script>
 
@@ -28,7 +27,7 @@
 		/>
 		<p class="min-w-0 flex-1 body-medium text-on-surface">{task.title}</p>
 		{#if task.priority > 0}
-			<Icon name="flag" size={16} filled class={priorityCls[task.priority]} />
+			<span class="mt-0.5" title="{priorityLabels[task.priority] ?? ''} priority"><PriorityGlyph level={task.priority} /></span>
 		{/if}
 	</div>
 	{#if task.kind === 'command' && task.command}

@@ -9,6 +9,7 @@
 	import StatusChip from './StatusChip.svelte';
 	import JobConsole from './JobConsole.svelte';
 	import ColumnGlyph from './ColumnGlyph.svelte';
+	import PriorityGlyph, { priorityOptions } from './PriorityGlyph.svelte';
 
 	interface Props {
 		task: Task;
@@ -126,6 +127,9 @@
 			const job = await api().tasks.run(task.id);
 			selectedJobId = job.id;
 			tab = 'output';
+			// Run also moves the card to In Progress; refresh it here in case the live
+			// update is late or the realtime socket is reconnecting.
+			onupdated(await api().tasks.get(task.id));
 		} catch (err) {
 			snackbar.error(err instanceof ApiError ? err.message : 'Could not start job');
 		}
@@ -416,7 +420,9 @@
 			<Select label="Column" value={task.column_id} options={columns.map((c) => ({ value: c.id, label: c.name }))} onchange={moveTo}>
 				{#snippet leading(id)}<ColumnGlyph role={columns.find((c) => c.id === id)?.role} />{/snippet}
 			</Select>
-			<Select label="Priority" bind:value={priority} options={[{ value: '0', label: 'None' }, { value: '1', label: 'Low' }, { value: '2', label: 'Medium' }, { value: '3', label: 'High' }]} onchange={(v) => save({ priority: Number(v) })} />
+			<Select label="Priority" bind:value={priority} options={priorityOptions} onchange={(v) => save({ priority: Number(v) })}>
+				{#snippet leading(level)}<PriorityGlyph {level} />{/snippet}
+			</Select>
 			<TextField label="Tags" bind:value={tagsText} supporting="Comma separated" onblur={() => { const tags = tagsText.split(',').map((t) => t.trim()).filter(Boolean); if (tags.join() !== task.tags.join()) void save({ tags }); }} />
 			<div class="rounded-md bg-surface-container p-4 body-small text-on-surface-variant">
 				<p class="mb-2 title-small text-on-surface">Details</p>

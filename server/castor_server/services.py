@@ -274,6 +274,34 @@ async def move_task(
     return job
 
 
+async def start_run(db: AsyncSession, task: m.Task, user: m.User | None) -> tuple[m.Job, bool]:
+    """Run a command task now: move it into the project's active column (if it isn't there
+    already and the project has one), then queue a job. Returns (job, moved).
+
+    Deliberately does not go through move_task, which would queue a second job when the
+    card enters the active column with run_on_move set.
+    """
+    moved = False
+    active = await column_with_role(db, task.project_id, m.ColumnRole.active)
+    if active is not None and task.column_id != active.id:
+        previous_column_id = task.column_id
+        task.column_id = active.id
+        task.position = await next_position(db, active.id)
+        await db.flush()
+        await record_activity(
+            db,
+            type="task.moved",
+            message=f"Moved “{task.title}” to {active.name}",
+            project_id=task.project_id,
+            task_id=task.id,
+            payload={"from": str(previous_column_id), "to": str(active.id), "reason": "run"},
+            **actor_of(user),
+        )
+        moved = True
+    job = await enqueue_job(db, task, user, reason="run")
+    return job, moved
+
+
 def board_payload(project: m.Project, columns: list[m.BoardColumn], tasks: list[TaskOut]):
     return {
         "project": ProjectOut.model_validate(project),
