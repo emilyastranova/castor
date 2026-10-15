@@ -88,7 +88,10 @@ class JobRunner:
             for key, value in env.items():
                 argv += ["-e", f"{key}={value}"]
             argv += self.extra_run_args
-            argv += [image, "/bin/sh", "-c", command]
+            # Override the image's entrypoint: tool images often set it to the tool itself
+            # (instrumentisto/nmap uses /usr/bin/nmap), which would turn "/bin/sh -c <cmd>"
+            # into arguments for the tool. Images must therefore provide /bin/sh.
+            argv += ["--entrypoint", "/bin/sh", image, "-c", command]
             return argv, True
         if not self.allow_host:
             raise RuntimeError("host execution is disabled on this agent")

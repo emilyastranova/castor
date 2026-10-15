@@ -115,7 +115,9 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
 `agent.py` is the connection loop (hello → `job.run`/`job.cancel` → `job.*` replies,
 heartbeat). Each job gets its own directory `<workdir>/<job_id>/`. `runtime.py` builds the
 argv: with an image it runs
-`<podman|docker> run --rm --network <net> -v <job dir>:/work:Z image /bin/sh -c cmd`,
+`<podman|docker> run --rm --network <net> -v <job dir>:/work:Z --entrypoint /bin/sh image -c cmd`
+(the entrypoint is overridden because tool images such as `instrumentisto/nmap` set it to the
+tool itself; images therefore need `/bin/sh`),
 otherwise `/bin/sh -c cmd` on the host in the job dir (if `--allow-host`). After the job,
 `artifacts.py` collects declared outputs and `/work/artifacts/**` (skipping symlinks and
 anything outside the job dir) and uploads them with stdlib `urllib` before `job.finished`. Processes start in their own
