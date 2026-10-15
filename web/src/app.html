@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="color-scheme" content="light dark" />
+		<link rel="icon" href="%sveltekit.assets%/favicon.svg" />
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+			href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,300..800&family=Roboto+Mono:wght@400;500&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300..600,0..1,0&display=swap"
+			rel="stylesheet"
+		/>
+		<script>
+			// Apply the saved theme before first paint to avoid a flash.
+			try {
+				const t = localStorage.getItem('castor.theme');
+				if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+				const seed = localStorage.getItem('castor.seed');
+				if (seed) document.documentElement.dataset.seed = seed;
+			} catch {}
+		</script>
+		%sveltekit.head%
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>

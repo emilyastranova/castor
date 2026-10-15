@@ -1,0 +1,23 @@
+id: nmap-service-scan
+name: Nmap service scan
+schema_version: 1
+description: Version-detect open TCP ports on the given hosts
+tags: [recon, network, nmap]
+image: docker.io/instrumentisto/nmap
+args:
+  - name: targets
+    type: string
+    description: Hosts to scan (output of a ping sweep works here)
+    required: true
+    example: 192.168.0.10,192.168.0.11
+  - name: ports
+    type: string
+    description: Port spec for -p
+    required: false
+    default: "1-1000"
+command: nmap -sV -p {{ ports }} -oX /work/service-scan.xml {{ targets }}
+outputs:
+  - name: services
+    type: list
+    parser: nmap.services
+    source: /work/service-scan.xml

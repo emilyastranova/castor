@@ -1,0 +1,92 @@
+# Castor stack. Works with `docker compose` and `podman compose` (podman-compose).
+#   cp .env.example .env   # then edit secrets
+#   docker compose up -d --build
+# UI: http://localhost:8080  (API docs at /api/docs are proxied too)
+name: castor
+
+services:
+  db:
+    image: docker.io/library/postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: castor
+      POSTGRES_USER: castor
+      POSTGRES_PASSWORD: ${CASTOR_DB_PASSWORD:-castor}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U castor -d castor"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  server:
+    build:
+      context: ./server
+    image: castor/server:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      CASTOR_DATABASE_URL: postgresql+asyncpg://castor:${CASTOR_DB_PASSWORD:-castor}@db:5432/castor
+      CASTOR_SECRET_KEY: ${CASTOR_SECRET_KEY:?set CASTOR_SECRET_KEY in .env}
+      CASTOR_AGENT_SECRET: ${CASTOR_AGENT_SECRET:?set CASTOR_AGENT_SECRET in .env}
+      CASTOR_ADMIN_USERNAME: ${CASTOR_ADMIN_USERNAME:-admin}
+      CASTOR_ADMIN_PASSWORD: ${CASTOR_ADMIN_PASSWORD:-castor}
+      CASTOR_CORS_ORIGINS: '["http://localhost:8080"]'
+      CASTOR_DATA_DIR: /data
+    volumes:
+      - serverdata:/data
+
+  web:
+    build:
+      context: ./web
+    image: castor/web:latest
+    restart: unless-stopped
+    depends_on:
+      - server
+    environment:
+      API_INTERNAL_URL: http://server:8000
+      PORT: "3000"
+
+  proxy:
+    image: docker.io/library/caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - web
+      - server
+    ports:
+      - "${CASTOR_HTTP_PORT:-8080}:80"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+
+  # A sample agent running inside the stack. It runs jobs in sibling containers through
+  # the host's container socket. Real engagements usually run agents on dedicated boxes:
+  #   castor-agent --server ws://<castor-host>:8080/ws/agent --secret ...
+  agent:
+    build:
+      context: ./agent
+    image: castor/agent:latest
+    restart: unless-stopped
+    depends_on:
+      - server
+    profiles: ["agent"]
+    environment:
+      CASTOR_SERVER_URL: ws://server:8000/ws/agent
+      CASTOR_AGENT_SECRET: ${CASTOR_AGENT_SECRET}
+      CASTOR_AGENT_NAME: ${CASTOR_AGENT_NAME:-compose-agent}
+      CASTOR_AGENT_TAGS: ${CASTOR_AGENT_TAGS:-lab}
+      CASTOR_AGENT_RUNTIME: ${CASTOR_AGENT_RUNTIME:-auto}
+      CASTOR_AGENT_WORKDIR: /work
+      CONTAINER_HOST: unix:///run/podman/podman.sock
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - agentwork:/work
+      # Mount whichever socket your host has. Comment out the other.
+      - ${CONTAINER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+
+volumes:
+  pgdata:
+  serverdata:
+  agentwork:

@@ -1,0 +1,100 @@
+# Castor architecture
+
+Castor is a Kanban-style task manager and job orchestrator for penetration-testing
+engagements. Cards on a board are either **manual tasks** (a person does them) or
+**command tasks** (an agent runs them). Dragging a command card into the project's
+*active* column dispatches it to an agent, which runs it in a container and streams
+the output back into the card.
+
+## Components
+
+| Component | Path | Stack | Role |
+| --- | --- | --- | --- |
+| Web UI | `web/` | SvelteKit, Svelte 5, Tailwind v4, custom Material 3 system | Boards, cards, agents, live output |
+| API + orchestrator | `server/` | FastAPI, SQLAlchemy 2 (async), PostgreSQL | REST API, UI WebSocket, agent gateway, dispatcher |
+| Agent | `agent/` | Python 3.10+, `websockets` | Connects out to the server, runs jobs in podman/docker containers (or on the host), streams logs |
+| Command library | `commands/` | YAML | Reusable command definitions with typed arguments (milestone 2 wires these into playbooks) |
+| Reverse proxy | `compose.yaml` (Caddy) | | Single origin: `/api` and `/ws` go to the server, everything else to the web app |
+
+All services run under `podman compose` / `docker compose` from `compose.yaml`.
+Agents can also run outside compose on any host that can reach the server.
+
+## Data model (milestone 1)
+
+```
+Client 1──* Project 1──* BoardColumn 1──* Task 1──* Job 1──* JobLogChunk
+                        │                  ├──* Comment
+                        ├──* Attachment ◄──┘ (optional task_id / job_id)
+                        └──* ActivityEvent
+Agent 1──* Job
+User   (single admin in M1; multi-user in M2)
+```
+
+* **BoardColumn.role** is one of `backlog`, `todo`, `active`, `review`, `done` or null.
+  Moving a command task into an `active` column enqueues a Job (if `run_on_move`).
+  On success, if the project setting `auto_advance` is on and a `review` column exists,
+  the task is moved there.
+* **Task.kind** is `manual` or `command`. Command tasks carry `command`, optional
+  `image` (container image), and an `agent_selector` (`{agent_id}` or `{tags: [...]}`).
+* **Job.status** flows `queued → dispatched → running → succeeded | failed | cancelled | lost`.
+  `lost` means the agent disconnected mid-run.
+* Logs are stored as ordered `JobLogChunk` rows (`stdout`/`stderr`/`system`) so the UI can
+  stream and replay them; `Job.stdout_bytes` / `stderr_bytes` are totals.
+* `custom_fields` on Task, `settings` on Project, `capabilities` on Agent are JSON.
+
+IDs are UUIDs. Timestamps are UTC.
+
+## Agent protocol (`/ws/agent`)
+
+JSON text frames. Agent authenticates with the shared `CASTOR_AGENT_SECRET` (per-agent
+tokens are milestone 2).
+
+Agent → server
+
+| type | fields |
+| --- | --- |
+| `hello` | `secret, name, hostname, os, username, version, capabilities{runtimes[], default_image}, tags[], max_concurrency` |
+| `heartbeat` | `running[]` (job ids) |
+| `job.started` | `job_id, started_at` |
+| `job.log` | `job_id, seq, stream ("stdout"\|"stderr"\|"system"), data` |
+| `job.finished` | `job_id, exit_code, finished_at, error?` |
+
+Server → agent
+
+| type | fields |
+| --- | --- |
+| `hello.ok` | `agent_id, heartbeat_interval` |
+| `hello.error` | `reason` |
+| `job.run` | `job{id, command, image?, runtime ("container"\|"host"), env{}, timeout_s, workdir?}` |
+| `job.cancel` | `job_id` |
+
+## Dispatcher
+
+The dispatcher lives in the server process. `pump()` runs whenever a job is enqueued, an
+agent connects, a job finishes, or on a 5 s timer. For each queued job (FIFO) it picks the
+first online agent that: matches the task's selector, has spare concurrency, and supports
+the required runtime (a job with an `image` needs a container runtime). It sends `job.run`
+and marks the job `dispatched`. Jobs with no eligible agent stay `queued`.
+
+## UI realtime (`/ws/ui`)
+
+Authenticated by the session cookie. The server broadcasts every domain event as
+`{"type":"event","name":"task.moved","project_id":"…","data":{…}}`. Event names:
+`project.updated`, `column.*`, `task.created|updated|moved|deleted`, `job.updated`,
+`job.log`, `comment.created`, `attachment.created`, `agent.updated`.
+The client keeps page state in sync by applying these to its stores.
+
+## Auth
+
+Single local admin for M1. `POST /api/auth/login` sets an httpOnly `castor_session`
+cookie (JWT). The same token is accepted as `Authorization: Bearer` for scripts.
+The first admin is created from `CASTOR_ADMIN_USERNAME` / `CASTOR_ADMIN_PASSWORD` on
+first start.
+
+## Roadmap
+
+* **M1** — this document. Board, cards, agents, container jobs, streamed output,
+  comments, attachments/screenshots, custom fields, activity feed.
+* **M2** — command library + playbooks as connected blocks with typed inputs/outputs,
+  parsers (nmap XML → hosts/ports, etc.), per-agent tokens, multi-user + roles.
+* **M3** — reporting, findings, evidence export, agent auto-scaling.

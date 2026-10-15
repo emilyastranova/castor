@@ -1,0 +1,186 @@
+@import 'tailwindcss';
+@import './lib/m3/tokens.css';
+
+/* ---------- Material 3 system tokens ---------- */
+:root {
+	--md-sys-typescale-font: 'Roboto Flex', system-ui, sans-serif;
+	--md-sys-typescale-mono: 'Roboto Mono', ui-monospace, monospace;
+
+	--md-sys-shape-corner-none: 0;
+	--md-sys-shape-corner-extra-small: 4px;
+	--md-sys-shape-corner-small: 8px;
+	--md-sys-shape-corner-medium: 12px;
+	--md-sys-shape-corner-large: 16px;
+	--md-sys-shape-corner-extra-large: 28px;
+	--md-sys-shape-corner-full: 9999px;
+
+	--md-sys-elevation-1: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 3px 1px rgb(0 0 0 / 0.15);
+	--md-sys-elevation-2: 0 1px 2px rgb(0 0 0 / 0.3), 0 2px 6px 2px rgb(0 0 0 / 0.15);
+	--md-sys-elevation-3: 0 1px 3px rgb(0 0 0 / 0.3), 0 4px 8px 3px rgb(0 0 0 / 0.15);
+	--md-sys-elevation-4: 0 2px 3px rgb(0 0 0 / 0.3), 0 6px 10px 4px rgb(0 0 0 / 0.15);
+	--md-sys-elevation-5: 0 4px 4px rgb(0 0 0 / 0.3), 0 8px 12px 6px rgb(0 0 0 / 0.15);
+
+	--md-sys-state-hover: 0.08;
+	--md-sys-state-focus: 0.1;
+	--md-sys-state-pressed: 0.1;
+	--md-sys-state-dragged: 0.16;
+
+	--md-sys-motion-standard: cubic-bezier(0.2, 0, 0, 1);
+	--md-sys-motion-emphasized: cubic-bezier(0.05, 0.7, 0.1, 1);
+	--md-sys-motion-short: 150ms;
+	--md-sys-motion-medium: 300ms;
+}
+
+/* Map M3 roles onto Tailwind color utilities (bg-primary, text-on-surface, border-outline…) */
+@theme inline {
+	--font-sans: var(--md-sys-typescale-font);
+	--font-mono: var(--md-sys-typescale-mono);
+
+	--color-primary: var(--md-sys-color-primary);
+	--color-on-primary: var(--md-sys-color-on-primary);
+	--color-primary-container: var(--md-sys-color-primary-container);
+	--color-on-primary-container: var(--md-sys-color-on-primary-container);
+	--color-secondary: var(--md-sys-color-secondary);
+	--color-on-secondary: var(--md-sys-color-on-secondary);
+	--color-secondary-container: var(--md-sys-color-secondary-container);
+	--color-on-secondary-container: var(--md-sys-color-on-secondary-container);
+	--color-tertiary: var(--md-sys-color-tertiary);
+	--color-on-tertiary: var(--md-sys-color-on-tertiary);
+	--color-tertiary-container: var(--md-sys-color-tertiary-container);
+	--color-on-tertiary-container: var(--md-sys-color-on-tertiary-container);
+	--color-error: var(--md-sys-color-error);
+	--color-on-error: var(--md-sys-color-on-error);
+	--color-error-container: var(--md-sys-color-error-container);
+	--color-on-error-container: var(--md-sys-color-on-error-container);
+	--color-surface: var(--md-sys-color-surface);
+	--color-on-surface: var(--md-sys-color-on-surface);
+	--color-surface-variant: var(--md-sys-color-surface-variant);
+	--color-on-surface-variant: var(--md-sys-color-on-surface-variant);
+	--color-surface-dim: var(--md-sys-color-surface-dim);
+	--color-surface-bright: var(--md-sys-color-surface-bright);
+	--color-surface-container-lowest: var(--md-sys-color-surface-container-lowest);
+	--color-surface-container-low: var(--md-sys-color-surface-container-low);
+	--color-surface-container: var(--md-sys-color-surface-container);
+	--color-surface-container-high: var(--md-sys-color-surface-container-high);
+	--color-surface-container-highest: var(--md-sys-color-surface-container-highest);
+	--color-inverse-surface: var(--md-sys-color-inverse-surface);
+	--color-inverse-on-surface: var(--md-sys-color-inverse-on-surface);
+	--color-inverse-primary: var(--md-sys-color-inverse-primary);
+	--color-outline: var(--md-sys-color-outline);
+	--color-outline-variant: var(--md-sys-color-outline-variant);
+	--color-scrim: var(--md-sys-color-scrim);
+	--color-surface-tint: var(--md-sys-color-surface-tint);
+	--color-primary-fixed: var(--md-sys-color-primary-fixed);
+	--color-on-primary-fixed: var(--md-sys-color-on-primary-fixed);
+	--color-secondary-fixed: var(--md-sys-color-secondary-fixed);
+	--color-tertiary-fixed: var(--md-sys-color-tertiary-fixed);
+	--color-on-tertiary-fixed: var(--md-sys-color-on-tertiary-fixed);
+
+	--radius-xs: var(--md-sys-shape-corner-extra-small);
+	--radius-sm: var(--md-sys-shape-corner-small);
+	--radius-md: var(--md-sys-shape-corner-medium);
+	--radius-lg: var(--md-sys-shape-corner-large);
+	--radius-xl: var(--md-sys-shape-corner-extra-large);
+
+	--shadow-e1: var(--md-sys-elevation-1);
+	--shadow-e2: var(--md-sys-elevation-2);
+	--shadow-e3: var(--md-sys-elevation-3);
+	--shadow-e4: var(--md-sys-elevation-4);
+	--shadow-e5: var(--md-sys-elevation-5);
+}
+
+/* ---------- Type scale ---------- */
+@utility display-large { font: 400 3.5625rem/4rem var(--md-sys-typescale-font); letter-spacing: -0.016rem; }
+@utility display-medium { font: 400 2.8125rem/3.25rem var(--md-sys-typescale-font); }
+@utility display-small { font: 400 2.25rem/2.75rem var(--md-sys-typescale-font); }
+@utility headline-large { font: 400 2rem/2.5rem var(--md-sys-typescale-font); }
+@utility headline-medium { font: 400 1.75rem/2.25rem var(--md-sys-typescale-font); }
+@utility headline-small { font: 400 1.5rem/2rem var(--md-sys-typescale-font); }
+@utility title-large { font: 500 1.375rem/1.75rem var(--md-sys-typescale-font); }
+@utility title-medium { font: 500 1rem/1.5rem var(--md-sys-typescale-font); letter-spacing: 0.009rem; }
+@utility title-small { font: 500 0.875rem/1.25rem var(--md-sys-typescale-font); letter-spacing: 0.006rem; }
+@utility body-large { font: 400 1rem/1.5rem var(--md-sys-typescale-font); letter-spacing: 0.03rem; }
+@utility body-medium { font: 400 0.875rem/1.25rem var(--md-sys-typescale-font); letter-spacing: 0.016rem; }
+@utility body-small { font: 400 0.75rem/1rem var(--md-sys-typescale-font); letter-spacing: 0.025rem; }
+@utility label-large { font: 500 0.875rem/1.25rem var(--md-sys-typescale-font); letter-spacing: 0.006rem; }
+@utility label-medium { font: 500 0.75rem/1rem var(--md-sys-typescale-font); letter-spacing: 0.03rem; }
+@utility label-small { font: 500 0.6875rem/1rem var(--md-sys-typescale-font); letter-spacing: 0.03rem; }
+
+/* ---------- State layer: any element with .state-layer gets hover/focus/press tint ---------- */
+@utility state-layer {
+	position: relative;
+	isolation: isolate;
+	--state-color: currentColor;
+	&::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		border-radius: inherit;
+		background: var(--state-color);
+		opacity: 0;
+		transition: opacity var(--md-sys-motion-short) var(--md-sys-motion-standard);
+		pointer-events: none;
+		z-index: -1;
+	}
+	&:hover::before { opacity: var(--md-sys-state-hover); }
+	&:focus-visible::before { opacity: var(--md-sys-state-focus); }
+	&:active::before { opacity: var(--md-sys-state-pressed); }
+	&:disabled::before, &[aria-disabled='true']::before { opacity: 0; }
+}
+
+@utility focus-ring {
+	outline: none;
+	&:focus-visible {
+		outline: 3px solid var(--md-sys-color-secondary);
+		outline-offset: 2px;
+	}
+}
+
+/* ---------- Base ---------- */
+html, body { height: 100%; }
+body {
+	margin: 0;
+	background: var(--md-sys-color-surface);
+	color: var(--md-sys-color-on-surface);
+	font-family: var(--md-sys-typescale-font);
+	-webkit-font-smoothing: antialiased;
+	overscroll-behavior-y: none;
+}
+::selection { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
+
+.material-symbols-rounded {
+	font-family: 'Material Symbols Rounded';
+	font-weight: normal;
+	font-style: normal;
+	font-size: 24px;
+	line-height: 1;
+	letter-spacing: normal;
+	text-transform: none;
+	display: inline-block;
+	white-space: nowrap;
+	word-wrap: normal;
+	direction: ltr;
+	font-feature-settings: 'liga';
+	-webkit-font-smoothing: antialiased;
+	font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+	user-select: none;
+	flex-shrink: 0;
+}
+.material-symbols-rounded.filled { font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+
+/* Scrollbars that match the surface */
+* { scrollbar-width: thin; scrollbar-color: var(--md-sys-color-outline-variant) transparent; }
+
+/* Rendered markdown */
+.prose-m3 { line-height: 1.6; }
+.prose-m3 p { margin: 0 0 0.75em; }
+.prose-m3 p:last-child { margin-bottom: 0; }
+.prose-m3 a { color: var(--md-sys-color-primary); text-decoration: underline; }
+.prose-m3 code { font-family: var(--md-sys-typescale-mono); font-size: 0.85em; background: var(--md-sys-color-surface-container-highest); padding: 0.1em 0.35em; border-radius: 4px; }
+.prose-m3 pre { background: var(--md-sys-color-surface-container-highest); padding: 0.75rem 1rem; border-radius: var(--md-sys-shape-corner-small); overflow: auto; }
+.prose-m3 pre code { background: none; padding: 0; }
+.prose-m3 ul, .prose-m3 ol { padding-left: 1.5em; margin: 0 0 0.75em; }
+.prose-m3 h1, .prose-m3 h2, .prose-m3 h3 { font-weight: 500; margin: 1em 0 0.4em; }
+.prose-m3 blockquote { border-left: 3px solid var(--md-sys-color-outline-variant); margin: 0 0 0.75em; padding-left: 0.75em; color: var(--md-sys-color-on-surface-variant); }
+.prose-m3 table { border-collapse: collapse; }
+.prose-m3 td, .prose-m3 th { border: 1px solid var(--md-sys-color-outline-variant); padding: 0.25em 0.6em; }

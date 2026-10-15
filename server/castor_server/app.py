@@ -1,0 +1,93 @@
+"""FastAPI application factory."""
+
+from __future__ import annotations
+
+import logging
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
+
+from . import models as m
+from .api import api_router
+from .config import settings
+from .db import SessionLocal, create_all
+from .orchestrator.dispatcher import dispatcher
+from .orchestrator.gateway import gateway
+from .security import hash_password
+from .ws.ui import router as ui_ws_router
+
+log = logging.getLogger("castor")
+
+
+async def ensure_admin() -> None:
+    async with SessionLocal() as db:
+        existing = (await db.execute(select(m.User).limit(1))).scalar_one_or_none()
+        if existing is None:
+            db.add(
+                m.User(
+                    username=settings.admin_username,
+                    display_name=settings.admin_username,
+                    password_hash=hash_password(settings.admin_password),
+                    is_admin=True,
+                )
+            )
+            await db.commit()
+            log.info("created initial admin user %r", settings.admin_username)
+        # Nothing should be marked running after a restart: connections are gone.
+        agents = (await db.execute(select(m.Agent))).scalars().all()
+        for agent in agents:
+            agent.status = m.AgentStatus.offline
+        stale = (
+            await db.execute(
+                select(m.Job).where(
+                    m.Job.status.in_([m.JobStatus.dispatched, m.JobStatus.running])
+                )
+            )
+        ).scalars().all()
+        for job in stale:
+            job.status = m.JobStatus.lost
+            job.error = "server restarted"
+        await db.commit()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logging.basicConfig(level=settings.log_level.upper())
+    settings.uploads_dir.mkdir(parents=True, exist_ok=True)
+    if settings.auto_migrate:
+        await create_all()
+    await ensure_admin()
+    await dispatcher.start()
+    log.info("castor server ready")
+    try:
+        yield
+    finally:
+        await dispatcher.stop()
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(title="Castor", version="0.1.0", lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(api_router)
+    app.include_router(ui_ws_router)
+
+    @app.websocket("/ws/agent")
+    async def agent_socket(ws: WebSocket) -> None:
+        await gateway.handle(ws)
+
+    @app.get("/api/health")
+    async def health():
+        return {"ok": True, "agents_connected": len(gateway.connections)}
+
+    return app
+
+
+app = create_app()

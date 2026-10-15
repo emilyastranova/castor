@@ -1,0 +1,19 @@
+id: nmap-ping-sweep
+name: Nmap ping sweep
+schema_version: 1
+description: Discover live hosts in a network range
+tags: [recon, network, nmap]
+image: docker.io/instrumentisto/nmap
+args:
+  - name: targets
+    type: string
+    description: CIDR range, host, or comma-separated list
+    required: true
+    example: 192.168.0.0/24
+    regex: '^[0-9a-zA-Z./,:_ -]+$'
+command: nmap -sn -oX /work/ping-sweep.xml {{ targets }}
+outputs:
+  - name: hosts
+    type: list
+    parser: nmap.hosts
+    source: /work/ping-sweep.xml

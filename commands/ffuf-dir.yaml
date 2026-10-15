@@ -1,0 +1,23 @@
+id: ffuf-dir
+name: ffuf directory brute force
+schema_version: 1
+description: Enumerate paths on a web server with a wordlist
+tags: [web, enumeration]
+image: docker.io/secsi/ffuf
+args:
+  - name: url
+    type: string
+    description: Base URL; FUZZ is appended automatically
+    required: true
+    example: https://target.example/
+  - name: wordlist
+    type: string
+    description: Wordlist path inside the container or mounted /work
+    required: true
+    default: /work/wordlists/common.txt
+command: ffuf -u {{ url }}FUZZ -w {{ wordlist }} -of json -o /work/ffuf.json
+outputs:
+  - name: paths
+    type: list
+    parser: ffuf.results
+    source: /work/ffuf.json

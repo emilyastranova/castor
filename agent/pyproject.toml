@@ -1,0 +1,25 @@
+[project]
+name = "castor-agent"
+version = "0.1.0"
+description = "Castor execution agent: runs jobs in containers or on the host"
+requires-python = ">=3.10"
+dependencies = [
+  "websockets>=12",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5"]
+
+[project.scripts]
+castor-agent = "castor_agent.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["castor_agent*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

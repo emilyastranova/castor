@@ -1,0 +1,33 @@
+# Reference repos (inspiration only, not part of this project)
+reference/
+
+# Tooling caches
+.codegraph/
+.vexp/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+.svelte-kit/
+build/
+.vite/
+
+# Env / data
+.env
+*.local
+data/
+uploads/
+*.db
+*.sqlite
+
+# Editors
+.idea/
+.vscode/
+*.swp
+.DS_Store
+*.egg-info/
