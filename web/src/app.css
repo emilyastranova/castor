@@ -190,4 +190,13 @@ select optgroup {
 .prose-m3 h1, .prose-m3 h2, .prose-m3 h3 { font-weight: 500; margin: 1em 0 0.4em; }
 .prose-m3 blockquote { border-left: 3px solid var(--md-sys-color-outline-variant); margin: 0 0 0.75em; padding-left: 0.75em; color: var(--md-sys-color-on-surface-variant); }
 .prose-m3 table { border-collapse: collapse; }
+.prose-m3 img {
+	display: block;
+	max-width: 100%;
+	max-height: 480px;
+	margin: 0.5em 0;
+	border-radius: var(--md-sys-shape-corner-small);
+	border: 1px solid var(--md-sys-color-outline-variant);
+	cursor: zoom-in;
+}
 .prose-m3 td, .prose-m3 th { border: 1px solid var(--md-sys-color-outline-variant); padding: 0.25em 0.6em; }

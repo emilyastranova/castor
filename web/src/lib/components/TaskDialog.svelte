@@ -10,6 +10,8 @@
 	import JobConsole from './JobConsole.svelte';
 	import ColumnGlyph from './ColumnGlyph.svelte';
 	import PriorityGlyph, { priorityOptions } from './PriorityGlyph.svelte';
+	import NameImageDialog from './NameImageDialog.svelte';
+	import { tick } from 'svelte';
 
 	interface Props {
 		task: Task;
@@ -143,7 +145,7 @@
 	}
 
 	async function postComment() {
-		if (!newComment.trim()) return;
+		if (!newComment.trim() || inlineUploads > 0) return;
 		posting = true;
 		try {
 			const c = await api().tasks.addComment(task.id, newComment);
@@ -154,6 +156,99 @@
 		} finally {
 			posting = false;
 		}
+	}
+
+	// ---- images pasted into the comment box ----
+	// Each pasted image is named first, then uploaded as a task attachment and embedded in
+	// the comment as markdown at the caret. A placeholder holds its place during the upload.
+	interface PendingImage {
+		file: File;
+		textarea: HTMLTextAreaElement;
+	}
+	let pendingImages = $state<PendingImage[]>([]);
+	let inlineUploads = $state(0);
+
+	const IMAGE_EXT: Record<string, string> = {
+		'image/png': 'png',
+		'image/jpeg': 'jpg',
+		'image/gif': 'gif',
+		'image/webp': 'webp',
+		'image/bmp': 'bmp',
+		'image/svg+xml': 'svg'
+	};
+
+	function onCommentPaste(e: ClipboardEvent & { currentTarget: HTMLTextAreaElement }) {
+		const images = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith('image/'));
+		if (!images.length) return;
+		e.preventDefault();
+		e.stopPropagation(); // don't also run the card-wide paste-to-attachments handler
+		const textarea = e.currentTarget;
+		pendingImages = [...pendingImages, ...images.map((file) => ({ file, textarea }))];
+	}
+
+	/** Insert text at the textarea's caret (or over its selection) and put the caret after it. */
+	function insertAtCaret(textarea: HTMLTextAreaElement, text: string) {
+		const start = textarea.selectionStart ?? newComment.length;
+		const end = textarea.selectionEnd ?? start;
+		const before = newComment.slice(0, start);
+		const after = newComment.slice(end);
+		// Give the image its own line so it renders as a block, not mid-sentence.
+		const lead = before && !before.endsWith('\n') ? '\n' : '';
+		const trail = after.startsWith('\n') ? '' : '\n';
+		const inserted = lead + text + trail;
+		newComment = before + inserted + after;
+		refocus(textarea, start + inserted.length);
+	}
+
+	/** Return the caret to the comment box once the name prompt has closed. Focus calls made
+	 *  while the prompt is still the active modal dialog are ignored by the browser. */
+	function refocus(textarea: HTMLTextAreaElement, caret?: number) {
+		void tick().then(() =>
+			requestAnimationFrame(() => {
+				if (pendingImages.length > 0) return; // another name prompt is open
+				textarea.focus();
+				if (caret !== undefined) textarea.setSelectionRange(caret, caret);
+			})
+		);
+	}
+
+	async function confirmImageName(name: string) {
+		const item = pendingImages[0];
+		pendingImages = pendingImages.slice(1);
+		if (!item) return;
+		const ext = IMAGE_EXT[item.file.type] ?? 'png';
+		// Only real image extensions count, so a name like "scan 10.0.0.55" still gets one.
+		const extPattern = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
+		const filename = extPattern.test(name) ? name : `${name}.${ext}`;
+		const alt = name.replace(extPattern, '').replace(/[[\]]/g, '');
+		const token = `![Uploading ${alt}…](#upload-${Math.random().toString(36).slice(2, 10)})`;
+		insertAtCaret(item.textarea, token);
+		inlineUploads += 1;
+		try {
+			const a = await api().tasks.upload(task.id, new File([item.file], filename, { type: item.file.type }), 'screenshot');
+			if (!attachments.some((x) => x.id === a.id)) attachments = [...attachments, a];
+			const markdown = `![${alt}](${api().attachments.url(a.id, true)})`;
+			newComment = newComment.includes(token)
+				? newComment.replace(token, markdown)
+				: `${newComment}${newComment.endsWith('\n') || !newComment ? '' : '\n'}${markdown}\n`;
+		} catch (err) {
+			newComment = newComment.replace(token, '');
+			snackbar.error(err instanceof ApiError ? `Image upload failed: ${err.message}` : 'Image upload failed');
+		} finally {
+			inlineUploads -= 1;
+		}
+	}
+
+	function cancelImageName() {
+		const item = pendingImages[0];
+		pendingImages = pendingImages.slice(1);
+		if (item) refocus(item.textarea);
+	}
+
+	/** Comment images are scaled to fit; clicking one opens it full size. */
+	function openCommentImage(e: MouseEvent) {
+		const img = (e.target as HTMLElement).closest('img');
+		if (img?.src) window.open(img.src, '_blank', 'noopener');
 	}
 
 	async function upload(files: FileList | File[] | null) {
@@ -335,15 +430,19 @@
 									<span class="flex-1"></span>
 									<IconButton icon="delete" label="Delete comment" size="sm" onclick={async () => { await api().tasks.removeComment(task.id, c.id); comments = comments.filter((x) => x.id !== c.id); }} />
 								</div>
-								<div class="prose-m3 mt-1 body-medium text-on-surface">{@html renderMarkdown(c.body)}</div>
+								<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+								<div class="prose-m3 mt-1 body-medium text-on-surface" onclick={openCommentImage}>{@html renderMarkdown(c.body)}</div>
 							</div>
 						</div>
 					{:else}
 						<p class="body-medium text-on-surface-variant">No comments yet.</p>
 					{/each}
 					<div class="flex flex-col gap-2">
-						<TextField label="Add a comment" bind:value={newComment} multiline rows={3} supporting="Markdown supported · Ctrl+Enter to post · paste an image to attach a screenshot" onkeydown={(e) => (e.ctrlKey || e.metaKey) && e.key === 'Enter' && postComment()} />
-						<div class="flex justify-end"><Button icon="send" loading={posting} onclick={postComment} disabled={!newComment.trim()}>Comment</Button></div>
+						<TextField label="Add a comment" bind:value={newComment} multiline rows={3} supporting="Markdown supported · Ctrl+Enter to post · paste an image to add it to the comment" onkeydown={(e) => (e.ctrlKey || e.metaKey) && e.key === 'Enter' && postComment()} onpaste={onCommentPaste} />
+						<div class="flex items-center justify-end gap-3">
+							{#if inlineUploads > 0}<span class="body-small text-on-surface-variant">Uploading image…</span>{/if}
+							<Button icon="send" loading={posting} onclick={postComment} disabled={!newComment.trim() || inlineUploads > 0}>Comment</Button>
+						</div>
 					</div>
 				</div>
 			{:else if tab === 'attachments'}
@@ -438,3 +537,14 @@
 		</aside>
 	</div>
 </Dialog>
+
+{#if pendingImages[0]}
+	{#key pendingImages[0]}
+		<NameImageDialog
+			file={pendingImages[0].file}
+			remaining={pendingImages.length - 1}
+			onconfirm={confirmImageName}
+			oncancel={cancelImageName}
+		/>
+	{/key}
+{/if}

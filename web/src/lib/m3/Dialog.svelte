@@ -28,18 +28,23 @@
 	}: Props = $props();
 
 	let dialog: HTMLDialogElement | undefined = $state();
+	// Escape, the backdrop, the close button and the native `close` event can all reach
+	// close() for the same dismissal; onclose must fire once per opening.
+	let notified = false;
 
 	$effect(() => {
 		if (!dialog) return;
 		if (open && !dialog.open) {
+			notified = false;
 			dialog.showModal();
 			if (initialFocus === 'dialog') dialog.focus();
-		}
-		else if (!open && dialog.open) dialog.close();
+		} else if (!open && dialog.open) dialog.close();
 	});
 
 	function close() {
 		open = false;
+		if (notified) return;
+		notified = true;
 		onclose?.();
 	}
 
@@ -56,6 +61,16 @@
 	tabindex="-1"
 	class="m-auto outline-none max-h-[calc(100vh-2rem)] overflow-hidden rounded-xl bg-surface-container-high p-0 text-on-surface shadow-e3 backdrop:bg-scrim/40 open:flex open:flex-col {sizes[size]}"
 	onclose={close}
+	onkeydown={(e) => {
+		// Handle Escape here and cancel the key, rather than relying on the browser's close
+		// request: Chrome groups a dialog opened without a fresh click/keypress (e.g. a prompt
+		// that follows another prompt) with the one beneath it, and Escape would close both.
+		if (e.key === 'Escape' && !e.defaultPrevented) {
+			e.preventDefault();
+			e.stopPropagation();
+			close();
+		}
+	}}
 	oncancel={(e) => {
 		e.preventDefault();
 		close();
