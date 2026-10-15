@@ -409,7 +409,7 @@
 							Agent {agentName(selectedJob.agent_id)}{selectedJob.image ? ` · ${selectedJob.image}` : ' · host shell'} · queued {absoluteTime(selectedJob.queued_at)}
 						</p>
 						{#key selectedJob.id}
-							<JobConsole job={selectedJob} oncancel={cancel} />
+							<JobConsole job={selectedJob} oncancel={cancel} title={task.title} />
 						{/key}
 					{:else}
 						<div class="flex flex-1 flex-col items-center justify-center gap-2 rounded-md bg-surface-container p-8 text-center">
