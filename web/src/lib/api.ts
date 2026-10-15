@@ -74,6 +74,8 @@ export interface Job {
 	finished_at: string | null;
 	stdout_bytes: number;
 	stderr_bytes: number;
+	/** Parsed outputs the command definition declared at dispatch (null for free-form commands). */
+	output_specs: OutputSpec[] | null;
 }
 
 export interface LogChunk {
@@ -83,8 +85,52 @@ export interface LogChunk {
 	ts: string;
 }
 
+export interface HostResult {
+	ip: string;
+	hostnames: string[];
+	status: string;
+}
+
+export interface ServiceResult {
+	host: string;
+	port: number;
+	proto: string;
+	state: string;
+	name: string;
+	product: string;
+	version: string;
+}
+
+export interface UrlResult {
+	url: string;
+	status: number | null;
+	length: number | null;
+	words: number | null;
+	lines: number | null;
+}
+
+export interface OutputSpec {
+	name: string;
+	type: string | null;
+	parser: string | null;
+	/** Path or glob under /work; null means the parser reads stdout. */
+	source: string | null;
+}
+
+/** A parsed result of a job; `type` says the shape of `value` (null when `error` is set). */
+export interface JobOutput {
+	name: string;
+	type: string;
+	parser: string;
+	sources: string[];
+	value: unknown;
+	error: string | null;
+	created_at: string;
+}
+
 export interface JobDetail extends Job {
 	logs: LogChunk[];
+	outputs: JobOutput[];
 }
 
 export type ArgType = 'string' | 'number' | 'boolean' | 'list';
@@ -109,7 +155,7 @@ export interface CommandSpec {
 	image: string | null;
 	args: ArgSpec[];
 	command: string;
-	outputs: { name: string; type: string; parser: string | null; source: string | null }[];
+	outputs: OutputSpec[];
 }
 
 export interface CommandDefinition {
@@ -336,7 +382,9 @@ export function api(fetchFn: Fetch = fetch) {
 			list: (status?: JobStatus) => get<Job[]>(`/jobs${status ? `?status=${status}` : ''}`),
 			get: (id: UUID, afterSeq = -1) => get<JobDetail>(`/jobs/${id}?after_seq=${afterSeq}`),
 			cancel: (id: UUID) => post<Job>(`/jobs/${id}/cancel`),
-			artifacts: (id: UUID) => get<Attachment[]>(`/jobs/${id}/artifacts`)
+			artifacts: (id: UUID) => get<Attachment[]>(`/jobs/${id}/artifacts`),
+			outputs: (id: UUID) => get<JobOutput[]>(`/jobs/${id}/outputs`),
+			parse: (id: UUID) => post<JobOutput[]>(`/jobs/${id}/outputs/parse`)
 		},
 		commands: {
 			list: () => get<CommandDefinition[]>('/commands'),

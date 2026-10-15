@@ -9,6 +9,7 @@
 	import { Button, Chip, Dialog, Icon, IconButton, Menu, MenuItem, Select, Switch, Tabs, TextField, Avatar } from '$lib/m3';
 	import StatusChip from './StatusChip.svelte';
 	import JobConsole from './JobConsole.svelte';
+	import JobResults from './JobResults.svelte';
 	import ColumnGlyph from './ColumnGlyph.svelte';
 	import PriorityGlyph, { priorityOptions } from './PriorityGlyph.svelte';
 	import NameImageDialog from './NameImageDialog.svelte';
@@ -128,6 +129,21 @@
 	let jobs = $state<Job[]>([]);
 	let selectedJobId = $state<UUID | null>(null);
 	let selectedJob = $derived(jobs.find((j) => j.id === selectedJobId) ?? (task.latest_job?.id === selectedJobId ? task.latest_job : null));
+
+	// Console or parsed Results for the selected run. Jobs from before parsing existed have no
+	// output_specs, but a library card can still parse them on demand.
+	let outputView = $state<'console' | 'results'>('console');
+	let resultCount = $state<number | null>(null);
+	let hasResults = $derived(!!selectedJob && (!!selectedJob.output_specs?.length || !!task.command_ref));
+	let viewFor: UUID | null = null;
+	$effect(() => {
+		const job = selectedJob;
+		if (!job || job.id === viewFor) return;
+		viewFor = job.id;
+		resultCount = null;
+		const done = ['succeeded', 'failed', 'lost'].includes(job.status);
+		outputView = done && job.output_specs?.length ? 'results' : 'console';
+	});
 	let activeJob = $derived(task.latest_job && ['queued', 'dispatched', 'running'].includes(task.latest_job.status) ? task.latest_job : null);
 
 	// ---- comments / attachments / history ----
@@ -599,8 +615,28 @@
 						<p class="body-small text-on-surface-variant">
 							Agent {agentName(selectedJob.agent_id)}{selectedJob.image ? ` · ${selectedJob.image}` : ' · host shell'} · queued {absoluteTime(selectedJob.queued_at)}
 						</p>
+						{#if hasResults}
+							<div class="flex h-9 w-fit shrink-0 overflow-hidden rounded-full border border-outline" role="group" aria-label="Run view">
+								{#each [{ id: 'console', label: 'Console', icon: 'terminal' }, { id: 'results', label: resultCount ? `Results · ${resultCount}` : 'Results', icon: 'table_view' }] as v, i (v.id)}
+									<button
+										type="button"
+										aria-pressed={outputView === v.id}
+										class="state-layer focus-ring inline-flex items-center gap-1.5 px-4 label-large transition-colors {i ? 'border-l border-outline' : ''} {outputView === v.id
+											? 'bg-secondary-container text-on-secondary-container'
+											: 'text-on-surface'}"
+										onclick={() => (outputView = v.id as 'console' | 'results')}
+									>
+										<Icon name={outputView === v.id ? 'check' : v.icon} size={18} />{v.label}
+									</button>
+								{/each}
+							</div>
+						{/if}
 						{#key selectedJob.id}
-							<JobConsole job={selectedJob} oncancel={cancel} title={task.title} />
+							{#if hasResults && outputView === 'results'}
+								<JobResults job={selectedJob} onload={(o) => (resultCount = o.filter((x) => !x.error).length || null)} />
+							{:else}
+								<JobConsole job={selectedJob} oncancel={cancel} title={task.title} />
+							{/if}
 						{/key}
 						{#if runFiles.length}
 							<div class="flex flex-wrap items-center gap-2">

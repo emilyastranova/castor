@@ -18,6 +18,6 @@ args:
 command: nmap -sV -p {{ ports }} -oX /work/service-scan.xml {{ targets }}
 outputs:
   - name: services
-    type: list
+    type: list<service>
     parser: nmap.services
     source: /work/service-scan.xml

@@ -207,6 +207,8 @@ class JobOut(ORM):
     finished_at: datetime | None
     stdout_bytes: int
     stderr_bytes: int
+    # Declared parsed outputs (from the command definition at dispatch), if any.
+    output_specs: list[dict[str, Any]] | None = None
 
 
 class TaskOut(ORM):
@@ -296,8 +298,19 @@ class LogChunkOut(ORM):
     ts: datetime
 
 
+class JobOutputOut(ORM):
+    name: str
+    type: str
+    parser: str
+    sources: list[str]
+    value: Any
+    error: str | None
+    created_at: datetime
+
+
 class JobDetail(JobOut):
     logs: list[LogChunkOut] = Field(default_factory=list)
+    outputs: list[JobOutputOut] = Field(default_factory=list)
 
 
 # ---------- agents ----------

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///usr/share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.95 scan initiated Thu Oct 15 10:02:11 2026 as: nmap -sn -oX /work/ping-sweep.xml 10.10.0.0/29 -->
+<nmaprun scanner="nmap" args="nmap -sn -oX /work/ping-sweep.xml 10.10.0.0/29" start="1792058531" startstr="Thu Oct 15 10:02:11 2026" version="7.95" xmloutputversion="1.05">
+<verbose level="0"/>
+<debugging level="0"/>
+<hosthint><status state="up" reason="unknown-response" reason_ttl="0"/>
+<address addr="10.10.0.1" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+</hosthint>
+<host><status state="up" reason="echo-reply" reason_ttl="63"/>
+<address addr="10.10.0.1" addrtype="ipv4"/>
+<address addr="52:54:00:12:34:56" addrtype="mac" vendor="QEMU virtual NIC"/>
+<hostnames>
+<hostname name="gw.acme.internal" type="PTR"/>
+</hostnames>
+<times srtt="412" rttvar="5000" to="100000"/>
+</host>
+<host><status state="up" reason="echo-reply" reason_ttl="63"/>
+<address addr="10.10.0.5" addrtype="ipv4"/>
+<hostnames>
+<hostname name="web01.acme.internal" type="PTR"/>
+<hostname name="web01.acme.internal" type="user"/>
+</hostnames>
+<times srtt="380" rttvar="5000" to="100000"/>
+</host>
+<host><status state="down" reason="no-response" reason_ttl="0"/>
+<address addr="10.10.0.6" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+</host>
+<runstats><finished time="1792058533" timestr="Thu Oct 15 10:02:13 2026" summary="Nmap done at Thu Oct 15 10:02:13 2026; 8 IP addresses (2 hosts up) scanned in 2.04 seconds" elapsed="2.04" exit="success"/><hosts up="2" down="6" total="8"/>
+</runstats>
+</nmaprun>

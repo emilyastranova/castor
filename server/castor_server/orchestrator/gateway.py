@@ -346,6 +346,10 @@ class AgentGateway:
                 await publish_task(db, task)
             if agent is not None:
                 await self._publish_agent(agent)
+            if job.output_specs and job.status != m.JobStatus.cancelled:
+                from ..outputs import schedule_parse
+
+                schedule_parse(job.id)
         self._notify()
 
     async def _maybe_advance(self, db, task: m.Task, job: m.Job) -> None:

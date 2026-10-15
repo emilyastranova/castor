@@ -99,6 +99,10 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
 - Artifacts: the dispatcher issues a one-off upload token per job (`artifacts.py`, only the
   SHA-256 is stored) and sends it with the paths to collect in `job.run`; the agent uploads
   to `POST /api/jobs/{id}/artifacts`, which creates `kind = artifact` attachments.
+- Parsed outputs (Phase 2b): `parsers.py` is the registry (`@parser(name, type, ...)`, pure
+  bytes → JSON functions, raise `ParseError`; parse XML only through `defusedxml`).
+  `outputs.py` runs them after `job.finished` in a background task using the job's
+  `output_specs` snapshot and stores `JobOutput` rows, publishing `job.outputs`.
 - Auth: `POST /api/auth/login` sets an httpOnly cookie; the same JWT works as
   `Authorization: Bearer`. Agents authenticate with the shared `CASTOR_AGENT_SECRET`.
 - Config is `pydantic-settings` with the `CASTOR_` prefix (`config.py`).
@@ -147,5 +151,8 @@ agent stays trivially installable on target boxes.
 - The board page keeps the open card in the URL (`?task=<id>`) so cards are linkable.
   `BoardColumn.svelte` keeps a local copy of its tasks for `svelte-dnd-action`, computes
   the new position from neighbours, and the receiving column reports the move.
+- `JobResults.svelte` renders a run's parsed outputs (tables per output type, CSV copy that
+  neutralises spreadsheet formulas via `lib/csv.ts`); the card's Output tab toggles it
+  against `JobConsole`.
 - `JobConsole.svelte` loads `/api/jobs/{id}` then appends `job.log` events, buffering any
   that arrive during the initial load and de-duplicating by `seq`.

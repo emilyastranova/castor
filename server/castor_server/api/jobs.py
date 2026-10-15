@@ -14,7 +14,8 @@ from ..config import settings
 from ..deps import DB, CurrentUser, parse_uuid
 from ..events import bus
 from ..orchestrator.dispatcher import dispatcher
-from ..schemas import AttachmentOut, JobDetail, JobOut, LogChunkOut
+from ..outputs import parse_job
+from ..schemas import AttachmentOut, JobDetail, JobOut, JobOutputOut, LogChunkOut
 from ..services import publish_task, utcnow
 from .attachments import _safe_name
 
@@ -43,7 +44,34 @@ async def get_job(job_id: str, db: DB, _: CurrentUser, after_seq: int = -1):
     ).scalars().all()
     out = JobDetail.model_validate(job)
     out.logs = [LogChunkOut.model_validate(c) for c in chunks]
+    out.outputs = [JobOutputOut.model_validate(o) for o in await _outputs(db, job.id)]
     return out
+
+
+async def _outputs(db, job_id: uuid.UUID) -> list[m.JobOutput]:
+    rows = await db.execute(
+        select(m.JobOutput).where(m.JobOutput.job_id == job_id).order_by(m.JobOutput.name)
+    )
+    return list(rows.scalars())
+
+
+@router.get("/{job_id}/outputs", response_model=list[JobOutputOut])
+async def job_outputs(job_id: str, db: DB, _: CurrentUser):
+    job = await db.get(m.Job, parse_uuid(job_id))
+    if job is None:
+        raise HTTPException(404, "Job not found")
+    return await _outputs(db, job.id)
+
+
+@router.post("/{job_id}/outputs/parse", response_model=list[JobOutputOut])
+async def reparse_outputs(job_id: str, db: DB, _: CurrentUser):
+    """Run the parsers again (after a parser fix, or for a job from before Phase 2b)."""
+    job = await db.get(m.Job, parse_uuid(job_id))
+    if job is None:
+        raise HTTPException(404, "Job not found")
+    if not job.status.is_terminal:
+        raise HTTPException(409, "The job is still running")
+    return sorted(await parse_job(db, job), key=lambda o: o.name)
 
 
 @router.get("/{job_id}/output", response_class=PlainTextResponse)

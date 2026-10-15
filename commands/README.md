@@ -30,7 +30,19 @@ args:
 command: nmap -sn {{ targets }}   # Jinja-style placeholders are filled from args
 outputs:                          # files collected from /work after the job
   - name: hosts
-    type: list
-    parser: nmap.hosts            # parsers arrive in Phase 2b
-    source: /work/ping-sweep.xml
+    parser: nmap.hosts            # turns the file into a typed value (see below)
+    type: list<host>              # optional; defaults to the parser's type
+    source: /work/ping-sweep.xml  # path or glob under /work; omit to parse stdout
 ```
+
+When the job finishes, each output with a `parser` is parsed and shown under **Results** on
+the card. A parse failure is shown there too and doesn't fail the job. An output with only a
+`source` is just collected as a file.
+
+| Parser | Type | Reads |
+| --- | --- | --- |
+| `nmap.hosts` | `list<host>` `{ip, hostnames, status}` | nmap `-oX` XML |
+| `nmap.services` | `list<service>` `{host, port, proto, state, name, product, version}` (open ports) | nmap `-oX` XML |
+| `ffuf.results` | `list<url>` `{url, status, length, words, lines}` | ffuf `-of json` |
+| `lines` | `list<string>` | any text, one value per non-empty line |
+| `text` | `string` | any text |

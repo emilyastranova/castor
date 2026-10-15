@@ -277,6 +277,9 @@ class Job(Base):
     finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     # SHA-256 of the one-off token the agent uses to upload this job's artifacts.
     artifact_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # The command definition's outputs at dispatch time, so later edits don't change how
+    # this run is parsed. None for free-form commands and jobs from before Phase 2b.
+    output_specs: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONType, nullable=True)
     stdout_bytes: Mapped[int] = mapped_column(Integer, default=0)
     stderr_bytes: Mapped[int] = mapped_column(Integer, default=0)
     created_by: Mapped[uuid.UUID | None] = mapped_column(
@@ -288,6 +291,26 @@ class Job(Base):
     log_chunks: Mapped[list[JobLogChunk]] = relationship(
         back_populates="job", cascade="all, delete-orphan", order_by="JobLogChunk.seq"
     )
+
+
+class JobOutput(Base):
+    """A parsed, typed result of a job (Phase 2b), one row per declared output."""
+
+    __tablename__ = "job_outputs"
+    __table_args__ = (UniqueConstraint("job_id", "name", name="uq_job_output_name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("jobs.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(64))
+    type: Mapped[str] = mapped_column(String(32))
+    parser: Mapped[str] = mapped_column(String(64))
+    # Where the value came from: artifact file names, or "stdout".
+    sources: Mapped[list[str]] = mapped_column(JSONType, default=list)
+    value: Mapped[Any] = mapped_column(JSONType, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
 class JobLogChunk(Base):

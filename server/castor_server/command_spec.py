@@ -8,6 +8,8 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
+from . import parsers
+
 ArgType = Literal["string", "number", "boolean", "list"]
 
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
@@ -45,9 +47,36 @@ class ArgSpec(BaseModel):
 
 class OutputSpec(BaseModel):
     name: str
-    type: str = "string"
+    # Defaults to the parser's type; without a parser the output is just a collected file.
+    type: str | None = None
     parser: str | None = None
-    source: str | None = None  # path or glob under /work, e.g. /work/scan.xml
+    source: str | None = None  # path or glob under /work, e.g. /work/scan.xml; none = stdout
+
+    @field_validator("name")
+    @classmethod
+    def check_name(cls, value: str) -> str:
+        if not NAME_PATTERN.match(value):
+            raise ValueError("output names use letters, digits and underscores")
+        return value
+
+    @model_validator(mode="after")
+    def check_parser(self) -> OutputSpec:
+        if self.parser is None:
+            if self.source is None:
+                raise ValueError(f"output {self.name}: needs a parser, a source file, or both")
+            return self
+        found = parsers.get(self.parser)
+        if found is None:
+            known = ", ".join(sorted(parsers.PARSERS))
+            raise ValueError(f"output {self.name}: unknown parser {self.parser!r} (known: {known})")
+        # "list" was the pre-2b spelling; the parser knows the precise type.
+        if self.type in (None, "list"):
+            self.type = found.type
+        elif self.type != found.type:
+            raise ValueError(
+                f"output {self.name}: parser {self.parser} produces {found.type}, not {self.type}"
+            )
+        return self
 
 
 class CommandSpec(BaseModel):
@@ -73,6 +102,9 @@ class CommandSpec(BaseModel):
         names = [a.name for a in self.args]
         if len(names) != len(set(names)):
             raise ValueError("argument names must be unique")
+        outputs = [o.name for o in self.outputs]
+        if len(outputs) != len(set(outputs)):
+            raise ValueError("output names must be unique")
         undefined = sorted(set(PLACEHOLDER.findall(self.command)) - set(names))
         if undefined:
             raise ValueError(f"template uses undefined arguments: {', '.join(undefined)}")

@@ -14,6 +14,6 @@ args:
 command: nmap -sn -oX /work/ping-sweep.xml {{ targets }}
 outputs:
   - name: hosts
-    type: list
+    type: list<host>
     parser: nmap.hosts
     source: /work/ping-sweep.xml

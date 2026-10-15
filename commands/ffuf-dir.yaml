@@ -18,6 +18,6 @@ args:
 command: ffuf -u {{ url }}FUZZ -w {{ wordlist }} -of json -o /work/ffuf.json
 outputs:
   - name: paths
-    type: list
+    type: list<url>
     parser: ffuf.results
     source: /work/ffuf.json

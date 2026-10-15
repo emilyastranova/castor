@@ -23,6 +23,7 @@ Agents can also run outside compose on any host that can reach the server.
 
 ```
 Client 1──* Project 1──* BoardColumn 1──* Task 1──* Job 1──* JobLogChunk
+                                                         └──* JobOutput
                         │                  ├──* Comment
                         ├──* Attachment ◄──┘ (optional task_id / job_id)
                         └──* ActivityEvent
@@ -80,6 +81,24 @@ The server stores only the token's SHA-256, accepts uploads until 10 minutes aft
 finishes, caps size and count (`CASTOR_ARTIFACT_*`), and saves each file as an Attachment
 with `kind = artifact` and `job_id` set.
 
+### Parsed outputs
+
+At dispatch the server snapshots the definition's parsed outputs onto `Job.output_specs`.
+After `job.finished` (not for cancelled jobs) `outputs.py` runs each output's parser in a
+background task: the artifact files matching its `source` (or stdout when there is no
+source) go through the parser in `parsers.py`, and the result is stored as one `JobOutput`
+row (`name, type, parser, sources[], value JSON, error`), then published as `job.outputs`.
+A parse failure is stored as `error` on that output and never changes the job's status.
+`GET /api/jobs/{id}/outputs` lists them; `POST /api/jobs/{id}/outputs/parse` re-runs the
+parsers (for jobs from before Phase 2b it falls back to the card's current definition).
+
+Output types are a fixed set so playbook steps can be type-checked: `string`, `number`,
+`boolean`, `list<string>`, `host`/`list<host>` (`{ip, hostnames[], status}`),
+`service`/`list<service>` (`{host, port, proto, state, name, product, version}`),
+`url`/`list<url>` (`{url, status, length, words, lines}`). Parsers: `nmap.hosts`,
+`nmap.services` (open ports only), `ffuf.results`, `lines`, `text`. XML goes through
+`defusedxml`, since tool output can carry target-controlled content.
+
 ## Command library
 
 Definitions (`commands/*.yaml` built-ins, plus user definitions created as YAML in the UI)
@@ -103,7 +122,7 @@ and marks the job `dispatched`. Jobs with no eligible agent stay `queued`.
 Authenticated by the session cookie. The server broadcasts every domain event as
 `{"type":"event","name":"task.moved","project_id":"…","data":{…}}`. Event names:
 `project.updated`, `column.*`, `task.created|updated|moved|deleted`, `job.updated`,
-`job.log`, `comment.created`, `attachment.created`, `agent.updated`.
+`job.log`, `job.outputs`, `comment.created`, `attachment.created`, `agent.updated`.
 The client keeps page state in sync by applying these to its stores.
 
 ## Auth

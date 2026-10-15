@@ -1,6 +1,7 @@
 # Phase 2 design: command library, structured outputs, playbooks
 
-Status: decided 2026-10-15. 2a (command library + per-job artifacts) is built; next is 2b. Roadmap item **M2** in [ARCHITECTURE.md](ARCHITECTURE.md).
+Status: decided 2026-10-15. 2a (command library + per-job artifacts) and 2b (parsers +
+structured outputs) are built; next is 2c. Roadmap item **M2** in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Phase 2 turns Castor from "run this shell command on an agent" into "run a known tool with
 typed inputs, get structured results, and feed them into the next tool". It has five
@@ -68,6 +69,12 @@ status}`), `service` / `list<service>` (`{host, port, proto, name, product, vers
 **Storage.** `job_outputs (job_id, name, type, value JSON, parser, error)`. The card's
 Output tab gains a "Results" view: tables for hosts/services/urls, chips for lists, with
 copy-as-CSV. Parse failures show on the card and do not fail the job.
+
+As built: outputs are snapshotted onto the job at dispatch (`jobs.output_specs`), an
+output's `type` defaults to its parser's type (a mismatch is a validation error), and nmap's
+own fatal errors (`runstats/finished exit="error"`) are reported instead of an empty list.
+CSV copies prefix cells starting with `= + - @` so target-controlled strings can't become
+spreadsheet formulas.
 
 ## 2c. Playbooks
 

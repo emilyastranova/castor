@@ -15,6 +15,7 @@ from ..artifacts import collect_patterns, new_token
 from ..command_library import load_spec
 from ..config import settings
 from ..db import SessionLocal
+from ..outputs import output_specs_for
 from ..services import publish_job, publish_task, record_activity, utcnow
 from .gateway import AgentConnection, gateway
 
@@ -97,6 +98,7 @@ class Dispatcher:
                 upload_token, job.artifact_token_hash = new_token()
                 spec = await load_spec(db, task.command_ref) if task.command_ref else None
                 artifacts = {"token": upload_token, "collect": collect_patterns(spec)}
+                job.output_specs = output_specs_for(spec.outputs) if spec else None
                 await record_activity(
                     db,
                     type="job.dispatched",
