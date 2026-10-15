@@ -44,6 +44,7 @@
 	$effect(() => {
 		if (loadedFor === task.id) return;
 		loadedFor = task.id;
+		dirty.clear();
 		title = task.title;
 		description = task.description;
 		command = task.command;
@@ -58,6 +59,17 @@
 		selectedJobId = task.latest_job?.id ?? null;
 		void loadSide();
 	});
+
+	// Fields save on blur only if the user actually typed in them for *this* card. Comparing the
+	// field's text with the server's value is not enough: stale text (browser form restore after
+	// a reload, leftover state) would then be written to whichever card is open.
+	const dirty = new Set<string>();
+	const edited = (field: string) => dirty.add(field);
+	function commit(field: string, patch: Partial<Task>) {
+		if (!dirty.has(field) || loadedFor !== task.id) return;
+		dirty.delete(field);
+		void save(patch);
+	}
 
 	async function save(patch: Partial<Task>) {
 		try {
@@ -437,7 +449,9 @@
 				<input
 					class="w-full bg-transparent headline-small text-on-surface outline-none focus:underline decoration-primary/40 underline-offset-4"
 					bind:value={title}
-					onblur={() => title.trim() && title !== task.title && save({ title: title.trim() })}
+					oninput={() => edited('title')}
+					onblur={() => title.trim() && title !== task.title && commit('title', { title: title.trim() })}
+					autocomplete="off"
 					onkeydown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()}
 					aria-label="Title"
 				/>
@@ -470,14 +484,14 @@
 		<div class="flex min-h-0 flex-col gap-4">
 			{#if task.kind === 'command'}
 				<div class="flex flex-col gap-3 rounded-md bg-surface-container p-4">
-					<TextField label="Command" bind:value={command} multiline rows={2} mono onblur={() => command !== task.command && save({ command })} />
+					<TextField label="Command" bind:value={command} multiline rows={2} mono oninput={() => edited('command')} onblur={() => command !== task.command && commit('command', { command })} />
 					<div class="grid gap-3 sm:grid-cols-2">
-						<TextField label="Container image" bind:value={image} mono placeholder="run in agent shell" onblur={() => (image.trim() || null) !== task.image && save({ image: image.trim() || null })} />
+						<TextField label="Container image" bind:value={image} mono placeholder="run in agent shell" oninput={() => edited('image')} onblur={() => (image.trim() || null) !== task.image && commit('image', { image: image.trim() || null })} />
 						<Select label="Agent" bind:value={agentId} options={agentOptions} onchange={(v) => save({ agent_selector: v ? { agent_id: v } : {} })} />
 					</div>
 					<div class="flex flex-wrap items-center gap-4">
 						<Switch bind:checked={runOnMove} label="Run when moved to In Progress" onchange={(v) => save({ run_on_move: v })} />
-						<TextField label="Timeout (s)" bind:value={timeout} type="number" class="w-32 [&_div]:h-10" onblur={() => save({ timeout_s: timeout ? Number(timeout) : null })} />
+						<TextField label="Timeout (s)" bind:value={timeout} type="number" class="w-32 [&_div]:h-10" oninput={() => edited('timeout')} onblur={() => (timeout ? Number(timeout) : null) !== task.timeout_s && commit('timeout', { timeout_s: timeout ? Number(timeout) : null })} />
 					</div>
 				</div>
 			{/if}
@@ -485,12 +499,12 @@
 			<div>
 				<div class="mb-1 flex items-center justify-between">
 					<h3 class="title-small text-on-surface">Description</h3>
-					<Button variant="text" icon={editingDescription ? 'check' : 'edit'} onclick={() => { if (editingDescription && description !== task.description) void save({ description }); editingDescription = !editingDescription; }}>
+					<Button variant="text" icon={editingDescription ? 'check' : 'edit'} onclick={() => { if (editingDescription && description !== task.description) commit('description', { description }); editingDescription = !editingDescription; }}>
 						{editingDescription ? 'Done' : 'Edit'}
 					</Button>
 				</div>
 				{#if editingDescription}
-					<TextField label="Description (markdown)" bind:value={description} multiline rows={6} autofocus />
+					<TextField label="Description (markdown)" bind:value={description} multiline rows={6} autofocus oninput={() => edited('description')} />
 				{:else if task.description.trim()}
 					<div class="prose-m3 body-medium text-on-surface">{@html renderMarkdown(task.description)}</div>
 				{:else}
@@ -620,7 +634,7 @@
 					{#each Object.entries(task.custom_fields) as [key, value] (key)}
 						<div class="flex items-center gap-2">
 							<span class="w-40 truncate label-large text-on-surface" title={key}>{key}</span>
-							<TextField label="" value={String(value ?? '')} class="flex-1 [&_div]:h-10" onblur={(e) => setField(key, (e.currentTarget as HTMLInputElement).value)} />
+							<TextField label="" value={String(value ?? '')} class="flex-1 [&_div]:h-10" oninput={() => edited(`field:${key}`)} onblur={(e) => { const v = (e.currentTarget as HTMLInputElement).value; if (dirty.has(`field:${key}`) && v !== String(value ?? '')) { dirty.delete(`field:${key}`); setField(key, v); } }} />
 							<IconButton icon="delete" label="Remove field" size="sm" onclick={() => removeField(key)} />
 						</div>
 					{:else}
@@ -655,7 +669,7 @@
 			<Select label="Priority" bind:value={priority} options={priorityOptions} onchange={(v) => save({ priority: Number(v) })}>
 				{#snippet leading(level)}<PriorityGlyph {level} />{/snippet}
 			</Select>
-			<TextField label="Tags" bind:value={tagsText} supporting="Comma separated" onblur={() => { const tags = tagsText.split(',').map((t) => t.trim()).filter(Boolean); if (tags.join() !== task.tags.join()) void save({ tags }); }} />
+			<TextField label="Tags" bind:value={tagsText} supporting="Comma separated" oninput={() => edited('tags')} onblur={() => { const tags = tagsText.split(',').map((t) => t.trim()).filter(Boolean); if (tags.join() !== task.tags.join()) commit('tags', { tags }); }} />
 			<div class="rounded-md bg-surface-container p-4 body-small text-on-surface-variant">
 				<p class="mb-2 title-small text-on-surface">Details</p>
 				<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">

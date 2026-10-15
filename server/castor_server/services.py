@@ -20,6 +20,7 @@ DEFAULT_COLUMNS: list[tuple[str, m.ColumnRole | None]] = [
     ("In Progress", m.ColumnRole.active),
     ("Review", m.ColumnRole.review),
     ("Done", m.ColumnRole.done),
+    ("Reported", m.ColumnRole.reported),
 ]
 
 

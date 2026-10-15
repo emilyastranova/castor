@@ -167,5 +167,8 @@
 <ProjectDialog bind:open={editOpen} clients={[]} project={store.project} onsaved={(p) => (store.project = p)} />
 
 {#if selectedTask}
-	<TaskDialog task={selectedTask} columns={store.columns} {agents} onclose={closeTask} onupdated={(t) => store.upsertTask(t)} ondeleted={(id) => { store.tasks.delete(id); closeTask(); }} />
+	<!-- Keyed so each card gets a fresh dialog: no field state can carry over between cards. -->
+	{#key selectedTask.id}
+		<TaskDialog task={selectedTask} columns={store.columns} {agents} onclose={closeTask} onupdated={(t) => store.upsertTask(t)} ondeleted={(id) => { store.tasks.delete(id); closeTask(); }} />
+	{/key}
 {/if}

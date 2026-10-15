@@ -38,7 +38,7 @@ export interface ProjectSummary extends Project {
 	running_count: number;
 }
 
-export type ColumnRole = 'backlog' | 'todo' | 'active' | 'review' | 'done';
+export type ColumnRole = 'backlog' | 'todo' | 'active' | 'review' | 'done' | 'reported';
 
 export interface Column {
 	id: UUID;

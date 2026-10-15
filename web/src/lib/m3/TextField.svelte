@@ -48,7 +48,9 @@
 		readonly,
 		autofocus,
 		name,
-		autocomplete,
+		// Off by default: browser autofill and reload form-restore must never put text into
+		// app fields behind the app's back.
+		autocomplete = 'off',
 		class: klass = '',
 		id = `tf-${Math.random().toString(36).slice(2, 8)}`,
 		oninput,
@@ -108,6 +110,7 @@
 					{id}
 					{name}
 					{rows}
+					{autocomplete}
 					class="{fieldBase} resize-y {mono ? 'font-mono text-sm' : ''} {variant === 'filled' ? 'pt-3' : ''}"
 					bind:value
 					{placeholder}

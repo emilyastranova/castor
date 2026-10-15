@@ -293,3 +293,66 @@ async def test_migrates_database_created_before_alembic(tmp_path):
     assert "edited_at" in columns
     assert version != BASELINE_REVISION
     assert users == 1  # existing data survives
+
+
+def test_new_projects_end_with_reported(client, auth):
+    r = client.post("/api/projects", json={"codename": "RPT-1", "name": "Reported order"}, headers=auth)
+    board = client.get(f"/api/projects/{r.json()['id']}/board", headers=auth).json()
+    assert [c["role"] for c in board["columns"]] == ["backlog", "todo", "active", "review", "done", "reported"]
+    assert board["columns"][-1]["name"] == "Reported"
+
+
+async def test_reported_migration_adds_column_after_done(tmp_path):
+    import asyncio
+    import sqlite3
+    import uuid
+
+    from alembic import command
+
+    from castor_server.db import alembic_config
+
+    url = f"sqlite+aiosqlite:///{tmp_path / 'r.db'}"
+    cfg = alembic_config(url)
+    await asyncio.to_thread(command.upgrade, cfg, "50c19d965b5a")  # before the Reported migration
+    con = sqlite3.connect(tmp_path / "r.db")
+    pid = uuid.uuid4().hex
+    con.execute(
+        "INSERT INTO projects (id, codename, name, kind, status, description, settings, created_at, updated_at)"
+        " VALUES (?, 'P', 'P', 'external', 'active', '', '{}', '2026-01-01', '2026-01-01')",
+        (pid,),
+    )
+    done_id = uuid.uuid4().hex
+    for name, role, pos, cid in [
+        ("To Do", "todo", 10, uuid.uuid4().hex),
+        ("Done", "done", 40, done_id),
+        ("Archive", None, 60, uuid.uuid4().hex),  # a custom column after Done
+    ]:
+        con.execute(
+            "INSERT INTO board_columns (id, project_id, name, position, role, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, '2026-01-01', '2026-01-01')",
+            (cid, pid, name, pos, role),
+        )
+    con.commit()
+    con.close()
+
+    await asyncio.to_thread(command.upgrade, cfg, "head")
+    con = sqlite3.connect(tmp_path / "r.db")
+    cols = con.execute("SELECT name, role, position FROM board_columns ORDER BY position").fetchall()
+    assert [c[0] for c in cols] == ["To Do", "Done", "Reported", "Archive"]
+    assert cols[2][1:] == ("reported", 50.0)
+
+    # Downgrade keeps cards: they move from Reported back to Done.
+    reported_id = con.execute("SELECT id FROM board_columns WHERE role='reported'").fetchone()[0]
+    con.execute(
+        "INSERT INTO tasks (id, project_id, column_id, position, title, description, kind, command,"
+        " agent_selector, run_on_move, priority, tags, assignees, custom_fields, created_at, updated_at)"
+        " VALUES (?, ?, ?, 10, 'T', '', 'manual', '', '{}', 1, 0, '[]', '[]', '{}', '2026-01-01', '2026-01-01')",
+        (uuid.uuid4().hex, pid, reported_id),
+    )
+    con.commit()
+    con.close()
+    await asyncio.to_thread(command.downgrade, cfg, "50c19d965b5a")
+    con = sqlite3.connect(tmp_path / "r.db")
+    assert con.execute("SELECT count(*) FROM board_columns WHERE role='reported'").fetchone()[0] == 0
+    assert con.execute("SELECT column_id FROM tasks").fetchone()[0] == done_id
+    con.close()

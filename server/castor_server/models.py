@@ -65,6 +65,7 @@ class ColumnRole(str, enum.Enum):
     active = "active"
     review = "review"
     done = "done"
+    reported = "reported"  # added to the engagement report: the final step
 
 
 class JobStatus(str, enum.Enum):

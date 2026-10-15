@@ -8,6 +8,7 @@
 		active: 'var(--md-custom-color-amber)',
 		review: 'var(--md-custom-color-violet)',
 		done: 'var(--md-custom-color-green)',
+		reported: 'var(--md-sys-color-on-surface)', // line art: white in dark mode, ink in light
 		none: 'var(--md-sys-color-on-surface-variant)'
 	};
 </script>
@@ -25,6 +26,7 @@
 <!--
 	A circle that fills as work progresses, so column state reads at a glance:
 	backlog (dashed) → to do (empty) → in progress (half) → review (three quarters) → done (check).
+	Reported, the step after done, is a line-art document: the finding is in the engagement report.
 -->
 <svg
 	class="shrink-0 {klass}"
@@ -35,7 +37,14 @@
 	aria-hidden="true"
 	style:color
 >
-	{#if role === 'done'}
+	{#if role === 'reported'}
+		<!-- outlined page with a folded corner and text lines -->
+		<g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+			<path d="M4.75 1.65h4.3l3.3 3.3v8.6a.8.8 0 0 1-.8.8h-6.8a.8.8 0 0 1-.8-.8V2.45a.8.8 0 0 1 .8-.8z" />
+			<path d="M9.05 1.65v3.3h3.3" />
+			<path d="M6 8.2h4M6 10.6h4M6 13h2.4" />
+		</g>
+	{:else if role === 'done'}
 		<circle cx="8" cy="8" r="7" fill="currentColor" />
 		<path
 			d="M4.9 8.2l2.1 2.1 4.1-4.4"
