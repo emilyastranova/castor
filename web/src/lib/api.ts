@@ -127,6 +127,8 @@ export interface Comment {
 	body: string;
 	created_at: string;
 	updated_at: string;
+	/** Set when the body was changed after posting. */
+	edited_at: string | null;
 }
 
 export interface Attachment {
@@ -259,6 +261,8 @@ export function api(fetchFn: Fetch = fetch) {
 			activity: (id: UUID) => get<Activity[]>(`/tasks/${id}/activity`),
 			comments: (id: UUID) => get<Comment[]>(`/tasks/${id}/comments`),
 			addComment: (id: UUID, body: string) => post<Comment>(`/tasks/${id}/comments`, { body }),
+			updateComment: (id: UUID, commentId: UUID, body: string) =>
+				patch<Comment>(`/tasks/${id}/comments/${commentId}`, { body }),
 			removeComment: (id: UUID, commentId: UUID) => del(`/tasks/${id}/comments/${commentId}`),
 			attachments: (id: UUID) => get<Attachment[]>(`/tasks/${id}/attachments`),
 			upload: (id: UUID, file: File, kind?: string) => {

@@ -226,6 +226,7 @@ class CommentOut(ORM):
     body: str
     created_at: datetime
     updated_at: datetime
+    edited_at: datetime | None = None
 
 
 class AttachmentOut(ORM):

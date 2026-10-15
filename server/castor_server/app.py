@@ -12,7 +12,7 @@ from sqlalchemy import select
 from . import models as m
 from .api import api_router
 from .config import settings
-from .db import SessionLocal, create_all
+from .db import SessionLocal, run_migrations
 from .orchestrator.dispatcher import dispatcher
 from .orchestrator.gateway import gateway
 from .security import hash_password
@@ -57,7 +57,7 @@ async def lifespan(app: FastAPI):
     logging.basicConfig(level=settings.log_level.upper())
     settings.uploads_dir.mkdir(parents=True, exist_ok=True)
     if settings.auto_migrate:
-        await create_all()
+        await run_migrations()
     await ensure_admin()
     await dispatcher.start()
     log.info("castor server ready")

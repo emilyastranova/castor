@@ -12,6 +12,7 @@
 	import PriorityGlyph, { priorityOptions } from './PriorityGlyph.svelte';
 	import NameImageDialog from './NameImageDialog.svelte';
 	import { tick } from 'svelte';
+	import { page } from '$app/state';
 
 	interface Props {
 		task: Task;
@@ -108,6 +109,9 @@
 			} else if (e.name === 'comment.created') {
 				const c = e.data as Comment;
 				if (c.task_id === task.id && !comments.some((x) => x.id === c.id)) comments = [...comments, c];
+			} else if (e.name === 'comment.updated') {
+				const c = e.data as Comment;
+				if (c.task_id === task.id) comments = comments.map((x) => (x.id === c.id ? c : x));
 			} else if (e.name === 'comment.deleted') {
 				const d = e.data as { id: UUID };
 				comments = comments.filter((x) => x.id !== d.id);
@@ -158,13 +162,69 @@
 		}
 	}
 
+	// ---- editing comments ----
+	let me = $derived(page.data.user);
+	let editingId = $state<UUID | null>(null);
+	let editDraft = $state('');
+	let savingEdit = $state(false);
+	const canEdit = (c: Comment) => !!me && (c.author_id === me.id || me.is_admin);
+
+	async function startEdit(c: Comment) {
+		editingId = c.id;
+		editDraft = c.body;
+		await tick();
+		const box = document.getElementById(`comment-edit-${c.id}`) as HTMLTextAreaElement | null;
+		box?.focus();
+		box?.setSelectionRange(box.value.length, box.value.length);
+	}
+
+	function cancelEdit() {
+		editingId = null;
+		editDraft = '';
+	}
+
+	async function saveEdit(c: Comment) {
+		if (!editDraft.trim() || inlineUploads > 0 || savingEdit) return;
+		if (editDraft === c.body) return cancelEdit();
+		savingEdit = true;
+		try {
+			const updated = await api().tasks.updateComment(task.id, c.id, editDraft);
+			comments = comments.map((x) => (x.id === updated.id ? updated : x));
+			cancelEdit();
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not save comment');
+		} finally {
+			savingEdit = false;
+		}
+	}
+
+	function onEditKey(c: Comment, e: KeyboardEvent) {
+		if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+			e.preventDefault();
+			void saveEdit(c);
+		} else if (e.key === 'Escape') {
+			// Cancel the edit, not the whole card.
+			e.preventDefault();
+			e.stopPropagation();
+			cancelEdit();
+		}
+	}
+
 	// ---- images pasted into the comment box ----
 	// Each pasted image is named first, then uploaded as a task attachment and embedded in
 	// the comment as markdown at the caret. A placeholder holds its place during the upload.
+	/** The markdown text an image is inserted into: the new-comment box or a comment being edited. */
+	interface DraftTarget {
+		get: () => string;
+		set: (value: string) => void;
+	}
 	interface PendingImage {
 		file: File;
 		textarea: HTMLTextAreaElement;
+		target: DraftTarget;
 	}
+	const newCommentTarget: DraftTarget = { get: () => newComment, set: (v) => (newComment = v) };
+	const editTarget: DraftTarget = { get: () => editDraft, set: (v) => (editDraft = v) };
 	let pendingImages = $state<PendingImage[]>([]);
 	let inlineUploads = $state(0);
 
@@ -177,26 +237,29 @@
 		'image/svg+xml': 'svg'
 	};
 
-	function onCommentPaste(e: ClipboardEvent & { currentTarget: HTMLTextAreaElement }) {
-		const images = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith('image/'));
-		if (!images.length) return;
-		e.preventDefault();
-		e.stopPropagation(); // don't also run the card-wide paste-to-attachments handler
-		const textarea = e.currentTarget;
-		pendingImages = [...pendingImages, ...images.map((file) => ({ file, textarea }))];
+	function pasteInto(target: DraftTarget) {
+		return (e: ClipboardEvent & { currentTarget: HTMLTextAreaElement }) => {
+			const images = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith('image/'));
+			if (!images.length) return;
+			e.preventDefault();
+			e.stopPropagation(); // don't also run the card-wide paste-to-attachments handler
+			const textarea = e.currentTarget;
+			pendingImages = [...pendingImages, ...images.map((file) => ({ file, textarea, target }))];
+		};
 	}
 
 	/** Insert text at the textarea's caret (or over its selection) and put the caret after it. */
-	function insertAtCaret(textarea: HTMLTextAreaElement, text: string) {
-		const start = textarea.selectionStart ?? newComment.length;
+	function insertAtCaret(textarea: HTMLTextAreaElement, target: DraftTarget, text: string) {
+		const current = target.get();
+		const start = textarea.selectionStart ?? current.length;
 		const end = textarea.selectionEnd ?? start;
-		const before = newComment.slice(0, start);
-		const after = newComment.slice(end);
+		const before = current.slice(0, start);
+		const after = current.slice(end);
 		// Give the image its own line so it renders as a block, not mid-sentence.
 		const lead = before && !before.endsWith('\n') ? '\n' : '';
 		const trail = after.startsWith('\n') ? '' : '\n';
 		const inserted = lead + text + trail;
-		newComment = before + inserted + after;
+		target.set(before + inserted + after);
 		refocus(textarea, start + inserted.length);
 	}
 
@@ -222,17 +285,21 @@
 		const filename = extPattern.test(name) ? name : `${name}.${ext}`;
 		const alt = name.replace(extPattern, '').replace(/[[\]]/g, '');
 		const token = `![Uploading ${alt}…](#upload-${Math.random().toString(36).slice(2, 10)})`;
-		insertAtCaret(item.textarea, token);
+		const { target } = item;
+		insertAtCaret(item.textarea, target, token);
 		inlineUploads += 1;
 		try {
 			const a = await api().tasks.upload(task.id, new File([item.file], filename, { type: item.file.type }), 'screenshot');
 			if (!attachments.some((x) => x.id === a.id)) attachments = [...attachments, a];
 			const markdown = `![${alt}](${api().attachments.url(a.id, true)})`;
-			newComment = newComment.includes(token)
-				? newComment.replace(token, markdown)
-				: `${newComment}${newComment.endsWith('\n') || !newComment ? '' : '\n'}${markdown}\n`;
+			const text = target.get();
+			target.set(
+				text.includes(token)
+					? text.replace(token, markdown)
+					: `${text}${text.endsWith('\n') || !text ? '' : '\n'}${markdown}\n`
+			);
 		} catch (err) {
-			newComment = newComment.replace(token, '');
+			target.set(target.get().replace(token, ''));
 			snackbar.error(err instanceof ApiError ? `Image upload failed: ${err.message}` : 'Image upload failed');
 		} finally {
 			inlineUploads -= 1;
@@ -427,18 +494,44 @@
 								<div class="flex items-center gap-2 body-small text-on-surface-variant">
 									<span class="label-large text-on-surface">{c.author_name}</span>
 									<span title={absoluteTime(c.created_at)}>{relativeTime(c.created_at)}</span>
+									{#if c.edited_at}
+										<span class="italic" title="Edited {absoluteTime(c.edited_at)}">· edited</span>
+									{/if}
 									<span class="flex-1"></span>
-									<IconButton icon="delete" label="Delete comment" size="sm" onclick={async () => { await api().tasks.removeComment(task.id, c.id); comments = comments.filter((x) => x.id !== c.id); }} />
+									{#if canEdit(c) && editingId !== c.id}
+										<IconButton icon="edit" label="Edit comment" size="sm" onclick={() => startEdit(c)} />
+									{/if}
+									<IconButton icon="delete" label="Delete comment" size="sm" onclick={async () => { await api().tasks.removeComment(task.id, c.id); comments = comments.filter((x) => x.id !== c.id); if (editingId === c.id) cancelEdit(); }} />
 								</div>
-								<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-								<div class="prose-m3 mt-1 body-medium text-on-surface" onclick={openCommentImage}>{@html renderMarkdown(c.body)}</div>
+								{#if editingId === c.id}
+									<div class="mt-2 flex flex-col gap-2">
+										<TextField
+											id="comment-edit-{c.id}"
+											label="Edit comment"
+											bind:value={editDraft}
+											multiline
+											rows={4}
+											supporting="Ctrl+Enter to save · Esc to cancel · paste an image to add it"
+											onkeydown={(e) => onEditKey(c, e)}
+											onpaste={pasteInto(editTarget)}
+										/>
+										<div class="flex items-center justify-end gap-2">
+											{#if inlineUploads > 0}<span class="body-small text-on-surface-variant">Uploading image…</span>{/if}
+											<Button variant="text" onclick={cancelEdit}>Cancel</Button>
+											<Button icon="check" loading={savingEdit} disabled={!editDraft.trim() || inlineUploads > 0} onclick={() => saveEdit(c)}>Save</Button>
+										</div>
+									</div>
+								{:else}
+									<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+									<div class="prose-m3 mt-1 body-medium text-on-surface" onclick={openCommentImage}>{@html renderMarkdown(c.body)}</div>
+								{/if}
 							</div>
 						</div>
 					{:else}
 						<p class="body-medium text-on-surface-variant">No comments yet.</p>
 					{/each}
 					<div class="flex flex-col gap-2">
-						<TextField label="Add a comment" bind:value={newComment} multiline rows={3} supporting="Markdown supported · Ctrl+Enter to post · paste an image to add it to the comment" onkeydown={(e) => (e.ctrlKey || e.metaKey) && e.key === 'Enter' && postComment()} onpaste={onCommentPaste} />
+						<TextField label="Add a comment" bind:value={newComment} multiline rows={3} supporting="Markdown supported · Ctrl+Enter to post · paste an image to add it to the comment" onkeydown={(e) => (e.ctrlKey || e.metaKey) && e.key === 'Enter' && postComment()} onpaste={pasteInto(newCommentTarget)} />
 						<div class="flex items-center justify-end gap-3">
 							{#if inlineUploads > 0}<span class="body-small text-on-surface-variant">Uploading image…</span>{/if}
 							<Button icon="send" loading={posting} onclick={postComment} disabled={!newComment.trim() || inlineUploads > 0}>Comment</Button>

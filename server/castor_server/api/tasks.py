@@ -29,6 +29,7 @@ from ..services import (
     record_activity,
     start_run,
     task_out,
+    utcnow,
 )
 
 router = APIRouter(tags=["tasks"])
@@ -224,6 +225,28 @@ async def create_comment(task_id: str, body: CommentIn, db: DB, user: CurrentUse
     out = _comment_out(comment)
     bus.publish("comment.created", task.project_id, out)
     await publish_task(db, task)
+    return out
+
+
+@router.patch("/tasks/{task_id}/comments/{comment_id}", response_model=CommentOut)
+async def update_comment(
+    task_id: str, comment_id: str, body: CommentIn, db: DB, user: CurrentUser
+):
+    task = await _task_or_404(db, task_id)
+    comment = await db.get(m.Comment, parse_uuid(comment_id))
+    if comment is None or comment.task_id != task.id:
+        raise HTTPException(404, "Comment not found")
+    if comment.author_id != user.id and not user.is_admin:
+        raise HTTPException(403, "You can only edit your own comments")
+    if not body.body.strip():
+        raise HTTPException(400, "Comment is empty")
+    if body.body != comment.body:
+        comment.body = body.body
+        comment.edited_at = utcnow()
+        await db.commit()
+    await db.refresh(comment, ["author"])
+    out = _comment_out(comment)
+    bus.publish("comment.updated", task.project_id, out)
     return out
 
 

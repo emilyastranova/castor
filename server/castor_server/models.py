@@ -294,6 +294,8 @@ class Comment(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     body: Mapped[str] = mapped_column(Text)
+    # Set only when the body is changed after posting (shown as "edited" in the UI).
+    edited_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
     task: Mapped[Task] = relationship(back_populates="comments")
     author: Mapped[User | None] = relationship()

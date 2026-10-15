@@ -214,3 +214,82 @@ def test_run_moves_card_to_in_progress(client, auth):
     assert again["column_id"] == roles["active"] and again["position"] == position
     history = client.get(f"/api/tasks/{task['id']}/activity", headers=auth).json()
     assert len([h for h in history if h["type"] == "task.moved"]) == 1
+
+
+def test_edit_comment(client, auth):
+    project = client.get("/api/projects", headers=auth).json()[0]
+    task = client.post(
+        f"/api/projects/{project['id']}/tasks", json={"title": "Edit me"}, headers=auth
+    ).json()
+    c = client.post(f"/api/tasks/{task['id']}/comments", json={"body": "frist"}, headers=auth).json()
+    assert c["edited_at"] is None
+
+    # Saving the same text is not an edit.
+    r = client.patch(f"/api/tasks/{task['id']}/comments/{c['id']}", json={"body": "frist"}, headers=auth)
+    assert r.status_code == 200 and r.json()["edited_at"] is None
+
+    r = client.patch(f"/api/tasks/{task['id']}/comments/{c['id']}", json={"body": "first"}, headers=auth)
+    assert r.status_code == 200, r.text
+    edited = r.json()
+    assert edited["body"] == "first" and edited["edited_at"] is not None
+    assert edited["author_name"] == "admin"
+    listed = client.get(f"/api/tasks/{task['id']}/comments", headers=auth).json()
+    assert listed[0]["body"] == "first" and listed[0]["edited_at"] == edited["edited_at"]
+
+    r = client.patch(f"/api/tasks/{task['id']}/comments/{c['id']}", json={"body": "  "}, headers=auth)
+    assert r.status_code == 400
+
+
+def test_edit_comment_requires_author_or_admin(client, auth):
+    import asyncio
+
+    from castor_server import models as m
+    from castor_server.db import SessionLocal
+    from castor_server.security import create_session_token, hash_password
+
+    async def make_user():
+        async with SessionLocal() as db:
+            user = m.User(username="viewer", display_name="viewer", password_hash=hash_password("x"), is_admin=False)
+            db.add(user)
+            await db.commit()
+            return user.id
+
+    other = {"Authorization": f"Bearer {create_session_token(asyncio.run(make_user()))}"}
+    project = client.get("/api/projects", headers=auth).json()[0]
+    task = client.post(f"/api/projects/{project['id']}/tasks", json={"title": "Owned"}, headers=auth).json()
+    c = client.post(f"/api/tasks/{task['id']}/comments", json={"body": "mine"}, headers=auth).json()
+    r = client.patch(f"/api/tasks/{task['id']}/comments/{c['id']}", json={"body": "theirs"}, headers=other)
+    assert r.status_code == 403
+
+
+async def test_migrates_database_created_before_alembic(tmp_path):
+    """A database built with create_all (no alembic_version) is stamped and upgraded."""
+    import asyncio
+    import sqlite3
+
+    from alembic import command
+
+    from castor_server.db import BASELINE_REVISION, alembic_config, run_migrations
+
+    url = f"sqlite+aiosqlite:///{tmp_path / 'old.db'}"
+    # Alembic's env.py runs its own event loop, so drive it from a worker thread.
+    await asyncio.to_thread(command.upgrade, alembic_config(url), BASELINE_REVISION)
+    con = sqlite3.connect(tmp_path / "old.db")
+    con.execute("DROP TABLE alembic_version")
+    con.execute(
+        "INSERT INTO users (id, username, display_name, password_hash, is_admin, created_at, updated_at)"
+        " VALUES ('00000000000000000000000000000001', 'u', 'u', 'x', 1, '2026-01-01', '2026-01-01')"
+    )
+    con.commit()
+    con.close()
+
+    await run_migrations(url)
+
+    con = sqlite3.connect(tmp_path / "old.db")
+    columns = {row[1] for row in con.execute("PRAGMA table_info(comments)")}
+    version = con.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+    users = con.execute("SELECT count(*) FROM users").fetchone()[0]
+    con.close()
+    assert "edited_at" in columns
+    assert version != BASELINE_REVISION
+    assert users == 1  # existing data survives

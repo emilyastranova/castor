@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     # Database. SQLite is fine for local hacking; Postgres for everything else.
     database_url: str = "sqlite+aiosqlite:///./data/castor.db"
-    auto_migrate: bool = True  # create tables on startup (dev convenience)
+    auto_migrate: bool = True  # apply database migrations on startup
 
     # Auth
     secret_key: str = "change-me-castor-dev-secret"

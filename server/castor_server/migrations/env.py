@@ -4,28 +4,41 @@ import asyncio
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlalchemy import pool
+from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from castor_server import models  # noqa: F401
 from castor_server.config import settings
 from castor_server.db import Base
-from castor_server import models  # noqa: F401
+from castor_server.models import UTCDateTime
 
 config = context.config
-config.set_main_option("sqlalchemy.url", settings.database_url)
-if config.config_file_name is not None:
+# The CLI (alembic.ini) gets the URL from settings; startup migrations pass their own.
+if not config.get_main_option("sqlalchemy.url"):
+    config.set_main_option("sqlalchemy.url", settings.database_url)
+DATABASE_URL = config.get_main_option("sqlalchemy.url")
+if config.config_file_name is not None and config.attributes.get("configure_logging", True):
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
 
 
+def render_item(type_, obj, autogen_context):
+    """Keep generated migrations free of app imports: UTCDateTime is stored as a plain
+    timezone-aware DateTime (the conversion to/from UTC happens in the app)."""
+    if type_ == "type" and isinstance(obj, UTCDateTime):
+        return "sa.DateTime(timezone=True)"
+    return False
+
+
 def run_migrations_offline() -> None:
     context.configure(
-        url=settings.database_url,
+        url=DATABASE_URL,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        render_as_batch=settings.database_url.startswith("sqlite"),
+        render_as_batch=DATABASE_URL.startswith("sqlite"),
+        render_item=render_item,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -36,6 +49,7 @@ def do_run_migrations(connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         render_as_batch=connection.dialect.name == "sqlite",
+        render_item=render_item,
     )
     with context.begin_transaction():
         context.run_migrations()

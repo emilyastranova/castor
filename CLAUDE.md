@@ -44,16 +44,22 @@ cd web && npm run check                                       # svelte-check
 cd web && npm run build                                       # adapter-node build
 ```
 
-Migrations (run from `server/`; `CASTOR_DATABASE_URL` selects the DB):
+Migrations live in `server/castor_server/migrations/` (inside the package so they ship in
+the Docker image). The server applies them on startup (`CASTOR_AUTO_MIGRATE`, default on);
+a database created before Alembic was used is stamped at the baseline revision first
+(`db.run_migrations`). Create a migration from `server/` against an up-to-date DB:
 
 ```bash
 cd server && ../.venv/bin/python -m alembic revision --autogenerate -m "..."
-cd server && ../.venv/bin/python -m alembic upgrade head
+cd server && ../.venv/bin/python -m alembic upgrade head      # CASTOR_DATABASE_URL picks the DB
 ```
 
-Note: autogenerate renders JSON columns as plain `sa.JSON()`; replace with
-`sa.JSON().with_variant(postgresql.JSONB(), 'postgresql')` to match `models.JSONType`.
-In dev, `CASTOR_AUTO_MIGRATE=true` (default) runs `create_all` at startup instead.
+`env.py` renders `UTCDateTime` columns as `sa.DateTime(timezone=True)` so migrations don't
+import app code; check generated files anyway. New JSON columns come out as
+`postgresql.JSONB(astext_type=Text())` with `Text` unimported; write them as
+`sa.JSON().with_variant(postgresql.JSONB(), 'postgresql')` to match `models.JSONType`. On SQLite, migrations run without foreign-key
+enforcement on purpose (batch table rebuilds would cascade-delete child rows); the app's own
+connections turn it on.
 
 Regenerate the default Material 3 palette: `cd web && node scripts/gen-tokens.mjs '#4f5bd5'`
 writes `src/lib/m3/tokens.css` (committed, do not hand-edit).

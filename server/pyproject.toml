@@ -32,6 +32,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["castor_server*"]
 
+[tool.setuptools.package-data]
+castor_server = ["migrations/script.py.mako"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
