@@ -8,6 +8,7 @@
 	import { initTheme, toggleMode, isDark } from '$lib/m3/theme';
 	import { api } from '$lib/api';
 	import { snackbar } from '$lib/snackbar.svelte';
+	import ConfirmHost from '$lib/components/ConfirmHost.svelte';
 
 	let { data, children } = $props();
 	let dark = $state(false);
@@ -86,3 +87,4 @@
 	{@render children()}
 {/if}
 <Snackbar />
+<ConfirmHost />

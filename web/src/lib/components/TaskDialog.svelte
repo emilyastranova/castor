@@ -3,6 +3,7 @@
 	import { api, ApiError } from '$lib/api';
 	import { realtime } from '$lib/realtime.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
+	import { confirmAction } from '$lib/confirm.svelte';
 	import { renderMarkdown } from '$lib/markdown';
 	import { relativeTime, absoluteTime, bytes, duration } from '$lib/format';
 	import { Button, Chip, Dialog, Icon, IconButton, Menu, MenuItem, Select, Switch, Tabs, TextField, Avatar } from '$lib/m3';
@@ -178,6 +179,25 @@
 		box?.setSelectionRange(box.value.length, box.value.length);
 	}
 
+	async function removeComment(c: Comment) {
+		const hasImages = /!\[[^\]]*\]\(\/api\/attachments\//.test(c.body);
+		const ok = await confirmAction({
+			title: 'Delete comment?',
+			message:
+				`${c.author_name}'s comment will be permanently deleted.` +
+				(hasImages ? '\nImages in it stay in this card’s Attachments.' : ''),
+			confirmLabel: 'Delete'
+		});
+		if (!ok) return;
+		try {
+			await api().tasks.removeComment(task.id, c.id);
+			comments = comments.filter((x) => x.id !== c.id);
+			if (editingId === c.id) cancelEdit();
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not delete comment');
+		}
+	}
+
 	function cancelEdit() {
 		editingId = null;
 		editDraft = '';
@@ -343,6 +363,15 @@
 	}
 
 	async function removeAttachment(a: Attachment) {
+		const embedded = comments.some((c) => c.body.includes(`/attachments/${a.id}/`));
+		const ok = await confirmAction({
+			title: 'Delete attachment?',
+			message:
+				`“${a.filename}” will be permanently deleted.` +
+				(embedded ? '\nA comment on this card shows this image; it will show a broken image instead.' : ''),
+			confirmLabel: 'Delete'
+		});
+		if (!ok) return;
 		await api().attachments.remove(a.id);
 		attachments = attachments.filter((x) => x.id !== a.id);
 	}
@@ -353,7 +382,13 @@
 	function setField(key: string, value: string) {
 		void save({ custom_fields: { ...task.custom_fields, [key]: value } });
 	}
-	function removeField(key: string) {
+	async function removeField(key: string) {
+		const ok = await confirmAction({
+			title: 'Remove field?',
+			message: `“${key}” and its value will be removed from this card.`,
+			confirmLabel: 'Remove'
+		});
+		if (!ok) return;
 		const next = { ...task.custom_fields };
 		delete next[key];
 		void save({ custom_fields: next });
@@ -370,7 +405,12 @@
 	}
 
 	async function remove() {
-		if (!confirm(`Delete “${task.title}”?`)) return;
+		const ok = await confirmAction({
+			title: 'Delete card?',
+			message: `“${task.title}” and its comments, attachments and job history will be permanently deleted.`,
+			confirmLabel: 'Delete card'
+		});
+		if (!ok) return;
 		await api().tasks.remove(task.id);
 		ondeleted(task.id);
 	}
@@ -501,7 +541,7 @@
 									{#if canEdit(c) && editingId !== c.id}
 										<IconButton icon="edit" label="Edit comment" size="sm" onclick={() => startEdit(c)} />
 									{/if}
-									<IconButton icon="delete" label="Delete comment" size="sm" onclick={async () => { await api().tasks.removeComment(task.id, c.id); comments = comments.filter((x) => x.id !== c.id); if (editingId === c.id) cancelEdit(); }} />
+									<IconButton icon="delete" label="Delete comment" size="sm" onclick={() => removeComment(c)} />
 								</div>
 								{#if editingId === c.id}
 									<div class="mt-2 flex flex-col gap-2">

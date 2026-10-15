@@ -8,6 +8,7 @@
 	import { realtime } from '$lib/realtime.svelte';
 	import { relativeTime, absoluteTime, duration } from '$lib/format';
 	import { snackbar } from '$lib/snackbar.svelte';
+	import { confirmAction } from '$lib/confirm.svelte';
 
 	let { data } = $props();
 	// svelte-ignore state_referenced_locally
@@ -62,7 +63,12 @@
 		}
 	}
 	async function removeAgent(a: Agent) {
-		if (!confirm(`Forget agent ${a.name}?`)) return;
+		const ok = await confirmAction({
+			title: `Forget agent ${a.name}?`,
+			message: 'It will be removed from the agent list, and its tags and settings will be lost. It reappears if it connects again.',
+			confirmLabel: 'Forget agent'
+		});
+		if (!ok) return;
 		try {
 			await api().agents.remove(a.id);
 			agents = agents.filter((x) => x.id !== a.id);

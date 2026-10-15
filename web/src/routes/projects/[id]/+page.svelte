@@ -7,6 +7,7 @@
 	import { BoardStore } from '$lib/stores/board.svelte';
 	import { realtime } from '$lib/realtime.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
+	import { confirmAction } from '$lib/confirm.svelte';
 	import BoardColumn from '$lib/components/BoardColumn.svelte';
 	import NewTaskDialog from '$lib/components/NewTaskDialog.svelte';
 	import TaskDialog from '$lib/components/TaskDialog.svelte';
@@ -43,6 +44,9 @@
 	$effect(() =>
 		realtime.subscribe((e) => {
 			store.apply(e);
+			// The open card was deleted (here or elsewhere): drop ?task= from the address. The
+			// event can beat the delete request's own response, which unmounts the card first.
+			if (e.name === 'task.deleted' && (e.data as { id: UUID }).id === selectedTaskId) closeTask();
 			if (e.name === 'agent.updated') {
 				const a = e.data as Agent;
 				agents = [...agents.filter((x) => x.id !== a.id), a].sort((x, y) => x.name.localeCompare(y.name));
@@ -97,7 +101,12 @@
 	let running = $derived(store.taskList.filter((t) => t.latest_job && ['queued', 'dispatched', 'running'].includes(t.latest_job.status)).length);
 
 	async function deleteProject() {
-		if (!confirm(`Delete project ${store.project.codename} and all of its cards? This cannot be undone.`)) return;
+		const ok = await confirmAction({
+			title: `Delete project ${store.project.codename}?`,
+			message: `“${store.project.name}” and all of its cards, comments, attachments and job history will be permanently deleted. This cannot be undone.`,
+			confirmLabel: 'Delete project'
+		});
+		if (!ok) return;
 		await api().projects.remove(store.project.id);
 		await goto('/projects');
 	}

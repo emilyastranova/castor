@@ -3,7 +3,7 @@
 	import type { HTMLButtonAttributes } from 'svelte/elements';
 	import Icon from './Icon.svelte';
 
-	type Variant = 'filled' | 'tonal' | 'outlined' | 'text' | 'elevated';
+	type Variant = 'filled' | 'tonal' | 'outlined' | 'text' | 'elevated' | 'danger';
 	interface Props extends HTMLButtonAttributes {
 		variant?: Variant;
 		icon?: string;
@@ -31,7 +31,8 @@
 		tonal: 'bg-secondary-container text-on-secondary-container hover:shadow-e1',
 		outlined: 'border border-outline text-primary',
 		text: 'text-primary px-3',
-		elevated: 'bg-surface-container-low text-primary shadow-e1 hover:shadow-e2'
+		elevated: 'bg-surface-container-low text-primary shadow-e1 hover:shadow-e2',
+		danger: 'bg-error text-on-error hover:shadow-e1'
 	};
 	let cls = $derived(`${base} ${variants[variant]} ${icon ? 'pl-4' : ''} ${trailingIcon ? 'pr-4' : ''} ${klass}`);
 </script>
