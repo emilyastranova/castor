@@ -15,6 +15,7 @@
 
 	const nav = [
 		{ href: '/projects', icon: 'view_kanban', label: 'Projects' },
+		{ href: '/commands', icon: 'menu_book', label: 'Commands' },
 		{ href: '/agents', icon: 'dns', label: 'Agents' },
 		{ href: '/activity', icon: 'history', label: 'Activity' }
 	];

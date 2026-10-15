@@ -124,12 +124,40 @@ class ColumnOut(ORM):
 # ---------- tasks ----------
 
 
+class CommandDefinitionOut(ORM):
+    id: str
+    origin: str
+    name: str
+    description: str
+    tags: list[str]
+    spec: dict[str, Any]
+    source_yaml: str
+    version: int
+    updated_at: datetime
+    in_use: bool = False
+
+
+class CommandYamlIn(BaseModel):
+    yaml: str
+
+
+class RenderIn(BaseModel):
+    args: dict[str, Any] = Field(default_factory=dict)
+
+
+class RenderOut(BaseModel):
+    command: str
+    image: str | None
+
+
 class TaskIn(BaseModel):
     title: str
     column_id: uuid.UUID | None = None
     description: str = ""
     kind: TaskKind = TaskKind.manual
     command: str = ""
+    command_ref: str | None = None
+    command_args: dict[str, Any] = Field(default_factory=dict)
     image: str | None = None
     agent_selector: dict[str, Any] = Field(default_factory=dict)
     run_on_move: bool = True
@@ -146,6 +174,8 @@ class TaskPatch(BaseModel):
     description: str | None = None
     kind: TaskKind | None = None
     command: str | None = None
+    command_ref: str | None = None
+    command_args: dict[str, Any] | None = None
     image: str | None = None
     agent_selector: dict[str, Any] | None = None
     run_on_move: bool | None = None
@@ -188,6 +218,8 @@ class TaskOut(ORM):
     description: str
     kind: TaskKind
     command: str
+    command_ref: str | None
+    command_args: dict[str, Any]
     image: str | None
     agent_selector: dict[str, Any]
     run_on_move: bool

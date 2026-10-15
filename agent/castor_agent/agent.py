@@ -5,12 +5,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import tempfile
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import websockets
 from websockets.asyncio.client import ClientConnection
 
+from . import artifacts
 from .config import AgentConfig, host_info
 from .runtime import JobRunner, detect_container_runtime
 
@@ -127,14 +130,40 @@ class Agent:
         else:
             log.debug("ignoring message %r", kind)
 
+    def _job_dir(self, job_id: str) -> Path:
+        base = Path(self.config.workdir) if self.config.workdir else Path(tempfile.gettempdir()) / "castor-agent"
+        job_dir = base / job_id
+        job_dir.mkdir(parents=True, exist_ok=True)
+        return job_dir
+
+    async def _upload_artifacts(self, job: dict[str, Any], job_dir: Path, sink) -> None:
+        spec = job.get("artifacts") or {}
+        token = spec.get("token")
+        if not token:
+            return
+        files = artifacts.collect(job_dir, spec.get("collect") or [])
+        if not files:
+            return
+        url = artifacts.upload_url(self.config.server_url, str(job["id"]))
+        sent = 0
+        for path, relative in files:
+            try:
+                await asyncio.to_thread(artifacts.upload, url, token, path, relative)
+                sent += 1
+            except Exception as exc:  # noqa: BLE001 - report each failed file, keep going
+                log.warning("artifact %s upload failed: %s", relative, exc)
+                await sink("system", f"[castor] could not upload {relative}: {exc}\n")
+        await sink("system", f"[castor] uploaded {sent} of {len(files)} file(s) to the card\n")
+
     async def _run_job(self, job: dict[str, Any]) -> None:
         job_id = str(job["id"])
+        job_dir = self._job_dir(job_id)
         runner = JobRunner(
             job,
             container_runtime=self.container_runtime,
             allow_host=self.config.allow_host,
             default_image=self.config.default_image,
-            workdir=self.config.workdir,
+            job_dir=str(job_dir),
             network=self.config.network,
             extra_run_args=self.config.extra_run_args,
         )
@@ -157,6 +186,8 @@ class Agent:
             result_payload = {"exit_code": None, "error": f"agent error: {exc}"}
         else:
             result_payload = {"exit_code": result.exit_code, "error": result.error}
+            # Files go up before job.finished so they are on the card when the job completes.
+            await self._upload_artifacts(job, job_dir, sink)
         finally:
             self.runners.pop(job_id, None)
             self.tasks.pop(job_id, None)

@@ -45,7 +45,7 @@ class JobRunner:
         container_runtime: str | None,
         allow_host: bool,
         default_image: str,
-        workdir: str | None,
+        job_dir: str,
         network: str,
         extra_run_args: list[str],
     ) -> None:
@@ -54,7 +54,7 @@ class JobRunner:
         self.container_runtime = container_runtime
         self.allow_host = allow_host
         self.default_image = default_image
-        self.workdir = workdir
+        self.job_dir = job_dir  # this job's own directory, mounted at /work
         self.network = network
         self.extra_run_args = extra_run_args
         self.process: asyncio.subprocess.Process | None = None
@@ -83,9 +83,8 @@ class JobRunner:
                 "--network",
                 self.network,
             ]
-            if self.workdir:
-                # ":Z" relabels the directory for SELinux hosts (Fedora/RHEL); harmless elsewhere.
-                argv += ["-v", f"{os.path.abspath(self.workdir)}:/work:Z", "-w", "/work"]
+            # ":Z" relabels the directory for SELinux hosts (Fedora/RHEL); harmless elsewhere.
+            argv += ["-v", f"{os.path.abspath(self.job_dir)}:/work:Z", "-w", "/work"]
             for key, value in env.items():
                 argv += ["-e", f"{key}={value}"]
             argv += self.extra_run_args
@@ -108,6 +107,8 @@ class JobRunner:
         env = dict(os.environ)
         if not is_container:
             env.update({k: str(v) for k, v in (self.job.get("env") or {}).items()})
+            # Host jobs have no /work mount; they run in the job directory and can find it here.
+            env["CASTOR_WORK"] = os.path.abspath(self.job_dir)
         where = f"{self.container_runtime} ({self.job.get('image') or self.default_image})" if is_container else "host shell"
         await sink("system", f"$ {self.job.get('command', '')}\n[castor] running on {where}\n")
 
@@ -116,7 +117,7 @@ class JobRunner:
                 *argv,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=self.workdir if (self.workdir and not is_container) else None,
+                cwd=None if is_container else self.job_dir,
                 env=env,
                 start_new_session=True,
             )

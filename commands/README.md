@@ -1,8 +1,16 @@
 # Command definitions
 
-Reusable commands with typed arguments. In milestone 1 these are reference material and a
-library the UI can offer as card templates; in milestone 2 they become the blocks of
-playbooks, with `outputs` wired into the next block's `args`.
+Reusable commands with typed arguments. Files here are loaded into the command library as
+read-only built-ins when the server starts; you can also create your own in the UI
+(Commands page) using the same format. Cards pick a command and fill in its arguments.
+Later in Phase 2 these become playbook blocks, with `outputs` wired into the next block's
+`args`.
+
+Every argument value is inserted **shell-quoted**, so a value is always a single word: a
+target like `10.0.0.0/24; id` is passed to the tool literally, never run. List arguments are
+inserted as one word per item, or as one joined word when `separator` is set (e.g. `","`).
+Each job runs in its own `/work` directory; files listed as output `source`s and anything
+under `/work/artifacts/` are uploaded back to the card when the job finishes.
 
 ```yaml
 id: nmap-ping-sweep          # unique, kebab-case
@@ -17,10 +25,12 @@ args:
     description: CIDR range or host list
     required: true
     example: 192.168.0.0/24
-    regex: '^[0-9a-zA-Z./,:-]+$' # optional validation
+    regex: '^[0-9a-zA-Z./,:-]+$' # optional validation (full match)
+    # separator: ","               # list args only: join items into one word
 command: nmap -sn {{ targets }}   # Jinja-style placeholders are filled from args
-outputs:                          # milestone 2: parsed results for the next block
+outputs:                          # files collected from /work after the job
   - name: hosts
     type: list
-    parser: nmap.hosts
+    parser: nmap.hosts            # parsers arrive in Phase 2b
+    source: /work/ping-sweep.xml
 ```

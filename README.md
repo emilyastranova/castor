@@ -71,7 +71,9 @@ castor-agent --server ws://castor.example.internal:8080/ws/agent \
 ```
 
 With podman or docker present, command cards that name an `image` run inside that image
-with `--network host` and the workdir mounted at `/work`. Cards without an image run in the
+with `--network host`. Each job gets its own directory under `--workdir` (a temp directory
+by default), mounted at `/work`; files under `/work/artifacts/` and a command's declared
+outputs are uploaded back to the card. Cards without an image run in the
 agent's shell (disable with `--no-allow-host`).
 
 ## License

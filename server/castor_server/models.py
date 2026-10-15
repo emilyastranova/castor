@@ -183,6 +183,9 @@ class Task(Base, TimestampMixin):
         Enum(TaskKind, name="task_kind", native_enum=False, length=16), default=TaskKind.manual
     )
     command: Mapped[str] = mapped_column(Text, default="")
+    # Set when the card runs a library command; `command` then holds the rendered line.
+    command_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    command_args: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     image: Mapped[str | None] = mapped_column(String(300), nullable=True)
     agent_selector: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     run_on_move: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -207,6 +210,23 @@ class Task(Base, TimestampMixin):
     attachments: Mapped[list[Attachment]] = relationship(
         back_populates="task", cascade="all, delete-orphan"
     )
+
+
+class CommandDefinition(Base, TimestampMixin):
+    """A reusable command with typed arguments. Built-ins are loaded from commands/*.yaml;
+    user definitions are created in the UI. `spec` is the validated CommandSpec as JSON and
+    `source_yaml` the text it was parsed from."""
+
+    __tablename__ = "command_definitions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    origin: Mapped[str] = mapped_column(String(16), default="user")  # builtin | user
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="")
+    tags: Mapped[list[str]] = mapped_column(JSONType, default=list)
+    spec: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    source_yaml: Mapped[str] = mapped_column(Text, default="")
+    version: Mapped[int] = mapped_column(Integer, default=1)
 
 
 class Agent(Base, TimestampMixin):
@@ -255,6 +275,8 @@ class Job(Base):
     dispatched_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    # SHA-256 of the one-off token the agent uses to upload this job's artifacts.
+    artifact_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     stdout_bytes: Mapped[int] = mapped_column(Integer, default=0)
     stderr_bytes: Mapped[int] = mapped_column(Integer, default=0)
     created_by: Mapped[uuid.UUID | None] = mapped_column(

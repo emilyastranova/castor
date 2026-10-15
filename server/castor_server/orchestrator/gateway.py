@@ -373,7 +373,9 @@ class AgentGateway:
 
     # ----- outbound -----
 
-    async def send_job(self, conn: AgentConnection, job: m.Job) -> None:
+    async def send_job(
+        self, conn: AgentConnection, job: m.Job, artifacts: dict[str, Any] | None = None
+    ) -> None:
         conn.running.add(job.id)
         await conn.send(
             {
@@ -385,6 +387,8 @@ class AgentGateway:
                     "runtime": "container" if job.image else "host",
                     "env": job.env or {},
                     "timeout_s": job.timeout_s,
+                    # One-off upload token + files to collect from the job's /work afterwards.
+                    "artifacts": artifacts or {},
                 },
             }
         )

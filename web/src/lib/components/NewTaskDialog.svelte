@@ -1,10 +1,11 @@
 <script lang="ts">
-	import type { Agent, Column, Task, UUID } from '$lib/api';
+	import type { Agent, ArgErrors, Column, CommandDefinition, Task, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, TextField, Select, Chip, Switch } from '$lib/m3';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import ColumnGlyph from './ColumnGlyph.svelte';
 	import PriorityGlyph, { priorityOptions } from './PriorityGlyph.svelte';
+	import CommandArgsForm from './CommandArgsForm.svelte';
 
 	interface Props {
 		open?: boolean;
@@ -28,6 +29,34 @@
 	let runOnMove = $state(true);
 	let busy = $state(false);
 
+	// Library commands
+	let source = $state<'library' | 'custom'>('library');
+	let library = $state<CommandDefinition[]>([]);
+	let commandRef = $state('');
+	let commandArgs = $state<Record<string, unknown>>({});
+	let argErrors = $state<Record<string, string>>({});
+	let chosen = $derived(library.find((c) => c.id === commandRef) ?? null);
+
+	$effect(() => {
+		if (open && kind === 'command' && library.length === 0) {
+			api()
+				.commands.list()
+				.then((list) => {
+					library = list;
+					if (!commandRef && list[0]) commandRef = list[0].id;
+				})
+				.catch(() => (source = 'custom'));
+		}
+	});
+
+	function pickCommand(id: string) {
+		commandRef = id;
+		commandArgs = {};
+		argErrors = {};
+		const def = library.find((c) => c.id === id);
+		if (def && !title.trim()) title = def.name;
+	}
+
 	$effect(() => {
 		if (open) {
 			columnId = column?.id ?? columns.find((c) => c.role === 'todo')?.id ?? columns[0]?.id ?? '';
@@ -36,6 +65,8 @@
 
 	function reset() {
 		kind = 'manual';
+		commandArgs = {};
+		argErrors = {};
 		title = description = command = image = agentId = tagsText = '';
 		priority = '0';
 		runOnMove = true;
@@ -45,12 +76,15 @@
 		e.preventDefault();
 		busy = true;
 		try {
+			const fromLibrary = kind === 'command' && source === 'library' && !!commandRef;
 			const task = await api().projects.createTask(projectId, {
 				title,
 				description,
 				kind,
-				command: kind === 'command' ? command : '',
-				image: kind === 'command' && image.trim() ? image.trim() : null,
+				command: kind === 'command' && !fromLibrary ? command : '',
+				image: kind === 'command' && !fromLibrary && image.trim() ? image.trim() : null,
+				command_ref: fromLibrary ? commandRef : null,
+				command_args: fromLibrary ? commandArgs : {},
 				column_id: columnId,
 				agent_selector: agentId ? { agent_id: agentId } : {},
 				tags: tagsText.split(',').map((t) => t.trim()).filter(Boolean),
@@ -61,6 +95,12 @@
 			open = false;
 			reset();
 		} catch (err) {
+			const detail = err instanceof ApiError ? (err.detail as ArgErrors | null) : null;
+			if (detail?.errors) {
+				argErrors = detail.errors;
+				snackbar.error('Some command arguments need fixing');
+				return;
+			}
 			snackbar.error(err instanceof ApiError ? err.message : 'Could not create card');
 		} finally {
 			busy = false;
@@ -82,8 +122,30 @@
 		</div>
 		<TextField label="Title" bind:value={title} required autofocus placeholder={kind === 'command' ? 'e.g. Ping sweep of 10.0.0.0/24' : 'e.g. Schedule kickoff with SOC'} />
 		{#if kind === 'command'}
-			<TextField label="Command" bind:value={command} multiline rows={3} mono required placeholder="nmap -sn 10.0.0.0/24" supporting="Runs in /bin/sh on the agent. Mounted workdir is /work when run in a container." />
-			<TextField label="Container image (optional)" bind:value={image} mono placeholder="docker.io/instrumentisto/nmap" supporting="Leave empty to run in the agent's own shell" />
+			<div class="flex gap-2">
+				<Chip variant="filter" icon="menu_book" selected={source === 'library'} onclick={() => (source = 'library')}>From library</Chip>
+				<Chip variant="filter" icon="code" selected={source === 'custom'} onclick={() => (source = 'custom')}>Custom shell</Chip>
+			</div>
+			{#if source === 'library'}
+				{#if library.length}
+					<Select
+						label="Command"
+						value={commandRef}
+						options={library.map((c) => ({ value: c.id, label: `${c.name}${c.origin === 'user' ? ' · yours' : ''}` }))}
+						onchange={pickCommand}
+					/>
+					{#if chosen}
+						{#key chosen.id}
+							<CommandArgsForm spec={chosen.spec} bind:values={commandArgs} bind:errors={argErrors} />
+						{/key}
+					{/if}
+				{:else}
+					<p class="body-medium text-on-surface-variant">Loading the command library…</p>
+				{/if}
+			{:else}
+				<TextField label="Command" bind:value={command} multiline rows={3} mono required placeholder="nmap -sn 10.0.0.0/24" supporting="Runs in /bin/sh on the agent. Each job gets its own /work directory; files under /work/artifacts come back to the card." />
+				<TextField label="Container image (optional)" bind:value={image} mono placeholder="docker.io/instrumentisto/nmap" supporting="Leave empty to run in the agent's own shell" />
+			{/if}
 			<div class="grid gap-4 sm:grid-cols-2">
 				<Select label="Agent" bind:value={agentId} options={agentOptions} />
 				<div class="flex items-center">

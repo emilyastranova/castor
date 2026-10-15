@@ -27,4 +27,7 @@ def auth(client):
     r = client.post("/api/auth/login", json={"username": "admin", "password": "secret"})
     assert r.status_code == 200, r.text
     token = r.json()["token"]
+    # Login also sets a session cookie on the shared client; drop it so every test
+    # authenticates explicitly (and "not logged in" tests stay meaningful).
+    client.cookies.clear()
     return {"Authorization": f"Bearer {token}"}

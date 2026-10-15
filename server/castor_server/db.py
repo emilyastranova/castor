@@ -10,6 +10,7 @@ from pathlib import Path
 from sqlalchemy import event, inspect
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool
 
 from .config import settings
 
@@ -26,7 +27,11 @@ def _ensure_sqlite_dir(url: str) -> None:
 
 _ensure_sqlite_dir(settings.database_url)
 
-engine = create_async_engine(settings.database_url, echo=False, future=True)
+# SQLite: a fresh connection per session (NullPool). Opening a local file is cheap, and pooled
+# aiosqlite connections are tied to the event loop that created them, which breaks when work
+# runs on more than one loop (e.g. the test client's WebSocket sessions).
+_pool = {"poolclass": NullPool} if settings.database_url.startswith("sqlite") else {}
+engine = create_async_engine(settings.database_url, echo=False, future=True, **_pool)
 
 if settings.database_url.startswith("sqlite"):
     # SQLite only enforces foreign keys (and so ON DELETE CASCADE) when asked, per connection.

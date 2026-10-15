@@ -49,7 +49,8 @@ class AgentConfig:
                        help="Comma-separated tags for targeting (CASTOR_AGENT_TAGS)")
         p.add_argument("--max-concurrency", type=int, default=int(env("CASTOR_AGENT_MAX_CONCURRENCY", "1")))
         p.add_argument("--workdir", default=env("CASTOR_AGENT_WORKDIR"),
-                       help="Directory mounted into containers at /work and used as cwd for host jobs")
+                       help="Parent directory for per-job work directories; each job's own "
+                            "directory is mounted at /work (default: a temp directory)")
         p.add_argument("--network", default=env("CASTOR_AGENT_NETWORK", "host"),
                        help="Container network mode (default: host, so scans see the real network)")
         p.add_argument("--run-arg", action="append", default=[],

@@ -65,8 +65,30 @@ Server → agent
 | --- | --- |
 | `hello.ok` | `agent_id, heartbeat_interval` |
 | `hello.error` | `reason` |
-| `job.run` | `job{id, command, image?, runtime ("container"\|"host"), env{}, timeout_s, workdir?}` |
+| `job.run` | `job{id, command, image?, runtime ("container"\|"host"), env{}, timeout_s, artifacts{token, collect[]}}` |
 | `job.cancel` | `job_id` |
+
+### Job directories and artifacts
+
+Each job runs in its own directory on the agent (`<workdir>/<job_id>/`, a temp dir by
+default), mounted at `/work` for container jobs and used as the working directory for host
+jobs (`$CASTOR_WORK`). `job.run` carries a one-off upload token and the paths to collect: the
+command definition's output `source` paths plus `/work/artifacts/**`. After the process exits
+and before `job.finished`, the agent uploads matching files to
+`POST /api/jobs/{id}/artifacts` (multipart `file` + `path`, header `X-Castor-Job-Token`).
+The server stores only the token's SHA-256, accepts uploads until 10 minutes after the job
+finishes, caps size and count (`CASTOR_ARTIFACT_*`), and saves each file as an Attachment
+with `kind = artifact` and `job_id` set.
+
+## Command library
+
+Definitions (`commands/*.yaml` built-ins, plus user definitions created as YAML in the UI)
+live in `command_definitions`. A card can point at one (`command_ref` + `command_args`); the
+server renders the command line onto `task.command`, so dispatch is unchanged. Rendering
+shell-quotes every argument value (`command_render.py`), so a value is always exactly one
+shell word (or one word per list item). While a card is attached, its raw command line is
+read-only through the API; detaching (`command_ref: null`) keeps the rendered line as a plain
+shell command.
 
 ## Dispatcher
 
@@ -95,6 +117,6 @@ first start.
 
 * **M1** — this document. Board, cards, agents, container jobs, streamed output,
   comments, attachments/screenshots, custom fields, activity feed.
-* **M2** — command library + playbooks as connected blocks with typed inputs/outputs,
+* **M2** (in progress, see [PHASE2.md](PHASE2.md)) — command library + playbooks as connected blocks with typed inputs/outputs,
   parsers (nmap XML → hosts/ports, etc.), per-agent tokens, multi-user + roles.
 * **M3** — reporting, findings, evidence export, agent auto-scaling.

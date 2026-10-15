@@ -36,8 +36,10 @@ services:
       CASTOR_ADMIN_PASSWORD: ${CASTOR_ADMIN_PASSWORD:-castor}
       CASTOR_CORS_ORIGINS: '["http://localhost:8080"]'
       CASTOR_DATA_DIR: /data
+      CASTOR_COMMANDS_DIR: /commands
     volumes:
       - serverdata:/data
+      - ./commands:/commands:ro
 
   web:
     build:

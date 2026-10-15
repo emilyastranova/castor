@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from . import models as m
 from .api import api_router
+from .command_library import sync_builtin_definitions
 from .config import settings
 from .db import SessionLocal, run_migrations
 from .orchestrator.dispatcher import dispatcher
@@ -59,6 +60,9 @@ async def lifespan(app: FastAPI):
     if settings.auto_migrate:
         await run_migrations()
     await ensure_admin()
+    async with SessionLocal() as db:
+        loaded = await sync_builtin_definitions(db)
+    log.info("command library: %d built-in definitions", loaded)
     await dispatcher.start()
     log.info("castor server ready")
     try:

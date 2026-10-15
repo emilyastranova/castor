@@ -87,6 +87,50 @@ export interface JobDetail extends Job {
 	logs: LogChunk[];
 }
 
+export type ArgType = 'string' | 'number' | 'boolean' | 'list';
+
+export interface ArgSpec {
+	name: string;
+	type: ArgType;
+	description: string;
+	required: boolean;
+	default: unknown;
+	example: unknown;
+	regex: string | null;
+	choices: string[] | null;
+	separator: string;
+}
+
+export interface CommandSpec {
+	id: string;
+	name: string;
+	description: string;
+	tags: string[];
+	image: string | null;
+	args: ArgSpec[];
+	command: string;
+	outputs: { name: string; type: string; parser: string | null; source: string | null }[];
+}
+
+export interface CommandDefinition {
+	id: string;
+	origin: 'builtin' | 'user';
+	name: string;
+	description: string;
+	tags: string[];
+	spec: CommandSpec;
+	source_yaml: string;
+	version: number;
+	updated_at: string;
+	in_use: boolean;
+}
+
+/** 422 detail for invalid command arguments. */
+export interface ArgErrors {
+	message: string;
+	errors: Record<string, string>;
+}
+
 export interface Task {
 	id: UUID;
 	project_id: UUID;
@@ -96,6 +140,9 @@ export interface Task {
 	description: string;
 	kind: TaskKind;
 	command: string;
+	/** Library command this card runs; `command` then holds the rendered line. */
+	command_ref: string | null;
+	command_args: Record<string, unknown>;
 	image: string | null;
 	agent_selector: { agent_id?: UUID; tags?: string[] };
 	run_on_move: boolean;
@@ -178,7 +225,9 @@ export interface Agent {
 export class ApiError extends Error {
 	constructor(
 		public status: number,
-		message: string
+		message: string,
+		/** The response's `detail` when it is an object (e.g. per-argument errors). */
+		public detail: unknown = null
 	) {
 		super(message);
 	}
@@ -203,13 +252,20 @@ async function request<T>(
 	const res = await fetchFn(`/api${path}`, { ...init, method, headers, body: payload, credentials: 'same-origin' });
 	if (!res.ok) {
 		let message = res.statusText;
+		let detail: unknown = null;
 		try {
 			const data = await res.json();
-			message = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail ?? data);
+			detail = data.detail ?? null;
+			message =
+				typeof data.detail === 'string'
+					? data.detail
+					: typeof data.detail?.message === 'string'
+						? data.detail.message
+						: JSON.stringify(data.detail ?? data);
 		} catch {
 			/* no body */
 		}
-		throw new ApiError(res.status, message);
+		throw new ApiError(res.status, message, detail);
 	}
 	if (res.status === 204) return undefined as T;
 	return (await res.json()) as T;
@@ -279,7 +335,18 @@ export function api(fetchFn: Fetch = fetch) {
 		jobs: {
 			list: (status?: JobStatus) => get<Job[]>(`/jobs${status ? `?status=${status}` : ''}`),
 			get: (id: UUID, afterSeq = -1) => get<JobDetail>(`/jobs/${id}?after_seq=${afterSeq}`),
-			cancel: (id: UUID) => post<Job>(`/jobs/${id}/cancel`)
+			cancel: (id: UUID) => post<Job>(`/jobs/${id}/cancel`),
+			artifacts: (id: UUID) => get<Attachment[]>(`/jobs/${id}/artifacts`)
+		},
+		commands: {
+			list: () => get<CommandDefinition[]>('/commands'),
+			get: (id: string) => get<CommandDefinition>(`/commands/${id}`),
+			create: (yaml: string) => post<CommandDefinition>('/commands', { yaml }),
+			update: (id: string, yaml: string) =>
+				request<CommandDefinition>(fetchFn, 'PUT', `/commands/${id}`, { yaml }),
+			remove: (id: string) => del(`/commands/${id}`),
+			render: (id: string, args: Record<string, unknown>) =>
+				post<{ command: string; image: string | null }>(`/commands/${id}/render`, { args })
 		},
 		agents: {
 			list: () => get<Agent[]>('/agents'),

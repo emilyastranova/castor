@@ -4,6 +4,8 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
 from .. import models as m
+from ..command_library import apply_to_task, load_spec
+from ..command_render import ArgumentError
 from ..deps import DB, CurrentUser, parse_uuid
 from ..events import bus
 from ..orchestrator.dispatcher import dispatcher
@@ -33,6 +35,17 @@ from ..services import (
 )
 
 router = APIRouter(tags=["tasks"])
+
+
+async def _use_library_command(db, task: m.Task, command_ref: str, args: dict) -> None:
+    """Render a library command onto the card, or raise 404/422 with per-argument errors."""
+    spec = await load_spec(db, command_ref)
+    if spec is None:
+        raise HTTPException(404, f"Command “{command_ref}” not found")
+    try:
+        apply_to_task(task, spec, args)
+    except ArgumentError as exc:
+        raise HTTPException(422, {"message": str(exc), "errors": exc.errors}) from exc
 
 
 async def _task_or_404(db, task_id: str) -> m.Task:
@@ -65,7 +78,7 @@ async def create_task(project_id: str, body: TaskIn, db: DB, user: CurrentUser):
             ).scalar_one_or_none()
         if column is None:
             raise HTTPException(409, "Project has no columns")
-    data = body.model_dump(exclude={"column_id"})
+    data = body.model_dump(exclude={"column_id", "command_ref", "command_args"})
     task = m.Task(
         project_id=project.id,
         column_id=column.id,
@@ -73,6 +86,8 @@ async def create_task(project_id: str, body: TaskIn, db: DB, user: CurrentUser):
         created_by=user.id,
         **data,
     )
+    if body.command_ref:
+        await _use_library_command(db, task, body.command_ref, body.command_args)
     db.add(task)
     await db.flush()
     await record_activity(
@@ -106,8 +121,21 @@ async def read_task(task_id: str, db: DB, _: CurrentUser):
 async def update_task(task_id: str, body: TaskPatch, db: DB, user: CurrentUser):
     task = await _task_or_404(db, task_id)
     changes = body.model_dump(exclude_unset=True)
+    library_ref = changes.pop("command_ref", task.command_ref)
+    library_args = changes.pop("command_args", None)
+    detaching = "command_ref" in body.model_fields_set and library_ref is None
+    if task.command_ref and not detaching and {"command", "image"} & changes.keys():
+        raise HTTPException(
+            409, "This card runs a library command: edit its arguments, or detach it first"
+        )
     for key, value in changes.items():
         setattr(task, key, value)
+    if detaching:
+        task.command_ref = None  # keeps the rendered command as a plain shell command
+    elif library_ref and (library_ref != task.command_ref or library_args is not None):
+        await _use_library_command(
+            db, task, library_ref, library_args if library_args is not None else task.command_args
+        )
     await db.commit()
     return await publish_task(db, task)
 

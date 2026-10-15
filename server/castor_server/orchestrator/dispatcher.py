@@ -11,6 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from .. import models as m
+from ..artifacts import collect_patterns, new_token
+from ..command_library import load_spec
 from ..config import settings
 from ..db import SessionLocal
 from ..services import publish_job, publish_task, record_activity, utcnow
@@ -92,6 +94,9 @@ class Dispatcher:
                 job.agent_id = conn.agent_id
                 job.status = m.JobStatus.dispatched
                 job.dispatched_at = utcnow()
+                upload_token, job.artifact_token_hash = new_token()
+                spec = await load_spec(db, task.command_ref) if task.command_ref else None
+                artifacts = {"token": upload_token, "collect": collect_patterns(spec)}
                 await record_activity(
                     db,
                     type="job.dispatched",
@@ -102,7 +107,7 @@ class Dispatcher:
                 )
                 await db.commit()
                 try:
-                    await gateway.send_job(conn, job)
+                    await gateway.send_job(conn, job, artifacts)
                 except Exception as exc:  # noqa: BLE001 - any send failure re-queues the job
                     log.warning("failed to send job %s to %s: %s", job.id, conn.name, exc)
                     conn.running.discard(job.id)

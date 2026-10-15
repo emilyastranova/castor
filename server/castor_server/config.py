@@ -36,6 +36,12 @@ class Settings(BaseSettings):
 
     # Storage
     data_dir: Path = Path("./data")
+    # Job artifacts uploaded by agents
+    artifact_max_bytes: int = 100 * 1024 * 1024  # per file
+    artifact_max_files: int = 200  # per job
+    artifact_upload_window_s: int = 600  # accepted for this long after the job finishes
+    # Built-in command definitions (commands/*.yaml), synced into the library on startup.
+    commands_dir: Path = Path(__file__).resolve().parents[2] / "commands"
 
     @property
     def uploads_dir(self) -> Path:

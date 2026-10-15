@@ -38,6 +38,7 @@ Tests, lint, type-check, build:
 
 ```bash
 .venv/bin/python -m pytest server/tests                       # all server tests
+.venv/bin/python -m pytest agent/tests                        # agent tests
 .venv/bin/python -m pytest server/tests/test_flow.py -k job   # one test by name
 .venv/bin/ruff check server/castor_server agent/castor_agent
 cd web && npm run check                                       # svelte-check
@@ -90,19 +91,34 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   and every `CASTOR_DISPATCH_INTERVAL` seconds. Matching rule is in `agent_matches`:
   free slot, required runtime (image → needs podman/docker), optional `agent_id` or
   `tags` selector.
+- Command library: `command_spec.py` (YAML format → `CommandSpec`), `command_render.py`
+  (fills `{{ arg }}` placeholders; **every value goes through `shlex.quote`**, never plain
+  string substitution), `command_library.py` (built-in sync from `CASTOR_COMMANDS_DIR` at
+  startup, `apply_to_task`). A card with `command_ref` has its `command` rendered by the
+  server; the API refuses raw `command`/`image` edits until it is detached.
+- Artifacts: the dispatcher issues a one-off upload token per job (`artifacts.py`, only the
+  SHA-256 is stored) and sends it with the paths to collect in `job.run`; the agent uploads
+  to `POST /api/jobs/{id}/artifacts`, which creates `kind = artifact` attachments.
 - Auth: `POST /api/auth/login` sets an httpOnly cookie; the same JWT works as
   `Authorization: Bearer`. Agents authenticate with the shared `CASTOR_AGENT_SECRET`.
 - Config is `pydantic-settings` with the `CASTOR_` prefix (`config.py`).
+- SQLite uses `NullPool` (aiosqlite connections are bound to the event loop that opened
+  them; the test client runs WebSocket sessions on another loop).
 - Tests use Starlette's `TestClient` with a temp SQLite DB set via env vars in
-  `tests/conftest.py` **before** the app is imported; the fake agent in `test_flow.py`
+  `tests/conftest.py` **before** the app is imported; the `auth` fixture clears the login
+  cookie so tests authenticate only via the Bearer header. Test files share one database, so
+  don't assume a test's data is the only data (look agents/projects up by name); the fake agent in `test_flow.py`
   is the reference for the wire protocol.
 
 ### Agent (`agent/castor_agent`)
 
 `agent.py` is the connection loop (hello → `job.run`/`job.cancel` → `job.*` replies,
-heartbeat). `runtime.py` builds the argv: with an image it runs
-`<podman|docker> run --rm --network <net> -v workdir:/work:Z image /bin/sh -c cmd`,
-otherwise `/bin/sh -c cmd` on the host (if `--allow-host`). Processes start in their own
+heartbeat). Each job gets its own directory `<workdir>/<job_id>/`. `runtime.py` builds the
+argv: with an image it runs
+`<podman|docker> run --rm --network <net> -v <job dir>:/work:Z image /bin/sh -c cmd`,
+otherwise `/bin/sh -c cmd` on the host in the job dir (if `--allow-host`). After the job,
+`artifacts.py` collects declared outputs and `/work/artifacts/**` (skipping symlinks and
+anything outside the job dir) and uploads them with stdlib `urllib` before `job.finished`. Processes start in their own
 session so cancel can `killpg`. Only `websockets` is a dependency; keep it that way so the
 agent stays trivially installable on target boxes.
 

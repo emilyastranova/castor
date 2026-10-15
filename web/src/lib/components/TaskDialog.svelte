@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Agent, Attachment, Column, Comment, Job, Task, UUID } from '$lib/api';
+	import type { Agent, ArgErrors, Attachment, Column, Comment, CommandDefinition, Job, Task, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { realtime } from '$lib/realtime.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
@@ -12,6 +12,7 @@
 	import ColumnGlyph from './ColumnGlyph.svelte';
 	import PriorityGlyph, { priorityOptions } from './PriorityGlyph.svelte';
 	import NameImageDialog from './NameImageDialog.svelte';
+	import CommandArgsForm from './CommandArgsForm.svelte';
 	import { tick } from 'svelte';
 	import { page } from '$app/state';
 
@@ -45,6 +46,9 @@
 		if (loadedFor === task.id) return;
 		loadedFor = task.id;
 		dirty.clear();
+		libArgs = { ...task.command_args };
+		libErrors = {};
+		libDirty = false;
 		title = task.title;
 		description = task.description;
 		command = task.command;
@@ -59,6 +63,47 @@
 		selectedJobId = task.latest_job?.id ?? null;
 		void loadSide();
 	});
+
+	// ---- library command ----
+	let libraryDef = $state<CommandDefinition | null>(null);
+	let libArgs = $state<Record<string, unknown>>({});
+	let libErrors = $state<Record<string, string>>({});
+	let libDirty = $state(false);
+	let savingArgs = $state(false);
+
+	$effect(() => {
+		const ref = task.command_ref;
+		if (!ref) {
+			libraryDef = null;
+			return;
+		}
+		if (libraryDef?.id === ref) return;
+		api()
+			.commands.get(ref)
+			.then((d) => (libraryDef = d))
+			.catch(() => (libraryDef = null));
+	});
+
+	async function saveArgs() {
+		savingArgs = true;
+		try {
+			onupdated(await api().tasks.update(task.id, { command_args: libArgs }));
+			libDirty = false;
+			libErrors = {};
+		} catch (err) {
+			const detail = err instanceof ApiError ? (err.detail as ArgErrors | null) : null;
+			if (detail?.errors) libErrors = detail.errors;
+			else snackbar.error(err instanceof ApiError ? err.message : 'Could not save arguments');
+		} finally {
+			savingArgs = false;
+		}
+	}
+
+	async function detachFromLibrary() {
+		await save({ command_ref: null });
+		command = task.command;
+		snackbar.show('Detached: the command line is now editable');
+	}
 
 	// Fields save on blur only if the user actually typed in them for *this* card. Comparing the
 	// field's text with the server's value is not enough: stale text (browser form restore after
@@ -430,6 +475,7 @@
 	let column = $derived(columns.find((c) => c.id === task.column_id));
 	let agentOptions = $derived([{ value: '', label: 'Any available agent' }, ...agents.map((a) => ({ value: a.id, label: `${a.name}${a.connected ? '' : ' (offline)'}` }))]);
 	let agentName = (id: UUID | null) => agents.find((a) => a.id === id)?.name ?? '—';
+	let runFiles = $derived(attachments.filter((a) => a.job_id && a.job_id === selectedJob?.id));
 	let screenshots = $derived(attachments.filter((a) => a.content_type.startsWith('image/')));
 	let files = $derived(attachments.filter((a) => !a.content_type.startsWith('image/')));
 	let tabs = $derived([
@@ -464,7 +510,7 @@
 				{#if activeJob}
 					<Button variant="tonal" icon="stop_circle" onclick={() => cancel(activeJob!)}>Cancel</Button>
 				{:else}
-					<Button icon="play_arrow" onclick={run} disabled={!command.trim()}>Run</Button>
+					<Button icon="play_arrow" onclick={run} disabled={!task.command.trim() || libDirty}>Run</Button>
 				{/if}
 			{/if}
 			<Menu>
@@ -472,6 +518,9 @@
 				<MenuItem icon={task.kind === 'command' ? 'person' : 'terminal'} onclick={() => save({ kind: task.kind === 'command' ? 'manual' : 'command' })}>
 					Convert to {task.kind === 'command' ? 'human task' : 'command'}
 				</MenuItem>
+				{#if task.command_ref}
+					<MenuItem icon="link_off" onclick={detachFromLibrary}>Detach from library</MenuItem>
+				{/if}
 				<MenuItem icon="link" onclick={() => { navigator.clipboard.writeText(location.href); snackbar.show('Link copied'); }}>Copy link</MenuItem>
 				<MenuItem icon="delete" danger onclick={remove}>Delete card</MenuItem>
 			</Menu>
@@ -484,11 +533,32 @@
 		<div class="flex min-h-0 flex-col gap-4">
 			{#if task.kind === 'command'}
 				<div class="flex flex-col gap-3 rounded-md bg-surface-container p-4">
-					<TextField label="Command" bind:value={command} multiline rows={2} mono oninput={() => edited('command')} onblur={() => command !== task.command && commit('command', { command })} />
-					<div class="grid gap-3 sm:grid-cols-2">
-						<TextField label="Container image" bind:value={image} mono placeholder="run in agent shell" oninput={() => edited('image')} onblur={() => (image.trim() || null) !== task.image && commit('image', { image: image.trim() || null })} />
+					{#if task.command_ref}
+						<div class="flex items-center gap-2">
+							<Icon name="menu_book" size={20} class="text-primary" />
+							<span class="title-small text-on-surface">{libraryDef?.name ?? task.command_ref}</span>
+							{#if libraryDef}<span class="rounded-full bg-surface-container-highest px-2 py-0.5 label-small text-on-surface-variant">{libraryDef.origin === 'builtin' ? 'built-in' : 'yours'}</span>{/if}
+							<span class="flex-1"></span>
+							{#if libDirty}
+								<Button variant="text" onclick={() => { libArgs = { ...task.command_args }; libErrors = {}; libDirty = false; }}>Discard</Button>
+								<Button icon="check" loading={savingArgs} onclick={saveArgs}>Save arguments</Button>
+							{/if}
+						</div>
+						{#if libraryDef}
+							{#key libraryDef.id}
+								<CommandArgsForm spec={libraryDef.spec} bind:values={libArgs} bind:errors={libErrors} onedit={() => (libDirty = true)} />
+							{/key}
+						{:else}
+							<code class="rounded-sm bg-surface-container-highest px-3 py-2 font-mono text-[12.5px] break-all text-on-surface">{task.command}</code>
+						{/if}
 						<Select label="Agent" bind:value={agentId} options={agentOptions} onchange={(v) => save({ agent_selector: v ? { agent_id: v } : {} })} />
-					</div>
+					{:else}
+						<TextField label="Command" bind:value={command} multiline rows={2} mono oninput={() => edited('command')} onblur={() => command !== task.command && commit('command', { command })} />
+						<div class="grid gap-3 sm:grid-cols-2">
+							<TextField label="Container image" bind:value={image} mono placeholder="run in agent shell" oninput={() => edited('image')} onblur={() => (image.trim() || null) !== task.image && commit('image', { image: image.trim() || null })} />
+							<Select label="Agent" bind:value={agentId} options={agentOptions} onchange={(v) => save({ agent_selector: v ? { agent_id: v } : {} })} />
+						</div>
+					{/if}
 					<div class="flex flex-wrap items-center gap-4">
 						<Switch bind:checked={runOnMove} label="Run when moved to In Progress" onchange={(v) => save({ run_on_move: v })} />
 						<TextField label="Timeout (s)" bind:value={timeout} type="number" class="w-32 [&_div]:h-10" oninput={() => edited('timeout')} onblur={() => (timeout ? Number(timeout) : null) !== task.timeout_s && commit('timeout', { timeout_s: timeout ? Number(timeout) : null })} />
@@ -532,6 +602,17 @@
 						{#key selectedJob.id}
 							<JobConsole job={selectedJob} oncancel={cancel} title={task.title} />
 						{/key}
+						{#if runFiles.length}
+							<div class="flex flex-wrap items-center gap-2">
+								<span class="label-medium text-on-surface-variant">Files from this run</span>
+								{#each runFiles as f (f.id)}
+									<a class="inline-flex h-8 items-center gap-1.5 rounded-sm border border-outline-variant px-2.5 label-large text-on-surface hover:bg-on-surface/8" href={api().attachments.url(f.id)} title="{f.filename} · {bytes(f.size)}">
+										<Icon name="description" size={18} class="text-primary" />
+										<span class="max-w-64 truncate font-mono text-[12px]">{f.filename}</span>
+									</a>
+								{/each}
+							</div>
+						{/if}
 					{:else}
 						<div class="flex flex-1 flex-col items-center justify-center gap-2 rounded-md bg-surface-container p-8 text-center">
 							<Icon name="terminal" size={40} class="text-on-surface-variant" />

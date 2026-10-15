@@ -81,8 +81,8 @@ def test_full_job_flow(client, auth):
         )
         hello = json.loads(agent_ws.receive_text())
         assert hello["type"] == "hello.ok", hello
-        agents = client.get("/api/agents", headers=auth).json()
-        assert agents[0]["name"] == "test-agent" and agents[0]["connected"] is True
+        agents = {a["name"]: a for a in client.get("/api/agents", headers=auth).json()}
+        assert agents["test-agent"]["connected"] is True
 
         # Moving the command card to In Progress queues + dispatches a job
         r = client.post(
@@ -134,11 +134,11 @@ def test_full_job_flow(client, auth):
     # After disconnect the agent is offline
     deadline = time.time() + 5
     while time.time() < deadline:
-        agents = client.get("/api/agents", headers=auth).json()
-        if agents[0]["status"] == "offline":
+        agents = {a["name"]: a for a in client.get("/api/agents", headers=auth).json()}
+        if agents["test-agent"]["status"] == "offline":
             break
         time.sleep(0.05)
-    assert agents[0]["status"] == "offline" and agents[0]["connected"] is False
+    assert agents["test-agent"]["status"] == "offline" and agents["test-agent"]["connected"] is False
 
 
 def test_queued_without_agent_then_cancel(client, auth):
