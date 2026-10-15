@@ -1,5 +1,6 @@
 /** Runtime theming: light/dark preference and optional custom seed colour. */
 import { browser } from '$app/environment';
+import customColors from './custom-colors.json';
 
 export type ThemeMode = 'system' | 'light' | 'dark';
 
@@ -53,6 +54,13 @@ const ROLES = [
 
 const kebab = (s: string) => s.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase());
 
+const customVarNames = (name: string) => [
+	`--md-custom-color-${name}`,
+	`--md-custom-color-on-${name}`,
+	`--md-custom-color-${name}-container`,
+	`--md-custom-color-on-${name}-container`
+];
+
 export function getSeed(): string | null {
 	if (!browser) return null;
 	try {
@@ -75,6 +83,9 @@ export async function applySeed(seed: string | null): Promise<void> {
 	if (!seed) {
 		delete root.dataset.seed;
 		for (const role of ROLES) root.style.removeProperty(`--md-sys-color-${kebab(role)}`);
+		for (const name of Object.keys(customColors)) {
+			for (const v of customVarNames(name)) root.style.removeProperty(v);
+		}
 		return;
 	}
 	root.dataset.seed = seed;
@@ -83,6 +94,16 @@ export async function applySeed(seed: string | null): Promise<void> {
 	for (const role of ROLES) {
 		const color = (mcu.MaterialDynamicColors as unknown as Record<string, { getArgb(s: unknown): number }>)[role];
 		if (color) root.style.setProperty(`--md-sys-color-${kebab(role)}`, mcu.hexFromArgb(color.getArgb(scheme)));
+	}
+	const source = mcu.argbFromHex(seed);
+	for (const [name, hex] of Object.entries(customColors)) {
+		const group = mcu.customColor(source, { name, value: mcu.argbFromHex(hex), blend: false });
+		const g = isDark() ? group.dark : group.light;
+		const [c, on, container, onContainer] = customVarNames(name);
+		root.style.setProperty(c, mcu.hexFromArgb(g.color));
+		root.style.setProperty(on, mcu.hexFromArgb(g.onColor));
+		root.style.setProperty(container, mcu.hexFromArgb(g.colorContainer));
+		root.style.setProperty(onContainer, mcu.hexFromArgb(g.onColorContainer));
 	}
 }
 

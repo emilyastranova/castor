@@ -8,6 +8,7 @@
 	import { Button, Chip, Dialog, Icon, IconButton, Menu, MenuItem, Select, Switch, Tabs, TextField, Avatar } from '$lib/m3';
 	import StatusChip from './StatusChip.svelte';
 	import JobConsole from './JobConsole.svelte';
+	import ColumnGlyph from './ColumnGlyph.svelte';
 
 	interface Props {
 		task: Task;
@@ -222,7 +223,7 @@
 	]);
 </script>
 
-<Dialog bind:open size="lg" onclose={onclose}>
+<Dialog bind:open size="lg" initialFocus="dialog" onclose={onclose}>
 	{#snippet header()}
 		<div class="flex items-start gap-3 px-6 pt-5 pb-3">
 			<Icon name={task.kind === 'command' ? 'terminal' : 'person'} class="mt-2 {task.kind === 'command' ? 'text-primary' : 'text-on-surface-variant'}" />
@@ -235,7 +236,6 @@
 					aria-label="Title"
 				/>
 				<div class="mt-1 flex flex-wrap items-center gap-2 body-small text-on-surface-variant">
-					<Select label="Column" value={task.column_id} options={columns.map((c) => ({ value: c.id, label: c.name }))} onchange={moveTo} class="w-44 [&_div]:h-10 [&_select]:body-medium" />
 					<StatusChip job={task.latest_job} />
 					<span>created {relativeTime(task.created_at)} · updated {relativeTime(task.updated_at)}</span>
 				</div>
@@ -259,7 +259,7 @@
 		</div>
 	{/snippet}
 
-	<div class="grid min-h-full gap-6 pb-6 lg:grid-cols-[1fr_300px]" onpaste={onPaste}>
+	<div class="grid min-h-full gap-6 pt-2 pb-6 lg:grid-cols-[1fr_300px]" onpaste={onPaste}>
 		<!-- main column -->
 		<div class="flex min-h-0 flex-col gap-4">
 			{#if task.kind === 'command'}
@@ -413,12 +413,14 @@
 
 		<!-- side column -->
 		<aside class="flex flex-col gap-4">
+			<Select label="Column" value={task.column_id} options={columns.map((c) => ({ value: c.id, label: c.name }))} onchange={moveTo}>
+				{#snippet leading(id)}<ColumnGlyph role={columns.find((c) => c.id === id)?.role} />{/snippet}
+			</Select>
 			<Select label="Priority" bind:value={priority} options={[{ value: '0', label: 'None' }, { value: '1', label: 'Low' }, { value: '2', label: 'Medium' }, { value: '3', label: 'High' }]} onchange={(v) => save({ priority: Number(v) })} />
 			<TextField label="Tags" bind:value={tagsText} supporting="Comma separated" onblur={() => { const tags = tagsText.split(',').map((t) => t.trim()).filter(Boolean); if (tags.join() !== task.tags.join()) void save({ tags }); }} />
 			<div class="rounded-md bg-surface-container p-4 body-small text-on-surface-variant">
 				<p class="mb-2 title-small text-on-surface">Details</p>
 				<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-					<dt>Column</dt><dd class="text-on-surface">{column?.name ?? '—'}</dd>
 					<dt>Kind</dt><dd class="text-on-surface">{task.kind}</dd>
 					{#if task.latest_job}
 						<dt>Last run</dt><dd class="text-on-surface">{task.latest_job.status}{task.latest_job.started_at ? ` · ${duration(task.latest_job.started_at, task.latest_job.finished_at)}` : ''}</dd>

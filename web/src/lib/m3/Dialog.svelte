@@ -11,14 +11,30 @@
 		children?: Snippet;
 		actions?: Snippet;
 		header?: Snippet;
+		/** 'first' lets the browser focus the first control (default); 'dialog' focuses the
+		 *  dialog itself so no text field gets a caret until the user clicks into one. */
+		initialFocus?: 'first' | 'dialog';
 	}
-	let { open = $bindable(false), title, icon, size = 'sm', onclose, children, actions, header }: Props = $props();
+	let {
+		open = $bindable(false),
+		title,
+		icon,
+		size = 'sm',
+		onclose,
+		children,
+		actions,
+		header,
+		initialFocus = 'first'
+	}: Props = $props();
 
 	let dialog: HTMLDialogElement | undefined = $state();
 
 	$effect(() => {
 		if (!dialog) return;
-		if (open && !dialog.open) dialog.showModal();
+		if (open && !dialog.open) {
+			dialog.showModal();
+			if (initialFocus === 'dialog') dialog.focus();
+		}
 		else if (!open && dialog.open) dialog.close();
 	});
 
@@ -37,7 +53,8 @@
 
 <dialog
 	bind:this={dialog}
-	class="m-auto max-h-[calc(100vh-2rem)] overflow-hidden rounded-xl bg-surface-container-high p-0 text-on-surface shadow-e3 backdrop:bg-scrim/40 open:flex open:flex-col {sizes[size]}"
+	tabindex="-1"
+	class="m-auto outline-none max-h-[calc(100vh-2rem)] overflow-hidden rounded-xl bg-surface-container-high p-0 text-on-surface shadow-e3 backdrop:bg-scrim/40 open:flex open:flex-col {sizes[size]}"
 	onclose={close}
 	oncancel={(e) => {
 		e.preventDefault();

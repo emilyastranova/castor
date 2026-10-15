@@ -3,6 +3,7 @@
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, TextField, Select, Chip, Switch } from '$lib/m3';
 	import { snackbar } from '$lib/snackbar.svelte';
+	import ColumnGlyph from './ColumnGlyph.svelte';
 
 	interface Props {
 		open?: boolean;
@@ -91,7 +92,9 @@
 		{/if}
 		<TextField label="Description" bind:value={description} multiline rows={3} supporting="Markdown supported" />
 		<div class="grid gap-4 sm:grid-cols-3">
-			<Select label="Column" bind:value={columnId} options={columns.map((c) => ({ value: c.id, label: c.name }))} />
+			<Select label="Column" bind:value={columnId} options={columns.map((c) => ({ value: c.id, label: c.name }))}>
+				{#snippet leading(id)}<ColumnGlyph role={columns.find((c) => c.id === id)?.role} />{/snippet}
+			</Select>
 			<Select label="Priority" bind:value={priority} options={[{ value: '0', label: 'None' }, { value: '1', label: 'Low' }, { value: '2', label: 'Medium' }, { value: '3', label: 'High' }]} />
 			<TextField label="Tags" bind:value={tagsText} placeholder="recon, web" />
 		</div>

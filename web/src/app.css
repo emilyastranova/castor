@@ -146,6 +146,13 @@ body {
 	-webkit-font-smoothing: antialiased;
 	overscroll-behavior-y: none;
 }
+/* Native <select> popups: options with a transparent background fall back to the
+   platform's default (white), which made light dark-mode text unreadable. */
+select option,
+select optgroup {
+	background-color: var(--md-sys-color-surface-container-high);
+	color: var(--md-sys-color-on-surface);
+}
 ::selection { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
 
 .material-symbols-rounded {

@@ -2,8 +2,9 @@
 	import { dndzone, type DndEvent, SHADOW_ITEM_MARKER_PROPERTY_NAME } from 'svelte-dnd-action';
 	import { flip } from 'svelte/animate';
 	import type { Column, Task, UUID } from '$lib/api';
-	import { Icon, IconButton } from '$lib/m3';
+	import { IconButton } from '$lib/m3';
 	import TaskCard from './TaskCard.svelte';
+	import ColumnGlyph from './ColumnGlyph.svelte';
 
 	interface Props {
 		column: Column;
@@ -20,14 +21,6 @@
 	$effect(() => {
 		if (!dragging) items = tasks;
 	});
-
-	const roleIcon: Record<string, string> = {
-		backlog: 'inventory_2',
-		todo: 'radio_button_unchecked',
-		active: 'play_circle',
-		review: 'rate_review',
-		done: 'task_alt'
-	};
 
 	function consider(e: CustomEvent<DndEvent<Task>>) {
 		dragging = true;
@@ -57,7 +50,7 @@
 
 <section class="flex h-full w-80 shrink-0 flex-col rounded-lg bg-surface-container-low">
 	<header class="flex items-center gap-2 px-3 pt-3 pb-2">
-		<Icon name={roleIcon[column.role ?? ''] ?? 'view_column'} size={20} class={column.role === 'active' ? 'text-tertiary' : 'text-on-surface-variant'} />
+		<ColumnGlyph role={column.role} size={18} />
 		<h2 class="flex-1 truncate title-medium text-on-surface">{column.name}</h2>
 		<span class="rounded-full px-2 py-0.5 label-small {overLimit ? 'bg-error-container text-on-error-container' : 'bg-surface-container-highest text-on-surface-variant'}">
 			{tasks.length}{column.wip_limit !== null ? `/${column.wip_limit}` : ''}

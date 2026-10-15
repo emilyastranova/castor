@@ -50,6 +50,22 @@
 	--md-sys-color-on-tertiary-fixed-variant: #5e3c53;
 	--md-sys-color-background: #fbf8ff;
 	--md-sys-color-on-background: #1b1b21;
+	--md-custom-color-blue: #005ac4;
+	--md-custom-color-on-blue: #ffffff;
+	--md-custom-color-blue-container: #d8e2ff;
+	--md-custom-color-on-blue-container: #001a42;
+	--md-custom-color-amber: #845400;
+	--md-custom-color-on-amber: #ffffff;
+	--md-custom-color-amber-container: #ffddb6;
+	--md-custom-color-on-amber-container: #2a1800;
+	--md-custom-color-violet: #7f34ca;
+	--md-custom-color-on-violet: #ffffff;
+	--md-custom-color-violet-container: #efdbff;
+	--md-custom-color-on-violet-container: #2b0052;
+	--md-custom-color-green: #006e26;
+	--md-custom-color-on-green: #ffffff;
+	--md-custom-color-green-container: #7dfd8c;
+	--md-custom-color-on-green-container: #002106;
 }
 :root[data-theme='dark'] {
 	color-scheme: dark;
@@ -102,6 +118,22 @@
 	--md-sys-color-on-tertiary-fixed-variant: #5e3c53;
 	--md-sys-color-background: #131318;
 	--md-sys-color-on-background: #e4e1e9;
+	--md-custom-color-blue: #aec6ff;
+	--md-custom-color-on-blue: #002e6b;
+	--md-custom-color-blue-container: #004396;
+	--md-custom-color-on-blue-container: #d8e2ff;
+	--md-custom-color-amber: #ffb95b;
+	--md-custom-color-on-amber: #462a00;
+	--md-custom-color-amber-container: #643f00;
+	--md-custom-color-on-amber-container: #ffddb6;
+	--md-custom-color-violet: #dbb8ff;
+	--md-custom-color-on-violet: #480082;
+	--md-custom-color-violet-container: #650db1;
+	--md-custom-color-on-violet-container: #efdbff;
+	--md-custom-color-green: #5fdf73;
+	--md-custom-color-on-green: #003910;
+	--md-custom-color-green-container: #00531b;
+	--md-custom-color-on-green-container: #7dfd8c;
 }
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme='light']) {
@@ -155,5 +187,21 @@
 		--md-sys-color-on-tertiary-fixed-variant: #5e3c53;
 		--md-sys-color-background: #131318;
 		--md-sys-color-on-background: #e4e1e9;
+		--md-custom-color-blue: #aec6ff;
+		--md-custom-color-on-blue: #002e6b;
+		--md-custom-color-blue-container: #004396;
+		--md-custom-color-on-blue-container: #d8e2ff;
+		--md-custom-color-amber: #ffb95b;
+		--md-custom-color-on-amber: #462a00;
+		--md-custom-color-amber-container: #643f00;
+		--md-custom-color-on-amber-container: #ffddb6;
+		--md-custom-color-violet: #dbb8ff;
+		--md-custom-color-on-violet: #480082;
+		--md-custom-color-violet-container: #650db1;
+		--md-custom-color-on-violet-container: #efdbff;
+		--md-custom-color-green: #5fdf73;
+		--md-custom-color-on-green: #003910;
+		--md-custom-color-green-container: #00531b;
+		--md-custom-color-on-green-container: #7dfd8c;
 	}
 }
