@@ -43,7 +43,7 @@ class AgentConfig:
                        default=env("CASTOR_AGENT_ALLOW_HOST", "true").lower() in ("1", "true", "yes"),
                        help="Allow jobs without an image to run in the host shell")
         p.add_argument("--no-allow-host", dest="allow_host", action="store_false")
-        p.add_argument("--default-image", default=env("CASTOR_AGENT_DEFAULT_IMAGE", "docker.io/kalilinux/kali-rolling"),
+        p.add_argument("--default-image", default=env("CASTOR_AGENT_DEFAULT_IMAGE", "docker.io/library/alpine:latest"),
                        help="Image used when a job asks for a container but names none")
         p.add_argument("--tags", default=env("CASTOR_AGENT_TAGS", ""),
                        help="Comma-separated tags for targeting (CASTOR_AGENT_TAGS)")
@@ -52,7 +52,7 @@ class AgentConfig:
                        help="Parent directory for per-job work directories; each job's own "
                             "directory is mounted at /work (default: a temp directory)")
         p.add_argument("--network", default=env("CASTOR_AGENT_NETWORK", "host"),
-                       help="Container network mode (default: host, so scans see the real network)")
+                       help="Container network mode (default: host, so containers see the host network)")
         p.add_argument("--run-arg", action="append", default=[],
                        help="Extra argument passed to `<runtime> run` (repeatable)")
         p.add_argument("--log-level", default=env("CASTOR_AGENT_LOG_LEVEL", "INFO"))

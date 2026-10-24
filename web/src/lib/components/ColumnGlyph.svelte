@@ -26,7 +26,7 @@
 <!--
 	A circle that fills as work progresses, so column state reads at a glance:
 	backlog (dashed) → to do (empty) → in progress (half) → review (three quarters) → done (check).
-	Reported, the step after done, is a line-art document: the finding is in the engagement report.
+	Reported, the step after done, is a line-art document: the task result is in the workflow report.
 -->
 <svg
 	class="shrink-0 {klass}"

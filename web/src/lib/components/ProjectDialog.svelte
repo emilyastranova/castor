@@ -15,7 +15,7 @@
 
 	let codename = $state('');
 	let name = $state('');
-	let kind = $state('external');
+	let kind = $state('pipeline');
 	let clientId = $state('');
 	let newClient = $state('');
 	let description = $state('');
@@ -25,14 +25,14 @@
 		if (open) {
 			codename = project?.codename ?? '';
 			name = project?.name ?? '';
-			kind = project?.kind ?? 'external';
+			kind = project?.kind ?? 'pipeline';
 			clientId = project?.client_id ?? '';
 			description = project?.description ?? '';
 			newClient = '';
 		}
 	});
 
-	const kinds = ['external', 'internal', 'web app', 'red team', 'purple team', 'cloud', 'wireless', 'other'];
+	const kinds = ['pipeline', 'automation', 'dataflow', 'infrastructure', 'scheduled', 'internal', 'external', 'other'];
 
 	async function submit(e: SubmitEvent) {
 		e.preventDefault();

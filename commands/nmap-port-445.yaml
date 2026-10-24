@@ -2,7 +2,7 @@ id: nmap-port-445
 name: Nmap SMB port 445 scan
 schema_version: 1
 description: Scan for open port 445 (SMB) across target hosts or subnets
-tags: [recon, network, smb, nmap]
+tags: [network, smb, nmap]
 image: docker.io/instrumentisto/nmap
 container_flags:
   - --privileged

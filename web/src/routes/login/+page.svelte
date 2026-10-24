@@ -35,11 +35,11 @@
 	>
 		<div class="flex items-center gap-3">
 			<span class="flex size-12 items-center justify-center rounded-lg bg-primary-container text-on-primary-container">
-				<Icon name="radar" filled />
+				<Icon name="account_tree" filled />
 			</span>
 			<div>
 				<h1 class="headline-small text-on-surface">Castor</h1>
-				<p class="body-medium text-on-surface-variant">Engagement task board</p>
+				<p class="body-medium text-on-surface-variant">Workflow orchestration task board</p>
 			</div>
 		</div>
 		<TextField label="Username" bind:value={username} autocomplete="username" required autofocus />

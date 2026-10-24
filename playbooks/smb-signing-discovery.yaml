@@ -1,8 +1,8 @@
 id: smb-signing-discovery
 name: SMB Signing Status Discovery
 schema_version: 1
-description: Scan network range for open port 445 (SMB) with Nmap, then query live hosts with NetExec SMB to audit signing requirements and tabulate vulnerable targets.
-tags: [recon, smb, discovery, nmap, netexec]
+description: Scan network range for open port 445 (SMB) with Nmap, then query live hosts with NetExec SMB to audit signing requirements and tabulate host configurations.
+tags: [network, smb, discovery, nmap, netexec]
 inputs:
   - name: targets
     type: string

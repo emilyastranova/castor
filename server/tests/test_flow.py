@@ -43,7 +43,7 @@ def test_full_job_flow(client, auth):
             "title": "Ping scan",
             "kind": "command",
             "command": "echo hello; echo oops >&2; exit 0",
-            "tags": ["recon"],
+            "tags": ["network"],
         },
         headers=auth,
     )

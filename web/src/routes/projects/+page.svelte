@@ -21,7 +21,7 @@
 
 <svelte:head><title>Projects · Castor</title></svelte:head>
 
-<TopAppBar title="Projects" subtitle="{data.projects.length} engagements · {online} agent{online === 1 ? '' : 's'} online" />
+<TopAppBar title="Projects" subtitle="{data.projects.length} project{data.projects.length === 1 ? '' : 's'} · {online} agent{online === 1 ? '' : 's'} online" />
 
 <div class="flex-1 overflow-auto px-6 pb-24">
 	{#if data.projects.length === 0}
@@ -29,9 +29,9 @@
 			<span class="flex size-20 items-center justify-center rounded-xl bg-primary-container text-on-primary-container">
 				<Icon name="view_kanban" size={40} />
 			</span>
-			<h2 class="headline-small text-on-surface">No engagements yet</h2>
+			<h2 class="headline-small text-on-surface">No projects yet</h2>
 			<p class="body-medium text-on-surface-variant">
-				Create a project for each client engagement. Each one gets its own board with To Do, In Progress, Review and Done columns.
+				Create a project to orchestrate your tasks and workflows. Each one gets its own board with To Do, In Progress, Review and Done columns.
 			</p>
 		</div>
 	{:else}

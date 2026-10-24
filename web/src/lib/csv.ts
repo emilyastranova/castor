@@ -1,6 +1,6 @@
 /**
  * Build CSV text. Cells that a spreadsheet would treat as a formula (=, +, -, @, tab, CR)
- * get a leading apostrophe: scan results carry target-controlled strings such as PTR
+ * get a leading apostrophe: command outputs carry external untrusted strings such as PTR
  * names and HTTP titles, and pasting them into Excel must not run anything.
  */
 export function toCsv(header: string[], rows: unknown[][]): string {

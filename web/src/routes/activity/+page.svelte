@@ -28,7 +28,7 @@
 
 <svelte:head><title>Activity · Castor</title></svelte:head>
 
-<TopAppBar title="Activity" subtitle="Everything that happened across engagements" />
+<TopAppBar title="Activity" subtitle="Everything that happened across workflows" />
 <div class="flex flex-wrap gap-2 px-6 pb-2">
 	<Chip variant="filter" selected={projectFilter === null} onclick={() => (projectFilter = null)}>All</Chip>
 	{#each data.projects as p (p.id)}

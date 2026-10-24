@@ -1,12 +1,12 @@
 # Castor
 
-Kanban task manager and job orchestrator for penetration-testing engagements.
+Kanban task manager and job orchestrator for workflow automation.
 
 Cards on a project board are either **manual tasks** for people or **command tasks** for
 agents. Drag a command card into *In Progress* and Castor dispatches it to an agent, which
 runs it in a container and streams the output straight back into the card. Cards carry
 output logs, screenshots, comments, and custom fields, so the board doubles as the
-engagement's working log.
+workflow's execution log.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design and the agent protocol.
 

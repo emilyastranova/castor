@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     log_level: str = "info"
     cors_origins: list[str] = ["http://localhost:5173"]
 
-    # Database. SQLite is fine for local hacking; Postgres for everything else.
+    # Database. SQLite is fine for local development; Postgres for everything else.
     database_url: str = "sqlite+aiosqlite:///./data/castor.db"
     auto_migrate: bool = True  # apply database migrations on startup
 

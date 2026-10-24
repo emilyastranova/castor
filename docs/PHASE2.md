@@ -73,7 +73,7 @@ copy-as-CSV. Parse failures show on the card and do not fail the job.
 As built: outputs are snapshotted onto the job at dispatch (`jobs.output_specs`), an
 output's `type` defaults to its parser's type (a mismatch is a validation error), and nmap's
 own fatal errors (`runstats/finished exit="error"`) are reported instead of an empty list.
-CSV copies prefix cells starting with `= + - @` so target-controlled strings can't become
+CSV copies prefix cells starting with `= + - @` so external untrusted strings can't become
 spreadsheet formulas.
 
 ## 2c. Playbooks

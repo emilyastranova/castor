@@ -1,7 +1,7 @@
 # Castor architecture
 
-Castor is a Kanban-style task manager and job orchestrator for penetration-testing
-engagements. Cards on a board are either **manual tasks** (a person does them) or
+Castor is a Kanban-style task manager and workflow orchestrator for automation
+pipelines. Cards on a board are either **manual tasks** (a person does them) or
 **command tasks** (an agent runs them). Dragging a command card into the project's
 *active* column dispatches it to an agent, which runs it in a container and streams
 the output back into the card.
@@ -97,7 +97,7 @@ Output types are a fixed set so playbook steps can be type-checked: `string`, `n
 `service`/`list<service>` (`{host, port, proto, state, name, product, version}`),
 `url`/`list<url>` (`{url, status, length, words, lines}`). Parsers: `nmap.hosts`,
 `nmap.services`, `ffuf.results`, `lines`, `regex`, `text`. XML goes through `defusedxml`,
-since tool output can carry target-controlled content.
+since tool output can carry external untrusted content.
 
 Each parser has an options model (pydantic, `extra="forbid"`); an output's `options` are
 validated when the definition is saved. User-supplied regular expressions run with the
@@ -145,4 +145,4 @@ first start.
   comments, attachments/screenshots, custom fields, activity feed.
 * **M2** (in progress, see [PHASE2.md](PHASE2.md)) — command library + playbooks as connected blocks with typed inputs/outputs,
   parsers (nmap XML → hosts/ports, etc.), per-agent tokens, multi-user + roles.
-* **M3** — reporting, findings, evidence export, agent auto-scaling.
+* **M3** — reporting, run summaries, artifact export, agent auto-scaling.

@@ -59,11 +59,11 @@
 	let editorError = $state<string | null>(null);
 	let savingYaml = $state(false);
 
-	const DEFAULT_PLAYBOOK_TEMPLATE = `id: custom-recon-flow
-name: Custom Recon Flow
+	const DEFAULT_PLAYBOOK_TEMPLATE = `id: custom-pipeline-flow
+name: Custom Pipeline Flow
 schema_version: 1
-description: Example two-step reconnaissance workflow
-tags: [recon, discovery]
+description: Example two-step automated workflow
+tags: [automation, pipeline]
 inputs:
   - name: targets
     type: string

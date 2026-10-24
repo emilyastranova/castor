@@ -17,11 +17,11 @@ image: docker.io/library/alpine:3.20   # optional; omit to run in the agent shel
 container_flags:                       # optional; e.g. ["--privileged", "--network=bridge"]
   - "--privileged"
 args:
-  - name: target
+  - name: message
     type: string            # string | number | boolean | list
     required: true
-    example: 10.0.0.5
-command: echo {{ target }} > /work/artifacts/result.txt
+    example: hello world
+command: echo {{ message }} > /work/artifacts/result.txt
 outputs:
   - name: result
     source: /work/artifacts/result.txt

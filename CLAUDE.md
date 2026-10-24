@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What Castor is
 
-A Kanban task manager and job orchestrator for pentest engagements. Cards are either
+A Kanban task manager and workflow orchestrator for automation pipelines. Cards are either
 **manual** (a person does them) or **command** (an agent runs them). Dragging a command
 card into the project's *active* column enqueues a Job; the dispatcher sends it to a
 connected agent, which runs it in a container (or host shell) and streams output back into

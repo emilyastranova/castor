@@ -65,7 +65,7 @@ class ColumnRole(str, enum.Enum):
     active = "active"
     review = "review"
     done = "done"
-    reported = "reported"  # added to the engagement report: the final step
+    reported = "reported"  # added to the workflow report: the final step
 
 
 class JobStatus(str, enum.Enum):
@@ -129,7 +129,7 @@ class Project(Base, TimestampMixin):
     )
     codename: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(200))
-    kind: Mapped[str] = mapped_column(String(64), default="external")
+    kind: Mapped[str] = mapped_column(String(64), default="pipeline")
     status: Mapped[str] = mapped_column(String(32), default="active")
     description: Mapped[str] = mapped_column(Text, default="")
     start_date: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)

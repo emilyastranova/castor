@@ -66,7 +66,7 @@ services:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
 
   # A sample agent running inside the stack. It runs jobs in sibling containers through
-  # the host's container socket. Real engagements usually run agents on dedicated boxes:
+  # the host's container socket. Production workflows usually run agents on dedicated boxes:
   #   castor-agent --server ws://<castor-host>:8080/ws/agent --secret ...
   agent:
     build:

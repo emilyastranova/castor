@@ -1,8 +1,8 @@
 id: netexec-smb
 name: NetExec SMB signing check
 schema_version: 1
-description: Enumerate SMB hosts and check if SMB signing is required (vulnerable to NTLM relaying)
-tags: [recon, smb, netexec]
+description: Enumerate SMB hosts and inspect SMB signing configuration status
+tags: [network, smb, netexec]
 args:
   - name: targets
     type: string

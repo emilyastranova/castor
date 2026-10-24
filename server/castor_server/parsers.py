@@ -312,7 +312,7 @@ NETEXEC_SMBV1_RE = regex.compile(r"\(SMBv1:(True|False)\)", regex.IGNORECASE)
 
 class NetExecSmbOptions(Options):
     signing_only: bool = Field(
-        False, description="Only keep hosts where SMB signing is disabled (vulnerable)"
+        False, description="Only keep hosts where SMB signing is disabled"
     )
     unique: bool = Field(True, description="Drop repeated hosts (keeps the first)")
 

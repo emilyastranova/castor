@@ -169,7 +169,7 @@
 			<Select label="Priority" bind:value={priority} options={priorityOptions}>
 				{#snippet leading(level)}<PriorityGlyph {level} />{/snippet}
 			</Select>
-			<TextField label="Tags" bind:value={tagsText} placeholder="recon, web" />
+			<TextField label="Tags" bind:value={tagsText} placeholder="automation, web" />
 		</div>
 		{#if kind === 'command' && targetColumn?.role === 'active' && runOnMove}
 			<p class="rounded-sm bg-tertiary-container px-3 py-2 body-small text-on-tertiary-container">This card will be dispatched to an agent as soon as it is created.</p>

@@ -17,7 +17,7 @@ id: nmap-ping-sweep          # unique, kebab-case
 name: Nmap ping sweep
 schema_version: 1
 description: Discover live hosts in a range
-tags: [recon, network]
+tags: [network, discovery]
 image: docker.io/instrumentisto/nmap   # optional: run in this container image
 container_flags:                     # optional: extra flags passed to docker/podman run
   - --privileged

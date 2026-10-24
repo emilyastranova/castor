@@ -75,9 +75,9 @@ def test_netexec_smb():
         "smbv1": False,
     }
     assert parsed[1]["signing"] is False
-    vulnerable_only = parsers.netexec_smb(raw, parsers.NetExecSmbOptions(signing_only=True))
-    assert len(vulnerable_only) == 3
-    assert all(not h["signing"] for h in vulnerable_only)
+    unsigned_only = parsers.netexec_smb(raw, parsers.NetExecSmbOptions(signing_only=True))
+    assert len(unsigned_only) == 3
+    assert all(not h["signing"] for h in unsigned_only)
 
 
 def test_output_spec_types_come_from_the_parser():

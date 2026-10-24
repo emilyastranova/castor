@@ -53,7 +53,7 @@ class ClientOut(ORM):
 class ProjectIn(BaseModel):
     codename: str
     name: str
-    kind: str = "external"
+    kind: str = "pipeline"
     client_id: uuid.UUID | None = None
     description: str = ""
     start_date: datetime | None = None
