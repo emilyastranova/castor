@@ -12,8 +12,19 @@ from sqlalchemy.orm import selectinload
 
 from . import models as m
 from .command_library import apply_to_task, load_spec
+from .command_render import ArgumentError
 from .events import bus
-from .playbook_spec import PlaybookSpec, resolve_step_args
+from .playbook_spec import (
+    ACTIVE,
+    SATISFIED,
+    PlaybookSpec,
+    PlaybookStepSpec,
+    has_empty_upstream,
+    lookup_ref,
+    resolve_step_args,
+    step_statuses,
+)
+from .playbook_transforms import TransformError, as_items, run_transform
 from .schemas import ColumnOut, JobOut, PlaybookRunOut, ProjectOut, TaskOut
 
 DEFAULT_COLUMNS: list[tuple[str, m.ColumnRole | None]] = [
@@ -317,6 +328,14 @@ def board_payload(project: m.Project, columns: list[m.BoardColumn], tasks: list[
 # ---------- playbooks ----------
 
 
+def _run_spec(run: m.PlaybookRun) -> PlaybookSpec:
+    return PlaybookSpec.model_validate(run.spec_snapshot)
+
+
+def _run_task_ids(run: m.PlaybookRun) -> dict[str, uuid.UUID]:
+    return {step_id: uuid.UUID(tid) for step_id, tid in (run.step_task_ids or {}).items()}
+
+
 async def playbook_run_out(db: AsyncSession, run: m.PlaybookRun) -> PlaybookRunOut:
     tasks = (
         await db.execute(
@@ -327,14 +346,22 @@ async def playbook_run_out(db: AsyncSession, run: m.PlaybookRun) -> PlaybookRunO
         )
     ).scalars().all()
     tasks_o = await tasks_out(db, list(tasks))
+    by_task = {t.id: t for t in tasks_o}
+    job_status = {
+        step_id: (by_task[tid].latest_job.status if tid in by_task and by_task[tid].latest_job else None)
+        for step_id, tid in _run_task_ids(run).items()
+    }
+    status = run.status.value if hasattr(run.status, "value") else str(run.status)
     return PlaybookRunOut(
         id=run.id,
         playbook_id=run.playbook_id,
         playbook_name=run.playbook_name,
         project_id=run.project_id,
-        status=run.status.value if hasattr(run.status, "value") else str(run.status),
+        status=status,
         inputs=run.inputs,
         step_task_ids=run.step_task_ids,
+        step_results=run.step_results or {},
+        step_status=step_statuses(_run_spec(run), job_status, run.step_results or {}, status),
         spec_snapshot=run.spec_snapshot,
         finished_at=run.finished_at,
         created_at=run.created_at,
@@ -357,7 +384,8 @@ async def start_playbook_run(
     inputs: dict[str, Any],
     user: m.User | None,
 ) -> tuple[m.PlaybookRun, list[m.Job]]:
-    """Instantiate a playbook as linked cards on the project board and queue ready steps."""
+    """Instantiate a playbook: one card per command step (transform steps have no card),
+    then run every step whose dependencies are already met. Caller commits."""
     run = m.PlaybookRun(
         playbook_id=spec.id,
         playbook_name=spec.name,
@@ -365,13 +393,13 @@ async def start_playbook_run(
         status=m.PlaybookRunStatus.running,
         inputs=inputs,
         step_task_ids={},
+        step_results={},
         spec_snapshot=spec.model_dump(mode="json"),
         created_by=user.id if user else None,
     )
     db.add(run)
     await db.flush()
 
-    active_col = await column_with_role(db, project_id, m.ColumnRole.active)
     todo_col = await column_with_role(db, project_id, m.ColumnRole.todo)
     if todo_col is None:
         todo_col = (
@@ -382,18 +410,17 @@ async def start_playbook_run(
                 .limit(1)
             )
         ).scalar_one_or_none()
-    if active_col is None:
-        active_col = todo_col
+    if todo_col is None:
+        raise ValueError("project has no columns")
 
-    step_task_map: dict[str, uuid.UUID] = {}
-    tasks_to_add: list[m.Task] = []
+    tasks: list[m.Task] = []
     for step in spec.steps:
-        col = todo_col if todo_col else active_col
-        pos = await next_position(db, col.id) if col else 0.0
+        if step.kind != "command":
+            continue
         task = m.Task(
             project_id=project_id,
-            column_id=col.id if col else active_col.id,
-            position=pos,
+            column_id=todo_col.id,
+            position=await next_position(db, todo_col.id),
             title=f"[{spec.name}] {step.name}",
             description=step.description,
             kind=m.TaskKind.command,
@@ -404,30 +431,10 @@ async def start_playbook_run(
             created_by=user.id if user else None,
         )
         db.add(task)
-        tasks_to_add.append(task)
-
+        await db.flush()  # next_position must see this card
+        tasks.append(task)
+    run.step_task_ids = {t.playbook_step_id: str(t.id) for t in tasks if t.playbook_step_id}
     await db.flush()
-    for task in tasks_to_add:
-        if task.playbook_step_id:
-            step_task_map[task.playbook_step_id] = task.id
-    run.step_task_ids = {k: str(v) for k, v in step_task_map.items()}
-    await db.flush()
-
-    enqueued_jobs: list[m.Job] = []
-    for step in spec.steps:
-        if not step.depends_on:
-            task_id = step_task_map[step.id]
-            task = next(t for t in tasks_to_add if t.id == task_id)
-            resolved_args = resolve_step_args(step.args, inputs, {})
-            cmd_spec = await load_spec(db, step.command_ref)
-            if cmd_spec is not None:
-                apply_to_task(task, cmd_spec, resolved_args)
-            if active_col is not None and task.column_id != active_col.id:
-                task.column_id = active_col.id
-                task.position = await next_position(db, active_col.id)
-            await db.flush()
-            job = await enqueue_job(db, task, user, reason=f"playbook initial step: {step.name}")
-            enqueued_jobs.append(job)
 
     await record_activity(
         db,
@@ -437,133 +444,261 @@ async def start_playbook_run(
         payload={"run_id": str(run.id), "playbook_id": spec.id},
         **actor_of(user),
     )
+    jobs, touched = await _advance(db, run, user)
+    for task in tasks:
+        await publish_task(db, task, "task.created")
+    for task in touched:
+        if task not in tasks:
+            await publish_task(db, task)
     await publish_playbook_run(db, run)
-    return run, enqueued_jobs
+    return run, jobs
+
+
+async def _step_outputs(
+    db: AsyncSession,
+    spec: PlaybookSpec,
+    task_ids: dict[str, uuid.UUID],
+    latest_jobs: dict[uuid.UUID, m.Job],
+    results: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Values available to bind: parsed outputs of succeeded jobs, results of transforms."""
+    outputs: dict[str, dict[str, Any]] = {}
+    job_step = {
+        latest_jobs[tid].id: step_id
+        for step_id, tid in task_ids.items()
+        if tid in latest_jobs and latest_jobs[tid].status == m.JobStatus.succeeded
+    }
+    if job_step:
+        rows = (
+            await db.execute(select(m.JobOutput).where(m.JobOutput.job_id.in_(list(job_step))))
+        ).scalars()
+        for row in rows:
+            if row.error is None:
+                outputs.setdefault(job_step[row.job_id], {})[row.name] = row.value
+    for step in spec.steps:
+        result = results.get(step.id) or {}
+        if step.kind == "transform" and result.get("status") == "succeeded":
+            outputs[step.id] = dict(result.get("outputs") or {})
+    return outputs
+
+
+async def _advance(
+    db: AsyncSession, run: m.PlaybookRun, user: m.User | None = None
+) -> tuple[list[m.Job], list[m.Task]]:
+    """Run every step whose dependencies are satisfied, repeating until nothing changes
+    (a transform finishing can make the next step ready at once), then settle the run's
+    status. Returns the queued jobs and the cards that changed. Does not commit."""
+    spec = _run_spec(run)
+    task_ids = _run_task_ids(run)
+    tasks = {
+        t.id: t
+        for t in (
+            await db.execute(select(m.Task).where(m.Task.id.in_(list(task_ids.values()))))
+        ).scalars()
+    }
+    latest_jobs = await latest_jobs_for(db, list(task_ids.values()))
+    results: dict[str, Any] = dict(run.step_results or {})
+    outputs = await _step_outputs(db, spec, task_ids, latest_jobs, results)
+    active_col = await column_with_role(db, run.project_id, m.ColumnRole.active)
+    done_col = await column_with_role(db, run.project_id, m.ColumnRole.done)
+    run_status = run.status.value
+
+    def statuses() -> dict[str, str]:
+        job_status = {
+            step_id: latest_jobs[tid].status.value
+            for step_id, tid in task_ids.items()
+            if tid in latest_jobs
+        }
+        return step_statuses(spec, job_status, results, run_status)
+
+    jobs: list[m.Job] = []
+    touched: list[m.Task] = []
+
+    async def move(task: m.Task, column: m.BoardColumn | None) -> None:
+        if column is not None and task.column_id != column.id:
+            task.column_id = column.id
+            task.position = await next_position(db, column.id)
+            await db.flush()
+        if task not in touched:
+            touched.append(task)
+
+    progressed = run_status != "cancelled"
+    while progressed:
+        progressed = False
+        current = statuses()
+        for step in spec.steps:
+            if current[step.id] != "pending":
+                continue
+            if any(current.get(d) not in SATISFIED for d in step.depends_on):
+                continue
+            progressed = True
+            task = tasks.get(task_ids[step.id]) if step.id in task_ids else None
+
+            if step.skip_if_empty and has_empty_upstream(step, run.inputs, outputs):
+                results[step.id] = {
+                    "status": "skipped",
+                    "reason": "an upstream value is empty",
+                    "finished_at": utcnow().isoformat(),
+                }
+                if task is not None:
+                    await move(task, done_col)
+                    await record_activity(
+                        db,
+                        type="playbook_step.skipped",
+                        message=f"Skipped “{task.title}”: nothing to work on from upstream",
+                        project_id=run.project_id,
+                        task_id=task.id,
+                        payload={"run_id": str(run.id), "step_id": step.id},
+                    )
+                continue
+
+            if step.transform is not None:
+                refs = step.refs()
+                values = [lookup_ref(ref, run.inputs, outputs) for ref in refs]
+                input_count = sum(len(as_items(v)) for v in values)
+                try:
+                    items = run_transform(step.transform, values)
+                except TransformError as exc:
+                    results[step.id] = {
+                        "status": "failed",
+                        "error": str(exc),
+                        "input_count": input_count,
+                        "finished_at": utcnow().isoformat(),
+                    }
+                    continue
+                input_type = await _ref_type(db, spec, refs[0], task_ids, latest_jobs, results) if refs else None
+                results[step.id] = {
+                    "status": "succeeded",
+                    "outputs": {step.transform.output.name: items},
+                    "type": step.transform.result_type(input_type),
+                    "input_count": input_count,
+                    "count": len(items),
+                    "finished_at": utcnow().isoformat(),
+                }
+                outputs[step.id] = {step.transform.output.name: items}
+                continue
+
+            if task is None:  # card deleted from the board
+                results[step.id] = {"status": "failed", "error": "the step's card was deleted"}
+                continue
+            error = await _prepare_command_step(db, task, step, run.inputs, outputs)
+            if error is not None:
+                results[step.id] = {
+                    "status": "failed",
+                    "error": error,
+                    "finished_at": utcnow().isoformat(),
+                }
+                await record_activity(
+                    db,
+                    type="playbook_step.failed",
+                    message=f"Could not start “{task.title}”: {error}",
+                    project_id=run.project_id,
+                    task_id=task.id,
+                    payload={"run_id": str(run.id), "step_id": step.id},
+                )
+                if task not in touched:
+                    touched.append(task)
+                continue
+            results.pop(step.id, None)
+            await move(task, active_col)
+            reason = (
+                "playbook step ready" if step.depends_on else f"playbook started: {step.name}"
+            )
+            job = await enqueue_job(db, task, user, reason=reason)
+            latest_jobs[task.id] = job
+            jobs.append(job)
+
+    run.step_results = results  # reassign: JSON columns don't track in-place changes
+    await _settle_run(db, run, set(statuses().values()))
+    return jobs, touched
+
+
+async def _prepare_command_step(
+    db: AsyncSession,
+    task: m.Task,
+    step: PlaybookStepSpec,
+    inputs: dict[str, Any],
+    outputs: dict[str, dict[str, Any]],
+) -> str | None:
+    """Render the step's command onto its card. Returns an error message, or None."""
+    cmd_spec = await load_spec(db, step.command_ref)
+    if cmd_spec is None:
+        return f"command {step.command_ref} is not in the library"
+    try:
+        apply_to_task(task, cmd_spec, resolve_step_args(step.args, inputs, outputs))
+    except ArgumentError as exc:
+        return str(exc)
+    await db.flush()
+    return None
+
+
+async def _ref_type(
+    db: AsyncSession,
+    spec: PlaybookSpec,
+    ref: str,
+    task_ids: dict[str, uuid.UUID],
+    latest_jobs: dict[uuid.UUID, m.Job],
+    results: dict[str, Any],
+) -> str | None:
+    """The output type behind a `steps.x.outputs.y` reference, for labelling transforms."""
+    parts = ref.split(".")
+    if parts[0] != "steps":
+        return None
+    result = results.get(parts[1]) or {}
+    if result.get("type"):
+        return result["type"]
+    tid = task_ids.get(parts[1])
+    job = latest_jobs.get(tid) if tid else None
+    if job is None:
+        return None
+    return (
+        await db.execute(
+            select(m.JobOutput.type).where(m.JobOutput.job_id == job.id, m.JobOutput.name == parts[3])
+        )
+    ).scalar_one_or_none()
+
+
+async def _settle_run(db: AsyncSession, run: m.PlaybookRun, current: set[str]) -> None:
+    """Finish the run when no step can move any more; reopen it when a step was re-run."""
+    if run.status == m.PlaybookRunStatus.cancelled:
+        return
+    if current <= SATISFIED:
+        new = m.PlaybookRunStatus.succeeded
+    elif current & (ACTIVE | {"pending"}):
+        new = m.PlaybookRunStatus.running
+    else:
+        new = m.PlaybookRunStatus.failed
+    if new == run.status:
+        return
+    run.status = new
+    run.finished_at = None if new == m.PlaybookRunStatus.running else utcnow()
+    if new == m.PlaybookRunStatus.running:
+        return
+    ok = new == m.PlaybookRunStatus.succeeded
+    await record_activity(
+        db,
+        type=f"playbook_run.{new.value}",
+        message=f"Playbook “{run.playbook_name}” "
+        + ("completed successfully" if ok else "failed"),
+        project_id=run.project_id,
+        payload={"run_id": str(run.id)},
+    )
 
 
 async def advance_playbook_run(
     db: AsyncSession, run_id: uuid.UUID
 ) -> tuple[m.PlaybookRun | None, list[m.Job]]:
-    """Check dependencies of steps in a running playbook and enqueue ready steps."""
+    """Called whenever one of the run's jobs finishes (after its outputs are parsed): queue
+    the steps that became ready, commit and publish. The caller wakes the dispatcher."""
     run = await db.get(m.PlaybookRun, run_id)
-    if run is None or run.status != m.PlaybookRunStatus.running:
+    if run is None or run.status == m.PlaybookRunStatus.cancelled:
         return run, []
-
-    spec_dict = run.spec_snapshot
-    steps = spec_dict.get("steps", [])
-    step_task_ids = run.step_task_ids or {}
-
-    task_uuids = [uuid.UUID(tid) for tid in step_task_ids.values()]
-    tasks_rows = (
-        await db.execute(select(m.Task).where(m.Task.id.in_(task_uuids)))
-    ).scalars().all()
-    tasks_by_id = {t.id: t for t in tasks_rows}
-    latest_jobs = await latest_jobs_for(db, task_uuids)
-
-    step_outputs: dict[str, dict[str, Any]] = {}
-    for step in steps:
-        s_id = step["id"]
-        tid_str = step_task_ids.get(s_id)
-        if not tid_str:
-            continue
-        tid = uuid.UUID(tid_str)
-        job = latest_jobs.get(tid)
-        if job and job.status == m.JobStatus.succeeded:
-            outputs_rows = (
-                await db.execute(select(m.JobOutput).where(m.JobOutput.job_id == job.id))
-            ).scalars().all()
-            step_outputs[s_id] = {o.name: o.value for o in outputs_rows}
-
-    active_col = await column_with_role(db, run.project_id, m.ColumnRole.active)
-    enqueued_jobs: list[m.Job] = []
-
-    for step in steps:
-        s_id = step["id"]
-        tid_str = step_task_ids.get(s_id)
-        if not tid_str:
-            continue
-        tid = uuid.UUID(tid_str)
-        task = tasks_by_id.get(tid)
-        job = latest_jobs.get(tid)
-
-        if job is not None:
-            continue
-
-        deps = step.get("depends_on", [])
-        deps_succeeded = True
-        for dep_id in deps:
-            dep_tid_str = step_task_ids.get(dep_id)
-            if not dep_tid_str:
-                deps_succeeded = False
-                break
-            dep_tid = uuid.UUID(dep_tid_str)
-            dep_job = latest_jobs.get(dep_tid)
-            if dep_job is None or dep_job.status != m.JobStatus.succeeded:
-                deps_succeeded = False
-                break
-
-        if deps_succeeded and task is not None:
-            resolved_args = resolve_step_args(step.get("args", {}), run.inputs, step_outputs)
-            cmd_spec = await load_spec(db, step["command_ref"])
-            if cmd_spec is not None:
-                apply_to_task(task, cmd_spec, resolved_args)
-            if active_col is not None and task.column_id != active_col.id:
-                task.column_id = active_col.id
-                task.position = await next_position(db, active_col.id)
-            await db.flush()
-            new_job = await enqueue_job(
-                db, task, None, reason=f"playbook step {step.get('name', s_id)} dependencies ready"
-            )
-            enqueued_jobs.append(new_job)
-            latest_jobs[tid] = new_job
-
-    all_succeeded = True
-    any_failed = False
-    any_running = False
-
-    for step in steps:
-        s_id = step["id"]
-        tid_str = step_task_ids.get(s_id)
-        if not tid_str:
-            all_succeeded = False
-            continue
-        tid = uuid.UUID(tid_str)
-        job = latest_jobs.get(tid)
-        if job is None:
-            all_succeeded = False
-        elif job.status == m.JobStatus.succeeded:
-            pass
-        elif job.status in (m.JobStatus.queued, m.JobStatus.dispatched, m.JobStatus.running):
-            all_succeeded = False
-            any_running = True
-        elif job.status in (m.JobStatus.failed, m.JobStatus.cancelled, m.JobStatus.lost):
-            all_succeeded = False
-            any_failed = True
-
-    if all_succeeded:
-        run.status = m.PlaybookRunStatus.succeeded
-        run.finished_at = utcnow()
-        await record_activity(
-            db,
-            type="playbook_run.succeeded",
-            message=f"Playbook “{run.playbook_name}” completed successfully",
-            project_id=run.project_id,
-            payload={"run_id": str(run.id)},
-        )
-    elif any_failed and not any_running:
-        run.status = m.PlaybookRunStatus.failed
-        run.finished_at = utcnow()
-        await record_activity(
-            db,
-            type="playbook_run.failed",
-            message=f"Playbook “{run.playbook_name}” failed",
-            project_id=run.project_id,
-            payload={"run_id": str(run.id)},
-        )
-
+    jobs, touched = await _advance(db, run)
     await db.commit()
+    for task in touched:
+        await publish_task(db, task)
     await publish_playbook_run(db, run)
-    return run, enqueued_jobs
+    return run, jobs
 
 
 async def cancel_playbook_run(
@@ -594,7 +729,7 @@ async def cancel_playbook_run(
 
     from .orchestrator.dispatcher import dispatcher
 
-    for tid, job in latest_jobs.items():
+    for job in latest_jobs.values():
         if job and not job.status.is_terminal:
             await dispatcher.cancel(job.id)
 

@@ -1,0 +1,68 @@
+# Demo command for the pipeline-demo playbook: fakes an ffuf directory brute force without touching the
+# network. Runs on the host shell (agent --allow-host) or any image with /bin/sh and awk.
+id: demo-dir-brute
+name: "Demo: directory brute force"
+schema_version: 1
+description: "Pretend ffuf run: a few paths per URL, with extra findings on :8080"
+tags: [demo]
+args:
+  - name: urls
+    type: string
+    description: Comma-separated base URLs
+    required: true
+    example: http://10.20.0.10:80/
+  - name: step
+    type: string
+    description: Playbook step id, compared with fail_at and empty_at
+    default: demo
+  - name: delay
+    type: number
+    description: Seconds to pretend to work (multiplied by speed)
+    default: 2
+  - name: speed
+    type: number
+    description: Multiplier for delay; 0 finishes instantly
+    default: 1
+  - name: fail_at
+    type: string
+    description: Exit 1 when this equals step
+    default: none
+  - name: empty_at
+    type: string
+    description: Produce no results when this equals step
+    default: none
+command: |
+  step={{ step }}
+  secs=$(awk -v d={{ delay }} -v s={{ speed }} 'BEGIN { print d * s }')
+  echo "[demo] $step: working for ${secs}s"
+  sleep "$secs"
+  if [ {{ fail_at }} = "$step" ]; then echo "[demo] $step: failing on purpose (fail_at)" >&2; exit 1; fi
+  empty=0; if [ {{ empty_at }} = "$step" ]; then empty=1; echo "[demo] $step: producing no results (empty_at)"; fi
+  octet() { n=${1##*.}; case $n in ''|*[!0-9]*) n=0;; esac; echo "$n"; }
+  urls={{ urls }}
+  first=1
+  hit() {
+    if [ "$first" = 1 ]; then first=0; else printf ','; fi
+    printf '{"input":{"FUZZ":"%s"},"status":%s,"length":%s,"words":12,"lines":6,"url":"%s/%s","host":"%s"}' "$2" "$3" "$4" "$1" "$2" "$1"
+  }
+  {
+    printf '{"commandline":"ffuf (castor demo)","results":['
+    if [ "$empty" = 0 ]; then
+      for base in $(echo "$urls" | tr ',' ' '); do
+        base=${base%/}
+        hit "$base" admin 301 169
+        hit "$base" login 200 4211
+        hit "$base" server-status 403 277
+        case $base in
+          *:8080) hit "$base" manager/html 401 2536; hit "$base" .git/HEAD 200 23 ;;
+        esac
+      done
+    fi
+    printf ']}\n'
+  } > ffuf.json
+  echo "[demo] $step: wrote ffuf.json"
+outputs:
+  - name: paths
+    type: list<url>
+    parser: ffuf.results
+    source: /work/ffuf.json

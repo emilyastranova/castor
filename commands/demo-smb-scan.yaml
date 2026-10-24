@@ -1,0 +1,60 @@
+# Demo command for the pipeline-demo playbook: fakes an nmap port 445 scan without touching the
+# network. Runs on the host shell (agent --allow-host) or any image with /bin/sh and awk.
+id: demo-smb-scan
+name: "Demo: SMB port scan"
+schema_version: 1
+description: "Pretend port 445 scan: hosts with an odd last octet have SMB open"
+tags: [demo]
+args:
+  - name: targets
+    type: string
+    description: Comma-separated IPs
+    required: true
+    example: 10.20.0.11,10.20.0.13
+  - name: step
+    type: string
+    description: Playbook step id, compared with fail_at and empty_at
+    default: demo
+  - name: delay
+    type: number
+    description: Seconds to pretend to work (multiplied by speed)
+    default: 2
+  - name: speed
+    type: number
+    description: Multiplier for delay; 0 finishes instantly
+    default: 1
+  - name: fail_at
+    type: string
+    description: Exit 1 when this equals step
+    default: none
+  - name: empty_at
+    type: string
+    description: Produce no results when this equals step
+    default: none
+command: |
+  step={{ step }}
+  secs=$(awk -v d={{ delay }} -v s={{ speed }} 'BEGIN { print d * s }')
+  echo "[demo] $step: working for ${secs}s"
+  sleep "$secs"
+  if [ {{ fail_at }} = "$step" ]; then echo "[demo] $step: failing on purpose (fail_at)" >&2; exit 1; fi
+  empty=0; if [ {{ empty_at }} = "$step" ]; then empty=1; echo "[demo] $step: producing no results (empty_at)"; fi
+  octet() { n=${1##*.}; case $n in ''|*[!0-9]*) n=0;; esac; echo "$n"; }
+  targets={{ targets }}
+  {
+    echo '<?xml version="1.0"?><nmaprun scanner="nmap" args="nmap -p 445 --open (castor demo)">'
+    if [ "$empty" = 0 ]; then
+      for ip in $(echo "$targets" | tr ',' ' '); do
+        n=$(octet "$ip")
+        if [ $((n % 2)) = 1 ]; then
+          echo "<host><status state=\"up\"/><address addr=\"$ip\" addrtype=\"ipv4\"/><ports><port protocol=\"tcp\" portid=\"445\"><state state=\"open\"/><service name=\"microsoft-ds\"/></port></ports></host>"
+        fi
+      done
+    fi
+    echo '<runstats><finished exit="success"/></runstats></nmaprun>'
+  } > smb.xml
+  echo "[demo] $step: wrote smb.xml"
+outputs:
+  - name: hosts
+    type: list<host>
+    parser: nmap.hosts
+    source: /work/smb.xml

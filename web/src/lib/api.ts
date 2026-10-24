@@ -127,15 +127,51 @@ export interface PlaybookInputSpec {
 	required: boolean;
 	default: unknown;
 	example: unknown;
+	choices?: string[] | null;
+}
+
+/** A server-side step between commands: reshapes upstream outputs (no card, no agent). */
+export interface TransformSpec {
+	/** `{{ steps.<id>.outputs.<name> }}` reference(s); several are concatenated. */
+	input: string | string[];
+	/** Each op is a one-key mapping (`{ filter: {...} }`, `{ pluck: 'ip' }`) or a bare name. */
+	ops: (Record<string, unknown> | string)[];
+	output: { name: string; type: string | null };
 }
 
 export interface PlaybookStepSpec {
 	id: string;
 	name: string;
-	command_ref: string;
+	kind: 'command' | 'transform';
+	command_ref: string | null;
+	transform: TransformSpec | null;
 	description: string;
+	/** Includes the steps referenced in args / transform input (added by the server). */
 	depends_on: string[];
 	args: Record<string, unknown>;
+	skip_if_empty: boolean;
+}
+
+export type PlaybookStepStatus =
+	| 'pending'
+	| 'queued'
+	| 'running'
+	| 'succeeded'
+	| 'failed'
+	| 'cancelled'
+	| 'skipped'
+	| 'blocked';
+
+/** What the run stores for transform steps and for steps that never got a job. */
+export interface PlaybookStepResult {
+	status: 'succeeded' | 'failed' | 'skipped';
+	outputs?: Record<string, unknown>;
+	type?: string;
+	count?: number;
+	input_count?: number;
+	error?: string;
+	reason?: string;
+	finished_at?: string;
 }
 
 export interface PlaybookSpec {
@@ -171,6 +207,8 @@ export interface PlaybookRun {
 	status: PlaybookRunStatus;
 	inputs: Record<string, unknown>;
 	step_task_ids: Record<string, string>;
+	step_results: Record<string, PlaybookStepResult>;
+	step_status: Record<string, PlaybookStepStatus>;
 	spec_snapshot: PlaybookSpec;
 	finished_at: string | null;
 	created_at: string;

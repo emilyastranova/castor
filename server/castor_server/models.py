@@ -276,6 +276,9 @@ class PlaybookRun(Base, TimestampMixin):
     )
     inputs: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     step_task_ids: Mapped[dict[str, str]] = mapped_column(JSONType, default=dict)
+    # Per-step state the jobs don't carry: transform results and steps that never got a job
+    # (skipped, or failed to render). {step_id: {status, outputs, type, count, error, ...}}
+    step_results: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     spec_snapshot: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(

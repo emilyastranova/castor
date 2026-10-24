@@ -102,9 +102,8 @@ class CommandSpec(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def alias_container_args(cls, data: Any) -> Any:
-        if isinstance(data, dict):
-            if "container_args" in data and "container_flags" not in data:
-                data["container_flags"] = data.pop("container_args")
+        if isinstance(data, dict) and "container_args" in data and "container_flags" not in data:
+            data["container_flags"] = data.pop("container_args")
         return data
 
     @field_validator("container_flags", mode="before")

@@ -1,0 +1,160 @@
+# A fake recon pipeline for developing and testing the playbook engine and UI. Every
+# command is a demo-* command that invents its output (nmap XML, NetExec text, ffuf JSON),
+# so it runs in seconds on any agent started with --allow-host and never touches a network.
+#
+#                ┌─► svc_scan ─► [web_targets] ─► dir_brute ─► [interesting] ─┐
+#   seed_hosts ──┼─► smb_scan ─► smb_audit ─► [unsigned] ─────────────────────┼─► report
+#                └─► dns_names ───────────────────────────────────────────────┘
+#
+# [brackets] are transform steps: computed on the server, no card. Try fail_at to watch a
+# branch fail (its dependents become blocked), and empty_at to watch skip_if_empty.
+id: pipeline-demo
+name: Pipeline Demo
+schema_version: 1
+description: >-
+  Fake recon pipeline (no network, seconds to run) that exercises fan-out, parallel
+  branches of different lengths, transform steps between commands and a fan-in report.
+  Set fail_at or empty_at to see failure and empty-result handling.
+tags: [demo, testing]
+
+inputs:
+  - name: subnet
+    type: string
+    description: First three octets of the fake network
+    default: 10.20.0
+  - name: host_count
+    type: number
+    description: How many live hosts the seed step invents
+    default: 6
+  - name: speed
+    type: number
+    description: Multiplies every step's delay (0 runs instantly, 2 is twice as slow)
+    default: 1
+  - name: fail_at
+    type: string
+    description: Step that exits 1 on purpose
+    default: none
+    choices: [none, seed_hosts, svc_scan, smb_scan, dns_names, smb_audit, dir_brute, report]
+  - name: empty_at
+    type: string
+    description: Step that produces no results
+    default: none
+    choices: [none, seed_hosts, svc_scan, smb_scan, dns_names, smb_audit, dir_brute]
+
+# Shared by every demo step (YAML merge key); not part of the playbook format.
+x-demo: &demo
+  speed: "{{ inputs.speed }}"
+  fail_at: "{{ inputs.fail_at }}"
+  empty_at: "{{ inputs.empty_at }}"
+
+steps:
+  - id: seed_hosts
+    name: Seed hosts
+    command_ref: demo-seed-hosts
+    description: Invents a run of live hosts
+    args:
+      <<: *demo
+      step: seed_hosts
+      delay: 2
+      subnet: "{{ inputs.subnet }}"
+      count: "{{ inputs.host_count }}"
+
+  - id: svc_scan
+    name: Service scan
+    command_ref: demo-service-scan
+    description: Finds open ports on every live host (slowest branch)
+    skip_if_empty: true
+    args:
+      <<: *demo
+      step: svc_scan
+      delay: 6
+      targets: "{{ steps.seed_hosts.outputs.hosts }}"
+
+  - id: smb_scan
+    name: SMB port scan
+    command_ref: demo-smb-scan
+    description: Finds hosts with port 445 open
+    skip_if_empty: true
+    args:
+      <<: *demo
+      step: smb_scan
+      delay: 3
+      targets: "{{ steps.seed_hosts.outputs.hosts }}"
+
+  - id: dns_names
+    name: DNS names
+    command_ref: demo-dns-names
+    description: Looks up a name for every live host (fastest branch)
+    skip_if_empty: true
+    args:
+      <<: *demo
+      step: dns_names
+      delay: 1
+      targets: "{{ steps.seed_hosts.outputs.hosts }}"
+
+  - id: web_targets
+    name: Web services → URLs
+    description: Keeps the HTTP services and turns each into a base URL
+    transform:
+      input: "{{ steps.svc_scan.outputs.services }}"
+      ops:
+        - filter: { field: name, in: [http, http-proxy] }
+        - format: "http://{{ host }}:{{ port }}/"
+        - unique: true
+      output: { name: urls }
+
+  - id: smb_audit
+    name: SMB signing audit
+    command_ref: demo-smb-audit
+    description: Checks SMB signing on every host with 445 open
+    skip_if_empty: true
+    args:
+      <<: *demo
+      step: smb_audit
+      delay: 4
+      targets: "{{ steps.smb_scan.outputs.hosts }}"
+
+  - id: dir_brute
+    name: Directory brute force
+    command_ref: demo-dir-brute
+    description: Looks for interesting paths on every web service
+    skip_if_empty: true
+    args:
+      <<: *demo
+      step: dir_brute
+      delay: 5
+      urls: "{{ steps.web_targets.outputs.urls }}"
+
+  - id: unsigned
+    name: Signing disabled
+    description: Keeps the SMB hosts that don't require signing
+    transform:
+      input: "{{ steps.smb_audit.outputs.smb_hosts }}"
+      ops:
+        - filter: { field: signing, equals: false }
+        - pluck: host
+        - sort: true
+      output: { name: hosts }
+
+  - id: interesting
+    name: Interesting paths
+    description: Keeps paths that answered 200 or 401
+    transform:
+      input: "{{ steps.dir_brute.outputs.paths }}"
+      ops:
+        - filter: { field: status, in: [200, 401] }
+        - pluck: url
+        - sort: true
+      output: { name: urls }
+
+  - id: report
+    name: Report
+    command_ref: demo-report
+    description: Collects the findings of all three branches
+    args:
+      <<: *demo
+      step: report
+      delay: 1
+      findings: "{{ steps.interesting.outputs.urls }}"
+      unsigned: "{{ steps.unsigned.outputs.hosts }}"
+      names: "{{ steps.dns_names.outputs.names }}"

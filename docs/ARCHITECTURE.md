@@ -116,6 +116,41 @@ shell word (or one word per list item). While a card is attached, its raw comman
 read-only through the API; detaching (`command_ref: null`) keeps the rendered line as a plain
 shell command.
 
+## Playbooks
+
+The authoring format is specified in [PLAYBOOK_SPEC.md](PLAYBOOK_SPEC.md) (self-contained,
+meant to be handed to whoever or whatever writes playbooks). A playbook (`playbooks/*.yaml` built-ins, user definitions edited as YAML) is a DAG of
+steps (`playbook_spec.py`). A **command step** names a library command and binds its args
+to literals, `{{ inputs.x }}`, or `{{ steps.<id>.outputs.<name> }}`; each one becomes a
+card when the run starts. A **transform step** runs no command and has no card: it takes
+`transform.input` (one or more step-output references, concatenated), applies a fixed list
+of ops (`filter`, `pluck`, `format`, `unique`, `sort`, `limit`; `playbook_transforms.py`,
+data only, regexes with a timeout) and publishes `transform.output.name`. Every reference
+in args or input is added to `depends_on` when the spec is parsed, so the graph always
+matches the bindings. Unknown keys are errors (except `x-...`), and saving also checks the
+spec against the command library (`playbook_library.check_against_library`: commands,
+argument names and values, referenced outputs); `POST /api/playbooks/validate` runs both
+checks without saving. `skip_if_empty: true` skips a step when a value it takes from
+upstream is empty.
+
+`services._advance` drives a run: whenever one of its jobs finishes (after its outputs are
+parsed) it runs every step whose dependencies are satisfied (succeeded or skipped),
+repeating until nothing changes, since a transform finishing can make the next step ready
+at once. Transform results, skips and steps that could not start are stored in
+`playbook_runs.step_results`; command steps otherwise take their state from their card's
+latest job. `step_statuses` derives one status per step (`pending, queued, running,
+succeeded, failed, cancelled, skipped, blocked`; blocked = an upstream step failed) and
+`PlaybookRunOut.step_status` carries it to the UI. The run succeeds when every step is
+succeeded or skipped, and fails when nothing can move any more. Re-running a failed card
+reopens a failed run. Events: `playbook_run.updated` on every change, plus
+`task.created|updated` for the step cards.
+
+`playbooks/pipeline-demo.yaml` and the `commands/demo-*` commands are a fake recon
+pipeline (fan-out, three branches, three transforms, fan-in) that runs in seconds on an
+agent with `--allow-host` and touches no network; its `fail_at` / `empty_at` inputs
+exercise failure and skip handling. `server/tests/test_playbook_transforms.py` runs it
+end to end with each command executed under `/bin/sh`.
+
 ## Dispatcher
 
 The dispatcher lives in the server process. `pump()` runs whenever a job is enqueued, an
@@ -129,7 +164,8 @@ and marks the job `dispatched`. Jobs with no eligible agent stay `queued`.
 Authenticated by the session cookie. The server broadcasts every domain event as
 `{"type":"event","name":"task.moved","project_id":"…","data":{…}}`. Event names:
 `project.updated`, `column.*`, `task.created|updated|moved|deleted`, `job.updated`,
-`job.log`, `job.outputs`, `comment.created`, `attachment.created`, `agent.updated`.
+`job.log`, `job.outputs`, `comment.created`, `attachment.created`, `agent.updated`,
+`playbook_run.updated`.
 The client keeps page state in sync by applying these to its stores.
 
 ## Auth

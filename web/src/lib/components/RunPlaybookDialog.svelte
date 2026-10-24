@@ -109,6 +109,14 @@
 									onchange={(v) => (inputValues = { ...inputValues, [inp.name]: v })}
 								/>
 							</div>
+						{:else if inp.choices && inp.choices.length > 0}
+							<Select
+								label={inp.name}
+								options={inp.choices.map((c) => ({ value: c, label: c }))}
+								value={String(inputValues[inp.name] ?? '')}
+								supporting={inp.description}
+								onchange={(v) => (inputValues = { ...inputValues, [inp.name]: v })}
+							/>
 						{:else}
 							<TextField
 								label={inp.name}

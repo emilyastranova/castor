@@ -10,7 +10,7 @@ from sqlalchemy import select
 from .. import models as m
 from ..deps import DB, CurrentUser, parse_uuid
 from ..orchestrator.dispatcher import dispatcher
-from ..playbook_library import definition_from_spec, load_playbook_spec
+from ..playbook_library import check_against_library, definition_from_spec, load_playbook_spec
 from ..playbook_spec import parse_playbook_spec
 from ..schemas import (
     PlaybookDefinitionIn,
@@ -48,13 +48,38 @@ async def get_playbook(playbook_id: str, db: DB, _: CurrentUser):
     return PlaybookDefinitionOut.model_validate(row)
 
 
-@router.post("/playbooks", response_model=PlaybookDefinitionOut, status_code=201)
-async def create_playbook(body: PlaybookDefinitionIn, db: DB, _: CurrentUser):
+class ValidateOut(BaseModel):
+    ok: bool
+    errors: list[str]
+    # The normalised spec (kinds and implicit depends_on filled in) when it parses.
+    spec: dict[str, Any] | None = None
+
+
+async def _checked_spec(db: DB, source: str):
+    try:
+        spec = parse_playbook_spec(source)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    problems = await check_against_library(db, spec)
+    if problems:
+        raise HTTPException(422, "; ".join(problems))
+    return spec
+
+
+@router.post("/playbooks/validate", response_model=ValidateOut)
+async def validate_playbook(body: PlaybookDefinitionIn, db: DB, _: CurrentUser):
+    """Check a playbook without saving it (for editors and agents writing playbooks)."""
     try:
         spec = parse_playbook_spec(body.yaml)
     except ValueError as exc:
-        raise HTTPException(422, str(exc)) from exc
+        return ValidateOut(ok=False, errors=str(exc).split("; "))
+    problems = await check_against_library(db, spec)
+    return ValidateOut(ok=not problems, errors=problems, spec=spec.model_dump(mode="json"))
 
+
+@router.post("/playbooks", response_model=PlaybookDefinitionOut, status_code=201)
+async def create_playbook(body: PlaybookDefinitionIn, db: DB, _: CurrentUser):
+    spec = await _checked_spec(db, body.yaml)
     if await db.get(m.PlaybookDefinition, spec.id) is not None:
         raise HTTPException(409, f"A playbook with id “{spec.id}” already exists")
 
@@ -73,11 +98,7 @@ async def update_playbook(playbook_id: str, body: PlaybookDefinitionIn, db: DB, 
     if row.origin == "builtin":
         raise HTTPException(409, "Built-in playbooks are read-only; duplicate it to customise")
 
-    try:
-        spec = parse_playbook_spec(body.yaml)
-    except ValueError as exc:
-        raise HTTPException(422, str(exc)) from exc
-
+    spec = await _checked_spec(db, body.yaml)
     if spec.id != playbook_id:
         raise HTTPException(422, "id: cannot be changed (create a new playbook instead)")
 
@@ -127,7 +148,10 @@ async def _execute_playbook_run(
             elif inp.required:
                 raise HTTPException(422, f"Missing required input “{inp.name}”")
 
-    run, jobs = await start_playbook_run(db, spec, project_id, inputs, user)
+    try:
+        run, jobs = await start_playbook_run(db, spec, project_id, inputs, user)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     await db.commit()
     if jobs:
         dispatcher.wake()

@@ -106,6 +106,15 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `test_every_sample_parses` rely on it).
   `outputs.py` runs them after `job.finished` in a background task using the job's
   `output_specs` snapshot and stores `JobOutput` rows, publishing `job.outputs`.
+- Playbooks (Phase 2c): `playbook_spec.py` (YAML → `PlaybookSpec`; command steps and
+  server-side transform steps, references auto-added to `depends_on`),
+  `playbook_transforms.py` (the transform ops), `services._advance` (runs ready steps,
+  stores transform/skip results in `playbook_runs.step_results`, settles the run).
+  `docs/PLAYBOOK_SPEC.md` is the authoring spec (keep it in sync with the format);
+  `check_against_library` validates against the command library on save and in
+  `POST /api/playbooks/validate`.
+  `pipeline-demo` + `commands/demo-*` is a no-network test pipeline for the playbook UI;
+  run an agent with `--allow-host --max-concurrency 4` to watch it.
 - Auth: `POST /api/auth/login` sets an httpOnly cookie; the same JWT works as
   `Authorization: Bearer`. Agents authenticate with the shared `CASTOR_AGENT_SECRET`.
 - Config is `pydantic-settings` with the `CASTOR_` prefix (`config.py`).

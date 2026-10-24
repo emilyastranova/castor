@@ -380,6 +380,11 @@ class PlaybookRunOut(ORM):
     status: str
     inputs: dict[str, Any]
     step_task_ids: dict[str, str]
+    # Transform results and steps that never got a job (skipped / failed to start)
+    step_results: dict[str, Any] = Field(default_factory=dict)
+    # Every step's status: pending, queued, running, succeeded, failed, cancelled,
+    # skipped or blocked
+    step_status: dict[str, str] = Field(default_factory=dict)
     spec_snapshot: dict[str, Any]
     finished_at: datetime | None = None
     created_at: datetime

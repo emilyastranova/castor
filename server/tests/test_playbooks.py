@@ -131,6 +131,7 @@ steps:
   - id: step_one
     name: First Step
     command_ref: nmap-port-445
+    args: { targets: 10.0.0.1 }
 """
     r = client.post("/api/playbooks", json={"yaml": custom_yaml}, headers=auth)
     assert r.status_code == 201
@@ -146,6 +147,7 @@ steps:
   - id: step_one
     name: First Step
     command_ref: nmap-port-445
+    args: { targets: 10.0.0.1 }
 """
     r = client.put("/api/playbooks/custom-chain", json={"yaml": updated_yaml}, headers=auth)
     assert r.status_code == 200

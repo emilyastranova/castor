@@ -9,6 +9,8 @@
 	import PlaybookVisualizer from '$lib/components/PlaybookVisualizer.svelte';
 	import RunPlaybookDialog from '$lib/components/RunPlaybookDialog.svelte';
 	import OutputCard from '$lib/components/OutputCard.svelte';
+	import TransformDetails from '$lib/components/TransformDetails.svelte';
+	import { STEP_STATUS } from '$lib/playbook';
 
 	let { data } = $props();
 
@@ -45,6 +47,15 @@
 	let selectedStepCommand = $derived(commands.find((c) => c.id === selectedStep?.command_ref) || null);
 	let stepOutputs = $state<JobOutput[]>([]);
 	let loadingOutputs = $state(false);
+	let selectedResult = $derived(selectedStep ? (selectedRun?.step_results?.[selectedStep.id] ?? null) : null);
+	let selectedStatus = $derived(selectedStep ? (selectedRun?.step_status?.[selectedStep.id] ?? 'pending') : 'pending');
+
+	const taskFor = (run: PlaybookRun, stepId: string) => run.tasks.find((t) => t.playbook_step_id === stepId);
+
+	function selectFirstStep(run: PlaybookRun) {
+		const first = run.spec_snapshot.steps[0];
+		if (first) handleStepSelect(first, taskFor(run, first.id));
+	}
 
 	// Step Command Editor State
 	let editingTaskCommand = $state('');
@@ -76,13 +87,22 @@ steps:
     command_ref: nmap-ping-sweep
     args:
       targets: "{{ inputs.targets }}"
+  # A transform runs on the server between commands (no card): filter, pluck, format,
+  # unique, sort, limit. Referencing a step adds it to depends_on automatically.
+  - id: live_hosts
+    name: Live hosts
+    transform:
+      input: "{{ steps.ping_sweep.outputs.hosts }}"
+      ops:
+        - filter: { field: status, equals: up }
+        - pluck: ip
+      output: { name: ips }
   - id: port_scan
     name: Service Scan
     command_ref: nmap-service-scan
-    depends_on:
-      - ping_sweep
+    skip_if_empty: true
     args:
-      targets: "{{ steps.ping_sweep.outputs.hosts }}"
+      targets: "{{ steps.live_hosts.outputs.ips }}"
 `;
 
 	onMount(() => {
@@ -93,6 +113,13 @@ steps:
 				if (updatedRun && updatedRun.id) {
 					runs = [updatedRun, ...runs.filter((r) => r.id !== updatedRun.id)];
 					if (selectedRunId === updatedRun.id) {
+						if (selectedStep) {
+							const fresh = taskFor(updatedRun, selectedStep.id);
+							if (fresh) {
+								selectedTask = fresh;
+								if (!taskCommandDirty) editingTaskCommand = fresh.command;
+							}
+						}
 						// refresh selected step outputs if step is active
 						if (selectedTask?.latest_job?.id) {
 							loadOutputsForJob(selectedTask.latest_job.id);
@@ -100,30 +127,42 @@ steps:
 					}
 				}
 			} else if (ev.name === 'job.outputs' || ev.name === 'task.updated') {
-				if (selectedRunId) {
-					try {
-						const refreshed = await api().playbookRuns.get(selectedRunId);
-						runs = runs.map((r) => (r.id === refreshed.id ? refreshed : r));
-						if (selectedTask) {
-							const fresh = refreshed.tasks.find((t) => t.id === selectedTask?.id);
-							if (fresh) {
-								selectedTask = fresh;
-								if (!taskCommandDirty) {
-									editingTaskCommand = fresh.command;
-								}
-							}
-						}
-						if (selectedTask?.latest_job?.id) {
-							loadOutputsForJob(selectedTask.latest_job.id);
-						}
-					} catch {
-						// run not found or error
-					}
-				}
+				// Only events about the selected run's cards; playbook_run.updated covers the rest.
+				const data = ev.data as { id?: string; task_id?: string };
+				const taskId = ev.name === 'task.updated' ? data.id : data.task_id;
+				if (selectedRun?.tasks.some((t) => t.id === taskId)) scheduleRefresh();
 			}
 		});
-		return cleanup;
+		return () => {
+			clearTimeout(refreshTimer);
+			cleanup();
+		};
 	});
+
+	// A finishing job emits several events at once; refetch the run once for all of them.
+	let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+	function scheduleRefresh() {
+		clearTimeout(refreshTimer);
+		refreshTimer = setTimeout(refreshSelectedRun, 150);
+	}
+
+	async function refreshSelectedRun() {
+		if (!selectedRunId) return;
+		try {
+			const refreshed = await api().playbookRuns.get(selectedRunId);
+			runs = runs.map((r) => (r.id === refreshed.id ? refreshed : r));
+			if (selectedTask) {
+				const fresh = refreshed.tasks.find((t) => t.id === selectedTask?.id);
+				if (fresh) {
+					selectedTask = fresh;
+					if (!taskCommandDirty) editingTaskCommand = fresh.command;
+				}
+			}
+			if (selectedTask?.latest_job?.id) loadOutputsForJob(selectedTask.latest_job.id);
+		} catch {
+			// run not found or error
+		}
+	}
 
 	async function loadOutputsForJob(jobId: string) {
 		loadingOutputs = true;
@@ -202,9 +241,7 @@ steps:
 		runs = [newRun, ...runs.filter((r) => r.id !== newRun.id)];
 		selectedRunId = newRun.id;
 		activeTab = 'runs';
-		if (newRun.spec_snapshot.steps[0]) {
-			handleStepSelect(newRun.spec_snapshot.steps[0], newRun.tasks[0]);
-		}
+		selectFirstStep(newRun);
 	}
 
 	async function cancelActiveRun(runId: string) {
@@ -371,7 +408,12 @@ steps:
 							</div>
 
 							<div class="mt-4 flex items-center justify-between border-t border-outline-variant/50 pt-2 text-[12px] text-on-surface-variant">
-								<span>{pb.spec.steps.length} steps</span>
+								<span>
+									{pb.spec.steps.filter((st) => st.kind !== 'transform').length} commands
+									{#if pb.spec.steps.some((st) => st.kind === 'transform')}
+										· {pb.spec.steps.filter((st) => st.kind === 'transform').length} transforms
+									{/if}
+								</span>
 								<!-- svelte-ignore a11y_click_events_have_key_events -->
 								<!-- svelte-ignore a11y_no_static_element_interactions -->
 								<div class="flex items-center gap-1" onclick={(e) => e.stopPropagation()}>
@@ -456,12 +498,16 @@ steps:
 						<div class="rounded-xl border border-outline-variant bg-surface p-5">
 							<div class="flex items-center justify-between">
 								<div class="flex items-center gap-2">
-									<Icon name="terminal" size={20} class="text-primary" />
+									<Icon
+										name={selectedStep.kind === 'transform' ? 'filter_alt' : 'terminal'}
+										size={20}
+										class={selectedStep.kind === 'transform' ? 'text-tertiary' : 'text-primary'}
+									/>
 									<h4 class="title-medium font-semibold text-on-surface">
-										Step: {selectedStep.name}
+										{selectedStep.kind === 'transform' ? 'Transform' : 'Step'}: {selectedStep.name}
 									</h4>
 									<span class="rounded bg-surface-container-highest px-2 py-0.5 font-mono text-xs text-on-surface-variant">
-										{selectedStep.command_ref}
+										{selectedStep.command_ref ?? selectedStep.id}
 									</span>
 								</div>
 								{#if selectedStep.depends_on && selectedStep.depends_on.length > 0}
@@ -482,6 +528,11 @@ steps:
 								</p>
 							{/if}
 
+							{#if selectedStep.kind === 'transform'}
+								<div class="mt-4">
+									<TransformDetails step={selectedStep} />
+								</div>
+							{:else}
 							<!-- Argument bindings -->
 							<div class="mt-4">
 								<span class="label-medium text-on-surface">Argument Templates</span>
@@ -520,6 +571,7 @@ steps:
 									</div>
 								</div>
 							{/if}
+							{/if}
 						</div>
 					{/if}
 				{/if}
@@ -546,9 +598,7 @@ steps:
 							class="cursor-pointer transition-all duration-150 p-3.5 border {isSelected ? 'border-primary ring-2 ring-primary/20 bg-primary-container/20' : 'hover:border-outline'}"
 							onclick={() => {
 								selectedRunId = run.id;
-								if (run.spec_snapshot.steps[0]) {
-									handleStepSelect(run.spec_snapshot.steps[0], run.tasks[0]);
-								}
+								selectFirstStep(run);
 							}}
 						>
 							<div class="flex items-center justify-between gap-2">
@@ -690,16 +740,29 @@ steps:
 							<!-- Step Header Banner -->
 							<div class="flex items-center justify-between rounded-xl border border-outline-variant/60 bg-surface p-4">
 								<div class="flex items-center gap-3">
-									<Icon name="terminal" size={22} class="text-primary" />
+									<Icon
+										name={selectedStep.kind === 'transform' ? 'filter_alt' : 'terminal'}
+										size={22}
+										class={selectedStep.kind === 'transform' ? 'text-tertiary' : 'text-primary'}
+									/>
 									<div>
 										<h4 class="title-medium font-semibold text-on-surface">
-											Step: {selectedStep.name}
+											{selectedStep.kind === 'transform' ? 'Transform' : 'Step'}: {selectedStep.name}
 										</h4>
 										<div class="flex items-center gap-2 text-on-surface-variant font-mono text-xs">
-											<span>command: {selectedStep.command_ref}</span>
+											{#if selectedStep.kind === 'transform'}
+												<span>runs on the server · no card</span>
+											{:else}
+												<span>command: {selectedStep.command_ref}</span>
+											{/if}
 										</div>
 									</div>
 								</div>
+
+								<span class="ml-auto mr-2 flex items-center gap-1 rounded bg-surface-container-highest px-2.5 py-1 label-small {STEP_STATUS[selectedStatus].text}">
+									<Icon name={STEP_STATUS[selectedStatus].icon} size={14} />
+									{STEP_STATUS[selectedStatus].label}
+								</span>
 
 								{#if selectedTask}
 									<div class="flex items-center gap-2">
@@ -713,12 +776,29 @@ steps:
 												Open Card
 											</a>
 										{/if}
-										<span class="rounded bg-surface-container-highest px-2.5 py-1 label-small text-on-surface-variant">
-											Status: {selectedTask.latest_job?.status || 'pending'}
-										</span>
 									</div>
 								{/if}
 							</div>
+
+							{#if selectedStep.kind === 'transform'}
+								<div class="rounded-xl border border-outline-variant/60 bg-surface p-4">
+									<TransformDetails step={selectedStep} result={selectedResult} status={selectedStatus} />
+								</div>
+							{:else}
+							{#if selectedResult?.error || selectedResult?.reason || selectedStatus === 'blocked'}
+								<div class="flex items-start gap-2 rounded-xl border border-outline-variant/60 bg-surface-container-low p-4 body-medium text-on-surface">
+									<Icon name={STEP_STATUS[selectedStatus].icon} size={18} class={STEP_STATUS[selectedStatus].text} />
+									<div>
+										{#if selectedStatus === 'blocked'}
+											An upstream step failed, so this step will not run. Fix and re-run the failed step to continue.
+										{:else if selectedStatus === 'skipped'}
+											Skipped: {selectedResult?.reason}.
+										{:else}
+											Could not start: <span class="font-mono text-[12px]">{selectedResult?.error}</span>
+										{/if}
+									</div>
+								</div>
+							{/if}
 
 							<!-- Task Command Editor & Re-run Section -->
 							{#if selectedTask}
@@ -822,12 +902,13 @@ steps:
 									<div class="rounded-xl border border-dashed border-outline-variant p-6 text-center text-on-surface-variant body-medium">
 										Command succeeded without structured parser outputs.
 									</div>
-								{:else}
+								{:else if selectedStatus === 'pending'}
 									<div class="rounded-xl border border-dashed border-outline-variant p-6 text-center text-on-surface-variant body-medium">
 										Waiting for upstream dependencies before running.
 									</div>
 								{/if}
 							</div>
+							{/if}
 						</div>
 					{/if}
 				{:else}

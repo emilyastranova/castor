@@ -1,0 +1,62 @@
+# Demo command for the pipeline-demo playbook: fakes a findings report without touching the
+# network. Runs on the host shell (agent --allow-host) or any image with /bin/sh and awk.
+id: demo-report
+name: "Demo: report"
+schema_version: 1
+description: "Collects upstream findings into a Markdown report (artifacts/report.md)"
+tags: [demo]
+args:
+  - name: findings
+    type: string
+    description: Comma-separated interesting URLs
+  - name: unsigned
+    type: string
+    description: Comma-separated hosts without SMB signing
+  - name: names
+    type: string
+    description: Comma-separated DNS names
+  - name: step
+    type: string
+    description: Playbook step id, compared with fail_at and empty_at
+    default: demo
+  - name: delay
+    type: number
+    description: Seconds to pretend to work (multiplied by speed)
+    default: 2
+  - name: speed
+    type: number
+    description: Multiplier for delay; 0 finishes instantly
+    default: 1
+  - name: fail_at
+    type: string
+    description: Exit 1 when this equals step
+    default: none
+  - name: empty_at
+    type: string
+    description: Produce no results when this equals step
+    default: none
+command: |
+  step={{ step }}
+  secs=$(awk -v d={{ delay }} -v s={{ speed }} 'BEGIN { print d * s }')
+  echo "[demo] $step: working for ${secs}s"
+  sleep "$secs"
+  if [ {{ fail_at }} = "$step" ]; then echo "[demo] $step: failing on purpose (fail_at)" >&2; exit 1; fi
+  empty=0; if [ {{ empty_at }} = "$step" ]; then empty=1; echo "[demo] $step: producing no results (empty_at)"; fi
+  octet() { n=${1##*.}; case $n in ''|*[!0-9]*) n=0;; esac; echo "$n"; }
+  findings={{ findings }}; unsigned={{ unsigned }}; names={{ names }}
+  count() { if [ -z "$1" ]; then echo 0; else echo "$1" | tr ',' '\n' | grep -c .; fi; }
+  items() { if [ -z "$1" ]; then echo "- (none)"; else echo "$1" | tr ',' '\n' | sed 's/^/- /'; fi; }
+  mkdir -p artifacts
+  {
+    echo "# Pipeline demo report"
+    echo
+    echo "## Interesting URLs ($(count "$findings"))"; items "$findings"; echo
+    echo "## SMB hosts without signing ($(count "$unsigned"))"; items "$unsigned"; echo
+    echo "## DNS names ($(count "$names"))"; items "$names"
+  } > artifacts/report.md
+  cat artifacts/report.md
+outputs:
+  - name: report
+    type: string
+    parser: text
+    source: /work/artifacts/report.md
