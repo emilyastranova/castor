@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-from sqlalchemy import event, inspect
+from sqlalchemy import event, inspect, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
@@ -73,10 +74,13 @@ async def run_migrations(url: str | None = None) -> None:
 
     url = url or settings.database_url
     _ensure_sqlite_dir(url)
+    # This engine has no foreign-key pragma, so SQLite table rebuilds can't cascade-delete.
     probe = create_async_engine(url)
     try:
         async with probe.connect() as conn:
             tables = await conn.run_sync(lambda c: set(inspect(c).get_table_names()))
+        if "alembic_version" in tables:
+            await _repair_orphaned_revision(probe, url)
     finally:
         await probe.dispose()
 
@@ -86,3 +90,25 @@ async def run_migrations(url: str | None = None) -> None:
         log.info("existing database has no migration history; stamping %s", BASELINE_REVISION)
         await asyncio.to_thread(command.stamp, cfg, BASELINE_REVISION)
     await asyncio.to_thread(command.upgrade, cfg, "head")
+
+
+async def _repair_orphaned_revision(probe, url: str) -> None:
+    """A database stamped with a revision that is no longer in versions/ (a draft that was
+    replaced) can't be upgraded; reshape it to a known revision first (migrations/repairs.py)."""
+    from .migrations.repairs import REPAIRS
+
+    async with probe.connect() as conn:
+        current = (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar()
+    if current not in REPAIRS:
+        return
+    repair, target = REPAIRS[current]
+    if url.startswith("sqlite"):
+        path = Path(url.split("///", 1)[-1])
+        backup = path.parent / "backups" / f"{path.stem}-before-repair-{current}{path.suffix}"
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, backup)
+        log.warning("database is at orphaned revision %s; backed up to %s", current, backup)
+    async with probe.begin() as conn:
+        await conn.run_sync(repair)
+        await conn.execute(text("UPDATE alembic_version SET version_num = :v"), {"v": target})
+    log.warning("repaired orphaned revision %s; schema now matches %s", current, target)
