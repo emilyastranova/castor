@@ -19,6 +19,9 @@ schema_version: 1
 description: Discover live hosts in a range
 tags: [recon, network]
 image: docker.io/instrumentisto/nmap   # optional: run in this container image
+container_flags:                     # optional: extra flags passed to docker/podman run
+  - --privileged
+  - --network=bridge
 args:
   - name: targets
     type: string                 # string | number | boolean | list

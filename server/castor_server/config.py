@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     artifact_upload_window_s: int = 600  # accepted for this long after the job finishes
     # Built-in command definitions (commands/*.yaml), synced into the library on startup.
     commands_dir: Path = Path(__file__).resolve().parents[2] / "commands"
+    # Built-in playbook definitions (playbooks/*.yaml), synced into the library on startup.
+    playbooks_dir: Path = Path(__file__).resolve().parents[2] / "playbooks"
 
     @property
     def uploads_dir(self) -> Path:

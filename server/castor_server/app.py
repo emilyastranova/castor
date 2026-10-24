@@ -16,6 +16,7 @@ from .config import settings
 from .db import SessionLocal, run_migrations
 from .orchestrator.dispatcher import dispatcher
 from .orchestrator.gateway import gateway
+from .playbook_library import sync_builtin_playbooks
 from .security import hash_password
 from .ws.ui import router as ui_ws_router
 
@@ -62,7 +63,9 @@ async def lifespan(app: FastAPI):
     await ensure_admin()
     async with SessionLocal() as db:
         loaded = await sync_builtin_definitions(db)
+        loaded_playbooks = await sync_builtin_playbooks(db)
     log.info("command library: %d built-in definitions", loaded)
+    log.info("playbook library: %d built-in playbooks", loaded_playbooks)
     await dispatcher.start()
     log.info("castor server ready")
     try:

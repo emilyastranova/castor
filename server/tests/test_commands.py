@@ -105,7 +105,11 @@ def test_user_definition_lifecycle_and_render(client, auth):
     r = client.post("/api/commands/http-probe/render", json={"args": {"url": "https://example.test/a b"}}, headers=auth)
     assert r.status_code == 422 and set(r.json()["detail"]["errors"]) == {"url"}
     r = client.post("/api/commands/http-probe/render", json={"args": {"url": "https://example.test/"}}, headers=auth)
-    assert r.json() == {"command": "wget -q -T 5 -O - https://example.test/", "image": "docker.io/library/alpine:3.20"}
+    assert r.json() == {
+        "command": "wget -q -T 5 -O - https://example.test/",
+        "image": "docker.io/library/alpine:3.20",
+        "container_flags": [],
+    }
 
 
 def test_card_from_library_command(client, auth):
@@ -120,6 +124,7 @@ def test_card_from_library_command(client, auth):
     assert task["command_ref"] == "nmap-ping-sweep"
     assert task["command"] == "nmap -sn -oX /work/ping-sweep.xml 10.0.0.0/24"
     assert task["image"] == "docker.io/instrumentisto/nmap"
+    assert task["container_flags"] == ["--privileged", "--network=bridge"]
 
     # Editing the args re-renders the command line
     r = client.patch(f"/api/tasks/{task['id']}", json={"command_args": {"targets": "10.0.1.0/24"}}, headers=auth)
@@ -127,12 +132,12 @@ def test_card_from_library_command(client, auth):
     # Invalid args are rejected per argument and leave the card unchanged
     r = client.patch(f"/api/tasks/{task['id']}", json={"command_args": {"targets": "10.0.0.0/24 && id"}}, headers=auth)
     assert r.status_code == 422 and "targets" in r.json()["detail"]["errors"]
-    # The raw command line belongs to the library while attached
-    assert client.patch(f"/api/tasks/{task['id']}", json={"command": "id"}, headers=auth).status_code == 409
-    # Detaching keeps the rendered line as a plain shell command, which is then editable
+    # The raw command line is editable directly even when attached
+    r = client.patch(f"/api/tasks/{task['id']}", json={"command": "id"}, headers=auth)
+    assert r.status_code == 200 and r.json()["command"] == "id"
+    # Detaching keeps the rendered line as a plain shell command
     r = client.patch(f"/api/tasks/{task['id']}", json={"command_ref": None}, headers=auth)
-    assert r.json()["command_ref"] is None and r.json()["command"].endswith("10.0.1.0/24")
-    assert client.patch(f"/api/tasks/{task['id']}", json={"command": "id"}, headers=auth).json()["command"] == "id"
+    assert r.json()["command_ref"] is None and r.json()["command"] == "id"
 
 
 def test_deleting_user_definition_detaches_cards(client, auth):

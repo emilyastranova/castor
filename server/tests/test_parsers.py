@@ -61,6 +61,25 @@ def test_ffuf_and_lines():
     assert parsers.lines(b"a\n\n  b \n") == ["a", "b"]
 
 
+def test_netexec_smb():
+    raw = (FIXTURES / "netexec-smb.txt").read_bytes()
+    parsed = parsers.netexec_smb(raw)
+    assert len(parsed) == 4
+    assert parsed[0] == {
+        "host": "192.168.1.10",
+        "port": 445,
+        "name": "DC01",
+        "domain": "corp.local",
+        "os": "Windows 10.0 Build 17763 x64",
+        "signing": True,
+        "smbv1": False,
+    }
+    assert parsed[1]["signing"] is False
+    vulnerable_only = parsers.netexec_smb(raw, parsers.NetExecSmbOptions(signing_only=True))
+    assert len(vulnerable_only) == 3
+    assert all(not h["signing"] for h in vulnerable_only)
+
+
 def test_output_spec_types_come_from_the_parser():
     base = "id: x\nname: X\ncommand: echo\noutputs:\n"
     spec = parse_spec(base + "  - {name: hosts, type: list, parser: nmap.hosts, source: /work/a.xml}\n")

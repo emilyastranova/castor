@@ -4,6 +4,9 @@ schema_version: 1
 description: Version-detect open TCP ports on the given hosts
 tags: [recon, network, nmap]
 image: docker.io/instrumentisto/nmap
+container_flags:
+  - --privileged
+  - --network=bridge
 args:
   - name: targets
     type: string

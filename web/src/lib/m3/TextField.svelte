@@ -73,7 +73,7 @@
 	const fieldBase = 'peer w-full bg-transparent text-on-surface body-large outline-none placeholder:text-on-surface-variant/70 disabled:opacity-40';
 </script>
 
-<div class="flex flex-col {klass}">
+<div class="flex flex-col {variant === 'outlined' ? 'pt-2' : ''} {klass}">
 	<div
 		class="relative flex items-start gap-3 transition-colors {variant === 'outlined'
 			? 'rounded-xs bg-transparent'

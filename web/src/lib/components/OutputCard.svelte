@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import type { HostResult, ServiceResult, UrlResult } from '$lib/api';
+	import type { HostResult, ServiceResult, SmbHostResult, UrlResult } from '$lib/api';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { toCsv } from '$lib/csv';
 	import { Button, Icon, IconButton } from '$lib/m3';
@@ -49,6 +49,23 @@
 				mono: [true, true, false, false, false, false, false]
 			};
 		}
+		if (type === 'list<smb_host>') {
+			const smbHosts = value as SmbHostResult[];
+			return {
+				header: ['Host', 'Port', 'NetBIOS Name', 'Domain', 'OS', 'SMB Signing', 'SMBv1'],
+				rows: smbHosts.map((s) => [
+					s.host,
+					s.port,
+					s.name,
+					s.domain,
+					s.os,
+					s.signing ? 'Required' : 'False (Relayable!)',
+					s.smbv1 ? 'Enabled' : 'Disabled'
+				]),
+				dimmed: smbHosts.map((s) => s.signing),
+				mono: [true, false, true, true, false, false, false]
+			};
+		}
 		if (type === 'list<url>') {
 			const urls = value as UrlResult[];
 			return {
@@ -78,6 +95,11 @@
 			const open = services.filter((s) => s.state.startsWith('open')).length;
 			const hosts = new Set(services.map((s) => s.host)).size;
 			return `${plural(open, 'open port')}${services.length > open ? ` (${services.length} listed)` : ''} on ${plural(hosts, 'host')}`;
+		}
+		if (type === 'list<smb_host>') {
+			const smbHosts = value as SmbHostResult[];
+			const notSigning = smbHosts.filter((s) => !s.signing).length;
+			return `${smbHosts.length} SMB host${smbHosts.length === 1 ? '' : 's'}${notSigning ? ` (${notSigning} signing disabled)` : ''}`;
 		}
 		if (Array.isArray(value)) return plural(value.length, 'item');
 		return '';

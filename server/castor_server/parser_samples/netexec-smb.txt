@@ -1,0 +1,4 @@
+SMB         192.168.1.10    445    DC01             [*] Windows 10.0 Build 17763 x64 (name:DC01) (domain:corp.local) (signing:True) (SMBv1:False)
+SMB         192.168.1.20    445    FILESRV          [*] Windows 10.0 Build 19041 x64 (name:FILESRV) (domain:corp.local) (signing:False) (SMBv1:False)
+SMB         192.168.1.25    445    WEB01            [*] Windows Server 2022 20348 x64 (name:WEB01) (domain:corp.local) (signing:False) (SMBv1:False)
+SMB         192.168.1.30    445    LEGACY           [*] Windows 7 Ultimate 7601 SP1 (name:LEGACY) (domain:WORKGROUP) (signing:False) (SMBv1:True)

@@ -148,6 +148,7 @@ class RenderIn(BaseModel):
 class RenderOut(BaseModel):
     command: str
     image: str | None
+    container_flags: list[str] = Field(default_factory=list)
 
 
 class TaskIn(BaseModel):
@@ -159,6 +160,7 @@ class TaskIn(BaseModel):
     command_ref: str | None = None
     command_args: dict[str, Any] = Field(default_factory=dict)
     image: str | None = None
+    container_flags: list[str] = Field(default_factory=list)
     agent_selector: dict[str, Any] = Field(default_factory=dict)
     run_on_move: bool = True
     timeout_s: int | None = None
@@ -177,6 +179,7 @@ class TaskPatch(BaseModel):
     command_ref: str | None = None
     command_args: dict[str, Any] | None = None
     image: str | None = None
+    container_flags: list[str] | None = None
     agent_selector: dict[str, Any] | None = None
     run_on_move: bool | None = None
     timeout_s: int | None = None
@@ -198,6 +201,7 @@ class JobOut(ORM):
     agent_id: uuid.UUID | None
     command: str
     image: str | None
+    container_flags: list[str] = Field(default_factory=list)
     status: JobStatus
     exit_code: int | None
     error: str | None
@@ -223,6 +227,7 @@ class TaskOut(ORM):
     command_ref: str | None
     command_args: dict[str, Any]
     image: str | None
+    container_flags: list[str] = Field(default_factory=list)
     agent_selector: dict[str, Any]
     run_on_move: bool
     timeout_s: int | None
@@ -234,6 +239,9 @@ class TaskOut(ORM):
     created_by: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
+    playbook_run_id: uuid.UUID | None = None
+    playbook_step_id: str | None = None
+    depends_on: list[str] = Field(default_factory=list)
     latest_job: JobOut | None = None
     comment_count: int = 0
     attachment_count: int = 0
@@ -336,3 +344,44 @@ class AgentOut(ORM):
 class AgentPatch(BaseModel):
     tags: list[str] | None = None
     max_concurrency: int | None = None
+
+
+# ---------- playbooks ----------
+
+
+class PlaybookDefinitionOut(ORM):
+    id: str
+    origin: str
+    name: str
+    description: str
+    tags: list[str]
+    spec: dict[str, Any]
+    source_yaml: str
+    version: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class PlaybookDefinitionIn(BaseModel):
+    yaml: str
+
+
+class PlaybookRunIn(BaseModel):
+    playbook_id: str
+    project_id: uuid.UUID
+    inputs: dict[str, Any] = Field(default_factory=dict)
+
+
+class PlaybookRunOut(ORM):
+    id: uuid.UUID
+    playbook_id: str
+    playbook_name: str
+    project_id: uuid.UUID
+    status: str
+    inputs: dict[str, Any]
+    step_task_ids: dict[str, str]
+    spec_snapshot: dict[str, Any]
+    finished_at: datetime | None = None
+    created_at: datetime
+    tasks: list[TaskOut] = Field(default_factory=list)
+

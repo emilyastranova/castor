@@ -14,6 +14,8 @@
 name: My command
 description: What it does
 image: docker.io/library/alpine:3.20   # optional; omit to run in the agent shell
+container_flags:                       # optional; e.g. ["--privileged", "--network=bridge"]
+  - "--privileged"
 args:
   - name: target
     type: string            # string | number | boolean | list

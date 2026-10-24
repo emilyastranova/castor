@@ -35,6 +35,7 @@
 	let description = $state('');
 	let command = $state('');
 	let image = $state('');
+	let containerFlagsText = $state('');
 	let agentId = $state('');
 	let runOnMove = $state(true);
 	let timeout = $state('');
@@ -54,6 +55,7 @@
 		description = task.description;
 		command = task.command;
 		image = task.image ?? '';
+		containerFlagsText = (task.container_flags ?? []).join(' ');
 		agentId = task.agent_selector.agent_id ?? '';
 		runOnMove = task.run_on_move;
 		timeout = task.timeout_s ? String(task.timeout_s) : '';
@@ -88,7 +90,9 @@
 	async function saveArgs() {
 		savingArgs = true;
 		try {
-			onupdated(await api().tasks.update(task.id, { command_args: libArgs }));
+			const updated = await api().tasks.update(task.id, { command_args: libArgs });
+			command = updated.command;
+			onupdated(updated);
 			libDirty = false;
 			libErrors = {};
 		} catch (err) {
@@ -103,7 +107,7 @@
 	async function detachFromLibrary() {
 		await save({ command_ref: null });
 		command = task.command;
-		snackbar.show('Detached: the command line is now editable');
+		snackbar.show('Detached from library');
 	}
 
 	// Fields save on blur only if the user actually typed in them for *this* card. Comparing the
@@ -119,7 +123,9 @@
 
 	async function save(patch: Partial<Task>) {
 		try {
-			onupdated(await api().tasks.update(task.id, patch));
+			const updated = await api().tasks.update(task.id, patch);
+			if (!dirty.has('command')) command = updated.command;
+			onupdated(updated);
 		} catch (err) {
 			snackbar.error(err instanceof ApiError ? err.message : 'Save failed');
 		}
@@ -204,6 +210,23 @@
 
 	async function run() {
 		try {
+			const patch: Partial<Task> = {};
+			if (dirty.has('command') && command !== task.command) {
+				dirty.delete('command');
+				patch.command = command;
+			}
+			if (dirty.has('image')) {
+				dirty.delete('image');
+				patch.image = image.trim() || null;
+			}
+			if (dirty.has('timeout')) {
+				dirty.delete('timeout');
+				patch.timeout_s = timeout ? Number(timeout) : null;
+			}
+			if (Object.keys(patch).length > 0) {
+				const updated = await api().tasks.update(task.id, patch);
+				onupdated(updated);
+			}
 			const job = await api().tasks.run(task.id);
 			selectedJobId = job.id;
 			tab = 'output';
@@ -526,7 +549,7 @@
 				{#if activeJob}
 					<Button variant="tonal" icon="stop_circle" onclick={() => cancel(activeJob!)}>Cancel</Button>
 				{:else}
-					<Button icon="play_arrow" onclick={run} disabled={!task.command.trim() || libDirty}>Run</Button>
+					<Button icon="play_arrow" onclick={run} disabled={!command.trim() || libDirty}>{task.latest_job?.status === 'failed' ? 'Re-run' : 'Run'}</Button>
 				{/if}
 			{/if}
 			<Menu>
@@ -564,16 +587,29 @@
 							{#key libraryDef.id}
 								<CommandArgsForm spec={libraryDef.spec} bind:values={libArgs} bind:errors={libErrors} onedit={() => (libDirty = true)} />
 							{/key}
-						{:else}
-							<code class="rounded-sm bg-surface-container-highest px-3 py-2 font-mono text-[12.5px] break-all text-on-surface">{task.command}</code>
 						{/if}
+					{/if}
+
+					<TextField label="Command" bind:value={command} multiline rows={2} mono oninput={() => edited('command')} onblur={() => command !== task.command && commit('command', { command })} />
+					<div class="grid gap-3 sm:grid-cols-2">
+						<TextField label="Container image" bind:value={image} mono placeholder="run in agent shell" oninput={() => edited('image')} onblur={() => (image.trim() || null) !== task.image && commit('image', { image: image.trim() || null })} />
 						<Select label="Agent" bind:value={agentId} options={agentOptions} onchange={(v) => save({ agent_selector: v ? { agent_id: v } : {} })} />
-					{:else}
-						<TextField label="Command" bind:value={command} multiline rows={2} mono oninput={() => edited('command')} onblur={() => command !== task.command && commit('command', { command })} />
-						<div class="grid gap-3 sm:grid-cols-2">
-							<TextField label="Container image" bind:value={image} mono placeholder="run in agent shell" oninput={() => edited('image')} onblur={() => (image.trim() || null) !== task.image && commit('image', { image: image.trim() || null })} />
-							<Select label="Agent" bind:value={agentId} options={agentOptions} onchange={(v) => save({ agent_selector: v ? { agent_id: v } : {} })} />
-						</div>
+					</div>
+					{#if image.trim()}
+						<TextField
+							label="Container flags (optional)"
+							bind:value={containerFlagsText}
+							mono
+							placeholder="--privileged --network=bridge"
+							supporting="Flags passed to docker run / podman run"
+							oninput={() => edited('container_flags')}
+							onblur={() => {
+								const parsed = containerFlagsText.trim() ? containerFlagsText.split(/\s+/).filter(Boolean) : [];
+								const current = task.container_flags ?? [];
+								const changed = parsed.length !== current.length || parsed.some((v, i) => v !== current[i]);
+								if (changed) commit('container_flags', { container_flags: parsed });
+							}}
+						/>
 					{/if}
 					<div class="flex flex-wrap items-center gap-4">
 						<Switch bind:checked={runOnMove} label="Run when moved to In Progress" onchange={(v) => save({ run_on_move: v })} />

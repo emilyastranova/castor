@@ -1,0 +1,16 @@
+id: netexec-smb
+name: NetExec SMB signing check
+schema_version: 1
+description: Enumerate SMB hosts and check if SMB signing is required (vulnerable to NTLM relaying)
+tags: [recon, smb, netexec]
+args:
+  - name: targets
+    type: string
+    description: Target host(s), IPs, CIDR, or path to targets file
+    required: true
+    example: 192.168.1.10
+command: 'if [ -f {{ targets }} ]; then nxc smb {{ targets }}; else echo {{ targets }} | tr ", " "\n\n" | sed "/^$/d" > targets.txt && nxc smb targets.txt; fi'
+outputs:
+  - name: smb_hosts
+    type: list<smb_host>
+    parser: netexec.smb

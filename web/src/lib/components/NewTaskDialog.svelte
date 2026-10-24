@@ -22,6 +22,7 @@
 	let description = $state('');
 	let command = $state('');
 	let image = $state('');
+	let containerFlagsText = $state('');
 	let columnId = $state('');
 	let agentId = $state('');
 	let tagsText = $state('');
@@ -67,7 +68,7 @@
 		kind = 'manual';
 		commandArgs = {};
 		argErrors = {};
-		title = description = command = image = agentId = tagsText = '';
+		title = description = command = image = containerFlagsText = agentId = tagsText = '';
 		priority = '0';
 		runOnMove = true;
 	}
@@ -77,12 +78,16 @@
 		busy = true;
 		try {
 			const fromLibrary = kind === 'command' && source === 'library' && !!commandRef;
+			const flags = containerFlagsText.trim()
+				? containerFlagsText.split(/\s+/).filter(Boolean)
+				: [];
 			const task = await api().projects.createTask(projectId, {
 				title,
 				description,
 				kind,
 				command: kind === 'command' && !fromLibrary ? command : '',
 				image: kind === 'command' && !fromLibrary && image.trim() ? image.trim() : null,
+				container_flags: kind === 'command' && !fromLibrary ? flags : undefined,
 				command_ref: fromLibrary ? commandRef : null,
 				command_args: fromLibrary ? commandArgs : {},
 				column_id: columnId,
@@ -145,6 +150,9 @@
 			{:else}
 				<TextField label="Command" bind:value={command} multiline rows={3} mono required placeholder="nmap -sn 10.0.0.0/24" supporting="Runs in /bin/sh on the agent. Each job gets its own /work directory; files under /work/artifacts come back to the card." />
 				<TextField label="Container image (optional)" bind:value={image} mono placeholder="docker.io/instrumentisto/nmap" supporting="Leave empty to run in the agent's own shell" />
+				{#if image.trim()}
+					<TextField label="Container flags (optional)" bind:value={containerFlagsText} mono placeholder="--privileged --network=bridge" supporting="Flags passed to docker run / podman run" />
+				{/if}
 			{/if}
 			<div class="grid gap-4 sm:grid-cols-2">
 				<Select label="Agent" bind:value={agentId} options={agentOptions} />

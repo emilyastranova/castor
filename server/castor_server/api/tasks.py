@@ -124,10 +124,7 @@ async def update_task(task_id: str, body: TaskPatch, db: DB, user: CurrentUser):
     library_ref = changes.pop("command_ref", task.command_ref)
     library_args = changes.pop("command_args", None)
     detaching = "command_ref" in body.model_fields_set and library_ref is None
-    if task.command_ref and not detaching and {"command", "image"} & changes.keys():
-        raise HTTPException(
-            409, "This card runs a library command: edit its arguments, or detach it first"
-        )
+
     for key, value in changes.items():
         setattr(task, key, value)
     if detaching:
@@ -136,6 +133,8 @@ async def update_task(task_id: str, body: TaskPatch, db: DB, user: CurrentUser):
         await _use_library_command(
             db, task, library_ref, library_args if library_args is not None else task.command_args
         )
+        if "command" in changes:
+            task.command = changes["command"]
     await db.commit()
     return await publish_task(db, task)
 

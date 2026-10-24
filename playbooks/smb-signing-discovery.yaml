@@ -1,0 +1,32 @@
+id: smb-signing-discovery
+name: SMB Signing Status Discovery
+schema_version: 1
+description: Scan network range for open port 445 (SMB) with Nmap, then query live hosts with NetExec SMB to audit signing requirements and tabulate vulnerable targets.
+tags: [recon, smb, discovery, nmap, netexec]
+inputs:
+  - name: targets
+    type: string
+    description: Target subnet or CIDR range (e.g. 192.168.1.0/24)
+    required: true
+    example: 192.168.1.0/24
+  - name: ports
+    type: string
+    description: SMB port to scan
+    required: false
+    default: "445"
+steps:
+  - id: nmap_scan
+    name: Nmap SMB Port Scan
+    command_ref: nmap-port-445
+    description: Discovers live hosts with SMB port 445 open
+    args:
+      targets: "{{ inputs.targets }}"
+      ports: "{{ inputs.ports }}"
+  - id: netexec_smb
+    name: NetExec SMB Signing Audit
+    command_ref: netexec-smb
+    description: Connects to discovered SMB hosts to evaluate SMB signing requirements
+    depends_on:
+      - nmap_scan
+    args:
+      targets: "{{ steps.nmap_scan.outputs.hosts }}"

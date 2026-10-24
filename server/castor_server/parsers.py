@@ -36,6 +36,8 @@ OUTPUT_TYPES = (
     "list<service>",
     "url",
     "list<url>",
+    "smb_host",
+    "list<smb_host>",
 )
 
 SAMPLES_DIR = Path(__file__).parent / "parser_samples"
@@ -294,6 +296,78 @@ def ffuf_results(data: bytes, options: FfufOptions | None = None) -> list[dict[s
         and r.get("url")
         and (not options.status or r.get("status") in options.status)
     ]
+
+
+# ---------- netexec ----------
+
+ANSI_RE = regex.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+NETEXEC_SMB_PREFIX = regex.compile(
+    r"SMB\s+(?P<host>[0-9a-fA-F.:]+)\s+(?P<port>\d+)\s+(?P<hdr_host>\S+)\s+\[\*\]\s+(?P<rest>.*)"
+)
+NETEXEC_NAME_RE = regex.compile(r"\(name:([^)]*)\)")
+NETEXEC_DOMAIN_RE = regex.compile(r"\(domain:([^)]*)\)")
+NETEXEC_SIGNING_RE = regex.compile(r"\(signing:(True|False)\)", regex.IGNORECASE)
+NETEXEC_SMBV1_RE = regex.compile(r"\(SMBv1:(True|False)\)", regex.IGNORECASE)
+
+
+class NetExecSmbOptions(Options):
+    signing_only: bool = Field(
+        False, description="Only keep hosts where SMB signing is disabled (vulnerable)"
+    )
+    unique: bool = Field(True, description="Drop repeated hosts (keeps the first)")
+
+
+@parser(
+    "netexec.smb",
+    "list<smb_host>",
+    "SMB host status and SMB signing requirement from NetExec stdout",
+    NetExecSmbOptions,
+    sample="netexec-smb.txt",
+)
+def netexec_smb(data: bytes, options: NetExecSmbOptions | None = None) -> list[dict[str, Any]]:
+    options = options or NetExecSmbOptions()
+    text = data.decode("utf-8", errors="replace")
+    results = []
+    seen = set()
+    for line in text.splitlines():
+        cleaned = ANSI_RE.sub("", line).strip()
+        m = NETEXEC_SMB_PREFIX.search(cleaned)
+        if not m:
+            continue
+        host = m.group("host")
+        port = int(m.group("port"))
+        hdr_host = m.group("hdr_host")
+        rest = m.group("rest")
+
+        name_m = NETEXEC_NAME_RE.search(rest)
+        domain_m = NETEXEC_DOMAIN_RE.search(rest)
+        signing_m = NETEXEC_SIGNING_RE.search(rest)
+        smbv1_m = NETEXEC_SMBV1_RE.search(rest)
+
+        os_str = rest.split("(")[0].strip()
+        is_signing = signing_m.group(1).lower() == "true" if signing_m else False
+        is_smbv1 = smbv1_m.group(1).lower() == "true" if smbv1_m else False
+
+        if options.signing_only and is_signing:
+            continue
+
+        key = (host, port)
+        if options.unique and key in seen:
+            continue
+        seen.add(key)
+
+        results.append(
+            {
+                "host": host,
+                "port": port,
+                "name": name_m.group(1) if name_m else (hdr_host if hdr_host != "NONE" else ""),
+                "domain": domain_m.group(1) if domain_m else "",
+                "os": os_str,
+                "signing": is_signing,
+                "smbv1": is_smbv1,
+            }
+        )
+    return results
 
 
 # ---------- generic ----------

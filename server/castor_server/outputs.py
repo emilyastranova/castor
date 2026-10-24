@@ -144,6 +144,13 @@ async def parse_job(db: AsyncSession, job: m.Job) -> list[m.JobOutput]:
                 "outputs": [JobOutputOut.model_validate(r) for r in results],
             },
         )
+        if task.playbook_run_id is not None:
+            from .orchestrator.dispatcher import dispatcher
+            from .services import advance_playbook_run
+
+            _, enqueued = await advance_playbook_run(db, task.playbook_run_id)
+            if enqueued:
+                dispatcher.wake()
     return results
 
 

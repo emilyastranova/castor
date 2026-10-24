@@ -350,6 +350,13 @@ class AgentGateway:
                 from ..outputs import schedule_parse
 
                 schedule_parse(job.id)
+            elif task is not None and task.playbook_run_id is not None:
+                from ..orchestrator.dispatcher import dispatcher
+                from ..services import advance_playbook_run
+
+                _, enqueued = await advance_playbook_run(db, task.playbook_run_id)
+                if enqueued:
+                    dispatcher.wake()
         self._notify()
 
     async def _maybe_advance(self, db, task: m.Task, job: m.Job) -> None:
@@ -388,6 +395,7 @@ class AgentGateway:
                     "id": job.id,
                     "command": job.command,
                     "image": job.image,
+                    "container_flags": job.container_flags or [],
                     "runtime": "container" if job.image else "host",
                     "env": job.env or {},
                     "timeout_s": job.timeout_s,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 from typing import Any, Literal
 
 import yaml
@@ -93,9 +94,32 @@ class CommandSpec(BaseModel):
     description: str = ""
     tags: list[str] = Field(default_factory=list)
     image: str | None = None
+    container_flags: list[str] = Field(default_factory=list)
     args: list[ArgSpec] = Field(default_factory=list)
     command: str
     outputs: list[OutputSpec] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def alias_container_args(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "container_args" in data and "container_flags" not in data:
+                data["container_flags"] = data.pop("container_args")
+        return data
+
+    @field_validator("container_flags", mode="before")
+    @classmethod
+    def parse_container_flags(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return shlex.split(value)
+        if isinstance(value, list):
+            result = []
+            for item in value:
+                result.extend(shlex.split(str(item)))
+            return result
+        return value
 
     @field_validator("id")
     @classmethod

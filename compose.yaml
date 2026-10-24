@@ -37,9 +37,11 @@ services:
       CASTOR_CORS_ORIGINS: '["http://localhost:8080"]'
       CASTOR_DATA_DIR: /data
       CASTOR_COMMANDS_DIR: /commands
+      CASTOR_PLAYBOOKS_DIR: /playbooks
     volumes:
       - serverdata:/data
       - ./commands:/commands:ro
+      - ./playbooks:/playbooks:ro
 
   web:
     build:
@@ -84,11 +86,10 @@ services:
       CONTAINER_HOST: unix:///run/podman/podman.sock
       DOCKER_HOST: unix:///var/run/docker.sock
     volumes:
-      - agentwork:/work
+      - /work:/work
       # Mount whichever socket your host has. Comment out the other.
       - ${CONTAINER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
 
 volumes:
   pgdata:
   serverdata:
-  agentwork:

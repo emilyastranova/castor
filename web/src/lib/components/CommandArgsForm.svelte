@@ -88,7 +88,9 @@
 		{/if}
 	{/each}
 	<div class="rounded-sm bg-surface-container-highest px-3 py-2">
-		<p class="label-small text-on-surface-variant">Will run{spec.image ? ` in ${spec.image}` : ' in the agent shell'}</p>
+		<p class="label-small text-on-surface-variant">
+			Will run{spec.image ? ` in ${spec.image}` : ' in the agent shell'}{spec.container_flags?.length ? ` (flags: ${spec.container_flags.join(' ')})` : ''}
+		</p>
 		{#if preview}
 			<code class="block font-mono text-[12.5px] break-all whitespace-pre-wrap text-on-surface">{preview}</code>
 		{:else}

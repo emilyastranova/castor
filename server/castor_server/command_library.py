@@ -74,6 +74,7 @@ def apply_to_task(task: m.Task, spec: CommandSpec, args: dict[str, Any]) -> None
     task.command_ref = spec.id
     task.command_args = {k: v for k, v in resolved.items() if v is not None}
     task.image = spec.image
+    task.container_flags = list(spec.container_flags)
     task.kind = m.TaskKind.command
 
 

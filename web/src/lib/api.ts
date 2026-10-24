@@ -65,6 +65,7 @@ export interface Job {
 	agent_id: UUID | null;
 	command: string;
 	image: string | null;
+	container_flags?: string[];
 	status: JobStatus;
 	exit_code: number | null;
 	error: string | null;
@@ -107,6 +108,73 @@ export interface UrlResult {
 	length: number | null;
 	words: number | null;
 	lines: number | null;
+}
+
+export interface SmbHostResult {
+	host: string;
+	port: number;
+	name: string;
+	domain: string;
+	os: string;
+	signing: boolean;
+	smbv1: boolean;
+}
+
+export interface PlaybookInputSpec {
+	name: string;
+	type: 'string' | 'number' | 'boolean' | 'list';
+	description: string;
+	required: boolean;
+	default: unknown;
+	example: unknown;
+}
+
+export interface PlaybookStepSpec {
+	id: string;
+	name: string;
+	command_ref: string;
+	description: string;
+	depends_on: string[];
+	args: Record<string, unknown>;
+}
+
+export interface PlaybookSpec {
+	id: string;
+	name: string;
+	schema_version: number;
+	description: string;
+	tags: string[];
+	inputs: PlaybookInputSpec[];
+	steps: PlaybookStepSpec[];
+}
+
+export interface PlaybookDefinition {
+	id: string;
+	origin: 'builtin' | 'user';
+	name: string;
+	description: string;
+	tags: string[];
+	spec: PlaybookSpec;
+	source_yaml: string;
+	version: number;
+	created_at: string;
+	updated_at: string;
+}
+
+export type PlaybookRunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
+
+export interface PlaybookRun {
+	id: UUID;
+	playbook_id: string;
+	playbook_name: string;
+	project_id: UUID;
+	status: PlaybookRunStatus;
+	inputs: Record<string, unknown>;
+	step_task_ids: Record<string, string>;
+	spec_snapshot: PlaybookSpec;
+	finished_at: string | null;
+	created_at: string;
+	tasks: Task[];
 }
 
 export interface OutputSpec {
@@ -183,6 +251,7 @@ export interface CommandSpec {
 	description: string;
 	tags: string[];
 	image: string | null;
+	container_flags?: string[];
 	args: ArgSpec[];
 	command: string;
 	outputs: OutputSpec[];
@@ -220,6 +289,7 @@ export interface Task {
 	command_ref: string | null;
 	command_args: Record<string, unknown>;
 	image: string | null;
+	container_flags?: string[];
 	agent_selector: { agent_id?: UUID; tags?: string[] };
 	run_on_move: boolean;
 	timeout_s: number | null;
@@ -229,6 +299,9 @@ export interface Task {
 	custom_fields: Record<string, unknown>;
 	due_at: string | null;
 	created_by: UUID | null;
+	playbook_run_id?: UUID | null;
+	playbook_step_id?: string | null;
+	depends_on?: string[];
 	created_at: string;
 	updated_at: string;
 	latest_job: Job | null;
@@ -421,6 +494,28 @@ export function api(fetchFn: Fetch = fetch) {
 			test: (name: string, input: string, options: Record<string, unknown>) =>
 				post<ParseTestResult>(`/parsers/${encodeURIComponent(name)}/test`, { input, options })
 		},
+		playbooks: {
+			list: () => get<PlaybookDefinition[]>('/playbooks'),
+			get: (id: string) => get<PlaybookDefinition>(`/playbooks/${id}`),
+			create: (yaml: string) => post<PlaybookDefinition>('/playbooks', { yaml }),
+			update: (id: string, yaml: string) =>
+				request<PlaybookDefinition>(fetchFn, 'PUT', `/playbooks/${id}`, { yaml }),
+			remove: (id: string) => del(`/playbooks/${id}`),
+			run: (id: string, projectId: UUID, inputs: Record<string, unknown> = {}) =>
+				post<PlaybookRun>(`/playbooks/${id}/run`, { project_id: projectId, inputs })
+		},
+		playbookRuns: {
+			list: (params?: { project_id?: string; playbook_id?: string; limit?: number }) => {
+				const q = new URLSearchParams();
+				if (params?.project_id) q.set('project_id', params.project_id);
+				if (params?.playbook_id) q.set('playbook_id', params.playbook_id);
+				if (params?.limit) q.set('limit', String(params.limit));
+				const qs = q.toString();
+				return get<PlaybookRun[]>(`/playbook-runs${qs ? `?${qs}` : ''}`);
+			},
+			get: (id: UUID) => get<PlaybookRun>(`/playbook-runs/${id}`),
+			cancel: (id: UUID) => post<PlaybookRun>(`/playbook-runs/${id}/cancel`)
+		},
 		commands: {
 			list: () => get<CommandDefinition[]>('/commands'),
 			get: (id: string) => get<CommandDefinition>(`/commands/${id}`),
@@ -429,7 +524,7 @@ export function api(fetchFn: Fetch = fetch) {
 				request<CommandDefinition>(fetchFn, 'PUT', `/commands/${id}`, { yaml }),
 			remove: (id: string) => del(`/commands/${id}`),
 			render: (id: string, args: Record<string, unknown>) =>
-				post<{ command: string; image: string | null }>(`/commands/${id}/render`, { args })
+				post<{ command: string; image: string | null; container_flags?: string[] }>(`/commands/${id}/render`, { args })
 		},
 		agents: {
 			list: () => get<Agent[]>('/agents'),

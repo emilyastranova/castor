@@ -31,3 +31,24 @@ def test_container_jobs_run_through_sh_regardless_of_image_entrypoint(tmp_path):
 def test_host_jobs_use_the_shell_directly(tmp_path):
     argv, is_container = _runner({"id": "j2", "command": "id"}, tmp_path).build_argv()
     assert not is_container and argv == ["/bin/sh", "-c", "id"]
+
+
+def test_container_jobs_include_container_flags(tmp_path):
+    argv, is_container = _runner(
+        {
+            "id": "j3",
+            "command": "nmap -sV 10.0.0.1",
+            "image": "docker.io/instrumentisto/nmap",
+            "container_flags": ["--privileged", "--network=bridge"],
+        },
+        tmp_path,
+    ).build_argv()
+    assert is_container
+    assert "--privileged" in argv
+    assert "--network=bridge" in argv
+    # When custom network flag is provided, default runner network ("host") should not be added
+    assert "host" not in argv
+    # Both flags must precede --entrypoint
+    assert argv.index("--privileged") < argv.index("--entrypoint")
+    assert argv.index("--network=bridge") < argv.index("--entrypoint")
+

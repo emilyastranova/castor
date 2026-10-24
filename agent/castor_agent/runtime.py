@@ -74,20 +74,28 @@ class JobRunner:
             if not self.container_runtime:
                 raise RuntimeError("job requires a container runtime but none is available")
             image = self.job.get("image") or self.default_image
+            container_flags = [str(f) for f in (self.job.get("container_flags") or [])]
+            # If the user or agent configuration specifies a network flag, don't supply default --network
+            all_extra = [*self.extra_run_args, *container_flags]
+            has_network_flag = any(
+                arg == "--network" or arg == "--net" or arg.startswith(("--network=", "--net="))
+                for arg in all_extra
+            )
             argv = [
                 self.container_runtime,
                 "run",
                 "--rm",
                 "--name",
                 self.container_name,
-                "--network",
-                self.network,
             ]
+            if not has_network_flag and self.network:
+                argv += ["--network", self.network]
             # ":Z" relabels the directory for SELinux hosts (Fedora/RHEL); harmless elsewhere.
             argv += ["-v", f"{os.path.abspath(self.job_dir)}:/work:Z", "-w", "/work"]
             for key, value in env.items():
                 argv += ["-e", f"{key}={value}"]
             argv += self.extra_run_args
+            argv += container_flags
             # Override the image's entrypoint: tool images often set it to the tool itself
             # (instrumentisto/nmap uses /usr/bin/nmap), which would turn "/bin/sh -c <cmd>"
             # into arguments for the tool. Images must therefore provide /bin/sh.
