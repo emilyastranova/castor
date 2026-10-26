@@ -65,6 +65,10 @@ connections turn it on.
 Regenerate the default Material 3 palette: `cd web && node scripts/gen-tokens.mjs '#4f5bd5'`
 writes `src/lib/m3/tokens.css` (committed, do not hand-edit).
 
+README images (`.github/assets/*.svg`) are generated from the AstraLabs brand repo
+(`../astralabs_design`) with fontTools: `python3 .github/assets/build_assets.py`. Don't
+hand-edit the SVGs; change the script and regenerate.
+
 Full stack: `cp .env.example .env && docker compose up -d --build` (also works with
 `podman compose` if a compose provider is installed). The Postgres path has not been
 exercised on the original dev machine; SQLite is what the tests and dev loop use.
