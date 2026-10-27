@@ -52,6 +52,10 @@ async def sync_builtin_definitions(db: AsyncSession) -> int:
         if row is not None and row.origin != "builtin":
             log.warning("built-in command %s shadowed by a user definition", spec.id)
             continue
+        from .variables import check_command_vars, kinds_by_id
+
+        for problem in check_command_vars(spec, await kinds_by_id(db)):
+            log.warning("built-in command %s: %s", spec.id, problem)
         if row is None:
             row = m.CommandDefinition(id=spec.id, origin="builtin", version=1)
             db.add(row)

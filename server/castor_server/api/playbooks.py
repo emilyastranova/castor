@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from .. import models as m
+from .. import variables
 from ..deps import DB, CurrentUser, parse_uuid
 from ..orchestrator.dispatcher import dispatcher
 from ..playbook_library import check_against_library, definition_from_spec, load_playbook_spec
@@ -147,6 +148,18 @@ async def _execute_playbook_run(
                 inputs[inp.name] = inp.default
             elif inp.required:
                 raise HTTPException(422, f"Missing required input “{inp.name}”")
+        if inp.type == "varset" and inputs.get(inp.name):
+            # Accept a set id or name; store the id so the run is unaffected by renames.
+            row = await variables.find_set(db, inputs[inp.name])
+            if row is None:
+                raise HTTPException(422, f"{inp.name}: variable set not found")
+            if row.kind_id != inp.kind:
+                raise HTTPException(422, f"{inp.name}: {row.name} is a {row.kind_id} set, not {inp.kind}")
+            if not variables.allowed_in(row, project_id):
+                raise HTTPException(422, f"{inp.name}: {row.name} can't be used in this project")
+            if not variables.owned_by(row, None):
+                raise HTTPException(422, f"{inp.name}: that manual entry belongs to another card or run")
+            inputs[inp.name] = str(row.id)
 
     try:
         run, jobs = await start_playbook_run(db, spec, project_id, inputs, user)

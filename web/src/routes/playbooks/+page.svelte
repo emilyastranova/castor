@@ -543,6 +543,12 @@ steps:
 											<span class="font-mono text-[12px] text-primary break-all">{String(v)}</span>
 										</div>
 									{/each}
+									{#each Object.entries(selectedStep.vars || {}) as [k, v] (`var-${k}`)}
+										<div class="flex flex-col rounded-lg border border-outline-variant/60 bg-surface-container-low p-2">
+											<span class="flex items-center gap-1 font-mono text-[11px] font-semibold text-on-surface"><Icon name="key" size={12} />{k}</span>
+											<span class="font-mono text-[12px] text-primary break-all">{String(v)}</span>
+										</div>
+									{/each}
 								</div>
 							</div>
 

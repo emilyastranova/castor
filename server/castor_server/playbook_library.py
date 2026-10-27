@@ -66,6 +66,39 @@ async def load_playbook_spec(db: AsyncSession, playbook_id: str) -> PlaybookSpec
     return PlaybookSpec.model_validate(row.spec) if row is not None else None
 
 
+async def _check_step_vars(db: AsyncSession, spec: PlaybookSpec, step, cmd: CommandSpec) -> list[str]:
+    from .variables import find_set
+
+    problems = []
+    slots = {s.name: s for s in cmd.vars}
+    inputs = {i.name: i for i in spec.inputs}
+    for name, value in step.vars.items():
+        slot = slots.get(name)
+        if slot is None:
+            problems.append(
+                f"step {step.id}: {cmd.id} has no variable slot {name} "
+                f"(slots: {', '.join(slots) or 'none'})"
+            )
+            continue
+        ref = INLINE_PLACEHOLDER_RE.search(value)
+        if ref:
+            inp = inputs.get(ref.group(1).split(".")[1])
+            if inp is not None and inp.kind != slot.kind:
+                problems.append(
+                    f"step {step.id}: vars.{name} needs a {slot.kind} set, input {inp.name} is {inp.kind}"
+                )
+            continue
+        row = await find_set(db, value)
+        if row is None:
+            problems.append(f"step {step.id}: vars.{name}: no variable set named {value}")
+        elif row.kind_id != slot.kind:
+            problems.append(f"step {step.id}: vars.{name}: {row.name} is a {row.kind_id} set, not {slot.kind}")
+    for slot in cmd.vars:
+        if slot.required and slot.name not in step.vars:
+            problems.append(f"step {step.id}: variable slot {slot.name} ({slot.kind}) is not bound")
+    return problems
+
+
 async def check_against_library(db: AsyncSession, spec: PlaybookSpec) -> list[str]:
     """What parse_playbook_spec can't see: that each command exists, args are its
     arguments (literal values valid, required ones bound), and every referenced output
@@ -102,6 +135,7 @@ async def check_against_library(db: AsyncSession, spec: PlaybookSpec) -> list[st
             for arg in cmd.args:
                 if arg.required and arg.default is None and arg.name not in step.args:
                     problems.append(f"step {step.id}: required argument {arg.name} is not bound")
+            problems += await _check_step_vars(db, spec, step, cmd)
         for ref in step.refs():
             parts = ref.split(".")
             if parts[0] != "steps":

@@ -57,3 +57,45 @@ The **Parsers** page in the UI lists these with their options and lets you try e
 built-in sample data or your own pasted output, with the result updating as you type. It
 also writes the `outputs:` entry for you to paste here. Options are checked when a command
 is saved, so a typo or an invalid pattern is reported then rather than after a run.
+
+## Variable sets (credentials, keys, listeners, ...)
+
+A command that needs a credential, key file, listener address or similar declares a
+**slot** of a variable *kind* instead of an argument. The card (or playbook step) then picks
+a *set* of that kind from the Variables page.
+
+```yaml
+vars:
+  - name: creds              # lowercase; used as {{ creds.<field> }}
+    kind: credential         # credential, ssh-key, listener, api-token, or your own kind
+    description: Account to log in with
+    required: true           # default; false lets the card leave it empty
+command: nxc smb {{ targets }} -u {{ creds.username }} -p {{ creds.password }}
+```
+
+- `{{ slot.field }}` renders as `"${CASTOR_VAR_SLOT_FIELD}"`, an environment variable the
+  agent sets when the job runs. The command line itself never contains a value, so secrets
+  never appear in it, in the card, or in the job history.
+- File fields (e.g. `ssh-key.private_key`) are written into the job directory with mode 0600
+  and the variable holds the file's path, so `-i {{ key.private_key }}` works.
+- Any characters in a value are safe, including quotes, `$`, backticks, `$(…)` and `*`: the
+  shell parses the command line before it expands `"${CASTOR_VAR_…}"`, and never re-parses
+  the expanded value. Don't switch to single quotes, though: `'${CASTOR_VAR_…}'` isn't
+  expanded at all, so the tool would receive the variable's name instead of its value.
+- **Don't put a placeholder inside quotes**: it already brings its own double quotes, so
+  `"user {{ creds.username }}"` leaves the value unquoted. Inside a quoted string, use the
+  variable directly: `"user $CASTOR_VAR_CREDS_USERNAME"`.
+- Optional fields can be used conditionally with shell expansion, e.g.
+  `${CASTOR_VAR_CREDS_DOMAIN:+-d "$CASTOR_VAR_CREDS_DOMAIN"}`.
+- Secret values that the tool prints are masked as `••••` in the card's output.
+- Variable files are owned by the agent's user. An image that runs as a different non-root
+  user can't read a 0600 file; run it as root or adjust with `container_flags`.
+
+Every set dropdown (on the card, in New card, and in the playbook Run dialog) also offers
+**Enter manually…**: type the values for just this card or run, optionally saving them to
+Variables. Unsaved manual values are encrypted like any set but stay with that card or run
+and are deleted with it.
+
+Saving a command checks that every slot's kind exists and every `{{ slot.field }}` names a
+field of that kind. `demo-vars` shows everything a job receives without touching the network,
+and `netexec-smb-auth` is a real example.

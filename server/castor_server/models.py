@@ -204,6 +204,8 @@ class Task(Base, TimestampMixin):
     )
     playbook_step_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     depends_on: Mapped[list[str]] = mapped_column(JSONType, default=list)
+    # Library command variable slots → variable set ids: {"creds": "<uuid>"}
+    var_bindings: Mapped[dict[str, str]] = mapped_column(JSONType, default=dict)
 
     project: Mapped[Project] = relationship(back_populates="tasks")
     column: Mapped[BoardColumn] = relationship(back_populates="tasks")
@@ -234,6 +236,49 @@ class CommandDefinition(Base, TimestampMixin):
     spec: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     source_yaml: Mapped[str] = mapped_column(Text, default="")
     version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class VariableKind(Base, TimestampMixin):
+    """A template of typed fields for variable sets (variables.KindSpec as JSON)."""
+
+    __tablename__ = "variable_kinds"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    origin: Mapped[str] = mapped_column(String(16), default="user")  # builtin | user
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="")
+    spec: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+
+
+class VariableSet(Base, TimestampMixin):
+    """One filled-in instance of a kind. Plain values are stored as JSON; secret values
+    and every file's contents are Fernet tokens (vault.py)."""
+
+    __tablename__ = "variable_sets"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    kind_id: Mapped[str] = mapped_column(ForeignKey("variable_kinds.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200), unique=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    # Empty: usable in every project. Otherwise only in these project ids.
+    project_ids: Mapped[list[str]] = mapped_column(JSONType, default=list)
+    values: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    secrets: Mapped[dict[str, str]] = mapped_column(JSONType, default=dict)
+    # {field: {filename, size, data: <token>}}
+    files: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    # One-off sets entered on a card or in the Run dialog without saving to the library:
+    # hidden from listings and usable only by the card (or playbook run) that owns them,
+    # and deleted with it. Unowned until first bound.
+    ephemeral: Mapped[bool] = mapped_column(Boolean, default=False)
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    playbook_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("playbook_runs.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
 
 class PlaybookRunStatus(str, enum.Enum):
@@ -326,6 +371,9 @@ class Job(Base):
     image: Mapped[str | None] = mapped_column(String(300), nullable=True)
     container_flags: Mapped[list[str]] = mapped_column(JSONType, default=list)
     env: Mapped[dict[str, str]] = mapped_column(JSONType, default=dict)
+    # The card's variable bindings when the job was queued. Values are resolved (and
+    # secrets decrypted) only at dispatch and never stored on the job.
+    var_bindings: Mapped[dict[str, str]] = mapped_column(JSONType, default=dict)
     timeout_s: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[JobStatus] = mapped_column(
         Enum(JobStatus, name="job_status", native_enum=False, length=16),

@@ -6,6 +6,7 @@
 	import ColumnGlyph from './ColumnGlyph.svelte';
 	import PriorityGlyph, { priorityOptions } from './PriorityGlyph.svelte';
 	import CommandArgsForm from './CommandArgsForm.svelte';
+	import VarBindings from './VarBindings.svelte';
 
 	interface Props {
 		open?: boolean;
@@ -35,6 +36,7 @@
 	let library = $state<CommandDefinition[]>([]);
 	let commandRef = $state('');
 	let commandArgs = $state<Record<string, unknown>>({});
+	let varBindings = $state<Record<string, UUID>>({});
 	let argErrors = $state<Record<string, string>>({});
 	let chosen = $derived(library.find((c) => c.id === commandRef) ?? null);
 
@@ -53,6 +55,7 @@
 	function pickCommand(id: string) {
 		commandRef = id;
 		commandArgs = {};
+		varBindings = {};
 		argErrors = {};
 		const def = library.find((c) => c.id === id);
 		if (def && !title.trim()) title = def.name;
@@ -67,6 +70,7 @@
 	function reset() {
 		kind = 'manual';
 		commandArgs = {};
+		varBindings = {};
 		argErrors = {};
 		title = description = command = image = containerFlagsText = agentId = tagsText = '';
 		priority = '0';
@@ -90,6 +94,7 @@
 				container_flags: kind === 'command' && !fromLibrary ? flags : undefined,
 				command_ref: fromLibrary ? commandRef : null,
 				command_args: fromLibrary ? commandArgs : {},
+				var_bindings: fromLibrary ? varBindings : {},
 				column_id: columnId,
 				agent_selector: agentId ? { agent_id: agentId } : {},
 				tags: tagsText.split(',').map((t) => t.trim()).filter(Boolean),
@@ -142,6 +147,9 @@
 					{#if chosen}
 						{#key chosen.id}
 							<CommandArgsForm spec={chosen.spec} bind:values={commandArgs} bind:errors={argErrors} />
+							{#if chosen.spec.vars?.length}
+								<VarBindings slots={chosen.spec.vars} bindings={varBindings} {projectId} onchange={(b) => (varBindings = b)} />
+							{/if}
 						{/key}
 					{/if}
 				{:else}

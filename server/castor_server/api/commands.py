@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
 from .. import models as m
+from .. import variables
 from ..command_library import definition_from_spec, ids_in_use, load_spec
 from ..command_render import ArgumentError, render_command
 from ..command_spec import parse_spec
@@ -41,9 +42,16 @@ async def get_command(command_id: str, db: DB, _: CurrentUser):
     return _out(row, await ids_in_use(db))
 
 
+async def _check_vars(db, spec) -> None:
+    problems = variables.check_command_vars(spec, await variables.kinds_by_id(db))
+    if problems:
+        raise HTTPException(422, "; ".join(problems))
+
+
 @router.post("", response_model=CommandDefinitionOut, status_code=201)
 async def create_command(body: CommandYamlIn, db: DB, _: CurrentUser):
     spec = _parse_or_422(body.yaml)
+    await _check_vars(db, spec)
     if await db.get(m.CommandDefinition, spec.id) is not None:
         raise HTTPException(409, f"A command with id “{spec.id}” already exists")
     row = m.CommandDefinition(id=spec.id, origin="user", version=1)
@@ -61,6 +69,7 @@ async def update_command(command_id: str, body: CommandYamlIn, db: DB, _: Curren
     if row.origin == "builtin":
         raise HTTPException(409, "Built-in commands are read-only; duplicate it to customise")
     spec = _parse_or_422(body.yaml)
+    await _check_vars(db, spec)
     if spec.id != command_id:
         raise HTTPException(422, "id: cannot be changed (create a new command instead)")
     definition_from_spec(row, spec, body.yaml)

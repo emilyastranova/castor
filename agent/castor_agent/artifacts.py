@@ -37,6 +37,8 @@ def collect(job_dir: Path, patterns: list[str]) -> list[tuple[Path, str]]:
         for path in candidates:
             if path.is_symlink() or not path.is_file():
                 continue
+            if path.relative_to(job_dir).parts[:1] == (".castor",):
+                continue  # variable files (credentials) never leave the agent
             resolved = path.resolve()
             if not resolved.is_relative_to(root):
                 continue

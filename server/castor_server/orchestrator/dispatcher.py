@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from .. import models as m
+from .. import variables
 from ..artifacts import collect_patterns, new_token
 from ..command_library import load_spec
 from ..config import settings
@@ -99,6 +100,13 @@ class Dispatcher:
                 spec = await load_spec(db, task.command_ref) if task.command_ref else None
                 artifacts = {"token": upload_token, "collect": collect_patterns(spec)}
                 job.output_specs = output_specs_for(spec.outputs) if spec else None
+                try:
+                    resolved = await variables.resolve(
+                        db, spec.vars if spec else [], job.var_bindings or {}, task.project_id
+                    )
+                except variables.VariableError as exc:
+                    await self._fail_unsent(db, job, task, f"variables: {exc}")
+                    continue
                 await record_activity(
                     db,
                     type="job.dispatched",
@@ -109,7 +117,7 @@ class Dispatcher:
                 )
                 await db.commit()
                 try:
-                    await gateway.send_job(conn, job, artifacts)
+                    await gateway.send_job(conn, job, artifacts, resolved)
                 except Exception as exc:  # noqa: BLE001 - any send failure re-queues the job
                     log.warning("failed to send job %s to %s: %s", job.id, conn.name, exc)
                     conn.running.discard(job.id)
@@ -120,6 +128,28 @@ class Dispatcher:
                     continue
                 publish_job(job, task.project_id)
                 await publish_task(db, task)
+
+    async def _fail_unsent(self, db, job: m.Job, task: m.Task, error: str) -> None:
+        """A job that can't be sent (e.g. its variable set is gone) fails on the card."""
+        job.status = m.JobStatus.failed
+        job.agent_id = None
+        job.error = error
+        job.finished_at = utcnow()
+        await record_activity(
+            db,
+            type="job.failed",
+            message=f"“{task.title}” could not start: {error}",
+            project_id=task.project_id,
+            task_id=task.id,
+            payload={"job_id": str(job.id)},
+        )
+        await db.commit()
+        publish_job(job, task.project_id)
+        await publish_task(db, task)
+        if task.playbook_run_id is not None:
+            from ..services import advance_playbook_run
+
+            await advance_playbook_run(db, task.playbook_run_id)
 
     async def cancel(self, job_id: uuid.UUID) -> m.Job | None:
         async with SessionLocal() as db:

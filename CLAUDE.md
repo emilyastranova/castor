@@ -119,6 +119,14 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `POST /api/playbooks/validate`.
   `pipeline-demo` + `commands/demo-*` is a no-network test pipeline for the playbook UI;
   run an agent with `--allow-host --max-concurrency 4` to watch it.
+- Variables: `variables.py` (kinds = typed field templates, sets = instances; `resolve` turns
+  a job's bindings into env vars + files at dispatch), `vault.py` (Fernet; `CASTOR_VAULT_KEY`
+  or `<data_dir>/vault.key`), `api/variables.py`. A command's `vars` slots render as
+  `"${CASTOR_VAR_<SLOT>_<FIELD>}"`, so **no variable value may ever be rendered into
+  `task.command`/`job.command` or stored on a job**; values exist only in the `job.run`
+  message, and the gateway masks secrets in logs. The agent writes files under
+  `<job dir>/.castor/` (removed after the job, never collected as artifacts) and passes
+  container env by name only (`-e NAME`).
 - Auth: `POST /api/auth/login` sets an httpOnly cookie; the same JWT works as
   `Authorization: Bearer`. Agents authenticate with the shared `CASTOR_AGENT_SECRET`.
 - Config is `pydantic-settings` with the `CASTOR_` prefix (`config.py`).

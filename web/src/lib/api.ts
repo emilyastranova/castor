@@ -122,7 +122,9 @@ export interface SmbHostResult {
 
 export interface PlaybookInputSpec {
 	name: string;
-	type: 'string' | 'number' | 'boolean' | 'list';
+	type: 'string' | 'number' | 'boolean' | 'list' | 'varset';
+	/** varset inputs: the variable kind to pick a set of. */
+	kind?: string | null;
 	description: string;
 	required: boolean;
 	default: unknown;
@@ -150,6 +152,8 @@ export interface PlaybookStepSpec {
 	depends_on: string[];
 	args: Record<string, unknown>;
 	skip_if_empty: boolean;
+	/** Command variable slot → `{{ inputs.x }}` or a variable set name. */
+	vars?: Record<string, string>;
 }
 
 export type PlaybookStepStatus =
@@ -269,7 +273,7 @@ export interface JobDetail extends Job {
 	outputs: JobOutput[];
 }
 
-export type ArgType = 'string' | 'number' | 'boolean' | 'list';
+export type ArgType = 'string' | 'number' | 'boolean' | 'list' | 'varset';
 
 export interface ArgSpec {
 	name: string;
@@ -281,6 +285,55 @@ export interface ArgSpec {
 	regex: string | null;
 	choices: string[] | null;
 	separator: string;
+	/** varset playbook inputs: the variable kind the chosen set must have. */
+	kind?: string | null;
+}
+
+/** A variable set a command needs; its template uses {{ name.field }}. */
+export interface VarSlot {
+	name: string;
+	kind: string;
+	description: string;
+	required: boolean;
+}
+
+export type VarFieldType = 'text' | 'number' | 'boolean' | 'host' | 'port' | 'list' | 'secret' | 'file' | 'secret_file';
+
+export interface VarField {
+	name: string;
+	type: VarFieldType;
+	label: string;
+	description: string;
+	required: boolean;
+	default: unknown;
+}
+
+export interface VariableKind {
+	id: string;
+	origin: 'builtin' | 'user';
+	name: string;
+	description: string;
+	fields: VarField[];
+	set_count: number;
+}
+
+export interface VariableSet {
+	id: UUID;
+	kind_id: string;
+	name: string;
+	description: string;
+	/** Empty: usable in every project. */
+	project_ids: UUID[];
+	/** Plain fields only. */
+	values: Record<string, unknown>;
+	/** Secret fields: true when a value is stored (values are never sent). */
+	secrets: Record<string, boolean>;
+	files: Record<string, { filename: string; size: number }>;
+	missing: string[];
+	/** A one-off set entered on a card or at run time; not in the library. */
+	ephemeral: boolean;
+	created_at: string;
+	updated_at: string;
 }
 
 export interface CommandSpec {
@@ -291,6 +344,7 @@ export interface CommandSpec {
 	image: string | null;
 	container_flags?: string[];
 	args: ArgSpec[];
+	vars?: VarSlot[];
 	command: string;
 	outputs: OutputSpec[];
 }
@@ -340,6 +394,8 @@ export interface Task {
 	playbook_run_id?: UUID | null;
 	playbook_step_id?: string | null;
 	depends_on?: string[];
+	/** Variable slot → set id. */
+	var_bindings?: Record<string, UUID>;
 	created_at: string;
 	updated_at: string;
 	latest_job: Job | null;
@@ -563,6 +619,47 @@ export function api(fetchFn: Fetch = fetch) {
 			remove: (id: string) => del(`/commands/${id}`),
 			render: (id: string, args: Record<string, unknown>) =>
 				post<{ command: string; image: string | null; container_flags?: string[] }>(`/commands/${id}/render`, { args })
+		},
+		variables: {
+			kinds: () => get<VariableKind[]>('/variables/kinds'),
+			createKind: (body: Pick<VariableKind, 'id' | 'name' | 'description' | 'fields'>) =>
+				post<VariableKind>('/variables/kinds', body),
+			updateKind: (id: string, body: Pick<VariableKind, 'id' | 'name' | 'description' | 'fields'>) =>
+				request<VariableKind>(fetchFn, 'PUT', `/variables/kinds/${id}`, body),
+			removeKind: (id: string) => del(`/variables/kinds/${id}`),
+			sets: (params?: { kind?: string; project_id?: UUID }) => {
+				const q = new URLSearchParams();
+				if (params?.kind) q.set('kind', params.kind);
+				if (params?.project_id) q.set('project_id', params.project_id);
+				const qs = q.toString();
+				return get<VariableSet[]>(`/variables/sets${qs ? `?${qs}` : ''}`);
+			},
+			getSet: (id: UUID) => get<VariableSet>(`/variables/sets/${id}`),
+			createSet: (body: {
+				kind_id: string;
+				name?: string;
+				description?: string;
+				project_ids?: UUID[];
+				values?: Record<string, unknown>;
+				ephemeral?: boolean;
+			}) => post<VariableSet>('/variables/sets', body),
+			updateSet: (
+				id: UUID,
+				body: { name?: string; description?: string; project_ids?: UUID[]; values?: Record<string, unknown>; ephemeral?: boolean }
+			) => patch<VariableSet>(`/variables/sets/${id}`, body),
+			removeSet: (id: UUID) => del(`/variables/sets/${id}`),
+			uploadFile: (id: UUID, field: string, file: File) => {
+				const form = new FormData();
+				form.append('file', file);
+				return request<VariableSet>(fetchFn, 'PUT', `/variables/sets/${id}/files/${field}`, form);
+			},
+			removeFile: (id: UUID, field: string) =>
+				request<VariableSet>(fetchFn, 'DELETE', `/variables/sets/${id}/files/${field}`),
+			/** Reading a secret is recorded in the activity feed. Files come back base64-encoded. */
+			reveal: (id: UUID, field: string) =>
+				post<{ field: string; type: VarFieldType; value: unknown; filename: string | null }>(
+					`/variables/sets/${id}/reveal/${field}`
+				)
 		},
 		agents: {
 			list: () => get<Agent[]>('/agents'),

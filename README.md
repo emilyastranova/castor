@@ -108,6 +108,24 @@ continue the run.
   It is good for trying the UI. Its `fail_at` and `empty_at` inputs show failure
   and skip handling.
 
+## Variables
+
+Credentials, SSH keys, listener addresses and API tokens live on the **Variables** page as
+typed *sets* (one *kind* per shape of data; make your own kinds for anything else). A
+command declares what it needs:
+
+```yaml
+vars:
+  - name: creds
+    kind: credential
+command: nxc smb {{ targets }} -u {{ creds.username }} -p {{ creds.password }}
+```
+
+and the card or playbook run picks a set. Values never enter the command line or the job
+history: secrets and files are encrypted at rest, sent only to the agent running the job
+(as environment variables and 0600 files that are deleted afterwards), and masked in the
+output if the tool prints them. See [commands/README.md](commands/README.md#variable-sets-credentials-keys-listeners-).
+
 ## Quick start
 
 With Docker or Podman Compose:

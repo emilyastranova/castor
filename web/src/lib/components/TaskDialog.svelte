@@ -14,6 +14,7 @@
 	import PriorityGlyph, { priorityOptions } from './PriorityGlyph.svelte';
 	import NameImageDialog from './NameImageDialog.svelte';
 	import CommandArgsForm from './CommandArgsForm.svelte';
+	import VarBindings from './VarBindings.svelte';
 	import { tick } from 'svelte';
 	import { page } from '$app/state';
 
@@ -567,9 +568,11 @@
 		</div>
 	{/snippet}
 
-	<div class="grid min-h-full gap-6 pt-2 pb-6 lg:grid-cols-[1fr_300px]" onpaste={onPaste}>
+	<!-- minmax(0, …) and min-w-0 let the main column shrink: wide output scrolls inside the
+	     console instead of pushing the side column out of the dialog. -->
+	<div class="grid min-h-full grid-cols-[minmax(0,1fr)] gap-6 pt-2 pb-6 lg:grid-cols-[minmax(0,1fr)_300px]" onpaste={onPaste}>
 		<!-- main column -->
-		<div class="flex min-h-0 flex-col gap-4">
+		<div class="flex min-h-0 min-w-0 flex-col gap-4">
 			{#if task.kind === 'command'}
 				<div class="flex flex-col gap-3 rounded-md bg-surface-container p-4">
 					{#if task.command_ref}
@@ -587,6 +590,14 @@
 							{#key libraryDef.id}
 								<CommandArgsForm spec={libraryDef.spec} bind:values={libArgs} bind:errors={libErrors} onedit={() => (libDirty = true)} />
 							{/key}
+							{#if libraryDef.spec.vars?.length}
+								<VarBindings
+									slots={libraryDef.spec.vars}
+									bindings={task.var_bindings ?? {}}
+									projectId={task.project_id}
+									onchange={(var_bindings) => save({ var_bindings })}
+								/>
+							{/if}
 						{/if}
 					{/if}
 
@@ -613,7 +624,7 @@
 					{/if}
 					<div class="flex flex-wrap items-center gap-4">
 						<Switch bind:checked={runOnMove} label="Run when moved to In Progress" onchange={(v) => save({ run_on_move: v })} />
-						<TextField label="Timeout (s)" bind:value={timeout} type="number" class="w-32 [&_div]:h-10" oninput={() => edited('timeout')} onblur={() => (timeout ? Number(timeout) : null) !== task.timeout_s && commit('timeout', { timeout_s: timeout ? Number(timeout) : null })} />
+						<TextField label="Timeout (s)" bind:value={timeout} type="number" class="w-40 [&_div]:h-10" oninput={() => edited('timeout')} onblur={() => (timeout ? Number(timeout) : null) !== task.timeout_s && commit('timeout', { timeout_s: timeout ? Number(timeout) : null })} />
 					</div>
 				</div>
 			{/if}

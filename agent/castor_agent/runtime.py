@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import os
 import shutil
@@ -11,9 +12,14 @@ import sys
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 log = logging.getLogger("castor.agent.runtime")
+
+# Variable-set files are written here inside the job directory and removed after the job,
+# before artifacts are collected.
+VARS_DIR = ".castor"
 
 LogSink = Callable[[str, str], Awaitable[None]]  # (stream, data)
 
@@ -61,15 +67,42 @@ class JobRunner:
         self.container_name = f"castor-{self.job_id[:8]}-{uuid.uuid4().hex[:6]}"
         self._cancelled = False
 
+    # ----- variable files -----
+
+    def write_files(self, is_container: bool) -> dict[str, str]:
+        """Write the job's variable files (owner-only) and return {env name: path}, the
+        path as the command sees it (/work/... in a container, absolute on the host)."""
+        root = Path(self.job_dir).resolve()
+        env: dict[str, str] = {}
+        for item in self.job.get("files") or []:
+            target = (root / str(item["path"])).resolve()
+            if not target.is_relative_to(root / VARS_DIR):
+                raise RuntimeError(f"refusing to write variable file outside the job: {item['path']}")
+            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, int(item.get("mode", 0o600)))
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(base64.b64decode(item.get("data", "")))
+            relative = target.relative_to(root).as_posix()
+            env[str(item["env"])] = f"/work/{relative}" if is_container else str(target)
+        return env
+
+    def remove_files(self) -> None:
+        shutil.rmtree(Path(self.job_dir) / VARS_DIR, ignore_errors=True)
+
+    def job_env(self) -> dict[str, str]:
+        return {str(k): str(v) for k, v in (self.job.get("env") or {}).items()}
+
     # ----- command construction -----
 
     def _wants_container(self) -> bool:
         return self.job.get("runtime") == "container" or bool(self.job.get("image"))
 
-    def build_argv(self) -> tuple[list[str], bool]:
-        """Return (argv, is_container)."""
+    def build_argv(self, env_names: list[str] | None = None) -> tuple[list[str], bool]:
+        """Return (argv, is_container). Container variables are passed by name only
+        (`-e NAME`): the runtime reads the value from its own environment, so values (and
+        secrets) never appear in the process list."""
         command = str(self.job.get("command", ""))
-        env = self.job.get("env") or {}
+        names = env_names if env_names is not None else list(self.job_env())
         if self._wants_container():
             if not self.container_runtime:
                 raise RuntimeError("job requires a container runtime but none is available")
@@ -92,8 +125,8 @@ class JobRunner:
                 argv += ["--network", self.network]
             # ":Z" relabels the directory for SELinux hosts (Fedora/RHEL); harmless elsewhere.
             argv += ["-v", f"{os.path.abspath(self.job_dir)}:/work:Z", "-w", "/work"]
-            for key, value in env.items():
-                argv += ["-e", f"{key}={value}"]
+            for key in names:
+                argv += ["-e", key]
             argv += self.extra_run_args
             argv += container_flags
             # Override the image's entrypoint: tool images often set it to the tool itself
@@ -110,18 +143,26 @@ class JobRunner:
 
     async def run(self, sink: LogSink) -> RunResult:
         try:
-            argv, is_container = self.build_argv()
-        except RuntimeError as exc:
+            return await self._run(sink)
+        finally:
+            self.remove_files()
+
+    async def _run(self, sink: LogSink) -> RunResult:
+        is_container = self._wants_container()
+        try:
+            job_env = {**self.job_env(), **self.write_files(is_container)}
+            argv, is_container = self.build_argv(list(job_env))
+        except (RuntimeError, OSError, ValueError) as exc:
             await sink("system", f"{exc}\n")
             return RunResult(exit_code=None, error=str(exc))
 
-        env = dict(os.environ)
+        env = {**os.environ, **job_env}
         if not is_container:
-            env.update({k: str(v) for k, v in (self.job.get("env") or {}).items()})
             # Host jobs have no /work mount; they run in the job directory and can find it here.
             env["CASTOR_WORK"] = os.path.abspath(self.job_dir)
         where = f"{self.container_runtime} ({self.job.get('image') or self.default_image})" if is_container else "host shell"
-        await sink("system", f"$ {self.job.get('command', '')}\n[castor] running on {where}\n")
+        shown = self.job.get("display_command") or self.job.get("command", "")
+        await sink("system", f"$ {shown}\n[castor] running on {where}\n")
 
         try:
             self.process = await asyncio.create_subprocess_exec(

@@ -83,7 +83,7 @@ Inputs are asked for in the Run dialog and referenced as `{{ inputs.<name> }}`.
 ```yaml
 inputs:
   - name: targets          # ^[A-Za-z_][A-Za-z0-9_]*$
-    type: string           # string | number | boolean | list  (controls the form widget)
+    type: string           # string | number | boolean | list | varset  (controls the form widget)
     description: CIDR range or host list
     required: true         # the run is refused without a value (unless there is a default)
     default: null          # used when the field is left empty
@@ -100,6 +100,25 @@ inputs:
 - Every input you reference must be declared, or the playbook is rejected
   (`step x uses undeclared input y`).
 
+**Variable-set inputs.** `type: varset` asks for a variable set (a credential, an SSH key,
+a listener, ...) of the given `kind`, shown as a dropdown of the sets the run's project may
+use. Steps bind it to a command's variable slot with `vars:` (section 5.1).
+
+```yaml
+inputs:
+  - name: creds
+    type: varset
+    kind: credential       # required for varset inputs
+    description: Account to authenticate with
+    required: true
+```
+
+The value can be given as the set's id or its name (via the API); the run stores the id.
+In the Run dialog you can also choose **Enter manually…** to type one-off values for this
+run (shared by its steps, not saved to Variables unless you choose to).
+The run is refused if the set doesn't exist, has another kind, or isn't allowed in the
+project.
+
 ## 5. Steps
 
 Every step has these fields:
@@ -111,6 +130,7 @@ Every step has these fields:
 | `description` | no | string | Becomes the card description. Say what the step is for. |
 | `depends_on` | no | list of step ids | Only needed for ordering **without** a data reference. Referenced steps are added automatically. |
 | `skip_if_empty` | no | bool | Default `false`. See section 8. |
+| `vars` | no | mapping | Command steps only: variable slot → `"{{ inputs.<varset input> }}"` or a set name. See 5.1. |
 
 A step is **either** a command step (`command_ref` + `args`) **or** a transform step
 (`transform`). Giving both, or neither, is an error. Don't write `kind:` yourself; it's
@@ -136,6 +156,28 @@ derived.
   Referenced values are checked when the step starts. A value that fails then (wrong type,
   fails the argument's `regex`, empty but required) fails the step with
   "Could not start: …".
+
+**Variables.** A command can declare variable *slots*, typed sets it needs, such as
+`creds` of kind `credential` (see `vars` on the command, `GET /api/commands`). Bind each slot
+under `vars:`, either to a `varset` input or to the name of a fixed set:
+
+```yaml
+  - id: smb_auth
+    name: Authenticated SMB check
+    command_ref: netexec-smb-auth
+    vars:
+      creds: "{{ inputs.creds }}"     # the varset input chosen at run time
+    # or a fixed set:  creds: Lab admin
+    args:
+      targets: "{{ steps.smb_scan.outputs.hosts }}"
+```
+
+- Every `required` slot must be bound. A slot's kind must equal the input's `kind`, or the
+  named set's kind.
+- `vars` values can't reference step outputs.
+- Values never appear in the command line or the card: the job receives them as
+  environment variables and files when it runs, and secret values the tool prints are
+  masked in the output.
 
 ### 5.2 Transform steps
 
@@ -290,6 +332,7 @@ built-ins as of this writing:
 | `nmap-port-445` | container | `targets`*, `ports`=445 | `hosts` list<host> (nmap.hosts) |
 | `nmap-service-scan` | container | `targets`*, `ports`=1-1000 | `services` list<service> (nmap.services) |
 | `netexec-smb` | host | `targets`* | `smb_hosts` list<smb_host> (netexec.smb) |
+| `netexec-smb-auth` | host | `targets`*; slot `creds` (credential) | `smb_hosts` list<smb_host> (netexec.smb) |
 | `ffuf-dir` | container | `url`*, `wordlist`=/work/wordlists/common.txt | `paths` list<url> (ffuf.results) |
 | `demo-seed-hosts` | host | `subnet`=10.20.0, `count`=6 | `hosts` list<host> (nmap.hosts) |
 | `demo-service-scan` | host | `targets`* | `services` list<service> (nmap.services) |
@@ -298,6 +341,7 @@ built-ins as of this writing:
 | `demo-dns-names` | host | `targets`* | `names` list<string> (lines) |
 | `demo-dir-brute` | host | `urls`* | `paths` list<url> (ffuf.results) |
 | `demo-report` | host | `findings`, `unsigned`, `names` | `report` string (text) |
+| `demo-vars` | host | slots `creds` (credential), `key` (ssh-key, optional), `callback` (listener, optional) | (none) |
 
 - Every `demo-*` command also takes `step`, `delay`, `speed`, `fail_at` and `empty_at`.
   These are knobs for testing. The `demo-*` commands invent their output and touch no
@@ -305,6 +349,9 @@ built-ins as of this writing:
 - `nmap.hosts` keeps hosts reported as down by default. After `nmap-ping-sweep`, filter
   `status: up` (as in section 2) before scanning further.
 - `ffuf-dir` takes a single base `url`. It cannot fan out over a list of URLs.
+- Built-in variable kinds: `credential` (username, password\*, domain), `ssh-key`
+  (username, private_key\* file, passphrase\*), `listener` (host, port), `api-token`
+  (token\*, base_url); \* = secret. List them with `GET /api/variables/kinds`.
 - If no existing command fits, write one: see `commands/README.md` for the command format.
   A playbook can only reference commands that exist in the library when it's saved.
 
@@ -330,8 +377,9 @@ Problems are reported in two places:
    regex, a `format` with no placeholder), duplicate step ids, and cycles.
 2. **The library check**, on save or validate: unknown `command_ref`, an arg that isn't an
    argument of the command, a required argument left unbound, a literal value of the wrong
-   type or failing the argument's regex/choices, and a referenced command output that
-   doesn't exist or has no parser.
+   type or failing the argument's regex/choices, a referenced command output that
+   doesn't exist or has no parser, and variable slots: unknown slot, required slot not
+   bound, kind mismatch with the input, unknown set name.
 
 Use the dry-run endpoint while iterating. It saves nothing:
 
@@ -429,6 +477,7 @@ steps:
 - [ ] Every `command_ref` exists, and every arg name is one of its arguments (`GET /api/commands`).
 - [ ] Every referenced output is a parsed output of that command, or the transform's `output.name`.
 - [ ] Every referenced input is declared under `inputs`.
+- [ ] Every required variable slot of each command is bound under `vars:`, to a `varset` input of the same `kind`.
 - [ ] Command steps fed from upstream have `skip_if_empty: true`, unless they should run regardless.
 - [ ] Anything that isn't "a list of hosts/IPs/URLs" goes through a transform first.
 - [ ] Filter values have the field's real type (numbers unquoted, booleans as `true`/`false`).

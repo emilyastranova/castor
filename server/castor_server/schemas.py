@@ -169,6 +169,7 @@ class TaskIn(BaseModel):
     assignees: list[str] = Field(default_factory=list)
     custom_fields: dict[str, Any] = Field(default_factory=dict)
     due_at: datetime | None = None
+    var_bindings: dict[str, uuid.UUID | None] = Field(default_factory=dict)
 
 
 class TaskPatch(BaseModel):
@@ -188,6 +189,8 @@ class TaskPatch(BaseModel):
     assignees: list[str] | None = None
     custom_fields: dict[str, Any] | None = None
     due_at: datetime | None = None
+    # Variable slot → set id; null unbinds a slot. Replaces all bindings when given.
+    var_bindings: dict[str, uuid.UUID | None] | None = None
 
 
 class TaskMove(BaseModel):
@@ -242,6 +245,7 @@ class TaskOut(ORM):
     playbook_run_id: uuid.UUID | None = None
     playbook_step_id: str | None = None
     depends_on: list[str] = Field(default_factory=list)
+    var_bindings: dict[str, str] = Field(default_factory=dict)
     latest_job: JobOut | None = None
     comment_count: int = 0
     attachment_count: int = 0

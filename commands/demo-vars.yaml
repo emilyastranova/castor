@@ -1,0 +1,28 @@
+# Demo command for variable sets: shows what a job receives, without touching the network.
+# Runs on the host shell (agent --allow-host).
+id: demo-vars
+name: "Demo: variable sets"
+schema_version: 1
+description: "Prints what a job receives from its variable sets (the password is masked in the output)"
+tags: [demo, credentials]
+vars:
+  - name: creds
+    kind: credential
+  - name: key
+    kind: ssh-key
+    required: false
+  - name: callback
+    kind: listener
+    required: false
+command: |
+  echo "user:    " {{ creds.username }}
+  echo "domain:   ${CASTOR_VAR_CREDS_DOMAIN:-(none)}"
+  echo "password:" {{ creds.password }} "(masked by Castor; length ${#CASTOR_VAR_CREDS_PASSWORD})"
+  if [ -n "$CASTOR_VAR_KEY_PRIVATE_KEY" ]; then
+    echo "key file:" {{ key.private_key }} "($(wc -c < "$CASTOR_VAR_KEY_PRIVATE_KEY") bytes, mode $(stat -c %a "$CASTOR_VAR_KEY_PRIVATE_KEY"))"
+  else
+    echo "key file: (no ssh-key set chosen)"
+  fi
+  if [ -n "$CASTOR_VAR_CALLBACK_HOST" ]; then
+    echo "callback: $CASTOR_VAR_CALLBACK_HOST:$CASTOR_VAR_CALLBACK_PORT"
+  fi

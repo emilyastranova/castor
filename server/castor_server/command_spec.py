@@ -11,12 +11,17 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 
 from . import parsers
 
-ArgType = Literal["string", "number", "boolean", "list"]
+# "varset" is for playbook inputs only (pick a variable set of `kind`); commands take
+# variable sets through `vars` slots instead.
+ArgType = Literal["string", "number", "boolean", "list", "varset"]
 
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # {{ name }} placeholders in a command template
 PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
+# {{ slot.field }}: a field of the variable set bound to a `vars` slot
+VAR_PLACEHOLDER = re.compile(r"\{\{\s*([a-z][a-z0-9_]*)\.([a-z][a-z0-9_]*)\s*\}\}")
+SLOT_NAME = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 
 
 class ArgSpec(BaseModel):
@@ -30,6 +35,8 @@ class ArgSpec(BaseModel):
     choices: list[str] | None = None
     # List args only: " " renders separate words, "," renders one comma-joined word.
     separator: str = " "
+    # varset inputs only: the variable kind the chosen set must have.
+    kind: str | None = None
 
     @field_validator("name")
     @classmethod
@@ -43,6 +50,23 @@ class ArgSpec(BaseModel):
     def check_regex(cls, value: str | None) -> str | None:
         if value is not None:
             re.compile(value)
+        return value
+
+
+class VarSlot(BaseModel):
+    """A variable set the command needs, e.g. {name: creds, kind: credential}; the
+    template uses {{ creds.username }}."""
+
+    name: str
+    kind: str
+    description: str = ""
+    required: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def check_name(cls, value: str) -> str:
+        if not SLOT_NAME.match(value):
+            raise ValueError("slot names are lowercase letters, digits and underscores")
         return value
 
 
@@ -96,6 +120,7 @@ class CommandSpec(BaseModel):
     image: str | None = None
     container_flags: list[str] = Field(default_factory=list)
     args: list[ArgSpec] = Field(default_factory=list)
+    vars: list[VarSlot] = Field(default_factory=list)
     command: str
     outputs: list[OutputSpec] = Field(default_factory=list)
 
@@ -138,6 +163,17 @@ class CommandSpec(BaseModel):
         undefined = sorted(set(PLACEHOLDER.findall(self.command)) - set(names))
         if undefined:
             raise ValueError(f"template uses undefined arguments: {', '.join(undefined)}")
+        varsets = [a.name for a in self.args if a.type == "varset"]
+        if varsets:
+            raise ValueError(f"{varsets[0]}: commands take variable sets through vars, not args")
+        slots = [v.name for v in self.vars]
+        if len(slots) != len(set(slots)):
+            raise ValueError("vars slot names must be unique")
+        if set(slots) & set(names):
+            raise ValueError("a vars slot can't have the same name as an argument")
+        unknown = sorted({s for s, _ in VAR_PLACEHOLDER.findall(self.command)} - set(slots))
+        if unknown:
+            raise ValueError(f"template uses undeclared vars slots: {', '.join(unknown)}")
         return self
 
 

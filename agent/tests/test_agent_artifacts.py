@@ -23,3 +23,12 @@ def test_collect_declared_files_and_artifacts_dir(tmp_path: Path):
 
     found = collect(job, ["/work/scan.xml", "/work/escape.xml", "/work/missing.xml", "/work/artifacts/**"])
     assert [rel for _, rel in found] == ["artifacts/shots/a.png", "scan.xml"]
+
+
+def test_collect_never_returns_variable_files(tmp_path: Path):
+    (tmp_path / ".castor/vars/key").mkdir(parents=True)
+    (tmp_path / ".castor/vars/key/private_key").write_text("secret")
+    (tmp_path / "artifacts").mkdir()
+    (tmp_path / "artifacts/out.txt").write_text("ok")
+    found = collect(tmp_path, ["/work/artifacts/**", "/work/**", "/work/.castor/**"])
+    assert [rel for _, rel in found] == ["artifacts/out.txt"]

@@ -44,6 +44,8 @@ class PlaybookStepSpec(BaseModel):
     # Don't run when a value bound from an upstream step is empty; the step is marked
     # skipped, which still satisfies its dependents.
     skip_if_empty: bool = False
+    # Command variable slots → `{{ inputs.<varset input> }}` or the name of a variable set.
+    vars: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def check_kind(self) -> PlaybookStepSpec:
@@ -52,6 +54,14 @@ class PlaybookStepSpec(BaseModel):
         self.kind = "transform" if self.transform is not None else "command"
         if self.transform is not None and self.args:
             raise ValueError(f"step {self.id}: transform steps take no args (use transform.input)")
+        if self.transform is not None and self.vars:
+            raise ValueError(f"step {self.id}: transform steps take no vars")
+        for slot, value in self.vars.items():
+            refs = references(value)
+            if refs and (not PLACEHOLDER_RE.match(str(value).strip()) or not refs[0].startswith("inputs.")):
+                raise ValueError(
+                    f"step {self.id}: vars.{slot} must be {{{{ inputs.<name> }}}} or a variable set name"
+                )
         return self
 
     def refs(self) -> list[str]:
@@ -112,6 +122,18 @@ class PlaybookSpec(BaseModel):
         # step becomes a dependency so the graph can't disagree with the bindings.
         by_id = {s.id: s for s in self.steps}
         input_names = {i.name for i in self.inputs}
+        inputs_by_name = {i.name: i for i in self.inputs}
+        for inp in self.inputs:
+            if inp.type == "varset" and not inp.kind:
+                raise ValueError(f"input {inp.name}: varset inputs need a kind")
+        for step in self.steps:
+            for slot, value in step.vars.items():
+                for ref in references(value):
+                    inp = inputs_by_name.get(ref.split(".")[1])
+                    if inp is None:
+                        raise ValueError(f"step {step.id} uses undeclared input {ref.split('.')[1]}")
+                    if inp.type != "varset":
+                        raise ValueError(f"step {step.id}: vars.{slot} needs a varset input, {inp.name} is {inp.type}")
         for step in self.steps:
             for ref in step.refs():
                 parts = ref.split(".")

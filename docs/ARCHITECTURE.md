@@ -42,6 +42,8 @@ User   (single admin in M1; multi-user in M2)
 * Logs are stored as ordered `JobLogChunk` rows (`stdout`/`stderr`/`system`) so the UI can
   stream and replay them; `Job.stdout_bytes` / `stderr_bytes` are totals.
 * `custom_fields` on Task, `settings` on Project, `capabilities` on Agent are JSON.
+* `VariableKind` / `VariableSet` hold typed reusable values; `Task.var_bindings` and
+  `Job.var_bindings` map command slots to sets (see Variables below).
 
 IDs are UUIDs. Timestamps are UTC.
 
@@ -66,7 +68,7 @@ Server → agent
 | --- | --- |
 | `hello.ok` | `agent_id, heartbeat_interval` |
 | `hello.error` | `reason` |
-| `job.run` | `job{id, command, image?, runtime ("container"\|"host"), env{}, timeout_s, artifacts{token, collect[]}}` |
+| `job.run` | `job{id, command, display_command?, image?, runtime ("container"\|"host"), env{}, files[], timeout_s, artifacts{token, collect[]}}` |
 | `job.cancel` | `job_id` |
 
 ### Job directories and artifacts
@@ -115,6 +117,54 @@ shell-quotes every argument value (`command_render.py`), so a value is always ex
 shell word (or one word per list item). While a card is attached, its raw command line is
 read-only through the API; detaching (`command_ref: null`) keeps the rendered line as a plain
 shell command.
+
+## Variables
+
+Reusable typed values that commands consume: credentials, SSH keys, listeners, tokens, or
+anything else (`variables.py`, `api/variables.py`, the Variables page).
+
+* A **kind** (`variable_kinds`) is a template of typed fields. Field types: `text`, `number`,
+  `boolean`, `host`, `port`, `list`, `secret`, `file`, `secret_file`. Built-in kinds
+  (`credential`, `ssh-key`, `listener`, `api-token`) are synced from code at startup and are
+  read-only; users add their own.
+* A **set** (`variable_sets`) is one filled-in instance of a kind. Plain values are JSON;
+  `secret` values and the contents of every file are encrypted with Fernet (`vault.py`) using
+  `CASTOR_VAULT_KEY`, or a key generated once into `<data_dir>/vault.key`. Back that key up
+  with the database: without it, stored secrets can't be read. Secrets are never returned
+  by the list/get endpoints; `POST /api/variables/sets/{id}/reveal/{field}` returns one and
+  records a `variable.revealed` activity event. A set can be limited to some projects
+  (`project_ids`; empty = all).
+* **One-off sets** (`ephemeral`): values typed with "Enter manually…" on a card or in the
+  Run dialog, without saving them to the library. They are hidden from listings, owned by
+  the first card (`task_id`) or playbook run (`playbook_run_id`) that binds them, usable
+  only there, and deleted with it (FK cascade) or when the card picks another set.
+  Unclaimed ones are dropped after a day. `PATCH` with `ephemeral: false` and a name
+  promotes one into the library.
+* A command declares **slots** (`vars: [{name: creds, kind: credential}]`) and uses
+  `{{ creds.username }}` in its template. That renders as `"${CASTOR_VAR_CREDS_USERNAME}"`:
+  no value, secret or not, is ever part of `task.command` or `job.command`. A card binds slots
+  to sets in `task.var_bindings`; the job snapshots the bindings (`job.var_bindings`) when
+  queued.
+* **Dispatch** resolves the bindings (`variables.resolve`) just before `job.run`: plain and
+  secret fields go in `env`, file fields in `files[] {env, path, data (base64), mode}`. The
+  values exist only in that message. If a set is missing, of the wrong kind, not allowed in
+  the project or incomplete, the job fails with `error: "variables: …"` instead of being sent.
+* The **agent** writes `files` under `<job dir>/.castor/vars/` (mode 0600), sets each file
+  variable to its path (`/work/...` in a container, absolute on the host), passes variables
+  to containers by name only (`-e NAME`, value from the runtime's environment) so they
+  never show in the process list, deletes `.castor/` when the job ends, and never uploads
+  it as an artifact.
+* `display_command` is `command` as the job will run it, for the `$ …` first line of the
+  output (the agent prints it instead of the raw command; `job.command` keeps the
+  references). Values are single-quoted where they form a word (`-u 'admin'`), secrets show
+  as `'••••'`, files as the path the job sees, and `${X:+word}` / `${X:-word}` are expanded
+  the way the shell will (an unset optional field's `-d …` disappears).
+* The gateway masks each secret value (4+ characters) as `••••` in `job.log` chunks and the
+  job's `error` before storing or broadcasting them. Plain field values from the same job
+  (username, domain, host…) are protected first, so they stay readable even when they
+  contain or equal a secret. A secret split across two log chunks is not caught.
+* Playbooks take sets through `varset` inputs and bind them per step with `vars:` (see
+  [PLAYBOOK_SPEC.md](PLAYBOOK_SPEC.md)).
 
 ## Playbooks
 

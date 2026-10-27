@@ -17,6 +17,7 @@
 		{ href: '/projects', icon: 'view_kanban', label: 'Projects' },
 		{ href: '/playbooks', icon: 'account_tree', label: 'Playbooks' },
 		{ href: '/commands', icon: 'menu_book', label: 'Commands' },
+		{ href: '/variables', icon: 'key', label: 'Variables' },
 		{ href: '/parsers', icon: 'data_object', label: 'Parsers' },
 		{ href: '/agents', icon: 'dns', label: 'Agents' },
 		{ href: '/activity', icon: 'history', label: 'Activity' }

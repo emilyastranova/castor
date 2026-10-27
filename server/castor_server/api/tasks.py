@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
 from .. import models as m
+from .. import variables
 from ..command_library import apply_to_task, load_spec
 from ..command_render import ArgumentError
 from ..deps import DB, CurrentUser, parse_uuid
@@ -35,6 +36,18 @@ from ..services import (
 )
 
 router = APIRouter(tags=["tasks"])
+
+
+async def _bind_vars(db, task: m.Task, bindings: dict) -> None:
+    spec = await load_spec(db, task.command_ref) if task.command_ref else None
+    try:
+        checked = await variables.check_bindings(
+            db, spec.vars if spec else [], bindings, task.project_id, task
+        )
+    except variables.VariableError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    await variables.release_ephemeral(db, task, set(checked.values()))
+    task.var_bindings = checked
 
 
 async def _use_library_command(db, task: m.Task, command_ref: str, args: dict) -> None:
@@ -78,7 +91,7 @@ async def create_task(project_id: str, body: TaskIn, db: DB, user: CurrentUser):
             ).scalar_one_or_none()
         if column is None:
             raise HTTPException(409, "Project has no columns")
-    data = body.model_dump(exclude={"column_id", "command_ref", "command_args"})
+    data = body.model_dump(exclude={"column_id", "command_ref", "command_args", "var_bindings"})
     task = m.Task(
         project_id=project.id,
         column_id=column.id,
@@ -90,6 +103,8 @@ async def create_task(project_id: str, body: TaskIn, db: DB, user: CurrentUser):
         await _use_library_command(db, task, body.command_ref, body.command_args)
     db.add(task)
     await db.flush()
+    if body.var_bindings:
+        await _bind_vars(db, task, body.var_bindings)
     await record_activity(
         db,
         type="task.created",
@@ -121,6 +136,7 @@ async def read_task(task_id: str, db: DB, _: CurrentUser):
 async def update_task(task_id: str, body: TaskPatch, db: DB, user: CurrentUser):
     task = await _task_or_404(db, task_id)
     changes = body.model_dump(exclude_unset=True)
+    bindings = changes.pop("var_bindings", None)
     library_ref = changes.pop("command_ref", task.command_ref)
     library_args = changes.pop("command_args", None)
     detaching = "command_ref" in body.model_fields_set and library_ref is None
@@ -135,6 +151,16 @@ async def update_task(task_id: str, body: TaskPatch, db: DB, user: CurrentUser):
         )
         if "command" in changes:
             task.command = changes["command"]
+    if bindings is not None:
+        await _bind_vars(db, task, bindings)
+    elif detaching:
+        await variables.release_ephemeral(db, task, set())
+        task.var_bindings = {}
+    elif task.var_bindings and task.command_ref:
+        # Switching commands keeps only the bindings the new command still has slots for.
+        spec = await load_spec(db, task.command_ref)
+        slots = {s.name for s in spec.vars} if spec else set()
+        task.var_bindings = {k: v for k, v in task.var_bindings.items() if k in slots}
     await db.commit()
     return await publish_task(db, task)
 

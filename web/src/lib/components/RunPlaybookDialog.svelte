@@ -1,8 +1,9 @@
 <script lang="ts">
-	import type { PlaybookSpec, PlaybookRun, Project } from '$lib/api';
+	import type { PlaybookInputSpec, PlaybookSpec, PlaybookRun, Project, VariableKind, VariableSet } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, Select, Switch, TextField } from '$lib/m3';
 	import { snackbar } from '$lib/snackbar.svelte';
+	import VariableSetDialog from './VariableSetDialog.svelte';
 
 	interface Props {
 		open: boolean;
@@ -12,6 +13,40 @@
 	}
 
 	let { open = $bindable(false), spec, projects, onRun }: Props = $props();
+
+	// Variable sets the chosen project may use, for varset inputs.
+	let varSets = $state<VariableSet[]>([]);
+	let kinds = $state<VariableKind[]>([]);
+	// Values entered by hand for a varset input: a one-off set the run will own.
+	let manualSets = $state<Record<string, VariableSet>>({});
+	let manualInput = $state<PlaybookInputSpec | null>(null);
+	let manualOpen = $state(false);
+	const MANUAL = '__manual__';
+
+	function chooseVarset(inp: PlaybookInputSpec, value: string) {
+		if (value === MANUAL) {
+			manualInput = inp;
+			manualOpen = true;
+			if (!kinds.length) api().variables.kinds().then((k) => (kinds = k));
+			return;
+		}
+		inputValues = { ...inputValues, [inp.name]: value };
+	}
+
+	function manualSaved(set: VariableSet) {
+		if (!manualInput) return;
+		if (set.ephemeral) manualSets = { ...manualSets, [manualInput.name]: set };
+		else varSets = [...varSets, set];
+		inputValues = { ...inputValues, [manualInput.name]: set.id };
+	}
+	$effect(() => {
+		const project = selectedProjectId;
+		if (!open || !project || !spec?.inputs?.some((i) => i.type === 'varset')) return;
+		api()
+			.variables.sets({ project_id: project })
+			.then((s) => (varSets = s))
+			.catch(() => (varSets = []));
+	});
 
 	let selectedProjectId = $state<string>('');
 	let inputValues = $state<Record<string, unknown>>({});
@@ -109,6 +144,21 @@
 									onchange={(v) => (inputValues = { ...inputValues, [inp.name]: v })}
 								/>
 							</div>
+						{:else if inp.type === 'varset'}
+							{@const matching = varSets.filter((s) => s.kind_id === inp.kind)}
+							{@const manual = manualSets[inp.name]}
+							<Select
+								label="{inp.name} · {inp.kind}{inp.required ? ' *' : ''}"
+								options={[
+									{ value: '', label: matching.length ? 'Choose a set…' : `No ${inp.kind} sets for this project` },
+									...matching.map((s) => ({ value: s.id, label: s.missing.length ? `${s.name} (incomplete)` : s.name })),
+									...(manual ? [{ value: manual.id, label: 'Manual entry (this run only)' }] : []),
+									{ value: MANUAL, label: 'Enter manually…' }
+								]}
+								value={String(inputValues[inp.name] ?? '')}
+								supporting={inp.description}
+								onchange={(v) => chooseVarset(inp, v)}
+							/>
 						{:else if inp.choices && inp.choices.length > 0}
 							<Select
 								label={inp.name}
@@ -153,3 +203,14 @@
 		</Button>
 	{/snippet}
 </Dialog>
+
+<VariableSetDialog
+	bind:open={manualOpen}
+	set={manualInput ? (manualSets[manualInput.name] ?? null) : null}
+	{kinds}
+	{projects}
+	kindId={manualInput?.kind ?? ''}
+	manual
+	scopeLabel="this run"
+	onsaved={manualSaved}
+/>

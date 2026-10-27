@@ -19,6 +19,7 @@ dependencies = [
   "aiofiles>=23.2",
   "defusedxml>=0.7",
   "regex>=2024.4",
+  "cryptography>=42",
 ]
 
 [project.optional-dependencies]

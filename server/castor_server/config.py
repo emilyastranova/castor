@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     artifact_max_bytes: int = 100 * 1024 * 1024  # per file
     artifact_max_files: int = 200  # per job
     artifact_upload_window_s: int = 600  # accepted for this long after the job finishes
+    # Variable sets: secrets and files are encrypted with this Fernet key (urlsafe base64,
+    # 32 bytes). Unset: generated once into <data_dir>/vault.key. Losing it makes every
+    # stored secret unreadable, so back it up with the database.
+    vault_key: str | None = None
+    variable_file_max_bytes: int = 1024 * 1024  # per file field
     # Built-in command definitions (commands/*.yaml), synced into the library on startup.
     commands_dir: Path = Path(__file__).resolve().parents[2] / "commands"
     # Built-in playbook definitions (playbooks/*.yaml), synced into the library on startup.

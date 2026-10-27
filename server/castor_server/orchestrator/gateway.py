@@ -14,6 +14,8 @@ from fastapi import WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
 from .. import models as m
+from .. import variables
+from ..command_library import load_spec
 from ..config import settings
 from ..db import SessionLocal
 from ..events import bus, dumps
@@ -51,6 +53,9 @@ class AgentConnection:
 class AgentGateway:
     def __init__(self) -> None:
         self.connections: dict[uuid.UUID, AgentConnection] = {}
+        # Secret values each running job was sent, masked out of its logs. Rebuilt from the
+        # job's bindings if the server restarted while the job ran.
+        self._redactions: dict[uuid.UUID, variables.Resolved] = {}
         self.on_change: list = []  # callbacks invoked when capacity may have changed
 
     # ----- registry -----
@@ -281,6 +286,7 @@ class AgentGateway:
             job = await db.get(m.Job, job_id)
             if job is None or job.agent_id != conn.agent_id:
                 return
+            data = (await self._redaction(db, job)).redact(data)
             db.add(m.JobLogChunk(job_id=job.id, seq=seq, stream=stream, data=data))
             if stream == "stdout":
                 job.stdout_bytes += len(data.encode())
@@ -305,12 +311,15 @@ class AgentGateway:
             job = await db.get(m.Job, job_id)
             if job is None or job.agent_id != conn.agent_id:
                 return
+            redaction = await self._redaction(db, job)
+            self._redactions.pop(job_id, None)
             if job.status == m.JobStatus.cancelled:
                 job.finished_at = utcnow()
             else:
                 exit_code = msg.get("exit_code")
                 job.exit_code = int(exit_code) if exit_code is not None else None
-                job.error = msg.get("error")
+                error = msg.get("error")
+                job.error = redaction.redact(error) if error else None
                 job.finished_at = utcnow()
                 job.status = (
                     m.JobStatus.succeeded
@@ -382,11 +391,33 @@ class AgentGateway:
             payload={"to": str(review.id), "auto": True},
         )
 
+    async def _redaction(self, db, job: m.Job) -> variables.Resolved:
+        cached = self._redactions.get(job.id)
+        if cached is not None:
+            return cached
+        resolved = variables.Resolved()
+        if job.var_bindings:
+            task = await db.get(m.Task, job.task_id)
+            spec = await load_spec(db, task.command_ref) if task and task.command_ref else None
+            if spec is not None:
+                try:
+                    resolved = await variables.resolve(db, spec.vars, job.var_bindings, task.project_id)
+                except variables.VariableError:
+                    pass
+        self._redactions[job.id] = resolved
+        return resolved
+
     # ----- outbound -----
 
     async def send_job(
-        self, conn: AgentConnection, job: m.Job, artifacts: dict[str, Any] | None = None
+        self,
+        conn: AgentConnection,
+        job: m.Job,
+        artifacts: dict[str, Any] | None = None,
+        resolved: variables.Resolved | None = None,
     ) -> None:
+        resolved = resolved or variables.Resolved()
+        self._redactions[job.id] = resolved
         conn.running.add(job.id)
         await conn.send(
             {
@@ -394,10 +425,14 @@ class AgentGateway:
                 "job": {
                     "id": job.id,
                     "command": job.command,
+                    # Shown as the first line of the output; values filled in, secrets masked.
+                    "display_command": resolved.display_command(job.command, bool(job.image)),
                     "image": job.image,
                     "container_flags": job.container_flags or [],
                     "runtime": "container" if job.image else "host",
-                    "env": job.env or {},
+                    # Variable values exist only in this message: never on the job row.
+                    "env": {**(job.env or {}), **resolved.env},
+                    "files": resolved.files,
                     "timeout_s": job.timeout_s,
                     # One-off upload token + files to collect from the job's /work afterwards.
                     "artifacts": artifacts or {},

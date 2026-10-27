@@ -10,7 +10,7 @@ import re
 import shlex
 from typing import Any
 
-from .command_spec import PLACEHOLDER, ArgSpec, CommandSpec
+from .command_spec import PLACEHOLDER, VAR_PLACEHOLDER, ArgSpec, CommandSpec
 
 
 class ArgumentError(ValueError):
@@ -105,4 +105,9 @@ def render_command(spec: CommandSpec, values: dict[str, Any]) -> str:
     resolved = resolve_args(spec, values)
     by_name = {a.name: a for a in spec.args}
     rendered = PLACEHOLDER.sub(lambda m: _shell_words(by_name[m.group(1)], resolved[m.group(1)]), spec.command)
+    # Variable fields become references to environment variables the agent sets at run
+    # time, so no value (secret or not) is ever part of the stored command line.
+    rendered = VAR_PLACEHOLDER.sub(
+        lambda m: f'"${{CASTOR_VAR_{m.group(1).upper()}_{m.group(2).upper()}}}"', rendered
+    )
     return re.sub(r"[ \t]{2,}", " ", rendered).strip()

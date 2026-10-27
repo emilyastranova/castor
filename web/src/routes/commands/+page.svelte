@@ -122,7 +122,7 @@ outputs:
 				</div>
 				{#if c.description}<p class="line-clamp-2 body-medium text-on-surface-variant">{c.description}</p>{/if}
 				<p class="body-small text-on-surface-variant">
-					{c.spec.args.length} argument{c.spec.args.length === 1 ? '' : 's'}{c.spec.outputs.length ? ` · ${c.spec.outputs.length} output${c.spec.outputs.length === 1 ? '' : 's'}` : ''}{c.in_use ? ' · used by cards' : ''}
+					{c.spec.args.length} argument{c.spec.args.length === 1 ? '' : 's'}{c.spec.vars?.length ? ` · ${c.spec.vars.length} variable slot${c.spec.vars.length === 1 ? '' : 's'}` : ''}{c.spec.outputs.length ? ` · ${c.spec.outputs.length} output${c.spec.outputs.length === 1 ? '' : 's'}` : ''}{c.in_use ? ' · used by cards' : ''}
 				</p>
 				{#if c.tags.length}
 					<div class="flex flex-wrap gap-1">{#each c.tags as t (t)}<Chip variant="suggestion">{t}</Chip>{/each}</div>

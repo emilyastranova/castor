@@ -11,11 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from . import models as m
+from . import variables
 from .command_library import apply_to_task, load_spec
 from .command_render import ArgumentError
 from .events import bus
 from .playbook_spec import (
     ACTIVE,
+    PLACEHOLDER_RE,
     SATISFIED,
     PlaybookSpec,
     PlaybookStepSpec,
@@ -235,6 +237,7 @@ async def enqueue_job(
         container_flags=list(task.container_flags or []),
         timeout_s=task.timeout_s,
         env={},
+        var_bindings=dict(task.var_bindings or {}),
         created_by=user.id if user else None,
     )
     db.add(job)
@@ -627,6 +630,20 @@ async def _prepare_command_step(
     try:
         apply_to_task(task, cmd_spec, resolve_step_args(step.args, inputs, outputs))
     except ArgumentError as exc:
+        return str(exc)
+    bindings = {}
+    for slot, value in step.vars.items():
+        ref = PLACEHOLDER_RE.match(value.strip())
+        target = inputs.get(ref.group(1).split(".")[1]) if ref else value
+        row = await variables.find_set(db, target)
+        if row is None:
+            return f"vars.{slot}: variable set {target!r} not found"
+        bindings[slot] = str(row.id)
+    try:
+        task.var_bindings = await variables.check_bindings(
+            db, cmd_spec.vars, bindings, task.project_id, task
+        )
+    except variables.VariableError as exc:
         return str(exc)
     await db.flush()
     return None

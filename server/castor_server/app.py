@@ -18,6 +18,7 @@ from .orchestrator.dispatcher import dispatcher
 from .orchestrator.gateway import gateway
 from .playbook_library import sync_builtin_playbooks
 from .security import hash_password
+from .variables import drop_unclaimed, sync_builtin_kinds
 from .ws.ui import router as ui_ws_router
 
 log = logging.getLogger("castor")
@@ -62,6 +63,8 @@ async def lifespan(app: FastAPI):
         await run_migrations()
     await ensure_admin()
     async with SessionLocal() as db:
+        await sync_builtin_kinds(db)
+        await drop_unclaimed(db)
         loaded = await sync_builtin_definitions(db)
         loaded_playbooks = await sync_builtin_playbooks(db)
     log.info("command library: %d built-in definitions", loaded)

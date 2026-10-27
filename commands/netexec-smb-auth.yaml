@@ -1,0 +1,22 @@
+id: netexec-smb-auth
+name: NetExec SMB authenticated check
+schema_version: 1
+description: Authenticate to SMB hosts with a credential set and report access and signing
+tags: [network, smb, netexec, credentials]
+args:
+  - name: targets
+    type: string
+    description: Target host(s), IPs, CIDR, or comma-separated list
+    required: true
+    example: 192.168.1.10
+vars:
+  - name: creds
+    kind: credential
+    description: Account to authenticate with (the domain is optional)
+# The domain flag is added only when the set has a domain. NetExec prints the password on
+# success; Castor masks it in the card's output.
+command: 'echo {{ targets }} | tr ", " "\n\n" | sed "/^$/d" > targets.txt && nxc smb targets.txt -u {{ creds.username }} -p {{ creds.password }} ${CASTOR_VAR_CREDS_DOMAIN:+-d "$CASTOR_VAR_CREDS_DOMAIN"}'
+outputs:
+  - name: smb_hosts
+    type: list<smb_host>
+    parser: netexec.smb
