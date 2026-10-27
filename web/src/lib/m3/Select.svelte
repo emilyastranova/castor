@@ -185,7 +185,8 @@
 	}
 </script>
 
-<div class="flex flex-col {klass}">
+<!-- pt-2 matches the outlined TextField, which reserves room for the floating label -->
+<div class="flex flex-col pt-2 {klass}">
 	<div class="group relative h-14 rounded-xs" bind:this={field}>
 		<fieldset
 			aria-hidden="true"
