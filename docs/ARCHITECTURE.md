@@ -269,6 +269,7 @@ first start.
 
 * **M1** — this document. Board, cards, agents, container jobs, streamed output,
   comments, attachments/screenshots, custom fields, activity feed.
-* **M2** (in progress, see [PHASE2.md](PHASE2.md)) — command library + playbooks as connected blocks with typed inputs/outputs,
-  parsers (nmap XML → hosts/ports, etc.), per-agent tokens, multi-user + roles.
+* **M2** (in progress, see [PHASE2.md](PHASE2.md)) — built: command library, parsers (nmap
+  XML → hosts/ports, etc.), playbooks with transforms, conditions and decisions, variables,
+  notifications. To do: graph editor, `for_each` fan-out, per-agent tokens, multi-user + roles.
 * **M3** — reporting, run summaries, artifact export, agent auto-scaling.

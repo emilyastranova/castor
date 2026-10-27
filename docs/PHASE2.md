@@ -1,33 +1,33 @@
 # Phase 2 design: command library, structured outputs, playbooks
 
-Status: decided 2026-10-15. 2a (command library + per-job artifacts) and 2b (parsers +
-structured outputs) are built; next is 2c. Roadmap item **M2** in [ARCHITECTURE.md](ARCHITECTURE.md).
+Status (2026-10-27): 2a, 2b and 2c are built, along with several things the original plan
+didn't have (see [Built beyond the plan](#built-beyond-the-plan)). Still to do: the
+graph editor (2d), `for_each` fan-out, per-agent tokens (2e) and users and roles (2f).
+Roadmap item **M2** in [ARCHITECTURE.md](ARCHITECTURE.md). The sections below keep the
+original design (decided 2026-10-15), with notes on how each part was actually built.
 
 Phase 2 turns Castor from "run this shell command on an agent" into "run a known tool with
 typed inputs, get structured results, and feed them into the next tool". It has five
 parts. They are listed in build order; each one is usable on its own.
 
-| Slice | What you get | Depends on |
-| --- | --- | --- |
-| 2a. Command library + per-job artifacts | Pick "Nmap ping sweep" from a library, fill in typed fields, files the tool writes come back to the card | nothing |
-| 2b. Parsers + structured outputs | nmap XML becomes a hosts/services table on the card | 2a |
-| 2c. Playbooks (runs as cards) | A chain of blocks becomes linked cards that dispatch as their inputs become ready | 2b |
-| 2d. Playbook graph editor | Drag blocks and wire outputs to inputs | 2c |
-| 2e. Per-agent tokens | Enroll and revoke agents individually | nothing |
-| 2f. Users and roles | Real accounts, project membership, viewer/operator/admin | nothing |
+| Slice | What you get | Depends on | Status |
+| --- | --- | --- | --- |
+| 2a. Command library + per-job artifacts | Pick "Nmap ping sweep" from a library, fill in typed fields, files the tool writes come back to the card | nothing | Built |
+| 2b. Parsers + structured outputs | nmap XML becomes a hosts/services table on the card | 2a | Built |
+| 2c. Playbooks (runs as cards) | A chain of blocks becomes linked cards that dispatch as their inputs become ready | 2b | Built, except `for_each` |
+| 2d. Playbook graph editor | Drag blocks and wire outputs to inputs | 2c | Not started (read-only graph view exists) |
+| 2e. Per-agent tokens | Enroll and revoke agents individually | nothing | Not started |
+| 2f. Users and roles | Real accounts, project membership, viewer/operator/admin | nothing | Not started |
 
 2e and 2f are independent of the playbook track and can be slotted in anywhere.
 
-## Gaps in the current code
+## Gaps in the code at the start of Phase 2
 
-- **Shared agent workdir.** Every job on an agent mounts the same `/work`, so concurrent or
-  repeated jobs overwrite each other's files, and nothing a tool writes reaches the server.
-  Parsers need the files, so this is the first thing to fix.
-- **No dependencies between cards.** Tasks have no `depends_on`; playbooks need it.
-- **One shared agent secret** for every agent (`CASTOR_AGENT_SECRET`).
-- **Command templates are unquoted.** `commands/*.yaml` use `nmap -sn {{ targets }}`. If that
-  is rendered by string substitution, a value like `10.0.0.0/24; rm -rf ~` runs as shell.
-  Rendering must shell-quote every value (details below).
+- ~~**Shared agent workdir.**~~ Fixed in 2a: each job gets `<workdir>/<job_id>/`.
+- ~~**No dependencies between cards.**~~ Fixed in 2c: `tasks.depends_on`.
+- **One shared agent secret** for every agent (`CASTOR_AGENT_SECRET`). Still open (2e).
+- ~~**Command templates are unquoted.**~~ Fixed in 2a: every value goes through
+  `shlex.quote` (`command_render.py`).
 
 ## 2a. Command library and per-job artifacts
 
@@ -53,6 +53,11 @@ declared outputs (and anything under `/work/artifacts/`) to
 `POST /api/jobs/{id}/artifacts`, authenticated with a short-lived per-job token sent in
 `job.run`. Uploaded files become Attachments with `kind = artifact` and `job_id` set, so
 they already show on the card. Size cap per file and per job (configurable).
+
+As built: as designed. The command format is documented in `commands/README.md`.
+Arguments also gained `flag:` (render as `--flag value`, or a bare switch for booleans),
+`show_if:` (show an argument only when a boolean is on) and `choices_from:` (a dropdown
+filled from a variable set).
 
 ## 2b. Parsers and structured outputs
 
@@ -95,12 +100,31 @@ less visibility.
 of task ids) and `tasks.playbook_run_id`; the dispatcher checks dependencies before
 enqueueing.
 
+As built:
+
+- Definitions are YAML (`playbooks/*.yaml` built-ins, user ones edited in the UI) stored
+  whole in `playbook_definitions.spec`; there is no `playbook_steps` table. Each run keeps a
+  snapshot of the spec. The authoring format is
+  [PLAYBOOK_SPEC.md](PLAYBOOK_SPEC.md).
+- Runs are one card per command step, linked with `depends_on`, as recommended. There is no
+  parent "run" card: the Playbooks page shows each run as a live graph with a step
+  inspector instead.
+- The server advances runs (`services._advance`) when a job finishes and its outputs are
+  parsed; the dispatcher itself doesn't look at dependencies.
+- **`for_each` is not built.** A step receives a whole list (comma-joined, or one word per
+  item for list arguments), so per-item fan-out (e.g. ffuf per URL) isn't possible yet.
+
 ## 2d. Graph editor
 
 `@xyflow/svelte` canvas: blocks from the command library on the left, steps as nodes with
 typed input/output ports, edges only allowed between compatible types (`list<host>` into
 an arg that accepts a host list, with an optional "join as comma list" adapter). Saves to the
 same playbook model as 2c, so a YAML/list editor can come first and the canvas later.
+
+Current state: playbooks are edited as YAML (with validation against the command library).
+`PlaybookVisualizer.svelte` is a hand-rolled canvas (no `@xyflow/svelte`) that renders the
+graph, data on each edge, conditions and live run status. It's read-only apart from moving
+nodes around.
 
 ## 2e. Per-agent tokens
 
@@ -114,6 +138,31 @@ dev fallback behind a setting.
 User CRUD for admins, roles `admin` / `operator` / `viewer`, per-project membership, and
 authorization checks in the API (viewers read-only; operators can run jobs; admins manage
 users, agents and tokens). Comment/attachment author checks reuse this.
+
+## Built beyond the plan
+
+- **Transform steps** (`playbook_transforms.py`): server-side steps between commands that
+  filter, pluck, format, dedupe, sort and limit upstream results, with no card or agent.
+  They do the job the planned "join as comma list" adapter would have.
+- **Variables** (`variables.py`, `vault.py`): typed kinds (credential, SSH key, listener,
+  API token, target list, choice list, custom) and sets of values. Secrets are encrypted at
+  rest, reach the job only as environment variables and files, and are masked in output.
+  Commands declare variable slots; playbooks take varset inputs.
+- **Target lists**: import hosts/IPs/URLs from a file with a preview, save them as sets, and
+  link a saved list to any text or list field of a card or playbook.
+- **Conditions and decisions**: `when:` branches, failure branches, `join: any|always`,
+  `expect:` checks on outputs and logs, and `on_failure: stop|continue|ask`. `ask` pauses the
+  step until a person retries, continues, skips or fails it
+  ([PLAYBOOK_SPEC.md](PLAYBOOK_SPEC.md) section 8).
+- **Notifications**: in-app (bell, desktop notifications) and webhooks (Slack, Discord, ntfy,
+  JSON) for steps waiting on a decision and runs finishing.
+
+## Next
+
+- 2d graph editor, `for_each` fan-out, 2e per-agent tokens, 2f users and roles (above).
+- An automated resolver for paused steps: an AI model (Gemini) that reads an unexpected
+  result and picks retry (possibly with a corrected command), continue or skip, falling
+  back to asking a person. `services.resolve_step` already takes an `actor` for this.
 
 ## Decisions (2026-10-15)
 
