@@ -5,7 +5,8 @@ const KIND_ICONS: Record<string, string> = {
 	credential: 'key',
 	'ssh-key': 'vpn_key',
 	listener: 'settings_input_antenna',
-	'api-token': 'token'
+	'api-token': 'token',
+	'choice-list': 'checklist'
 };
 
 export const kindIcon = (kindId: string) => KIND_ICONS[kindId] ?? 'data_object';

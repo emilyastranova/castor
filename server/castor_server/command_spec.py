@@ -7,7 +7,7 @@ import shlex
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from . import parsers
 
@@ -22,6 +22,17 @@ PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 # {{ slot.field }}: a field of the variable set bound to a `vars` slot
 VAR_PLACEHOLDER = re.compile(r"\{\{\s*([a-z][a-z0-9_]*)\.([a-z][a-z0-9_]*)\s*\}\}")
 SLOT_NAME = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+# A command-line option: -k, --dns-server, or --port= (value attached to the flag).
+FLAG = re.compile(r"^--?[A-Za-z0-9][A-Za-z0-9_.-]*=?$")
+
+
+class ChoicesFrom(BaseModel):
+    """Take an argument's dropdown options from a variable set's text or list field."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    set: str  # the variable set's name
+    field: str
 
 
 class ArgSpec(BaseModel):
@@ -37,6 +48,24 @@ class ArgSpec(BaseModel):
     separator: str = " "
     # varset inputs only: the variable kind the chosen set must have.
     kind: str | None = None
+    # Options read from a variable set at use time (filled into `choices` when the command
+    # is loaded), so editing the set updates every command that uses it.
+    choices_from: ChoicesFrom | None = None
+    # Render as "<flag> <value>" (or just "<flag>" for a boolean that is on), and as nothing
+    # at all when the value is empty or the boolean is off. "--x=" attaches the value.
+    flag: str | None = None
+    # Name of a boolean argument: this one is only shown, and only used, while it is on.
+    show_if: str | None = None
+
+    @model_validator(mode="after")
+    def one_choice_source(self) -> ArgSpec:
+        if self.choices and self.choices_from:
+            raise ValueError(f"{self.name}: give choices or choices_from, not both")
+        if self.flag is not None and not FLAG.match(self.flag):
+            raise ValueError(f"{self.name}: flag must look like -k, --dns-server or --port=")
+        if self.flag and self.flag.endswith("=") and self.type == "boolean":
+            raise ValueError(f"{self.name}: a boolean flag can't take a value (drop the =)")
+        return self
 
     @field_validator("name")
     @classmethod
@@ -174,6 +203,17 @@ class CommandSpec(BaseModel):
         unknown = sorted({s for s, _ in VAR_PLACEHOLDER.findall(self.command)} - set(slots))
         if unknown:
             raise ValueError(f"template uses undeclared vars slots: {', '.join(unknown)}")
+        by_name = {a.name: a for a in self.args}
+        for arg in self.args:
+            if arg.show_if is None:
+                continue
+            control = by_name.get(arg.show_if)
+            if control is None or control.name == arg.name:
+                raise ValueError(f"{arg.name}: show_if names no other argument {arg.show_if}")
+            if control.type != "boolean":
+                raise ValueError(f"{arg.name}: show_if must name a boolean argument, {control.name} is {control.type}")
+            if control.show_if:
+                raise ValueError(f"{arg.name}: show_if can't point at an argument that has show_if itself")
         return self
 
 

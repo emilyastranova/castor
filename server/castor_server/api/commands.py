@@ -7,16 +7,18 @@ from .. import models as m
 from .. import variables
 from ..command_library import definition_from_spec, ids_in_use, load_spec
 from ..command_render import ArgumentError, render_command
-from ..command_spec import parse_spec
+from ..command_spec import CommandSpec, parse_spec
 from ..deps import DB, CurrentUser
 from ..schemas import CommandDefinitionOut, CommandYamlIn, RenderIn, RenderOut
 
 router = APIRouter(prefix="/commands", tags=["commands"])
 
 
-def _out(row: m.CommandDefinition, used: set[str]) -> CommandDefinitionOut:
+async def _out(db, row: m.CommandDefinition, used: set[str]) -> CommandDefinitionOut:
     out = CommandDefinitionOut.model_validate(row)
     out.in_use = row.id in used
+    # Argument choices from variable sets are filled in for the forms.
+    out.spec = (await variables.expand_choices(db, CommandSpec.model_validate(row.spec))).model_dump(mode="json")
     return out
 
 
@@ -31,7 +33,7 @@ def _parse_or_422(text: str):
 async def list_commands(db: DB, _: CurrentUser):
     rows = (await db.execute(select(m.CommandDefinition).order_by(m.CommandDefinition.name))).scalars()
     used = await ids_in_use(db)
-    return [_out(r, used) for r in rows]
+    return [await _out(db, r, used) for r in rows]
 
 
 @router.get("/{command_id}", response_model=CommandDefinitionOut)
@@ -39,11 +41,12 @@ async def get_command(command_id: str, db: DB, _: CurrentUser):
     row = await db.get(m.CommandDefinition, command_id)
     if row is None:
         raise HTTPException(404, "Command not found")
-    return _out(row, await ids_in_use(db))
+    return await _out(db, row, await ids_in_use(db))
 
 
 async def _check_vars(db, spec) -> None:
     problems = variables.check_command_vars(spec, await variables.kinds_by_id(db))
+    problems += await variables.check_choice_sources(db, spec)
     if problems:
         raise HTTPException(422, "; ".join(problems))
 
@@ -58,7 +61,7 @@ async def create_command(body: CommandYamlIn, db: DB, _: CurrentUser):
     definition_from_spec(row, spec, body.yaml)
     db.add(row)
     await db.commit()
-    return _out(row, set())
+    return await _out(db, row, set())
 
 
 @router.put("/{command_id}", response_model=CommandDefinitionOut)
@@ -74,7 +77,7 @@ async def update_command(command_id: str, body: CommandYamlIn, db: DB, _: Curren
         raise HTTPException(422, "id: cannot be changed (create a new command instead)")
     definition_from_spec(row, spec, body.yaml)
     await db.commit()
-    return _out(row, await ids_in_use(db))
+    return await _out(db, row, await ids_in_use(db))
 
 
 @router.delete("/{command_id}", status_code=204)

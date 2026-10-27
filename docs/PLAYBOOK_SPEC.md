@@ -333,6 +333,7 @@ built-ins as of this writing:
 | `nmap-service-scan` | container | `targets`*, `ports`=1-1000 | `services` list<service> (nmap.services) |
 | `netexec-smb` | host | `targets`* | `smb_hosts` list<smb_host> (netexec.smb) |
 | `netexec-smb-auth` | host | `targets`*; slot `creds` (credential) | `smb_hosts` list<smb_host> (netexec.smb) |
+| `netexec-auth` | host | `protocol`*=smb (choices from the "NetExec protocols" set), `targets`*, `use_dns` + `dns_server` (`--dns-server`), `kerberos` (`-k`), `local_auth` (`--local-auth`); slot `creds` (credential) | `successes` list<string> (lines), `smb_hosts` list<smb_host> (netexec.smb) |
 | `ffuf-dir` | container | `url`*, `wordlist`=/work/wordlists/common.txt | `paths` list<url> (ffuf.results) |
 | `demo-seed-hosts` | host | `subnet`=10.20.0, `count`=6 | `hosts` list<host> (nmap.hosts) |
 | `demo-service-scan` | host | `targets`* | `services` list<service> (nmap.services) |
@@ -349,9 +350,11 @@ built-ins as of this writing:
 - `nmap.hosts` keeps hosts reported as down by default. After `nmap-ping-sweep`, filter
   `status: up` (as in section 2) before scanning further.
 - `ffuf-dir` takes a single base `url`. It cannot fan out over a list of URLs.
-- Built-in variable kinds: `credential` (username, password\*, domain), `ssh-key`
-  (username, private_key\* file, passphrase\*), `listener` (host, port), `api-token`
-  (token\*, base_url); \* = secret. List them with `GET /api/variables/kinds`.
+- Built-in variable kinds: `credential` (username, password\*, nt_hash\*, domain; all
+  optional), `ssh-key` (username, private_key\* file, passphrase\*), `listener` (host),
+  `api-token` (token\*, base_url), `choice-list` (options: a list commands can use as
+  dropdown choices via `choices_from`); \* = secret. Users define their own kinds (e.g. a `scope`
+  with a list of endpoints). List them with `GET /api/variables/kinds`.
 - If no existing command fits, write one: see `commands/README.md` for the command format.
   A playbook can only reference commands that exist in the library when it's saved.
 

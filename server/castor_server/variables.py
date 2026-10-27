@@ -72,6 +72,16 @@ class KindField(BaseModel):
     description: str = ""
     required: bool = False
     default: Any = None
+    # Text: pick one of these (a dropdown). List: pick any of these (toggles).
+    choices: list[str] | None = None
+
+    @field_validator("choices")
+    @classmethod
+    def clean_choices(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        cleaned = [*dict.fromkeys(str(c).strip() for c in value if str(c).strip())]
+        return cleaned or None
 
     @field_validator("name")
     @classmethod
@@ -82,6 +92,8 @@ class KindField(BaseModel):
 
     @model_validator(mode="after")
     def check_default(self) -> KindField:
+        if self.choices and self.type not in ("text", "list"):
+            raise ValueError(f"field {self.name}: only text and list fields can have choices")
         if self.default is not None:
             if self.type in SECRET_TYPES or self.type in FILE_TYPES:
                 raise ValueError(f"field {self.name}: {self.type} fields can't have a default")
@@ -127,10 +139,16 @@ BUILTIN_KINDS: list[dict[str, Any]] = [
     {
         "id": "credential",
         "name": "Credential",
-        "description": "A username and password, optionally for a domain",
+        "description": "A username with a password or NT hash, optionally for a domain. Every field is optional (leave them empty for a null session).",
         "fields": [
-            {"name": "username", "type": "text", "required": True},
-            {"name": "password", "type": "secret", "required": True},
+            {"name": "username", "type": "text"},
+            {"name": "password", "type": "secret"},
+            {
+                "name": "nt_hash",
+                "type": "secret",
+                "label": "NT hash",
+                "description": "NTLM hash for pass-the-hash, instead of the password",
+            },
             {"name": "domain", "type": "text", "description": "Windows / AD domain, if any"},
         ],
     },
@@ -150,7 +168,14 @@ BUILTIN_KINDS: list[dict[str, Any]] = [
         "description": "Where a callback or reverse connection should land",
         "fields": [
             {"name": "host", "type": "host", "required": True},
-            {"name": "port", "type": "port", "required": True},
+        ],
+    },
+    {
+        "id": "choice-list",
+        "name": "Choice list",
+        "description": "A list of values commands can offer as a dropdown (choices_from)",
+        "fields": [
+            {"name": "options", "type": "list", "required": True, "description": "One value per line"},
         ],
     },
     {
@@ -194,8 +219,14 @@ def normalise(spec: KindField, raw: Any) -> Any:
         return port
     if spec.type == "list":
         items = raw if isinstance(raw, list) else re.split(r"[,\n]", str(raw))
-        return [str(i).strip() for i in items if str(i).strip()]
+        values = [str(i).strip() for i in items if str(i).strip()]
+        bad = [v for v in values if spec.choices and v not in spec.choices]
+        if bad:
+            raise ValueError(f"{', '.join(bad)} not in the choices ({', '.join(spec.choices or [])})")
+        return values
     text = str(raw)
+    if spec.choices and text not in spec.choices:
+        raise ValueError(f"must be one of: {', '.join(spec.choices)}")
     if spec.type == "host":
         text = text.strip()
         try:
@@ -448,19 +479,56 @@ async def drop_unclaimed(db: AsyncSession, older_than_hours: int = 24) -> int:
     return len(rows)
 
 
+# Sets created once, together with their built-in kind; afterwards they are ordinary
+# sets the user can edit or delete (and they are not re-created).
+SEED_SETS: dict[str, list[dict[str, Any]]] = {
+    "choice-list": [
+        {
+            "name": "NetExec protocols",
+            "description": "Protocols NetExec (nxc) supports, for commands' protocol dropdown",
+            "values": {
+                "options": ["ftp", "ldap", "mssql", "nfs", "rdp", "smb", "ssh", "vnc", "winrm", "wmi"]
+            },
+        }
+    ]
+}
+
+
 async def sync_builtin_kinds(db: AsyncSession) -> int:
     for raw in BUILTIN_KINDS:
         spec = KindSpec.model_validate(raw)
         row = await db.get(m.VariableKind, spec.id)
         if row is not None and row.origin != "builtin":
             continue
-        if row is None:
+        new = row is None
+        if new:
             row = m.VariableKind(id=spec.id, origin="builtin")
             db.add(row)
         row.name, row.description = spec.name, spec.description
         row.spec = spec.model_dump(mode="json")
+        await drop_removed_fields(db, spec)
+        if new:
+            for seed in SEED_SETS.get(spec.id, []):
+                if await find_set(db, seed["name"]) is None:
+                    db.add(
+                        m.VariableSet(
+                            kind_id=spec.id, name=seed["name"], description=seed["description"],
+                            values=seed["values"], secrets={}, files={}, project_ids=[],
+                        )
+                    )
     await db.commit()
     return len(BUILTIN_KINDS)
+
+
+async def drop_removed_fields(db: AsyncSession, spec: KindSpec) -> None:
+    """When a kind loses a field, remove that field's stored value from its sets."""
+    names = {f.name for f in spec.fields}
+    rows = (await db.execute(select(m.VariableSet).where(m.VariableSet.kind_id == spec.id))).scalars()
+    for row in rows:
+        for column in ("values", "secrets", "files"):
+            stored = getattr(row, column) or {}
+            if set(stored) - names:
+                setattr(row, column, {k: val for k, val in stored.items() if k in names})
 
 
 async def kinds_by_id(db: AsyncSession) -> dict[str, KindSpec]:
@@ -552,6 +620,47 @@ async def check_bindings(
         claim(row, task)
         out[slot_name] = str(row.id)
     return out
+
+
+async def choice_source(db: AsyncSession, ref: Any) -> tuple[list[str] | None, str | None]:
+    """The options behind an argument's choices_from: (options, problem)."""
+    row = await find_set(db, ref.set)
+    if row is None or row.ephemeral:
+        return None, f"no variable set named {ref.set}"
+    kind = await db.get(m.VariableKind, row.kind_id)
+    f = kind_spec(kind).field(ref.field) if kind else None
+    if f is None:
+        return None, f"variable set {ref.set} has no field {ref.field}"
+    if f.type not in ("text", "list"):
+        return None, f"{ref.set}.{ref.field} is a {f.type} field; choices need text or list"
+    value = (row.values or {}).get(ref.field, f.default)
+    if value in (None, "", []):
+        return None, f"{ref.set}.{ref.field} is empty"
+    return ([str(v) for v in value] if isinstance(value, list) else [str(value)]), None
+
+
+async def expand_choices(db: AsyncSession, spec: Any) -> Any:
+    """A copy of a command spec with every choices_from turned into choices. A source that
+    is missing or empty leaves the argument without a list (a free text field)."""
+    if not any(a.choices_from for a in spec.args):
+        return spec
+    args = []
+    for arg in spec.args:
+        if arg.choices_from:
+            options, _problem = await choice_source(db, arg.choices_from)
+            arg = arg.model_copy(update={"choices": options})
+        args.append(arg)
+    return spec.model_copy(update={"args": args})
+
+
+async def check_choice_sources(db: AsyncSession, spec: Any) -> list[str]:
+    problems = []
+    for arg in spec.args:
+        if arg.choices_from:
+            _options, problem = await choice_source(db, arg.choices_from)
+            if problem:
+                problems.append(f"{arg.name}.choices_from: {problem}")
+    return problems
 
 
 def check_command_vars(spec: Any, kinds: dict[str, KindSpec]) -> list[str]:

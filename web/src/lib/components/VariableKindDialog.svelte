@@ -15,7 +15,8 @@
 	}
 	let { open = $bindable(false), kind, onsaved, ondeleted }: Props = $props();
 
-	type Row = { name: string; type: VarFieldType; label: string; description: string; required: boolean };
+	// choices is edited as text, one per line or comma separated.
+	type Row = { name: string; type: VarFieldType; label: string; description: string; required: boolean; choices: string };
 
 	let id = $state('');
 	let name = $state('');
@@ -37,7 +38,14 @@
 		name = kind?.name ?? '';
 		description = kind?.description ?? '';
 		rows = (kind?.fields ?? [{ name: 'host', type: 'host', label: '', description: '', required: true, default: null }]).map(
-			(f: VarField) => ({ name: f.name, type: f.type, label: f.label, description: f.description, required: f.required })
+			(f: VarField) => ({
+				name: f.name,
+				type: f.type,
+				label: f.label,
+				description: f.description,
+				required: f.required,
+				choices: (f.choices ?? []).join('\n')
+			})
 		);
 		error = null;
 	});
@@ -53,7 +61,15 @@
 	async function save() {
 		saving = true;
 		error = null;
-		const body = { id, name, description, fields: rows.map((r) => ({ ...r, default: null })) };
+		const body = {
+			id,
+			name,
+			description,
+			fields: rows.map((r) => {
+				const choices = r.choices.split(/[,\n]/).map((c) => c.trim()).filter(Boolean);
+				return { ...r, default: null, choices: (r.type === 'text' || r.type === 'list') && choices.length ? choices : null };
+			})
+		};
 		try {
 			const saved = kind ? await api().variables.updateKind(kind.id, body) : await api().variables.createKind(body);
 			onsaved(saved);
@@ -120,10 +136,25 @@
 							<IconButton icon="delete" label="Remove field" size="sm" disabled={rows.length === 1} onclick={() => (rows = rows.filter((_, j) => j !== i))} />
 						</div>
 					{/if}
+					{#if row.type === 'text' || row.type === 'list'}
+						<div class="sm:col-span-5">
+							<TextField
+								label="Choices (optional)"
+								bind:value={row.choices}
+								readonly={readOnly}
+								multiline
+								rows={2}
+								mono
+								supporting={row.type === 'text'
+									? 'One per line: the set editor shows a dropdown of these'
+									: 'One per line: the set editor shows these as toggles'}
+							/>
+						</div>
+					{/if}
 				</div>
 			{/each}
 			{#if !readOnly}
-				<Button variant="text" icon="add" class="self-start" onclick={() => (rows = [...rows, { name: '', type: 'text', label: '', description: '', required: false }])}>Add field</Button>
+				<Button variant="text" icon="add" class="self-start" onclick={() => (rows = [...rows, { name: '', type: 'text', label: '', description: '', required: false, choices: '' }])}>Add field</Button>
 			{/if}
 		</div>
 	</div>

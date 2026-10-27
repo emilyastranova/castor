@@ -18,11 +18,12 @@ command: |
   echo "user:    " {{ creds.username }}
   echo "domain:   ${CASTOR_VAR_CREDS_DOMAIN:-(none)}"
   echo "password:" {{ creds.password }} "(masked by Castor; length ${#CASTOR_VAR_CREDS_PASSWORD})"
+  if [ -n "$CASTOR_VAR_CREDS_NT_HASH" ]; then echo "NT hash:  (set)"; else echo "NT hash:  (none)"; fi
   if [ -n "$CASTOR_VAR_KEY_PRIVATE_KEY" ]; then
     echo "key file:" {{ key.private_key }} "($(wc -c < "$CASTOR_VAR_KEY_PRIVATE_KEY") bytes, mode $(stat -c %a "$CASTOR_VAR_KEY_PRIVATE_KEY"))"
   else
     echo "key file: (no ssh-key set chosen)"
   fi
   if [ -n "$CASTOR_VAR_CALLBACK_HOST" ]; then
-    echo "callback: $CASTOR_VAR_CALLBACK_HOST:$CASTOR_VAR_CALLBACK_PORT"
+    echo "callback: $CASTOR_VAR_CALLBACK_HOST"
   fi

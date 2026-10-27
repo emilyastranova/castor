@@ -116,7 +116,9 @@ server renders the command line onto `task.command`, so dispatch is unchanged. R
 shell-quotes every argument value (`command_render.py`), so a value is always exactly one
 shell word (or one word per list item). While a card is attached, its raw command line is
 read-only through the API; detaching (`command_ref: null`) keeps the rendered line as a plain
-shell command.
+shell command. An argument with `flag` renders as `<flag> <value>` (a boolean as just the
+flag) and as nothing when empty; `show_if` names a boolean argument, and while that is off
+the argument is hidden in the form and ignored when rendering.
 
 ## Variables
 
@@ -140,6 +142,10 @@ anything else (`variables.py`, `api/variables.py`, the Variables page).
   only there, and deleted with it (FK cascade) or when the card picks another set.
   Unclaimed ones are dropped after a day. `PATCH` with `ephemeral: false` and a name
   promotes one into the library.
+* Kind fields can have `choices` (text: one of; list: any of). A command argument can take
+  its dropdown from a set with `choices_from: {set, field}`; `command_library.load_spec`
+  (and the commands API) fill those options into `choices` on every load, so validation
+  and the forms always use the set's current values.
 * A command declares **slots** (`vars: [{name: creds, kind: credential}]`) and uses
   `{{ creds.username }}` in its template. That renders as `"${CASTOR_VAR_CREDS_USERNAME}"`:
   no value, secret or not, is ever part of `task.command` or `job.command`. A card binds slots

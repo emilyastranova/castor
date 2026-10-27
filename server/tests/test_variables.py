@@ -55,7 +55,7 @@ def test_builtin_kinds(client, auth):
 def test_secrets_are_encrypted_and_hidden_until_revealed(client, auth):
     s = _set(client, auth, username="alice", password="Sup3rS3cret!", domain="CORP")
     assert s["values"] == {"username": "alice", "domain": "CORP"}
-    assert s["secrets"] == {"password": True}
+    assert s["secrets"] == {"password": True, "nt_hash": False}
     assert s["missing"] == []
     assert "Sup3rS3cret!" not in json.dumps(client.get("/api/variables/sets", headers=auth).json())
 
@@ -71,17 +71,50 @@ def test_secrets_are_encrypted_and_hidden_until_revealed(client, auth):
 
     # Patching leaves untouched fields alone; null clears.
     r = client.patch(f"/api/variables/sets/{s['id']}", json={"values": {"domain": None}}, headers=auth)
-    assert r.json()["values"] == {"username": "alice"} and r.json()["secrets"] == {"password": True}
+    assert r.json()["values"] == {"username": "alice"} and r.json()["secrets"] == {"password": True, "nt_hash": False}
 
 
 def test_values_are_type_checked(client, auth):
-    body = {"kind_id": "listener", "name": f"l-{uuid.uuid4().hex[:6]}", "values": {"host": "bad host!", "port": 70000}}
+    # A user-defined "scope" kind: a list of endpoints, a host and a port.
+    kind_id = f"scope-{uuid.uuid4().hex[:6]}"
+    r = client.post("/api/variables/kinds", json={"id": kind_id, "name": "Scope", "fields": [
+        {"name": "endpoints", "type": "list"}, {"name": "dc", "type": "host"}, {"name": "port", "type": "port"},
+    ]}, headers=auth)
+    assert r.status_code == 201, r.text
+    body = {"kind_id": kind_id, "name": f"s-{uuid.uuid4().hex[:6]}", "values": {"dc": "bad host!", "port": 70000}}
     r = client.post("/api/variables/sets", json=body, headers=auth)
     assert r.status_code == 422
-    assert "host: must be a hostname or IP address" in r.json()["detail"]
+    assert "dc: must be a hostname or IP address" in r.json()["detail"]
     assert "port: must be between 1 and 65535" in r.json()["detail"]
-    ok = _set(client, auth, kind="listener", host="10.0.0.5", port="4444")
-    assert ok["values"] == {"host": "10.0.0.5", "port": 4444}
+    ok = _set(client, auth, kind=kind_id, dc="10.0.0.5", port="4444",
+              endpoints="https://app.acme.example\nacme.example.com, 10.0.0.0/24")
+    assert ok["values"] == {
+        "dc": "10.0.0.5", "port": 4444,
+        "endpoints": ["https://app.acme.example", "acme.example.com", "10.0.0.0/24"],
+    }
+
+
+def test_builtin_credential_and_listener_shapes(client, auth):
+    kinds = {k["id"]: k for k in client.get("/api/variables/kinds", headers=auth).json()}
+    cred = {f["name"]: f for f in kinds["credential"]["fields"]}
+    assert list(cred) == ["username", "password", "nt_hash", "domain"]
+    assert not any(f["required"] for f in cred.values())
+    assert cred["nt_hash"]["type"] == "secret"
+    assert [f["name"] for f in kinds["listener"]["fields"]] == ["host"]
+    # An empty credential is complete (a null session); a hash-only one too.
+    assert _set(client, auth)["missing"] == []
+    only_hash = _set(client, auth, username="admin", nt_hash="aad3b435b51404eeaad3b435b51404ee")
+    assert only_hash["secrets"] == {"password": False, "nt_hash": True}
+
+
+def test_removing_a_field_from_a_kind_drops_its_values(client, auth):
+    kind_id = f"k-{uuid.uuid4().hex[:6]}"
+    fields = [{"name": "host", "type": "host"}, {"name": "port", "type": "port"}]
+    client.post("/api/variables/kinds", json={"id": kind_id, "name": "K", "fields": fields}, headers=auth)
+    s = _set(client, auth, kind=kind_id, host="10.0.0.1", port=80)
+    r = client.put(f"/api/variables/kinds/{kind_id}", json={"id": kind_id, "name": "K", "fields": fields[:1]}, headers=auth)
+    assert r.status_code == 200, r.text
+    assert client.get(f"/api/variables/sets/{s['id']}", headers=auth).json()["values"] == {"host": "10.0.0.1"}
 
 
 def test_file_fields_upload_and_reveal(client, auth):
@@ -126,7 +159,7 @@ def test_card_bindings_are_checked(client, auth):
     _ensure_command(client, auth)
     project = _project(client, auth)
     other = _project(client, auth, "Other")
-    listener = _set(client, auth, kind="listener", host="10.0.0.5", port=4444)
+    listener = _set(client, auth, kind="listener", host="10.0.0.5")
     r = client.post(
         f"/api/projects/{project['id']}/tasks",
         json={"title": "x", "kind": "command", "command_ref": "vartest-login", "command_args": {"target": "h"},
@@ -284,7 +317,7 @@ def test_playbook_varset_inputs(client, auth):
     assert run["tasks"][0]["var_bindings"] == {"creds": creds["id"]}
     client.post(f"/api/playbook-runs/{run['id']}/cancel", headers=auth)
 
-    listener = _set(client, auth, kind="listener", host="1.2.3.4", port=1)
+    listener = _set(client, auth, kind="listener", host="1.2.3.4")
     r = client.post("/api/playbooks/vartest-pb/run", json={"project_id": project["id"], "inputs": {"creds": listener["id"]}}, headers=auth)
     assert r.status_code == 422 and "is a listener set, not credential" in r.json()["detail"]
 
@@ -378,3 +411,66 @@ def test_display_line_expands_like_the_shell_and_masks_only_secrets():
     assert same.redact("acme.example.com\\guest:guest") == "acme.example.com\\guest:guest"
     overlap = Resolved(secrets=["admin"], plain=["admin1"])
     assert overlap.redact("acme\\admin1:admin") == "acme\\admin1:••••"
+
+
+def test_kind_field_choices(client, auth):
+    kind_id = f"k-{uuid.uuid4().hex[:6]}"
+    r = client.post("/api/variables/kinds", json={"id": kind_id, "name": "K", "fields": [
+        {"name": "proto", "type": "text", "choices": ["smb", "ldap", " smb "]},
+        {"name": "protos", "type": "list", "choices": ["smb", "ldap", "rdp"]},
+    ]}, headers=auth)
+    assert r.status_code == 201, r.text
+    assert r.json()["fields"][0]["choices"] == ["smb", "ldap"]
+    bad = client.post("/api/variables/sets", json={"kind_id": kind_id, "name": f"x-{uuid.uuid4().hex[:6]}",
+                                                    "values": {"proto": "ftp", "protos": "smb, vnc"}}, headers=auth)
+    assert bad.status_code == 422
+    assert "proto: must be one of: smb, ldap" in bad.json()["detail"]
+    assert "protos: vnc not in the choices" in bad.json()["detail"]
+    ok = _set(client, auth, kind=kind_id, proto="ldap", protos="smb\nrdp")
+    assert ok["values"] == {"proto": "ldap", "protos": ["smb", "rdp"]}
+    # Only text and list fields take choices.
+    r = client.post("/api/variables/kinds", json={"id": f"k-{uuid.uuid4().hex[:6]}", "name": "K", "fields": [
+        {"name": "port", "type": "port", "choices": ["80"]}]}, headers=auth)
+    assert r.status_code == 422 and "only text and list fields can have choices" in r.json()["detail"]
+
+
+def test_seeded_netexec_protocols_feed_the_command_dropdown(client, auth):
+    protos = next(s for s in client.get("/api/variables/sets?kind=choice-list", headers=auth).json()
+                  if s["name"] == "NetExec protocols")
+    assert protos["values"]["options"] == ["ftp", "ldap", "mssql", "nfs", "rdp", "smb", "ssh", "vnc", "winrm", "wmi"]
+    cmd = client.get("/api/commands/netexec-auth", headers=auth).json()
+    arg = cmd["spec"]["args"][0]
+    assert arg["choices"] == protos["values"]["options"]
+    assert arg["choices_from"] == {"set": "NetExec protocols", "field": "options"}
+
+    r = client.post("/api/commands/netexec-auth/render", json={"args": {"protocol": "ldap", "targets": "10.0.0.1"}}, headers=auth)
+    assert r.status_code == 200 and "nxc ldap targets.txt" in r.json()["command"]
+    r = client.post("/api/commands/netexec-auth/render", json={"args": {"protocol": "telnet", "targets": "10.0.0.1"}}, headers=auth)
+    assert r.status_code == 422 and "protocol" in r.json()["detail"]["errors"]
+
+
+def test_choices_follow_the_set_and_are_checked_on_save(client, auth):
+    name = f"Protocols {uuid.uuid4().hex[:6]}"
+    s = client.post("/api/variables/sets", json={"kind_id": "choice-list", "name": name,
+                                                  "values": {"options": "smb\nldap"}}, headers=auth).json()
+    cmd_id = f"choice-{uuid.uuid4().hex[:6]}"
+    yaml = f"""
+id: {cmd_id}
+name: Choice test
+args:
+  - name: protocol
+    required: true
+    choices_from: {{ set: "{name}", field: options }}
+command: echo {{{{ protocol }}}}
+"""
+    assert client.post("/api/commands", json={"yaml": yaml}, headers=auth).status_code == 201
+    assert client.get(f"/api/commands/{cmd_id}", headers=auth).json()["spec"]["args"][0]["choices"] == ["smb", "ldap"]
+    # Editing the set changes the command's options without touching the command.
+    client.patch(f"/api/variables/sets/{s['id']}", json={"values": {"options": "smb\nldap\nmssql"}}, headers=auth)
+    assert client.get(f"/api/commands/{cmd_id}", headers=auth).json()["spec"]["args"][0]["choices"] == ["smb", "ldap", "mssql"]
+
+    missing = yaml.replace(name, "No such set").replace(cmd_id, f"{cmd_id}-x")
+    r = client.post("/api/commands", json={"yaml": missing}, headers=auth)
+    assert r.status_code == 422 and "no variable set named No such set" in r.json()["detail"]
+    both = yaml.replace("    choices_from:", "    choices: [a]\n    choices_from:").replace(cmd_id, f"{cmd_id}-y")
+    assert "give choices or choices_from, not both" in client.post("/api/commands", json={"yaml": both}, headers=auth).json()["detail"]

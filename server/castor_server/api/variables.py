@@ -215,6 +215,7 @@ async def update_kind(kind_id: str, body: KindIn, db: DB, _: CurrentUser):
             409, f"Can't change the type of {', '.join(changed)} while sets of this kind exist"
         )
     row.name, row.description, row.spec = spec.name, spec.description, spec.model_dump(mode="json")
+    await v.drop_removed_fields(db, spec)
     await db.commit()
     return _kind_out(row, count or 0)
 

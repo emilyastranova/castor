@@ -152,3 +152,61 @@ def test_deleting_user_definition_detaches_cards(client, auth):
     assert client.delete("/api/commands/http-probe", headers=auth).status_code == 204
     after = client.get(f"/api/tasks/{task['id']}", headers=auth).json()
     assert after["command_ref"] is None and after["command"].startswith("wget")
+
+
+FLAGS = """
+id: flagtest
+name: Flags
+args:
+  - {name: targets, required: true}
+  - {name: use_dns, type: boolean}
+  - {name: dns_server, flag: --dns-server, show_if: use_dns, required: true}
+  - {name: kerberos, type: boolean, flag: -k}
+  - {name: port, type: number, flag: "--port="}
+  - {name: exclude, type: list, separator: ",", flag: --exclude}
+command: nxc ldap {{ targets }} {{ dns_server }} {{ kerberos }} {{ port }} {{ exclude }}
+"""
+
+
+def test_flags_render_only_when_set():
+    from castor_server.command_render import render_command
+
+    spec = parse_spec(FLAGS)
+    assert render_command(spec, {"targets": "dc01"}) == "nxc ldap dc01"
+    full = render_command(spec, {"targets": "dc01", "use_dns": True, "dns_server": "10.0.0.53; id",
+                                 "kerberos": "yes", "port": 636, "exclude": "a, b"})
+    assert full == "nxc ldap dc01 --dns-server '10.0.0.53; id' -k --port=636 --exclude a,b"
+
+
+def test_show_if_hides_and_skips_requirements():
+    from castor_server.command_render import ArgumentError, render_command
+
+    spec = parse_spec(FLAGS)
+    # Toggle off: a leftover value is ignored and the required field isn't demanded.
+    assert render_command(spec, {"targets": "dc01", "dns_server": "10.0.0.53"}) == "nxc ldap dc01"
+    with pytest.raises(ArgumentError) as exc:
+        render_command(spec, {"targets": "dc01", "use_dns": True})
+    assert exc.value.errors == {"dns_server": "is required"}
+
+
+@pytest.mark.parametrize(
+    ("arg", "message"),
+    [
+        ('{name: x, flag: "-p; id"}', "flag must look like"),
+        ('{name: x, type: boolean, flag: "--x="}', "can't take a value"),
+        ("{name: x, show_if: nope}", "show_if names no other argument nope"),
+        ("{name: y}\n  - {name: x, show_if: y}", "must name a boolean argument"),
+        ("{name: y, type: boolean, show_if: z}\n  - {name: z, type: boolean}\n  - {name: x, show_if: y}", "has show_if itself"),
+    ],
+)
+def test_flag_and_show_if_validation(arg, message):
+    with pytest.raises(ValueError, match=message):
+        parse_spec(f"id: t\nname: T\nargs:\n  - {arg}\ncommand: echo")
+
+
+def test_netexec_auth_options(client, auth):
+    r = client.post("/api/commands/netexec-auth/render", json={"args": {
+        "protocol": "ldap", "targets": "10.0.0.1", "use_dns": True, "dns_server": "10.0.0.53", "kerberos": True,
+    }}, headers=auth)
+    assert r.status_code == 200, r.text
+    assert r.json()["command"].rstrip().endswith("--dns-server 10.0.0.53 -k")

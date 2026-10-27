@@ -52,9 +52,11 @@ async def sync_builtin_definitions(db: AsyncSession) -> int:
         if row is not None and row.origin != "builtin":
             log.warning("built-in command %s shadowed by a user definition", spec.id)
             continue
-        from .variables import check_command_vars, kinds_by_id
+        from .variables import check_choice_sources, check_command_vars, kinds_by_id
 
         for problem in check_command_vars(spec, await kinds_by_id(db)):
+            log.warning("built-in command %s: %s", spec.id, problem)
+        for problem in await check_choice_sources(db, spec):
             log.warning("built-in command %s: %s", spec.id, problem)
         if row is None:
             row = m.CommandDefinition(id=spec.id, origin="builtin", version=1)
@@ -66,8 +68,13 @@ async def sync_builtin_definitions(db: AsyncSession) -> int:
 
 
 async def load_spec(db: AsyncSession, command_id: str) -> CommandSpec | None:
+    """A command's spec, with argument choices taken from variable sets filled in."""
+    from .variables import expand_choices
+
     row = await db.get(m.CommandDefinition, command_id)
-    return CommandSpec.model_validate(row.spec) if row is not None else None
+    if row is None:
+        return None
+    return await expand_choices(db, CommandSpec.model_validate(row.spec))
 
 
 def apply_to_task(task: m.Task, spec: CommandSpec, args: dict[str, Any]) -> None:

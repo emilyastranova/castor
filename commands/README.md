@@ -99,3 +99,56 @@ and are deleted with it.
 Saving a command checks that every slot's kind exists and every `{{ slot.field }}` names a
 field of that kind. `demo-vars` shows everything a job receives without touching the network,
 and `netexec-smb-auth` is a real example.
+
+## Dropdowns from a variable set (`choices_from`)
+
+An argument can take its dropdown options from a variable set instead of a fixed `choices`
+list, so editing the set updates every command that uses it:
+
+```yaml
+args:
+  - name: protocol
+    required: true
+    default: smb
+    choices_from: { set: NetExec protocols, field: options }
+command: nxc {{ protocol }} {{ targets }}
+```
+
+The field must be a text or list field (the built-in **Choice list** kind has one `options`
+list). The options are read whenever the command is shown, rendered or validated; a value
+outside them is rejected like any `choices`. Saving the command checks that the set and
+field exist. A "NetExec protocols" set is created once on first start; edit or delete it
+like any set. `netexec-auth` uses it.
+
+Kind fields can also have `choices`: a text field becomes a dropdown and a list field a set
+of toggles when filling in a set.
+
+## Optional flags (`flag`) and toggles (`show_if`)
+
+`flag:` turns an argument into a command-line option that appears only when it has a value:
+
+```yaml
+args:
+  - name: use_dns
+    type: boolean
+    description: Specify DNS server
+  - name: dns_server
+    flag: --dns-server   # --dns-server '10.0.0.53' when filled, nothing when empty
+    show_if: use_dns     # only shown (and used) while use_dns is on
+    required: true       # required only while shown
+  - name: kerberos
+    type: boolean
+    flag: -k             # -k when on, nothing when off
+  - name: port
+    type: number
+    flag: --port=        # one word: --port='445'
+command: nxc ldap {{ targets }} {{ dns_server }} {{ kerberos }} {{ port }}
+```
+
+- On a text, number or list argument the flag precedes the quoted value; an empty value
+  renders nothing (so an optional field needs no toggle of its own).
+- On a boolean the flag renders when on and nothing when off (without `flag`, a boolean
+  renders the word `true` or `false`).
+- `show_if` names a boolean argument of the same command (one level, no chains). The card
+  form hides the argument while the toggle is off, and the server ignores its value then,
+  so a value left over from before can't sneak into the command.

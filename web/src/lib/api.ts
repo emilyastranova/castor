@@ -287,6 +287,12 @@ export interface ArgSpec {
 	separator: string;
 	/** varset playbook inputs: the variable kind the chosen set must have. */
 	kind?: string | null;
+	/** Dropdown options read from a variable set (the server fills them into `choices`). */
+	choices_from?: { set: string; field: string } | null;
+	/** Rendered as "<flag> <value>" (booleans: "<flag>" when on), or nothing when empty/off. */
+	flag?: string | null;
+	/** Name of a boolean argument: shown and used only while it is on. */
+	show_if?: string | null;
 }
 
 /** A variable set a command needs; its template uses {{ name.field }}. */
@@ -306,6 +312,8 @@ export interface VarField {
 	description: string;
 	required: boolean;
 	default: unknown;
+	/** Text: pick one (dropdown). List: pick any (toggles). */
+	choices?: string[] | null;
 }
 
 export interface VariableKind {

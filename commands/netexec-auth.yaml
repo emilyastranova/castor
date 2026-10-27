@@ -1,0 +1,55 @@
+id: netexec-auth
+name: NetExec authenticated check (choose protocol)
+schema_version: 1
+description: Authenticate to hosts over any NetExec protocol (password or NT hash) and report which logins worked
+tags: [network, netexec, credentials]
+args:
+  - name: protocol
+    type: string
+    description: Protocol to use
+    required: true
+    default: smb
+    choices_from: { set: NetExec protocols, field: options }
+  - name: targets
+    type: string
+    description: Target host(s), IPs, CIDR, or comma-separated list
+    required: true
+    example: 192.168.1.10
+  - name: use_dns
+    type: boolean
+    description: Specify DNS server
+  - name: dns_server
+    type: string
+    description: DNS server to resolve names with
+    required: true
+    example: 10.0.0.53
+    regex: '^[0-9a-zA-Z.:_-]+$'
+    flag: --dns-server
+    show_if: use_dns
+  - name: kerberos
+    type: boolean
+    description: Use Kerberos authentication
+    flag: -k
+  - name: local_auth
+    type: boolean
+    description: Authenticate against the local account database instead of the domain
+    flag: --local-auth
+vars:
+  - name: creds
+    kind: credential
+    description: Account to authenticate with (password or NT hash; domain optional; empty for a null session)
+# NT hash when the set has one (pass-the-hash), otherwise the password; with neither,
+# -u '' -p '' is a null session. The domain flag is added only when the set has a domain.
+command: |
+  echo {{ targets }} | tr ", " "\n\n" | sed "/^$/d" > targets.txt
+  if [ -n "$CASTOR_VAR_CREDS_NT_HASH" ]; then set -- -H {{ creds.nt_hash }}; else set -- -p {{ creds.password }}; fi
+  nxc {{ protocol }} targets.txt -u {{ creds.username }} "$@" ${CASTOR_VAR_CREDS_DOMAIN:+-d "$CASTOR_VAR_CREDS_DOMAIN"} {{ dns_server }} {{ kerberos }} {{ local_auth }}
+outputs:
+  - name: successes
+    type: list<string>
+    parser: lines
+    options:
+      match: '\[\+\]'
+  - name: smb_hosts
+    type: list<smb_host>
+    parser: netexec.smb

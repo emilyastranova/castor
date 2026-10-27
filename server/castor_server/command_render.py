@@ -70,7 +70,11 @@ def resolve_args(spec: CommandSpec, values: dict[str, Any]) -> dict[str, Any]:
     unknown = set(values) - {a.name for a in spec.args}
     for name in sorted(unknown):
         errors[name] = "is not an argument of this command"
+    hidden = _hidden_args(spec, values)
     for arg in spec.args:
+        if arg.name in hidden:  # its toggle is off: not shown, not used, not required
+            resolved[arg.name] = None
+            continue
         raw = values.get(arg.name)
         if raw is None or (isinstance(raw, str) and raw.strip() == "") or raw == []:
             raw = arg.default
@@ -88,16 +92,47 @@ def resolve_args(spec: CommandSpec, values: dict[str, Any]) -> dict[str, Any]:
     return resolved
 
 
+def _hidden_args(spec: CommandSpec, values: dict[str, Any]) -> set[str]:
+    """Arguments whose show_if toggle is off."""
+    by_name = {a.name: a for a in spec.args}
+    hidden = set()
+    for arg in spec.args:
+        control = by_name.get(arg.show_if or "")
+        if control is None:
+            continue
+        raw = values.get(control.name)
+        if raw is None or raw == "":
+            raw = control.default
+        try:
+            on = bool(_normalise(control, raw)) if raw is not None else False
+        except ValueError:
+            on = False
+        if not on:
+            hidden.add(arg.name)
+    return hidden
+
+
 def _shell_words(spec: ArgSpec, value: Any) -> str:
     if value is None:
         return ""
     if spec.type == "boolean":
+        if spec.flag:
+            return spec.flag if value else ""
         return "true" if value else "false"
     if spec.type == "list":
         if spec.separator.strip():
-            return shlex.quote(spec.separator.join(value))
-        return " ".join(shlex.quote(item) for item in value)
-    return shlex.quote(str(value))
+            words = [shlex.quote(spec.separator.join(value))]
+        else:
+            words = [shlex.quote(item) for item in value]
+        if not words or not value:
+            return ""
+    else:
+        words = [shlex.quote(str(value))]
+    if not spec.flag:
+        return " ".join(words)
+    if spec.flag.endswith("="):  # --port='445': one word
+        return " ".join(f"{spec.flag}{w}" for w in words[:1]) + "".join(f" {w}" for w in words[1:])
+    return f"{spec.flag} {' '.join(words)}"
 
 
 def render_command(spec: CommandSpec, values: dict[str, Any]) -> str:

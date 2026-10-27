@@ -61,7 +61,17 @@
 
 	let spec = $derived(kinds.find((k) => k.id === kind) ?? null);
 
-	const asText = (v: unknown) => (v === undefined || v === null ? '' : Array.isArray(v) ? v.join(', ') : String(v));
+	// Lists are edited one item per line (the server also accepts commas).
+	const asText = (v: unknown) => (v === undefined || v === null ? '' : Array.isArray(v) ? v.join('\n') : String(v));
+	const listItems = (text: string | boolean | undefined) =>
+		String(text ?? '')
+			.split(/[,\n]/)
+			.map((x) => x.trim())
+			.filter(Boolean);
+	function toggleItem(field: string, item: string) {
+		const items = listItems(values[field]);
+		values[field] = (items.includes(item) ? items.filter((x) => x !== item) : [...items, item]).join('\n');
+	}
 
 	$effect(() => {
 		const key = open ? (set?.id ?? `new:${kindId}`) : null;
@@ -326,14 +336,35 @@
 									<input type="file" class="hidden" onchange={(e) => pickFile(f.name, e)} />
 								</label>
 							</div>
+						{:else if f.type === 'text' && f.choices?.length}
+							<Select
+								{label}
+								value={String(values[f.name] ?? '')}
+								options={[{ value: '', label: f.required ? 'Choose…' : '(none)' }, ...f.choices.map((c) => ({ value: c, label: c }))]}
+								supporting={f.description}
+								onchange={(v) => (values[f.name] = v)}
+							/>
+						{:else if f.type === 'list' && f.choices?.length}
+							{@const picked = listItems(values[f.name])}
+							<div class="flex flex-col gap-1.5">
+								<span class="label-medium text-on-surface-variant">{label}</span>
+								<div class="flex flex-wrap gap-1.5">
+									{#each f.choices as c (c)}
+										<Chip variant="filter" selected={picked.includes(c)} onclick={() => toggleItem(f.name, c)}>{c}</Chip>
+									{/each}
+								</div>
+								{#if f.description}<span class="body-small text-on-surface-variant">{f.description}</span>{/if}
+							</div>
 						{:else}
 							<TextField
 								{label}
 								value={String(values[f.name] ?? '')}
 								oninput={(e) => (values[f.name] = (e.currentTarget as HTMLInputElement).value)}
 								type={f.type === 'port' || f.type === 'number' ? 'number' : 'text'}
-								mono={f.type === 'host' || f.type === 'port'}
-								supporting={[f.description, f.type === 'list' ? 'Comma separated' : ''].filter(Boolean).join(' · ')}
+								mono={f.type === 'host' || f.type === 'port' || f.type === 'list'}
+								multiline={f.type === 'list'}
+								rows={4}
+								supporting={[f.description, f.type === 'list' ? 'One per line (commas work too)' : ''].filter(Boolean).join(' · ')}
 							/>
 						{/if}
 					</div>

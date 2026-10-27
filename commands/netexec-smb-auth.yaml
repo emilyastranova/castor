@@ -1,7 +1,7 @@
 id: netexec-smb-auth
 name: NetExec SMB authenticated check
 schema_version: 1
-description: Authenticate to SMB hosts with a credential set and report access and signing
+description: Authenticate to SMB hosts with a credential set (password or NT hash) and report access and signing
 tags: [network, smb, netexec, credentials]
 args:
   - name: targets
@@ -12,10 +12,14 @@ args:
 vars:
   - name: creds
     kind: credential
-    description: Account to authenticate with (the domain is optional)
-# The domain flag is added only when the set has a domain. NetExec prints the password on
-# success; Castor masks it in the card's output.
-command: 'echo {{ targets }} | tr ", " "\n\n" | sed "/^$/d" > targets.txt && nxc smb targets.txt -u {{ creds.username }} -p {{ creds.password }} ${CASTOR_VAR_CREDS_DOMAIN:+-d "$CASTOR_VAR_CREDS_DOMAIN"}'
+    description: Account to authenticate with (password or NT hash; domain optional; empty for a null session)
+# Authenticates with the NT hash when the set has one (pass-the-hash), otherwise with the
+# password; with neither, -u '' -p '' is a null session. The domain flag is added only when
+# the set has a domain. NetExec prints the password on success; Castor masks it.
+command: |
+  echo {{ targets }} | tr ", " "\n\n" | sed "/^$/d" > targets.txt
+  if [ -n "$CASTOR_VAR_CREDS_NT_HASH" ]; then set -- -H {{ creds.nt_hash }}; else set -- -p {{ creds.password }}; fi
+  nxc smb targets.txt -u {{ creds.username }} "$@" ${CASTOR_VAR_CREDS_DOMAIN:+-d "$CASTOR_VAR_CREDS_DOMAIN"}
 outputs:
   - name: smb_hosts
     type: list<smb_host>
