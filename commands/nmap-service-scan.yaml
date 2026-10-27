@@ -18,7 +18,13 @@ args:
     description: Port spec for -p
     required: false
     default: "1-1000"
-command: nmap -sV -p {{ ports }} -oX /work/service-scan.xml {{ targets }}
+  - name: exclude
+    type: list
+    separator: ","
+    description: Hosts or ranges to skip (pick an exclusion list)
+    regex: '^[0-9a-zA-Z./:_-]+$'
+    flag: --exclude
+command: nmap -sV -p {{ ports }} -oX /work/service-scan.xml {{ targets }} {{ exclude }}
 outputs:
   - name: services
     type: list<service>

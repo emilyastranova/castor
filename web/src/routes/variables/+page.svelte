@@ -3,6 +3,7 @@
 	import { Button, Card, Chip, Icon, Tabs, TopAppBar } from '$lib/m3';
 	import VariableSetDialog from '$lib/components/VariableSetDialog.svelte';
 	import VariableKindDialog from '$lib/components/VariableKindDialog.svelte';
+	import ListIngestDialog from '$lib/components/ListIngestDialog.svelte';
 	import { FIELD_TYPES, fieldLabel, fieldSummary, isSecret, kindIcon } from '$lib/variables';
 
 	let { data } = $props();
@@ -20,6 +21,7 @@
 	let editingSet = $state<VariableSet | null>(null);
 	let newSetKind = $state('');
 	let kindDialogOpen = $state(false);
+	let importOpen = $state(false);
 	let editingKind = $state<VariableKind | null>(null);
 
 	const projectCodes = (ids: string[]) => ids.map((id) => projects.find((p) => p.id === id)?.codename ?? 'deleted project');
@@ -74,6 +76,7 @@
 				<Icon name="search" size={20} class="text-on-surface-variant" />
 				<input class="h-10 w-44 bg-transparent body-medium text-on-surface outline-none placeholder:text-on-surface-variant" placeholder="Filter sets" bind:value={filter} autocomplete="off" />
 			</label>
+			<Button variant="tonal" icon="playlist_add" class="ml-2" onclick={() => (importOpen = true)}>New target list</Button>
 			<Button icon="add" class="ml-2" onclick={() => openSet(null)}>New set</Button>
 		{:else}
 			<Button icon="add" onclick={() => openKind(null)}>New kind</Button>
@@ -171,3 +174,9 @@
 
 <VariableSetDialog bind:open={setDialogOpen} set={editingSet} {kinds} {projects} kindId={newSetKind} onsaved={setSaved} ondeleted={setDeleted} />
 <VariableKindDialog bind:open={kindDialogOpen} kind={editingKind} onsaved={kindSaved} ondeleted={(id) => (kinds = kinds.filter((k) => k.id !== id))} />
+<ListIngestDialog
+	bind:open={importOpen}
+	title="New target list"
+	saveOnly
+	onuse={(_entries, saved) => saved && setSaved(saved)}
+/>

@@ -2,6 +2,7 @@
 	import type { ArgErrors, CommandSpec } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Select, Switch, TextField } from '$lib/m3';
+	import ListArgInput from './ListArgInput.svelte';
 
 	interface Props {
 		spec: CommandSpec;
@@ -11,8 +12,10 @@
 		errors?: Record<string, string>;
 		/** Called on every user edit (for dirty tracking). */
 		onedit?: () => void;
+		/** Limits saved lists to the ones this project may use. */
+		projectId?: string | null;
 	}
-	let { spec, values = $bindable({}), errors = $bindable({}), onedit }: Props = $props();
+	let { spec, values = $bindable({}), errors = $bindable({}), onedit, projectId = null }: Props = $props();
 
 	const asText = (v: unknown) => (Array.isArray(v) ? v.join(', ') : v === null || v === undefined ? '' : String(v));
 
@@ -83,18 +86,28 @@
 					hint(arg.description, null, [arg.choices_from ? `options from “${arg.choices_from.set}”` : '', flagHint(arg)].filter(Boolean).join(' · '))}
 				onchange={(v) => set(arg.name, v)}
 			/>
+		{:else if arg.type === 'string' || arg.type === 'list'}
+			<ListArgInput
+				label={arg.name}
+				type={arg.type}
+				required={arg.required}
+				value={values[arg.name]}
+				placeholder={arg.default !== null && arg.default !== undefined ? `default: ${asText(arg.default)}` : ''}
+				error={errors[arg.name] ?? null}
+				supporting={hint(arg.description, arg.example, [arg.type === 'list' ? 'one per line or comma separated' : '', flagHint(arg)].filter(Boolean).join(' · '))}
+				{projectId}
+				onchange={(v) => set(arg.name, v)}
+			/>
 		{:else}
 			<TextField
 				label={arg.name}
 				required={arg.required}
 				mono
-				multiline={arg.type === 'list'}
-				rows={2}
 				type={arg.type === 'number' ? 'number' : 'text'}
 				value={asText(values[arg.name])}
 				placeholder={arg.default !== null && arg.default !== undefined ? `default: ${asText(arg.default)}` : ''}
 				error={errors[arg.name] ?? null}
-				supporting={hint(arg.description, arg.example, [arg.type === 'list' ? 'comma or one per line' : '', flagHint(arg)].filter(Boolean).join(' · '))}
+				supporting={hint(arg.description, arg.example, flagHint(arg))}
 				oninput={(e) => set(arg.name, (e.currentTarget as HTMLInputElement).value)}
 			/>
 		{/if}

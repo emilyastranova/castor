@@ -588,7 +588,7 @@
 						</div>
 						{#if libraryDef}
 							{#key libraryDef.id}
-								<CommandArgsForm spec={libraryDef.spec} bind:values={libArgs} bind:errors={libErrors} onedit={() => (libDirty = true)} />
+								<CommandArgsForm spec={libraryDef.spec} bind:values={libArgs} bind:errors={libErrors} onedit={() => (libDirty = true)} projectId={task.project_id} />
 							{/key}
 							{#if libraryDef.spec.vars?.length}
 								<VarBindings

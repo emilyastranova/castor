@@ -146,6 +146,11 @@ anything else (`variables.py`, `api/variables.py`, the Variables page).
   its dropdown from a set with `choices_from: {set, field}`; `command_library.load_spec`
   (and the commands API) fill those options into `choices` on every load, so validation
   and the forms always use the set's current values.
+* **Target lists** (`target-list` kind, or any set with a list field) can fill a text or
+  list argument: the card stores `{"list": "<set id or name>"}`, and
+  `command_library.apply_library` expands it (list args get the items, text args a comma
+  join) whenever the command is rendered; `enqueue_job` re-renders cards with list
+  references so each run uses the lists' current entries.
 * A command declares **slots** (`vars: [{name: creds, kind: credential}]`) and uses
   `{{ creds.username }}` in its template. That renders as `"${CASTOR_VAR_CREDS_USERNAME}"`:
   no value, secret or not, is ever part of `task.command` or `job.command`. A card binds slots

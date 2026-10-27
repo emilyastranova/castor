@@ -103,6 +103,8 @@ async def check_against_library(db: AsyncSession, spec: PlaybookSpec) -> list[st
     """What parse_playbook_spec can't see: that each command exists, args are its
     arguments (literal values valid, required ones bound), and every referenced output
     is one the upstream command declares. Returns problems; empty means fine."""
+    from .variables import is_list_ref, list_entries
+
     problems: list[str] = []
     commands: dict[str, CommandSpec] = {}
     for step in spec.steps:
@@ -127,6 +129,13 @@ async def check_against_library(db: AsyncSession, spec: PlaybookSpec) -> list[st
                         f"step {step.id}: {cmd.id} has no argument {name} "
                         f"(arguments: {', '.join(known) or 'none'})"
                     )
+                elif is_list_ref(value):
+                    if arg.type not in ("string", "list"):
+                        problems.append(f"step {step.id}: {name}: only text and list arguments can take a list")
+                    else:
+                        _row, _entries, problem = await list_entries(db, value)
+                        if problem:
+                            problems.append(f"step {step.id}: {name}: {problem}")
                 elif not (isinstance(value, str) and INLINE_PLACEHOLDER_RE.search(value)):
                     try:
                         _normalise(arg, value)

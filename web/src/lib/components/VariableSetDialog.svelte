@@ -6,6 +6,7 @@
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { bytes } from '$lib/format';
 	import { fieldLabel, isFile, kindIcon } from '$lib/variables';
+	import ListIngestDialog from './ListIngestDialog.svelte';
 
 	interface Props {
 		open: boolean;
@@ -58,6 +59,9 @@
 	let error = $state<string | null>(null);
 	let saving = $state(false);
 	let openedFor = $state<string | null>(null);
+	// List field being filled from the import dialog.
+	let importField = $state<string | null>(null);
+	let importOpen = $state(false);
 
 	let spec = $derived(kinds.find((k) => k.id === kind) ?? null);
 
@@ -363,8 +367,19 @@
 								type={f.type === 'port' || f.type === 'number' ? 'number' : 'text'}
 								mono={f.type === 'host' || f.type === 'port' || f.type === 'list'}
 								multiline={f.type === 'list'}
-								rows={4}
-								supporting={[f.description, f.type === 'list' ? 'One per line (commas work too)' : ''].filter(Boolean).join(' · ')}
+								rows={f.type === 'list' ? 6 : 2}
+								supporting={[
+									f.description,
+									f.type === 'list' ? `${listItems(values[f.name]).length} entries · one per line (commas work too)` : ''
+								]
+									.filter(Boolean)
+									.join(' · ')}
+								trailingIcon={f.type === 'list' ? 'upload_file' : undefined}
+								trailingLabel="Import from a file or paste, with a preview"
+								ontrailing={() => {
+									importField = f.name;
+									importOpen = true;
+								}}
 							/>
 						{/if}
 					</div>
@@ -413,3 +428,13 @@
 		</Button>
 	{/snippet}
 </Dialog>
+
+<ListIngestDialog
+	bind:open={importOpen}
+	title="Import entries"
+	useOnly
+	initialText={importField ? String(values[importField] ?? '') : ''}
+	onuse={(entries) => {
+		if (importField) values[importField] = entries.join('\n');
+	}}
+/>

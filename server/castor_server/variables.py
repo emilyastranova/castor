@@ -171,6 +171,14 @@ BUILTIN_KINDS: list[dict[str, Any]] = [
         ],
     },
     {
+        "id": "target-list",
+        "name": "Target list",
+        "description": "Hosts, IPs, CIDR ranges, domains or URLs to point commands at (or to exclude)",
+        "fields": [
+            {"name": "entries", "type": "list", "required": True, "description": "One per line"},
+        ],
+    },
+    {
         "id": "choice-list",
         "name": "Choice list",
         "description": "A list of values commands can offer as a dropdown (choices_from)",
@@ -619,6 +627,54 @@ async def check_bindings(
             raise VariableError(f"{slot_name}: that manual entry belongs to another card")
         claim(row, task)
         out[slot_name] = str(row.id)
+    return out
+
+
+# ---------- list references in command arguments ----------
+# A text or list argument can hold {"list": "<set id or name>"} instead of a value: the
+# set's entries (its `entries` field, or its first list field) are filled in each time the
+# card's command is rendered, so editing the list updates every card that uses it.
+
+
+def is_list_ref(value: Any) -> bool:
+    return isinstance(value, dict) and set(value) == {"list"} and bool(value["list"])
+
+
+async def list_entries(db: AsyncSession, ref: Any) -> tuple[m.VariableSet | None, list[str], str | None]:
+    """(set, entries, problem) for a {"list": ...} reference."""
+    row = await find_set(db, ref["list"])
+    if row is None:
+        return None, [], f"no list named or with id {ref['list']}"
+    kind = await db.get(m.VariableKind, row.kind_id)
+    fields = [f for f in kind_spec(kind).fields if f.type == "list"] if kind else []
+    if not fields:
+        return row, [], f"{row.name} has no list field"
+    chosen = next((f for f in fields if f.name == "entries"), fields[0])
+    value = (row.values or {}).get(chosen.name) or []
+    return row, [str(v) for v in value], None
+
+
+async def expand_list_refs(
+    db: AsyncSession, spec: Any, args: dict[str, Any], project_id: uuid.UUID | None = None
+) -> dict[str, Any]:
+    """Replace {"list": ...} argument values with the list's entries: a list argument gets
+    the items, a text argument the items joined with commas. Raises VariableError."""
+    by_name = {a.name: a for a in spec.args}
+    out = dict(args or {})
+    for name, value in (args or {}).items():
+        if not is_list_ref(value):
+            continue
+        arg = by_name.get(name)
+        if arg is None:
+            continue  # resolve_args reports unknown arguments
+        if arg.type not in ("string", "list"):
+            raise VariableError(f"{name}: only text and list arguments can take a list")
+        row, entries, problem = await list_entries(db, value)
+        if problem:
+            raise VariableError(f"{name}: {problem}")
+        if row is not None and not allowed_in(row, project_id):
+            raise VariableError(f"{name}: {row.name} can't be used in this project")
+        out[name] = entries if arg.type == "list" else ",".join(entries)
     return out
 
 

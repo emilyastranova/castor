@@ -4,6 +4,7 @@
 	import { Button, Dialog, Select, Switch, TextField } from '$lib/m3';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import VariableSetDialog from './VariableSetDialog.svelte';
+	import ListArgInput from './ListArgInput.svelte';
 
 	interface Props {
 		open: boolean;
@@ -165,6 +166,17 @@
 								options={inp.choices.map((c) => ({ value: c, label: c }))}
 								value={String(inputValues[inp.name] ?? '')}
 								supporting={inp.description}
+								onchange={(v) => (inputValues = { ...inputValues, [inp.name]: v })}
+							/>
+						{:else if inp.type === 'string' || inp.type === 'list'}
+							<ListArgInput
+								label={inp.name}
+								type={inp.type}
+								value={inputValues[inp.name]}
+								required={inp.required}
+								mono={false}
+								projectId={selectedProjectId}
+								supporting={[inp.description, inp.example ? `e.g. ${inp.example}` : ''].filter(Boolean).join(' · ')}
 								onchange={(v) => (inputValues = { ...inputValues, [inp.name]: v })}
 							/>
 						{:else}

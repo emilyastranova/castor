@@ -127,6 +127,9 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   message, and the gateway masks secrets in logs. The agent writes files under
   `<job dir>/.castor/` (removed after the job, never collected as artifacts) and passes
   container env by name only (`-e NAME`).
+  Target lists: an argument value `{"list": id}` links a set's list field; always render
+  library commands through `command_library.apply_library` (not `apply_to_task`) so these
+  are expanded.
 - Auth: `POST /api/auth/login` sets an httpOnly cookie; the same JWT works as
   `Authorization: Bearer`. Agents authenticate with the shared `CASTOR_AGENT_SECRET`.
 - Config is `pydantic-settings` with the `CASTOR_` prefix (`config.py`).

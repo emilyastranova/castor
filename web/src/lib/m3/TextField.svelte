@@ -14,6 +14,8 @@
 		leadingIcon?: string;
 		trailingIcon?: string;
 		ontrailing?: () => void;
+		/** Accessible name and tooltip for the trailing button (defaults to the label). */
+		trailingLabel?: string;
 		type?: HTMLInputAttributes['type'];
 		placeholder?: string;
 		required?: boolean;
@@ -41,6 +43,7 @@
 		leadingIcon,
 		trailingIcon,
 		ontrailing,
+		trailingLabel,
 		type = 'text',
 		placeholder,
 		required,
@@ -156,7 +159,8 @@
 				class="state-layer -my-1 inline-flex size-10 shrink-0 items-center justify-center rounded-full text-on-surface-variant"
 				onclick={ontrailing}
 				tabindex={ontrailing ? 0 : -1}
-				aria-label={label}
+				aria-label={trailingLabel ?? label}
+				title={trailingLabel}
 			>
 				<Icon name={trailingIcon} />
 			</button>

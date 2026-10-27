@@ -474,3 +474,64 @@ command: echo {{{{ protocol }}}}
     assert r.status_code == 422 and "no variable set named No such set" in r.json()["detail"]
     both = yaml.replace("    choices_from:", "    choices: [a]\n    choices_from:").replace(cmd_id, f"{cmd_id}-y")
     assert "give choices or choices_from, not both" in client.post("/api/commands", json={"yaml": both}, headers=auth).json()["detail"]
+
+
+def _target_list(client, auth, entries, name=None):
+    r = client.post("/api/variables/sets", json={"kind_id": "target-list", "name": name or f"Lab {uuid.uuid4().hex[:6]}",
+                                                  "values": {"entries": entries}}, headers=auth)
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def test_cards_link_target_lists_and_pick_up_edits(client, auth):
+    project = _project(client, auth)
+    lab = _target_list(client, auth, "10.0.0.0/24\n10.0.1.5")
+    skip = _target_list(client, auth, "10.0.0.1, 10.0.0.254")
+    r = client.post(f"/api/projects/{project['id']}/tasks", json={
+        "title": "sweep", "kind": "command", "command_ref": "nmap-ping-sweep",
+        "command_args": {"targets": {"list": lab["id"]}, "exclude": {"list": skip["name"]}},
+    }, headers=auth)
+    assert r.status_code == 201, r.text
+    card = r.json()
+    assert card["command"].endswith("10.0.0.0/24 10.0.1.5 --exclude 10.0.0.1,10.0.0.254")
+    # The card keeps the references (what the form shows), not a copy of the entries.
+    assert card["command_args"]["targets"] == {"list": lab["id"]}
+
+    # Editing the list changes what the next run uses.
+    client.patch(f"/api/variables/sets/{lab['id']}", json={"values": {"entries": "192.168.5.0/24"}}, headers=auth)
+    job = client.post(f"/api/tasks/{card['id']}/run", headers=auth).json()
+    assert job["command"].endswith("192.168.5.0/24 --exclude 10.0.0.1,10.0.0.254")
+    client.post(f"/api/jobs/{job['id']}/cancel", headers=auth)
+
+
+def test_list_refs_are_checked(client, auth):
+    project = _project(client, auth)
+    base = {"title": "x", "kind": "command", "command_ref": "nmap-ping-sweep"}
+    r = client.post(f"/api/projects/{project['id']}/tasks", json={**base, "command_args": {"targets": {"list": "No such list"}}}, headers=auth)
+    assert r.status_code == 422 and r.json()["detail"]["errors"] == {"targets": "no list named or with id No such list"}
+    creds = _set(client, auth, username="u")
+    r = client.post(f"/api/projects/{project['id']}/tasks", json={**base, "command_args": {"targets": {"list": creds["id"]}}}, headers=auth)
+    assert r.status_code == 422 and "has no list field" in r.json()["detail"]["errors"]["targets"]
+    # The live preview expands references too.
+    lab = _target_list(client, auth, "10.9.0.0/24")
+    r = client.post("/api/commands/nmap-ping-sweep/render", json={"args": {"targets": {"list": lab["id"]}}}, headers=auth)
+    assert r.json()["command"].endswith("10.9.0.0/24")
+
+
+def test_playbook_steps_can_name_a_target_list(client, auth):
+    lab = _target_list(client, auth, "10.7.0.0/24")
+    yaml = f"""
+id: list-pb-{uuid.uuid4().hex[:6]}
+name: List playbook
+steps:
+  - id: sweep
+    name: Sweep
+    command_ref: nmap-ping-sweep
+    args:
+      targets: {{ list: "{lab['name']}" }}
+"""
+    assert client.post("/api/playbooks/validate", json={"yaml": yaml}, headers=auth).json()["ok"]
+    bad = yaml.replace(lab["name"], "Missing list")
+    assert client.post("/api/playbooks/validate", json={"yaml": bad}, headers=auth).json()["errors"] == [
+        "step sweep: targets: no list named or with id Missing list"
+    ]

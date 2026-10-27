@@ -146,7 +146,7 @@
 					/>
 					{#if chosen}
 						{#key chosen.id}
-							<CommandArgsForm spec={chosen.spec} bind:values={commandArgs} bind:errors={argErrors} />
+							<CommandArgsForm spec={chosen.spec} bind:values={commandArgs} bind:errors={argErrors} {projectId} />
 							{#if chosen.spec.vars?.length}
 								<VarBindings slots={chosen.spec.vars} bindings={varBindings} {projectId} onchange={(b) => (varBindings = b)} />
 							{/if}

@@ -101,8 +101,13 @@ async def render(command_id: str, body: RenderIn, db: DB, _: CurrentUser):
     if spec is None:
         raise HTTPException(404, "Command not found")
     try:
+        args = await variables.expand_list_refs(db, spec, body.args)
+    except variables.VariableError as exc:
+        name, _, message = str(exc).partition(": ")
+        raise HTTPException(422, {"message": str(exc), "errors": {name: message}}) from exc
+    try:
         return RenderOut(
-            command=render_command(spec, body.args),
+            command=render_command(spec, args),
             image=spec.image,
             container_flags=spec.container_flags,
         )

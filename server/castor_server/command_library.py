@@ -89,6 +89,37 @@ def apply_to_task(task: m.Task, spec: CommandSpec, args: dict[str, Any]) -> None
     task.kind = m.TaskKind.command
 
 
+async def apply_library(db: AsyncSession, task: m.Task, spec: CommandSpec, args: dict[str, Any]) -> None:
+    """apply_to_task, with argument values that reference a target list ({"list": ...})
+    expanded from the list's current entries. The card keeps the reference, so the next
+    render picks up edits to the list. Raises ArgumentError (or VariableError for a bad
+    reference, reported against the argument)."""
+    from .command_render import ArgumentError
+    from .variables import VariableError, expand_list_refs, is_list_ref
+
+    try:
+        expanded = await expand_list_refs(db, spec, args, task.project_id)
+    except VariableError as exc:
+        name, _, message = str(exc).partition(": ")
+        raise ArgumentError({name: message or str(exc)}) from exc
+    apply_to_task(task, spec, expanded)
+    refs = {k: v for k, v in (args or {}).items() if is_list_ref(v)}
+    if refs:
+        task.command_args = {**task.command_args, **refs}
+
+
+async def refresh_list_refs(db: AsyncSession, task: m.Task) -> None:
+    """Re-render a library card whose arguments reference target lists, so a job always
+    runs with the lists' current entries."""
+    from .variables import is_list_ref
+
+    if not task.command_ref or not any(is_list_ref(v) for v in (task.command_args or {}).values()):
+        return
+    spec = await load_spec(db, task.command_ref)
+    if spec is not None:
+        await apply_library(db, task, spec, task.command_args)
+
+
 async def ids_in_use(db: AsyncSession) -> set[str]:
     rows = await db.execute(select(m.Task.command_ref).where(m.Task.command_ref.is_not(None)))
     return {r for (r,) in rows}

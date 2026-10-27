@@ -19,7 +19,13 @@ args:
     description: Ports to scan
     required: false
     default: "445"
-command: nmap -p {{ ports }} --open -oX /work/nmap-445.xml {{ targets }}
+  - name: exclude
+    type: list
+    separator: ","
+    description: Hosts or ranges to skip (pick an exclusion list)
+    regex: '^[0-9a-zA-Z./:_-]+$'
+    flag: --exclude
+command: nmap -p {{ ports }} --open -oX /work/nmap-445.xml {{ targets }} {{ exclude }}
 outputs:
   - name: hosts
     type: list<host>

@@ -152,3 +152,19 @@ command: nxc ldap {{ targets }} {{ dns_server }} {{ kerberos }} {{ port }}
 - `show_if` names a boolean argument of the same command (one level, no chains). The card
   form hides the argument while the toggle is off, and the server ignores its value then,
   so a value left over from before can't sneak into the command.
+
+## Target lists
+
+Any text or list argument can take a saved **target list** instead of typed values: on a
+card (or in New card / the playbook Run dialog), click the list button at the end of the
+field to pick a list, or to import a file or pasted text with a live preview of how it
+parses (separator, duplicates, comments, and what each entry looks like: IP, CIDR, range,
+domain/host, URL). Lists live on the Variables page ("New target list"), so "Lab network",
+"Lab exclusion list" or a single "Test computer" are managed in one place.
+
+A picked list is **linked**: the card stores `{"list": "<id>"}` and the entries are filled in
+each time the card's command is rendered or the card runs, so editing the list updates
+every card that uses it. A list argument gets the entries as separate values (nmap gets
+one target per argument); a text argument gets them comma-separated. Each entry is still
+checked against the argument's `regex`. The nmap commands take an `exclude` list for
+exclusion lists.

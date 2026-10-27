@@ -6,7 +6,8 @@ const KIND_ICONS: Record<string, string> = {
 	'ssh-key': 'vpn_key',
 	listener: 'settings_input_antenna',
 	'api-token': 'token',
-	'choice-list': 'checklist'
+	'choice-list': 'checklist',
+	'target-list': 'my_location'
 };
 
 export const kindIcon = (kindId: string) => KIND_ICONS[kindId] ?? 'data_object';
@@ -36,7 +37,7 @@ export function fieldSummary(set: VariableSet, f: VarField): string | null {
 	if (f.type === 'secret') return set.secrets[f.name] ? '••••••••' : null;
 	const v = set.values[f.name] ?? f.default;
 	if (v === undefined || v === null || v === '') return null;
-	if (Array.isArray(v)) return v.join(', ');
+	if (Array.isArray(v)) return v.length > 1 ? `${v.length} · ${v.join(', ')}` : v.join(', ');
 	if (typeof v === 'boolean') return v ? 'yes' : 'no';
 	return String(v);
 }

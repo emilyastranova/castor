@@ -151,7 +151,9 @@ derived.
 - `args` keys must be argument names of that command. Every argument that is `required`
   with no `default` must be bound.
 - An arg value is a literal (`445`, `"1-1000"`, `true`), an input reference, an upstream
-  output reference, or a string mixing text and references (section 6).
+  output reference, a string mixing text and references (section 6), or a saved target
+  list: `targets: { list: Lab network }` (by name or id). A list's entries are filled in
+  when the step starts; the list must exist when the playbook is saved.
 - Literal values are type-checked against the argument when the playbook is saved.
   Referenced values are checked when the step starts. A value that fails then (wrong type,
   fails the argument's `regex`, empty but required) fails the step with
@@ -350,7 +352,8 @@ built-ins as of this writing:
 - `nmap.hosts` keeps hosts reported as down by default. After `nmap-ping-sweep`, filter
   `status: up` (as in section 2) before scanning further.
 - `ffuf-dir` takes a single base `url`. It cannot fan out over a list of URLs.
-- Built-in variable kinds: `credential` (username, password\*, nt_hash\*, domain; all
+- Built-in variable kinds: `target-list` (entries: hosts/IPs/ranges/domains/URLs),
+  `credential` (username, password\*, nt_hash\*, domain; all
   optional), `ssh-key` (username, private_key\* file, passphrase\*), `listener` (host),
   `api-token` (token\*, base_url), `choice-list` (options: a list commands can use as
   dropdown choices via `choices_from`); \* = secret. Users define their own kinds (e.g. a `scope`

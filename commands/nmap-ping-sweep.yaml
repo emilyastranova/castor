@@ -9,12 +9,18 @@ container_flags:
   - --network=bridge
 args:
   - name: targets
-    type: string
+    type: list
     description: CIDR range, host, or comma-separated list
     required: true
     example: 192.168.0.0/24
     regex: '^[0-9a-zA-Z./,:_ -]+$'
-command: nmap -sn -oX /work/ping-sweep.xml {{ targets }}
+  - name: exclude
+    type: list
+    separator: ","
+    description: Hosts or ranges to skip (pick an exclusion list)
+    regex: '^[0-9a-zA-Z./:_-]+$'
+    flag: --exclude
+command: nmap -sn -oX /work/ping-sweep.xml {{ targets }} {{ exclude }}
 outputs:
   - name: hosts
     type: list<host>

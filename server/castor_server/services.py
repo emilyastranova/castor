@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from . import models as m
 from . import variables
-from .command_library import apply_to_task, load_spec
+from .command_library import apply_library, load_spec, refresh_list_refs
 from .command_render import ArgumentError
 from .events import bus
 from .playbook_spec import (
@@ -230,6 +230,12 @@ async def enqueue_job(
     db: AsyncSession, task: m.Task, user: m.User | None, *, reason: str = "manual"
 ) -> m.Job:
     """Create a queued Job for a command task. Caller must commit and then pump the dispatcher."""
+    from .command_render import ArgumentError
+
+    try:
+        await refresh_list_refs(db, task)
+    except ArgumentError:
+        pass  # a list that no longer exists: the job runs with the last rendered command
     job = m.Job(
         task_id=task.id,
         command=task.command,
@@ -628,7 +634,7 @@ async def _prepare_command_step(
     if cmd_spec is None:
         return f"command {step.command_ref} is not in the library"
     try:
-        apply_to_task(task, cmd_spec, resolve_step_args(step.args, inputs, outputs))
+        await apply_library(db, task, cmd_spec, resolve_step_args(step.args, inputs, outputs))
     except ArgumentError as exc:
         return str(exc)
     bindings = {}

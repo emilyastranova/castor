@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from .. import models as m
 from .. import variables
-from ..command_library import apply_to_task, load_spec
+from ..command_library import apply_library, load_spec
 from ..command_render import ArgumentError
 from ..deps import DB, CurrentUser, parse_uuid
 from ..events import bus
@@ -56,7 +56,7 @@ async def _use_library_command(db, task: m.Task, command_ref: str, args: dict) -
     if spec is None:
         raise HTTPException(404, f"Command “{command_ref}” not found")
     try:
-        apply_to_task(task, spec, args)
+        await apply_library(db, task, spec, args)
     except ArgumentError as exc:
         raise HTTPException(422, {"message": str(exc), "errors": exc.errors}) from exc
 
