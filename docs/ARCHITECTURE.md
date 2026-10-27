@@ -194,22 +194,50 @@ argument names and values, referenced outputs); `POST /api/playbooks/validate` r
 checks without saving. `skip_if_empty: true` skips a step when a value it takes from
 upstream is empty.
 
-`services._advance` drives a run: whenever one of its jobs finishes (after its outputs are
-parsed) it runs every step whose dependencies are satisfied (succeeded or skipped),
-repeating until nothing changes, since a transform finishing can make the next step ready
-at once. Transform results, skips and steps that could not start are stored in
-`playbook_runs.step_results`; command steps otherwise take their state from their card's
-latest job. `step_statuses` derives one status per step (`pending, queued, running,
-succeeded, failed, cancelled, skipped, blocked`; blocked = an upstream step failed) and
-`PlaybookRunOut.step_status` carries it to the UI. The run succeeds when every step is
-succeeded or skipped, and fails when nothing can move any more. Re-running a failed card
-reopens a failed run. Events: `playbook_run.updated` on every change, plus
-`task.created|updated` for the step cards.
+**Branching** (`playbook_conditions.py`). `when:` is a condition tree (`all`/`any`/`not`,
+value tests on inputs or upstream outputs, status tests `{step, status}`); a false
+condition makes the step `not_taken`, and steps that need a not-taken step are not taken
+either (unless `join: any|always`). Steps a condition references are added to
+`depends_on`; a status test waits for its step to end however it ends, and a failure some
+condition watches for counts as *handled*: its normal dependents are not taken instead of
+blocked, and it doesn't fail the run. `expect:` checks a finished command's parsed
+outputs and log; a miss counts as a failure. `on_failure: stop|continue|ask` decides what
+a failure means; `ask` pauses the step (`attention`) and notifies people.
+
+`services._advance` drives a run whenever one of its jobs finishes (after its outputs are
+parsed; a job whose outputs are still being parsed counts as running), repeating until
+nothing changes: judge each newly finished job once (`expect`, `ask`), record steps left
+out by a branch, then start every ready step (`readiness`: join rule over its
+dependencies) whose `when` holds. Transform results, skips, condition evaluations,
+expectations and decisions are stored in `playbook_runs.step_results`. A command step takes
+its state from its card's latest job unless the stored result names that job (`job_id`):
+a judgement or decision about it. `step_statuses` derives one status per step (`pending,
+queued, running, succeeded, failed, cancelled, skipped, not_taken, attention, blocked`) and
+`PlaybookRunOut.step_status` carries it to the UI; `run_outcome` settles the run (running
+while anything can move or waits for a person). Re-running a card reopens a finished run.
+
+A paused step is decided with `POST /api/playbook-runs/{id}/steps/{step}/resolve
+{action: retry|continue|skip|fail, note}` (`services.resolve_step`, which records who
+decided, why and the note in `step_results[step].resolution`). `resolve_step` takes an
+`actor` for decisions that aren't a person's, which is where an automated resolver would
+plug in. Events: `playbook_run.updated` on every change, plus `task.created|updated` for
+the step cards.
+
+**Notifications** (`notifications.py`, `api/notifications.py`). `notify()` writes one
+`notifications` row per user (own read state; `subject` such as `run:<id>:step:<step>` lets
+dealing with something clear it) and publishes `notification.created`; `clear()` marks
+them read and publishes `notification.read`. A step pausing (`playbook_step.attention`) and
+a run finishing (`playbook_run.succeeded|failed`) notify. `CASTOR_NOTIFY_WEBHOOKS` also
+posts each one to webhooks (Slack, Discord and ntfy formats by host, JSON otherwise) in a
+background thread; `CASTOR_PUBLIC_URL` makes links absolute. The web UI shows them under
+the bell in the navigation rail and, if allowed, as desktop notifications.
 
 `playbooks/pipeline-demo.yaml` and the `commands/demo-*` commands are a fake recon
 pipeline (fan-out, three branches, three transforms, fan-in) that runs in seconds on an
 agent with `--allow-host` and touches no network; its `fail_at` / `empty_at` inputs
-exercise failure and skip handling. `server/tests/test_playbook_transforms.py` runs it
+exercise failure and skip handling. `playbooks/branching-demo.yaml` does the same for
+conditions, failure branches, `expect`, `on_failure` and `join: any`
+(`server/tests/test_playbook_conditions.py` drives it). `server/tests/test_playbook_transforms.py` runs it
 end to end with each command executed under `/bin/sh`.
 
 ## Dispatcher
@@ -226,7 +254,8 @@ Authenticated by the session cookie. The server broadcasts every domain event as
 `{"type":"event","name":"task.moved","project_id":"…","data":{…}}`. Event names:
 `project.updated`, `column.*`, `task.created|updated|moved|deleted`, `job.updated`,
 `job.log`, `job.outputs`, `comment.created`, `attachment.created`, `agent.updated`,
-`playbook_run.updated`.
+`playbook_run.updated`, `notification.created|read` (every browser receives them; the
+client keeps its own user's).
 The client keeps page state in sync by applying these to its stores.
 
 ## Auth

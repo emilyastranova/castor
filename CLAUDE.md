@@ -119,6 +119,17 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `POST /api/playbooks/validate`.
   `pipeline-demo` + `commands/demo-*` is a no-network test pipeline for the playbook UI;
   run an agent with `--allow-host --max-concurrency 4` to watch it.
+- Branching: `playbook_conditions.py` (`when` condition trees, `expect`), step `join` and
+  `on_failure` in `playbook_spec.py` (`readiness`, `step_statuses`, `run_outcome` are pure;
+  test them without a DB). Conditions and expectations stay raw dicts on the step and are
+  parsed on demand (like transform ops) so specs survive `model_dump` → `model_validate`.
+  A stored step result with `job_id` overrides that job's status (a judgement or decision);
+  a newer job supersedes it. `on_failure: ask` pauses a step (`attention`) and calls
+  `notifications.notify`; `services.resolve_step` applies retry/continue/skip/fail and takes
+  an `actor` for non-human resolvers. `branching-demo` exercises all of it.
+- Notifications: `notifications.py` (one row per user, `subject` to clear related ones,
+  webhooks via `CASTOR_NOTIFY_WEBHOOKS` posted from a thread so a dead webhook never blocks
+  a run). Web: `lib/notifications.svelte.ts` + `NotificationBell.svelte` in the rail.
 - Variables: `variables.py` (kinds = typed field templates, sets = instances; `resolve` turns
   a job's bindings into env vars + files at dispatch), `vault.py` (Fernet; `CASTOR_VAULT_KEY`
   or `<data_dir>/vault.key`), `api/variables.py`. A command's `vars` slots render as

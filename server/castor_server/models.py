@@ -501,3 +501,30 @@ class ActivityEvent(Base):
     message: Mapped[str] = mapped_column(Text, default="")
     payload: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class Notification(Base):
+    """Something a person should look at, such as a playbook step waiting for a decision.
+    One row per user so each has their own unread state."""
+
+    __tablename__ = "notifications"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    # e.g. playbook_step.attention, playbook_run.failed
+    kind: Mapped[str] = mapped_column(String(64))
+    severity: Mapped[str] = mapped_column(String(16), default="info")  # info|success|warning|error
+    title: Mapped[str] = mapped_column(String(300))
+    body: Mapped[str] = mapped_column(Text, default="")
+    # Path in the web UI, e.g. /playbooks?run=<id>&step=<step>
+    link: Mapped[str] = mapped_column(String(500), default="")
+    # What it is about, e.g. "run:<id>:step:<step>": dealing with it clears the notification.
+    subject: Mapped[str] = mapped_column(String(200), default="", index=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    read_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)

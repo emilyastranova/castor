@@ -394,3 +394,26 @@ class PlaybookRunOut(ORM):
     created_at: datetime
     tasks: list[TaskOut] = Field(default_factory=list)
 
+
+
+# ---------- notifications ----------
+
+
+class NotificationOut(ORM):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    project_id: uuid.UUID | None
+    kind: str
+    severity: str
+    title: str
+    body: str
+    link: str
+    subject: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    read_at: datetime | None = None
+    created_at: datetime
+
+
+class NotificationList(BaseModel):
+    items: list[NotificationOut]
+    unread: int

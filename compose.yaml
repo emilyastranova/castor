@@ -38,6 +38,9 @@ services:
       CASTOR_DATA_DIR: /data
       CASTOR_COMMANDS_DIR: /commands
       CASTOR_PLAYBOOKS_DIR: /playbooks
+      CASTOR_VAULT_KEY: ${CASTOR_VAULT_KEY:-}
+      CASTOR_NOTIFY_WEBHOOKS: ${CASTOR_NOTIFY_WEBHOOKS:-}
+      CASTOR_PUBLIC_URL: ${CASTOR_PUBLIC_URL:-http://localhost:8080}
     volumes:
       - serverdata:/data
       - ./commands:/commands:ro

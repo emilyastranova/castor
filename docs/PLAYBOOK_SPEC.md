@@ -17,7 +17,9 @@ against a project creates a *run*:
   filter or reshape them, and publish the result. They have no card and need no agent.
 
 A step starts as soon as every step it depends on has finished successfully (or was
-skipped). Steps that don't depend on each other run in parallel. Data flows along the
+skipped). Steps that don't depend on each other run in parallel. Steps can also branch:
+run only when a condition holds, run when another step fails, or pause the run and ask a
+person when a result looks wrong (section 8). Data flows along the
 edges: a step's arguments can reference the parsed outputs of earlier steps, and a step
 that references another step automatically depends on it.
 
@@ -72,7 +74,7 @@ steps:
 | `tags` | no | list of strings | For filtering in the library. |
 | `inputs` | no | list | Values asked for when the run starts (section 4). |
 | `steps` | yes | list | The graph (section 5). |
-| `x-...` | no | anything | Ignored. Use for YAML anchors and notes (section 11). |
+| `x-...` | no | anything | Ignored. Use for YAML anchors and notes (section 12). |
 
 **Any other key is an error** (`foo: unknown key`), at the top level and inside steps.
 
@@ -129,8 +131,12 @@ Every step has these fields:
 | `name` | yes | string | Card title and graph label. Keep it short (it truncates around 28 characters). |
 | `description` | no | string | Becomes the card description. Say what the step is for. |
 | `depends_on` | no | list of step ids | Only needed for ordering **without** a data reference. Referenced steps are added automatically. |
-| `skip_if_empty` | no | bool | Default `false`. See section 8. |
+| `skip_if_empty` | no | bool | Default `false`. See section 9. |
 | `vars` | no | mapping | Command steps only: variable slot → `"{{ inputs.<varset input> }}"` or a set name. See 5.1. |
+| `when` | no | condition | Run only if this holds; otherwise the step is `not_taken`. See 8.1. |
+| `join` | no | `all` \| `any` \| `always` | Default `all`. When the step may start. See 8.2. |
+| `on_failure` | no | `stop` \| `continue` \| `ask` | Default `stop`. What a failure means. See 8.3. |
+| `expect` | no | mapping | Command steps only: what a good result looks like. See 8.4. |
 
 A step is **either** a command step (`command_ref` + `args`) **or** a transform step
 (`transform`). Giving both, or neither, is an error. Don't write `kind:` yourself; it's
@@ -141,7 +147,7 @@ derived.
 ```yaml
   - id: smb_audit
     name: SMB signing audit
-    command_ref: netexec-smb        # id of a command in the library (section 9)
+    command_ref: netexec-smb        # id of a command in the library (section 10)
     skip_if_empty: true
     args:                           # keys must be the command's argument names
       targets: "{{ steps.smb_scan.outputs.hosts }}"
@@ -218,7 +224,7 @@ Two reference forms are recognised (spaces inside the braces are optional):
 
 - `<output_name>` is a **parsed output** of the referenced step:
   - For a command step, it's one of the command's `outputs` that has a `parser`
-    (section 9). Checked on save.
+    (section 10). Checked on save.
   - For a transform, it's its `output.name`.
 - A reference to a step makes it a dependency. Cycles and self-references are rejected.
 - The referenced step must exist (`references unknown step x`).
@@ -284,7 +290,138 @@ itself is addressed as `value` or by omitting `field`.
 Field names follow `^[A-Za-z_][A-Za-z0-9_]*$`. There are no nested paths and no
 expressions.
 
-## 8. Execution semantics
+## 8. Conditions, branches and decisions
+
+### 8.1 `when`: run only if
+
+```yaml
+  - id: relay_scan
+    name: Scan relay targets
+    command_ref: nmap-service-scan
+    when:
+      value: "{{ steps.unsigned.outputs.hosts }}"
+      count: { gt: 0 }
+    args:
+      targets: "{{ steps.unsigned.outputs.hosts }}"
+```
+
+A condition is evaluated once, when the step's dependencies allow it to start. If it's
+false the step becomes **`not_taken`**: it never runs, its card moves to Done, and the
+steps that need it are not taken either (unless they use `join: any` or `always`). That is
+how one branch of an if/else drops out.
+
+A condition is one of:
+
+| Form | Passes when |
+| --- | --- |
+| `{ value: <ref or text>, <tests> }` | the value passes every test given |
+| `{ step: <id>, status: <status> }` | that step ended with this status (or any in a list) |
+| `{ all: [<condition>, …] }` | every one passes (a plain list means the same) |
+| `{ any: [<condition>, …] }` | at least one passes |
+| `{ not: <condition> }` | it doesn't pass |
+
+`value` is usually exactly one reference, and then its raw value is tested: lists stay
+lists. Text with references inside is substituted as in arguments (section 6). Value tests
+(give one or more; all must pass):
+
+| Test | Passes when the value… |
+| --- | --- |
+| `empty: true` / `empty: false` | is missing, `""` or an empty list / isn't |
+| `count: N` or `count: { gt, gte, lt, lte, eq, ne: N }` | has that many items (a non-list counts as 1, empty as 0) |
+| `equals: V`, `not_equals: V` | equals V / doesn't |
+| `in: [..]`, `not_in: [..]` | is one of them / none of them |
+| `contains: V`, `not_contains: V` | (a list) has an item equal to V; (text) contains V |
+| `matches: "re"`, `not_matches: "re"` | (text, or any list item) matches the regex (search, 2 s timeout) |
+| `some: <item test>`, `every: …`, `none: …` | some / every / no item passes, e.g. `some: { field: port, equals: 445 }` |
+| `ignore_case: true` | modifies the text comparisons |
+
+Item tests are written exactly like a transform `filter` (section 7): a `field` and one test.
+
+Status tests take `succeeded`, `failed`, `cancelled`, `skipped` or `not_taken`. A step with
+a status test **waits for that step to end, however it ends**, so its failure doesn't block
+it. That's how a failure branch works:
+
+```yaml
+  - id: fallback_names
+    name: Fallback name lookup
+    command_ref: demo-dns-names
+    when: { step: smb_audit, status: failed }
+    args:
+      targets: "{{ steps.smb_scan.outputs.hosts }}"
+```
+
+A failure that some step's condition watches for is **handled**: the steps that needed the
+failed step's outputs are `not_taken` rather than `blocked`, and the failure doesn't fail
+the run.
+
+Every step a condition references (by output or by status) is added to `depends_on`.
+The run stores how each condition evaluated, test by test, and the UI shows it.
+
+### 8.2 `join`: where branches meet
+
+| `join` | The step may start when… |
+| --- | --- |
+| `all` (default) | every dependency succeeded or was skipped. A failed one blocks it; a not-taken one leaves it out. |
+| `any` | every dependency has ended, and at least one succeeded (or was skipped). Use it where an if/else meets again. |
+| `always` | every dependency has ended, whatever happened (clean-up, a report of whatever exists). |
+
+```yaml
+  - id: report
+    name: Report
+    command_ref: demo-report
+    join: any
+    depends_on: [relay_scan, fallback_names]
+    args:
+      unsigned: "{{ steps.unsigned.outputs.hosts }}"   # empty if that branch wasn't taken
+```
+
+Its `when` (if any) is evaluated after the join allows it.
+
+### 8.3 `on_failure`: stop, continue or ask
+
+What happens when the step fails: its job fails, it can't start, its transform errors, or
+its `expect` doesn't hold.
+
+| `on_failure` | Effect |
+| --- | --- |
+| `stop` (default) | The step is `failed`; what needs it is `blocked` (unless a condition handles the failure). The run fails. |
+| `continue` | The step is `failed`, but what needs it goes ahead with whatever exists, and the run can still succeed. |
+| `ask` | The step pauses as **`attention`** and everyone is notified (in the app, and by webhook if configured). Its dependents wait. |
+
+A paused step is decided in the UI (Playbooks → the run → the step) or with
+`POST /api/playbook-runs/<run id>/steps/<step id>/resolve {"action": …, "note": "…"}`:
+
+| Action | Effect |
+| --- | --- |
+| `retry` | Run it again. A command re-runs its card as it is now, so edit the command first if that's the fix. |
+| `continue` | Accept it as succeeded and carry on with whatever outputs it produced. |
+| `skip` | Leave it and the steps that need it out (`not_taken`). |
+| `fail` | Fail it. What needs it is blocked, unless a condition handles the failure, in which case that branch runs. |
+
+Who decided, the reason and the note are kept on the run.
+
+### 8.4 `expect`: what a good result looks like
+
+```yaml
+  - id: smb_audit
+    name: SMB signing audit
+    command_ref: netexec-smb
+    on_failure: ask
+    expect:
+      outputs:
+        smb_hosts: { empty: false }          # value tests from 8.1, on a parsed output
+      log:
+        not_matches: "STATUS_ACCESS_DENIED|Connection refused"
+```
+
+Checked once a command step's job succeeds and its outputs are parsed. `outputs` maps the
+command's parsed output names to value tests; `log` tests the end of the job's output (the
+last MiB of stdout and stderr) with `contains`, `not_contains`, `matches`, `not_matches`
+or `empty`. If any test fails, the step counts as failed with "unexpected output: …", and
+`on_failure` decides what happens. Usually that's `ask`, so a person looks before the run
+carries on with a bad result.
+
+## 9. Execution semantics
 
 **Step statuses**:
 
@@ -297,9 +434,12 @@ expressions.
 | `failed` | Its job failed, it couldn't start (bad argument value), or a transform errored. |
 | `cancelled` | The job or the run was cancelled. |
 | `skipped` | `skip_if_empty` applied. |
+| `not_taken` | Its `when` was false, a branch it needs wasn't taken, or someone chose to skip it. |
+| `attention` | Paused for a person to decide (`on_failure: ask`). |
 | `blocked` | An upstream step failed, was cancelled or is itself blocked. It will never run. |
 
-- **Ready:** every dependency is `succeeded` or `skipped`.
+- **Ready:** every dependency is `succeeded` or `skipped` (see `join` for other rules, and
+  status tests in `when`, which wait for a step to end however it ends).
 - **`skip_if_empty: true`:** if any value the step takes **from an upstream step** is
   missing or empty, the step is marked `skipped` instead of running. Its card moves to Done.
   It produces no outputs, so its dependents see empty values. Input references are never
@@ -309,11 +449,12 @@ expressions.
   command step whose required arguments come from upstream.** Leave it off for steps that
   should run anyway, such as a final report that collects whatever exists.
 - **Failure:** only the failed step's descendants become `blocked`. Independent branches
-  carry on to completion.
+  carry on to completion. `on_failure` and failure branches change this (section 8).
 - **Run status:**
-  - `succeeded` when every step is `succeeded` or `skipped`.
-  - `failed` once nothing can move any more and something failed or is blocked.
-  - `running` otherwise.
+  - `running` while any step can still move, or waits for a decision.
+  - `succeeded` when every step is `succeeded`, `skipped` or `not_taken`, or `failed`
+    with `on_failure: continue` or a condition that handles it.
+  - `failed` otherwise.
 - **Re-running a failed card** (from the board or the Playbooks page, possibly after
   editing its command) continues the run. A failed run reopens, and blocked steps proceed
   if the re-run succeeds.
@@ -322,7 +463,7 @@ expressions.
 - **Snapshots:** a run uses the playbook as it was when the run started. Editing the
   playbook doesn't affect runs in progress.
 
-## 9. The command library
+## 10. The command library
 
 Built-in commands live in `commands/*.yaml`. Users can add more in the UI. List the live
 library with `GET /api/commands`; each definition has `spec.args` and `spec.outputs`. The
@@ -340,7 +481,7 @@ built-ins as of this writing:
 | `demo-seed-hosts` | host | `subnet`=10.20.0, `count`=6 | `hosts` list<host> (nmap.hosts) |
 | `demo-service-scan` | host | `targets`* | `services` list<service> (nmap.services) |
 | `demo-smb-scan` | host | `targets`* | `hosts` list<host> (nmap.hosts) |
-| `demo-smb-audit` | host | `targets`* | `smb_hosts` list<smb_host> (netexec.smb) |
+| `demo-smb-audit` | host | `targets`*, `signing`=mixed (`all`: every host requires signing) | `smb_hosts` list<smb_host> (netexec.smb) |
 | `demo-dns-names` | host | `targets`* | `names` list<string> (lines) |
 | `demo-dir-brute` | host | `urls`* | `paths` list<url> (ffuf.results) |
 | `demo-report` | host | `findings`, `unsigned`, `names` | `report` string (text) |
@@ -373,19 +514,22 @@ These are the record shapes you can `filter`, `pluck`, `format` and `sort` on:
 | `smb_host` | `host` (IP), `port` (number), `name`, `domain`, `os`, `signing` (boolean), `smbv1` (boolean) |
 | `string`, `list<string>` | plain values (address them as `value`) |
 
-## 10. Validation: check before you save
+## 11. Validation: check before you save
 
 Problems are reported in two places:
 
 1. **Parsing**, on save or validate: YAML syntax, unknown keys, id formats, a step with
    both or neither of `command_ref`/`transform`, unknown or undeclared references, wrong
    transform output names, invalid ops (unknown op, a filter with zero or two tests, a bad
-   regex, a `format` with no placeholder), duplicate step ids, and cycles.
+   regex, a `format` with no placeholder), duplicate step ids, cycles, and malformed
+   `when`/`expect` (unknown keys, no test given, a status that doesn't exist, a reference
+   to an unknown step).
 2. **The library check**, on save or validate: unknown `command_ref`, an arg that isn't an
    argument of the command, a required argument left unbound, a literal value of the wrong
    type or failing the argument's regex/choices, a referenced command output that
-   doesn't exist or has no parser, and variable slots: unknown slot, required slot not
-   bound, kind mismatch with the input, unknown set name.
+   doesn't exist or has no parser (including in `when`), an `expect` on an output the
+   command doesn't parse, and variable slots: unknown slot, required slot not bound, kind
+   mismatch with the input, unknown set name.
 
 Use the dry-run endpoint while iterating. It saves nothing:
 
@@ -406,7 +550,7 @@ Save with `POST /api/playbooks {yaml}` (new) or `PUT /api/playbooks/<id> {yaml}`
 the same checks and answer 422 with the problems. Built-in playbooks (files in
 `playbooks/`) are read-only in the UI.
 
-## 11. Patterns
+## 12. Patterns
 
 **Fan-out / parallel branches**: several steps reference the same upstream output.
 
@@ -463,6 +607,32 @@ Or merge lists of the same kind first with a multi-input transform:
         - unique: true
 ```
 
+**If / else**: two steps with opposite conditions on the same value, and `join: any` where
+they meet.
+
+```yaml
+  - id: has_web
+    name: Web scan
+    command_ref: ffuf-dir
+    when: { value: "{{ steps.svc.outputs.services }}", some: { field: name, in: [http, https] } }
+    args: { url: "http://{{ inputs.target }}/" }
+  - id: no_web
+    name: Note the absence
+    command_ref: demo-report
+    when: { value: "{{ steps.svc.outputs.services }}", none: { field: name, in: [http, https] } }
+  - id: wrap_up
+    name: Wrap up
+    command_ref: demo-report
+    join: any
+    depends_on: [has_web, no_web]
+```
+
+**Failure branch**: `when: { step: x, status: failed }` (section 8.1). Give `x`
+`on_failure: ask` to let a person choose between retrying it and taking the failure branch.
+
+**Sanity check before going on**: `expect` + `on_failure: ask` on a step whose result feeds
+everything after it (section 8.4).
+
 **Ordering without data**: `depends_on: [other_step]`.
 
 **Shared arguments**: use a YAML anchor under an `x-` key and the merge key `<<`.
@@ -477,7 +647,7 @@ steps:
     args: { <<: *common, step: a }
 ```
 
-## 12. Checklist for authors
+## 13. Checklist for authors
 
 - [ ] `id` is kebab-case and new; step ids are unique `snake_case` or kebab-case.
 - [ ] Every `command_ref` exists, and every arg name is one of its arguments (`GET /api/commands`).
@@ -485,10 +655,14 @@ steps:
 - [ ] Every referenced input is declared under `inputs`.
 - [ ] Every required variable slot of each command is bound under `vars:`, to a `varset` input of the same `kind`.
 - [ ] Command steps fed from upstream have `skip_if_empty: true`, unless they should run regardless.
+- [ ] Every if/else has a `join: any` step where the branches meet (or nothing after them).
+- [ ] Steps whose results everything else relies on have an `expect`, usually with `on_failure: ask`.
 - [ ] Anything that isn't "a list of hosts/IPs/URLs" goes through a transform first.
 - [ ] Filter values have the field's real type (numbers unquoted, booleans as `true`/`false`).
 - [ ] After a ping sweep, filter `status: up`.
 - [ ] Names are short; descriptions say why the step exists.
 - [ ] `POST /api/playbooks/validate` returns `"ok": true`.
 
-A complete worked example that uses every feature is `playbooks/pipeline-demo.yaml`.
+Complete worked examples: `playbooks/pipeline-demo.yaml` (transforms, fan-out, fan-in) and
+`playbooks/branching-demo.yaml` (conditions, a failure branch, `expect`, `on_failure`,
+`join: any`).

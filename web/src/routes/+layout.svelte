@@ -9,6 +9,8 @@
 	import { api } from '$lib/api';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import ConfirmHost from '$lib/components/ConfirmHost.svelte';
+	import NotificationBell from '$lib/components/NotificationBell.svelte';
+	import { notifications } from '$lib/notifications.svelte';
 
 	let { data, children } = $props();
 	let dark = $state(false);
@@ -29,13 +31,19 @@
 	});
 
 	$effect(() => {
-		if (data.user) realtime.start();
-		else realtime.stop();
+		if (data.user) {
+			realtime.start();
+			notifications.start(data.user.id);
+		} else {
+			realtime.stop();
+			notifications.stop();
+		}
 	});
 
 	async function logout() {
 		await api().auth.logout();
 		realtime.stop();
+		notifications.stop();
 		await invalidateAll();
 		await goto('/login');
 	}
@@ -60,6 +68,7 @@
 							<Icon name="cloud_off" size={20} />
 						</span>
 					{/if}
+					<NotificationBell />
 					<IconButton
 						icon={dark ? 'light_mode' : 'dark_mode'}
 						label="Toggle theme"

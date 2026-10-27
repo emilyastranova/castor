@@ -20,8 +20,10 @@ from ..schemas import (
     PlaybookRunOut,
 )
 from ..services import (
+    ResolveError,
     cancel_playbook_run,
     playbook_run_out,
+    resolve_step,
     start_playbook_run,
 )
 
@@ -202,4 +204,24 @@ async def cancel_run(run_id: str, db: DB, user: CurrentUser):
     run = await cancel_playbook_run(db, parse_uuid(run_id), user)
     if run is None:
         raise HTTPException(404, "Playbook run not found")
+    return await playbook_run_out(db, run)
+
+
+class ResolveIn(BaseModel):
+    action: str
+    note: str = ""
+
+
+@router.post("/playbook-runs/{run_id}/steps/{step_id}/resolve", response_model=PlaybookRunOut)
+async def resolve_run_step(run_id: str, step_id: str, body: ResolveIn, db: DB, user: CurrentUser):
+    """Decide what happens to a step waiting for a person: retry, continue, skip or fail."""
+    run = await db.get(m.PlaybookRun, parse_uuid(run_id))
+    if run is None:
+        raise HTTPException(404, "Playbook run not found")
+    try:
+        jobs = await resolve_step(db, run, step_id, body.action, user, body.note)
+    except ResolveError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if jobs:
+        dispatcher.wake()
     return await playbook_run_out(db, run)

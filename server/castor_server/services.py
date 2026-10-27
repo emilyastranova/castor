@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
@@ -11,19 +11,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from . import models as m
-from . import variables
+from . import notifications, variables
 from .command_library import apply_library, load_spec, refresh_list_refs
 from .command_render import ArgumentError
 from .events import bus
+from .playbook_conditions import MAX_LOG_BYTES, failed_checks
 from .playbook_spec import (
-    ACTIVE,
     PLACEHOLDER_RE,
-    SATISFIED,
     PlaybookSpec,
     PlaybookStepSpec,
+    handled_steps,
     has_empty_upstream,
     lookup_ref,
+    readiness,
     resolve_step_args,
+    resolve_value,
+    run_outcome,
     step_statuses,
 )
 from .playbook_transforms import TransformError, as_items, run_transform
@@ -355,11 +358,9 @@ async def playbook_run_out(db: AsyncSession, run: m.PlaybookRun) -> PlaybookRunO
         )
     ).scalars().all()
     tasks_o = await tasks_out(db, list(tasks))
-    by_task = {t.id: t for t in tasks_o}
-    job_status = {
-        step_id: (by_task[tid].latest_job.status if tid in by_task and by_task[tid].latest_job else None)
-        for step_id, tid in _run_task_ids(run).items()
-    }
+    task_ids = _run_task_ids(run)
+    latest_jobs = await latest_jobs_for(db, list(task_ids.values()))
+    job_status, job_ids = _job_states(task_ids, latest_jobs, await _parsing_jobs(db, latest_jobs))
     status = run.status.value if hasattr(run.status, "value") else str(run.status)
     return PlaybookRunOut(
         id=run.id,
@@ -370,7 +371,7 @@ async def playbook_run_out(db: AsyncSession, run: m.PlaybookRun) -> PlaybookRunO
         inputs=run.inputs,
         step_task_ids=run.step_task_ids,
         step_results=run.step_results or {},
-        step_status=step_statuses(_run_spec(run), job_status, run.step_results or {}, status),
+        step_status=step_statuses(_run_spec(run), job_status, run.step_results or {}, status, job_ids),
         spec_snapshot=run.spec_snapshot,
         finished_at=run.finished_at,
         created_at=run.created_at,
@@ -463,6 +464,64 @@ async def start_playbook_run(
     return run, jobs
 
 
+def _job_states(
+    task_ids: dict[str, uuid.UUID], latest_jobs: dict[uuid.UUID, m.Job], parsing: set[uuid.UUID]
+) -> tuple[dict[str, str], dict[str, str]]:
+    """(step → job status, step → job id) for steps with a job. A finished job whose outputs
+    are still being parsed counts as running, so nothing downstream judges it too early."""
+    status: dict[str, str] = {}
+    ids: dict[str, str] = {}
+    for step_id, tid in task_ids.items():
+        job = latest_jobs.get(tid)
+        if job is not None:
+            status[step_id] = "running" if job.id in parsing else job.status.value
+            ids[step_id] = str(job.id)
+    return status, ids
+
+
+async def _parsing_jobs(db: AsyncSession, latest_jobs: dict[uuid.UUID, m.Job]) -> set[uuid.UUID]:
+    """Jobs that finished recently, have outputs to parse, and have no parsed rows yet."""
+    recent = utcnow() - timedelta(minutes=5)
+    candidates = [
+        j.id
+        for j in latest_jobs.values()
+        if j.status in (m.JobStatus.succeeded, m.JobStatus.failed)
+        and j.started_at is not None
+        and j.finished_at is not None
+        and j.finished_at > recent
+        and any(o.get("parser") for o in (j.output_specs or []))
+    ]
+    if not candidates:
+        return set()
+    parsed = set(
+        (await db.execute(select(m.JobOutput.job_id).where(m.JobOutput.job_id.in_(candidates)).distinct())).scalars()
+    )
+    return set(candidates) - parsed
+
+
+async def _job_log_tail(db: AsyncSession, job_id: uuid.UUID) -> str:
+    """The end of a job's stdout and stderr (up to MAX_LOG_BYTES), for `expect.log`."""
+    rows = await db.execute(
+        select(m.JobLogChunk.data)
+        .where(m.JobLogChunk.job_id == job_id, m.JobLogChunk.stream.in_(("stdout", "stderr")))
+        .order_by(m.JobLogChunk.seq.desc())
+    )
+    parts: list[str] = []
+    size = 0
+    for (data,) in rows:
+        parts.append(data)
+        size += len(data)
+        if size >= MAX_LOG_BYTES:
+            break
+    return "".join(reversed(parts))[-MAX_LOG_BYTES:]
+
+
+def _job_failure(job: m.Job) -> str:
+    if job.exit_code not in (None, 0):
+        return f"the job failed (exit {job.exit_code})"
+    return f"the job {'was lost' if job.status == m.JobStatus.lost else 'failed'}" + (f": {job.error}" if job.error else "")
+
+
 async def _step_outputs(
     db: AsyncSession,
     spec: PlaybookSpec,
@@ -470,13 +529,18 @@ async def _step_outputs(
     latest_jobs: dict[uuid.UUID, m.Job],
     results: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    """Values available to bind: parsed outputs of succeeded jobs, results of transforms."""
+    """Values available to bind: parsed outputs of succeeded jobs (and of failed ones a
+    person chose to continue with), results of transforms."""
     outputs: dict[str, dict[str, Any]] = {}
-    job_step = {
-        latest_jobs[tid].id: step_id
-        for step_id, tid in task_ids.items()
-        if tid in latest_jobs and latest_jobs[tid].status == m.JobStatus.succeeded
-    }
+    job_step: dict[uuid.UUID, str] = {}
+    for step_id, tid in task_ids.items():
+        job = latest_jobs.get(tid)
+        if job is None:
+            continue
+        result = results.get(step_id) or {}
+        accepted = result.get("status") == "succeeded" and result.get("job_id") == str(job.id)
+        if job.status == m.JobStatus.succeeded or accepted:
+            job_step[job.id] = step_id
     if job_step:
         rows = (
             await db.execute(select(m.JobOutput).where(m.JobOutput.job_id.in_(list(job_step))))
@@ -491,13 +555,25 @@ async def _step_outputs(
     return outputs
 
 
+def step_link(run_id: uuid.UUID, step_id: str | None = None) -> str:
+    return f"/playbooks?run={run_id}" + (f"&step={step_id}" if step_id else "")
+
+
 async def _advance(
     db: AsyncSession, run: m.PlaybookRun, user: m.User | None = None
 ) -> tuple[list[m.Job], list[m.Task]]:
-    """Run every step whose dependencies are satisfied, repeating until nothing changes
-    (a transform finishing can make the next step ready at once), then settle the run's
-    status. Returns the queued jobs and the cards that changed. Does not commit."""
+    """Move the run forward as far as it can go, repeating until nothing changes (a
+    transform or a condition can make the next step ready at once):
+
+    - judge finished jobs: check `expect`, and pause steps that `ask` on failure;
+    - record steps left out because a branch they need wasn't taken;
+    - start every ready step whose `when` holds (or mark it not_taken).
+
+    Then settle the run's status. Returns the queued jobs and the cards that changed.
+    Does not commit."""
     spec = _run_spec(run)
+    by_id = {s.id: s for s in spec.steps}
+    handled = handled_steps(spec)
     task_ids = _run_task_ids(run)
     tasks = {
         t.id: t
@@ -506,6 +582,7 @@ async def _advance(
         ).scalars()
     }
     latest_jobs = await latest_jobs_for(db, list(task_ids.values()))
+    parsing = await _parsing_jobs(db, latest_jobs)
     results: dict[str, Any] = dict(run.step_results or {})
     outputs = await _step_outputs(db, spec, task_ids, latest_jobs, results)
     active_col = await column_with_role(db, run.project_id, m.ColumnRole.active)
@@ -513,12 +590,14 @@ async def _advance(
     run_status = run.status.value
 
     def statuses() -> dict[str, str]:
-        job_status = {
-            step_id: latest_jobs[tid].status.value
-            for step_id, tid in task_ids.items()
-            if tid in latest_jobs
-        }
-        return step_statuses(spec, job_status, results, run_status)
+        job_status, job_ids = _job_states(task_ids, latest_jobs, parsing)
+        return step_statuses(spec, job_status, results, run_status, job_ids)
+
+    def set_result(step_id: str, **fields: Any) -> None:
+        """Record a step's result, keeping how its condition was evaluated."""
+        prev = results.get(step_id) or {}
+        keep = {k: prev[k] for k in ("condition", "resolution") if k in prev}
+        results[step_id] = {**keep, **fields, "finished_at": utcnow().isoformat()}
 
     jobs: list[m.Job] = []
     touched: list[m.Task] = []
@@ -531,24 +610,114 @@ async def _advance(
         if task not in touched:
             touched.append(task)
 
+    async def fail_step(step: PlaybookStepSpec, task: m.Task | None, error: str, **extra: Any) -> None:
+        """A step went wrong: pause it for a person (on_failure: ask) or record the failure."""
+        if step.on_failure != "ask":
+            set_result(step.id, status="failed", error=error, **extra)
+            return
+        set_result(step.id, status="attention", reason=error, **extra)
+        if task is not None and task not in touched:
+            touched.append(task)
+        await record_activity(
+            db,
+            type="playbook_step.attention",
+            message=f"“{step.name}” needs a decision: {error}",
+            project_id=run.project_id,
+            task_id=task.id if task else None,
+            payload={"run_id": str(run.id), "step_id": step.id},
+        )
+        await notifications.notify(
+            db,
+            kind="playbook_step.attention",
+            severity="warning",
+            title=f"{run.playbook_name}: “{step.name}” needs you",
+            body=error,
+            link=step_link(run.id, step.id),
+            project_id=run.project_id,
+            subject=f"run:{run.id}:step:{step.id}",
+            payload={"run_id": str(run.id), "step_id": step.id},
+        )
+
+    async def judge_finished_jobs() -> bool:
+        """Check each newly finished job once: its `expect`, or `ask` on failure."""
+        changed = False
+        for step in spec.steps:
+            if step.kind != "command" or step.id not in task_ids:
+                continue
+            job = latest_jobs.get(task_ids[step.id])
+            if job is None or not job.status.is_terminal or job.id in parsing:
+                continue
+            result = results.get(step.id) or {}
+            if result.get("status") and result.get("job_id") == str(job.id):
+                continue  # already judged
+            task = tasks.get(task_ids[step.id])
+            expect = step.expectation()
+            if job.status == m.JobStatus.succeeded and expect is not None:
+                try:
+                    log_text = await _job_log_tail(db, job.id) if expect.log is not None else None
+                    met, checks = expect.evaluate(outputs.get(step.id, {}), log_text)
+                except TransformError as exc:
+                    met, checks = False, [{"text": f"expect: {exc}", "met": False}]
+                if met:
+                    set_result(step.id, status="succeeded", job_id=str(job.id), expect=checks)
+                else:
+                    await fail_step(
+                        step, task, f"unexpected output: {failed_checks(checks)}", job_id=str(job.id), expect=checks
+                    )
+                changed = True
+            elif job.status in (m.JobStatus.failed, m.JobStatus.lost) and step.on_failure == "ask":
+                await fail_step(step, task, _job_failure(job), job_id=str(job.id))
+                changed = True
+        return changed
+
     progressed = run_status != "cancelled"
     while progressed:
-        progressed = False
+        progressed = await judge_finished_jobs()
         current = statuses()
         for step in spec.steps:
+            task = tasks.get(task_ids[step.id]) if step.id in task_ids else None
+            result = results.get(step.id) or {}
+
+            if current[step.id] == "not_taken" and not result.get("status"):
+                # Left out because a branch it needs wasn't taken: record it so its card
+                # leaves To Do and the reason shows.
+                set_result(step.id, status="not_taken", reason="a step it needs was not taken")
+                progressed = True
+                if task is not None:
+                    await move(task, done_col)
+                continue
             if current[step.id] != "pending":
                 continue
-            if any(current.get(d) not in SATISFIED for d in step.depends_on):
+            if readiness(step, current.get, by_id, handled) != "ready":
                 continue
             progressed = True
-            task = tasks.get(task_ids[step.id]) if step.id in task_ids else None
+
+            condition = step.condition()
+            if condition is not None:
+                try:
+                    met, checks = condition.evaluate(
+                        lambda v: resolve_value(v, run.inputs, outputs), current
+                    )
+                except TransformError as exc:
+                    await fail_step(step, task, f"condition: {exc}")
+                    continue
+                results[step.id] = {"condition": {"met": met, "checks": checks}}
+                if not met:
+                    set_result(step.id, status="not_taken", reason="its condition was not met")
+                    if task is not None:
+                        await move(task, done_col)
+                        await record_activity(
+                            db,
+                            type="playbook_step.not_taken",
+                            message=f"Left out “{task.title}”: its condition was not met",
+                            project_id=run.project_id,
+                            task_id=task.id,
+                            payload={"run_id": str(run.id), "step_id": step.id},
+                        )
+                    continue
 
             if step.skip_if_empty and has_empty_upstream(step, run.inputs, outputs):
-                results[step.id] = {
-                    "status": "skipped",
-                    "reason": "an upstream value is empty",
-                    "finished_at": utcnow().isoformat(),
-                }
+                set_result(step.id, status="skipped", reason="an upstream value is empty")
                 if task is not None:
                     await move(task, done_col)
                     await record_activity(
@@ -568,35 +737,25 @@ async def _advance(
                 try:
                     items = run_transform(step.transform, values)
                 except TransformError as exc:
-                    results[step.id] = {
-                        "status": "failed",
-                        "error": str(exc),
-                        "input_count": input_count,
-                        "finished_at": utcnow().isoformat(),
-                    }
+                    await fail_step(step, None, str(exc), input_count=input_count)
                     continue
                 input_type = await _ref_type(db, spec, refs[0], task_ids, latest_jobs, results) if refs else None
-                results[step.id] = {
-                    "status": "succeeded",
-                    "outputs": {step.transform.output.name: items},
-                    "type": step.transform.result_type(input_type),
-                    "input_count": input_count,
-                    "count": len(items),
-                    "finished_at": utcnow().isoformat(),
-                }
+                set_result(
+                    step.id,
+                    status="succeeded",
+                    outputs={step.transform.output.name: items},
+                    type=step.transform.result_type(input_type),
+                    input_count=input_count,
+                    count=len(items),
+                )
                 outputs[step.id] = {step.transform.output.name: items}
                 continue
 
             if task is None:  # card deleted from the board
-                results[step.id] = {"status": "failed", "error": "the step's card was deleted"}
+                set_result(step.id, status="failed", error="the step's card was deleted")
                 continue
             error = await _prepare_command_step(db, task, step, run.inputs, outputs)
             if error is not None:
-                results[step.id] = {
-                    "status": "failed",
-                    "error": error,
-                    "finished_at": utcnow().isoformat(),
-                }
                 await record_activity(
                     db,
                     type="playbook_step.failed",
@@ -605,10 +764,14 @@ async def _advance(
                     task_id=task.id,
                     payload={"run_id": str(run.id), "step_id": step.id},
                 )
+                await fail_step(step, task, f"could not start: {error}")
                 if task not in touched:
                     touched.append(task)
                 continue
-            results.pop(step.id, None)
+            # Keep only how it got here; the job carries the status from now on.
+            results[step.id] = {k: v for k, v in (results.get(step.id) or {}).items() if k in ("condition", "resolution")}
+            if not results[step.id]:
+                results.pop(step.id)
             await move(task, active_col)
             reason = (
                 "playbook step ready" if step.depends_on else f"playbook started: {step.name}"
@@ -618,7 +781,7 @@ async def _advance(
             jobs.append(job)
 
     run.step_results = results  # reassign: JSON columns don't track in-place changes
-    await _settle_run(db, run, set(statuses().values()))
+    await _settle_run(db, run, spec, statuses())
     return jobs, touched
 
 
@@ -681,16 +844,11 @@ async def _ref_type(
     ).scalar_one_or_none()
 
 
-async def _settle_run(db: AsyncSession, run: m.PlaybookRun, current: set[str]) -> None:
+async def _settle_run(db: AsyncSession, run: m.PlaybookRun, spec: PlaybookSpec, current: dict[str, str]) -> None:
     """Finish the run when no step can move any more; reopen it when a step was re-run."""
     if run.status == m.PlaybookRunStatus.cancelled:
         return
-    if current <= SATISFIED:
-        new = m.PlaybookRunStatus.succeeded
-    elif current & (ACTIVE | {"pending"}):
-        new = m.PlaybookRunStatus.running
-    else:
-        new = m.PlaybookRunStatus.failed
+    new = m.PlaybookRunStatus(run_outcome(spec, current))
     if new == run.status:
         return
     run.status = new
@@ -698,12 +856,24 @@ async def _settle_run(db: AsyncSession, run: m.PlaybookRun, current: set[str]) -
     if new == m.PlaybookRunStatus.running:
         return
     ok = new == m.PlaybookRunStatus.succeeded
+    message = f"Playbook “{run.playbook_name}” " + ("completed successfully" if ok else "failed")
     await record_activity(
         db,
         type=f"playbook_run.{new.value}",
-        message=f"Playbook “{run.playbook_name}” "
-        + ("completed successfully" if ok else "failed"),
+        message=message,
         project_id=run.project_id,
+        payload={"run_id": str(run.id)},
+    )
+    failed = [s.name for s in spec.steps if current.get(s.id) in ("failed", "blocked", "cancelled")]
+    await notifications.notify(
+        db,
+        kind=f"playbook_run.{new.value}",
+        severity="success" if ok else "error",
+        title=message,
+        body="" if ok else "Didn't finish: " + ", ".join(failed[:6]) + ("…" if len(failed) > 6 else ""),
+        link=step_link(run.id),
+        project_id=run.project_id,
+        subject=f"run:{run.id}",
         payload={"run_id": str(run.id)},
     )
 
@@ -724,6 +894,125 @@ async def advance_playbook_run(
     return run, jobs
 
 
+RESOLUTIONS = {
+    "retry": "Retry",
+    "continue": "Continue",
+    "skip": "Skip branch",
+    "fail": "Fail",
+}
+
+
+class ResolveError(ValueError):
+    pass
+
+
+async def resolve_step(
+    db: AsyncSession,
+    run: m.PlaybookRun,
+    step_id: str,
+    action: str,
+    user: m.User | None,
+    note: str = "",
+    actor: str | None = None,
+) -> list[m.Job]:
+    """A decision on a step waiting for one (status attention):
+
+    - retry: run it again (a command's card as it is now, so edit its command first if
+      that's the fix; a transform or a step that couldn't start is re-evaluated);
+    - continue: accept it as succeeded and carry on with whatever outputs it has;
+    - skip: leave it and the steps that need it out (not_taken);
+    - fail: fail it; dependents are blocked, unless a condition handles its failure.
+
+    `actor` names who decided when it isn't a person (kept for automated resolvers).
+    Commits, publishes, and returns the jobs it queued (the caller wakes the dispatcher)."""
+    if action not in RESOLUTIONS:
+        raise ResolveError(f"action must be one of {', '.join(RESOLUTIONS)}")
+    if run.status == m.PlaybookRunStatus.cancelled:
+        raise ResolveError("the run was cancelled")
+    spec = _run_spec(run)
+    step = next((s for s in spec.steps if s.id == step_id), None)
+    if step is None:
+        raise ResolveError(f"the playbook has no step {step_id}")
+    results: dict[str, Any] = dict(run.step_results or {})
+    result = results.get(step_id) or {}
+    task_id = _run_task_ids(run).get(step_id)
+    task = await db.get(m.Task, task_id) if task_id else None
+    latest = (await latest_jobs_for(db, [task_id])).get(task_id) if task_id else None
+    stale = result.get("job_id") and latest is not None and result["job_id"] != str(latest.id)
+    if result.get("status") != "attention" or stale:
+        raise ResolveError("this step isn't waiting for a decision")
+
+    who = actor or (user.display_name or user.username if user else "castor")
+    resolution = {
+        "action": action,
+        "by": who,
+        "note": note.strip(),
+        "reason": result.get("reason", ""),
+        "at": utcnow().isoformat(),
+    }
+    keep = {"condition": result["condition"]} if "condition" in result else {}
+    jobs: list[m.Job] = []
+    if action == "retry":
+        results[step_id] = {**keep, "resolution": resolution}
+        if step.kind == "command" and task is not None and result.get("job_id"):
+            active_col = await column_with_role(db, run.project_id, m.ColumnRole.active)
+            if active_col is not None and task.column_id != active_col.id:
+                task.column_id = active_col.id
+                task.position = await next_position(db, active_col.id)
+            jobs.append(await enqueue_job(db, task, user, reason=f"retried by {who}"))
+    elif action == "continue":
+        results[step_id] = {
+            **result,
+            "status": "succeeded",
+            "resolution": resolution,
+            "finished_at": utcnow().isoformat(),
+        }
+        results[step_id].pop("reason", None)
+    elif action == "skip":
+        results[step_id] = {
+            **keep,
+            "status": "not_taken",
+            "reason": f"skipped by {who}",
+            "job_id": result.get("job_id"),
+            "resolution": resolution,
+            "finished_at": utcnow().isoformat(),
+        }
+        if task is not None:
+            done_col = await column_with_role(db, run.project_id, m.ColumnRole.done)
+            if done_col is not None and task.column_id != done_col.id:
+                task.column_id = done_col.id
+                task.position = await next_position(db, done_col.id)
+    else:
+        results[step_id] = {
+            **keep,
+            "status": "failed",
+            "error": result.get("reason") or "failed by decision",
+            "job_id": result.get("job_id"),
+            "expect": result.get("expect"),
+            "resolution": resolution,
+            "finished_at": utcnow().isoformat(),
+        }
+    run.step_results = results
+    await notifications.clear(db, f"run:{run.id}:step:{step_id}")
+    await record_activity(
+        db,
+        type=f"playbook_step.{action}",
+        message=f"{who} chose “{RESOLUTIONS[action]}” for “{step.name}”" + (f": {note.strip()}" if note.strip() else ""),
+        project_id=run.project_id,
+        task_id=task.id if task else None,
+        payload={"run_id": str(run.id), "step_id": step_id, "action": action},
+        **(actor_of(user) if user and not actor else {"actor_type": "system", "actor_name": who}),
+    )
+    more, touched = await _advance(db, run, user)
+    await db.commit()
+    if task is not None and task not in touched:
+        touched.append(task)
+    for t in touched:
+        await publish_task(db, t)
+    await publish_playbook_run(db, run)
+    return jobs + more
+
+
 async def cancel_playbook_run(
     db: AsyncSession, run_id: uuid.UUID, user: m.User | None = None
 ) -> m.PlaybookRun | None:
@@ -742,6 +1031,7 @@ async def cancel_playbook_run(
         payload={"run_id": str(run.id)},
         **actor_of(user),
     )
+    await notifications.clear(db, f"run:{run.id}:step:", prefix=True)
     await db.commit()
     await publish_playbook_run(db, run)
 

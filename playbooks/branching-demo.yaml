@@ -1,0 +1,165 @@
+# A fake SMB pipeline for developing and testing conditions, branches and decisions. Every
+# command is a demo-* command that invents its output, so it runs in seconds on any agent
+# started with --allow-host and never touches a network.
+#
+#                                                 ┌─ if any ──► relay_scan ──┐
+#   seed_hosts ─► smb_scan ─► smb_audit ─► [unsigned]                         ├─► report (join: any)
+#                                  │              └─ if none ─► all_signed ──┤
+#                                  └─ if it failed ─► fallback_names ─────────┘
+#
+# Things to try:
+#   signing: all          → no unsigned hosts, so the "all signed" branch runs instead
+#   empty_at: seed_hosts  → seed_hosts' expect fails; the run pauses and notifies you
+#   fail_at: smb_audit    → the audit asks you; choose Fail and the fallback branch runs
+#   fail_at: relay_scan   → relay_scan continues on failure; the report still runs
+id: branching-demo
+name: Branching Demo
+schema_version: 1
+description: >-
+  Fake SMB pipeline (no network, seconds to run) for conditions: if/else branches on a
+  transform's result, a failure branch, expectations that pause the run for a decision,
+  and a report where the branches meet.
+tags: [demo, testing]
+
+inputs:
+  - name: subnet
+    type: string
+    description: First three octets of the fake network
+    default: 10.30.0
+  - name: host_count
+    type: number
+    description: How many live hosts the seed step invents
+    default: 5
+  - name: signing
+    type: string
+    description: "mixed: some hosts don't require SMB signing; all: every host does"
+    default: mixed
+    choices: [mixed, all]
+  - name: speed
+    type: number
+    description: Multiplies every step's delay (0 runs instantly, 2 is twice as slow)
+    default: 1
+  - name: fail_at
+    type: string
+    description: Step that exits 1 on purpose
+    default: none
+    choices: [none, seed_hosts, smb_scan, smb_audit, relay_scan, all_signed, fallback_names, report]
+  - name: empty_at
+    type: string
+    description: Step that produces no results
+    default: none
+    choices: [none, seed_hosts, smb_scan, smb_audit]
+
+x-demo: &demo
+  speed: "{{ inputs.speed }}"
+  fail_at: "{{ inputs.fail_at }}"
+  empty_at: "{{ inputs.empty_at }}"
+
+steps:
+  - id: seed_hosts
+    name: Seed hosts
+    command_ref: demo-seed-hosts
+    description: Invents a run of live hosts. Finding none is unexpected, so it asks.
+    expect:
+      outputs:
+        hosts: { empty: false }
+    on_failure: ask
+    args:
+      <<: *demo
+      step: seed_hosts
+      delay: 2
+      subnet: "{{ inputs.subnet }}"
+      count: "{{ inputs.host_count }}"
+
+  - id: smb_scan
+    name: SMB port scan
+    command_ref: demo-smb-scan
+    description: Finds hosts with port 445 open
+    skip_if_empty: true
+    args:
+      <<: *demo
+      step: smb_scan
+      delay: 2
+      targets: "{{ steps.seed_hosts.outputs.hosts }}"
+
+  - id: smb_audit
+    name: SMB signing audit
+    command_ref: demo-smb-audit
+    description: Checks SMB signing. If it fails or finds nothing, it asks what to do.
+    skip_if_empty: true
+    expect:
+      outputs:
+        smb_hosts: { empty: false }
+    on_failure: ask
+    args:
+      <<: *demo
+      step: smb_audit
+      delay: 3
+      signing: "{{ inputs.signing }}"
+      targets: "{{ steps.smb_scan.outputs.hosts }}"
+
+  - id: unsigned
+    name: Signing disabled
+    description: Keeps the SMB hosts that don't require signing
+    transform:
+      input: "{{ steps.smb_audit.outputs.smb_hosts }}"
+      ops:
+        - filter: { field: signing, equals: false }
+        - pluck: host
+        - sort: true
+      output: { name: hosts }
+
+  - id: relay_scan
+    name: Scan relay targets
+    command_ref: demo-service-scan
+    description: Runs only when some hosts don't require signing
+    when:
+      value: "{{ steps.unsigned.outputs.hosts }}"
+      count: { gt: 0 }
+    on_failure: continue
+    args:
+      <<: *demo
+      step: relay_scan
+      delay: 3
+      targets: "{{ steps.unsigned.outputs.hosts }}"
+
+  - id: all_signed
+    name: All signed → names
+    command_ref: demo-dns-names
+    description: Runs only when every host requires signing
+    skip_if_empty: true
+    when:
+      value: "{{ steps.unsigned.outputs.hosts }}"
+      empty: true
+    args:
+      <<: *demo
+      step: all_signed
+      delay: 1
+      targets: "{{ steps.smb_scan.outputs.hosts }}"
+
+  - id: fallback_names
+    name: Fallback name lookup
+    command_ref: demo-dns-names
+    description: Runs only when the signing audit failed
+    skip_if_empty: true
+    when:
+      step: smb_audit
+      status: failed
+    args:
+      <<: *demo
+      step: fallback_names
+      delay: 1
+      targets: "{{ steps.smb_scan.outputs.hosts }}"
+
+  - id: report
+    name: Report
+    command_ref: demo-report
+    description: Where the branches meet; runs once they've ended and at least one worked
+    join: any
+    depends_on: [relay_scan, fallback_names]
+    args:
+      <<: *demo
+      step: report
+      delay: 1
+      unsigned: "{{ steps.unsigned.outputs.hosts }}"
+      names: "{{ steps.all_signed.outputs.names }}"

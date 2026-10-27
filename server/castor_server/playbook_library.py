@@ -145,7 +145,17 @@ async def check_against_library(db: AsyncSession, spec: PlaybookSpec) -> list[st
                 if arg.required and arg.default is None and arg.name not in step.args:
                     problems.append(f"step {step.id}: required argument {arg.name} is not bound")
             problems += await _check_step_vars(db, spec, step, cmd)
-        for ref in step.refs():
+        expect = step.expectation()
+        cmd = commands.get(step.command_ref or "") if expect is not None else None
+        if expect is not None and cmd is not None:
+            outputs = [o.name for o in cmd.outputs if o.parser]
+            for name in expect.outputs:
+                if name not in outputs:
+                    problems.append(
+                        f"step {step.id}: expect checks output {name}, but {cmd.id} has no parsed "
+                        f"output by that name (outputs: {', '.join(outputs) or 'none'})"
+                    )
+        for ref in [*step.refs(), *step.condition_refs()]:
             parts = ref.split(".")
             if parts[0] != "steps":
                 continue

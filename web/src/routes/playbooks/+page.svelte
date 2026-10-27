@@ -10,6 +10,9 @@
 	import RunPlaybookDialog from '$lib/components/RunPlaybookDialog.svelte';
 	import OutputCard from '$lib/components/OutputCard.svelte';
 	import TransformDetails from '$lib/components/TransformDetails.svelte';
+	import StepConditions from '$lib/components/StepConditions.svelte';
+	import StepDecision from '$lib/components/StepDecision.svelte';
+	import { page } from '$app/state';
 	import { STEP_STATUS } from '$lib/playbook';
 
 	let { data } = $props();
@@ -51,6 +54,41 @@
 	let selectedStatus = $derived(selectedStep ? (selectedRun?.step_status?.[selectedStep.id] ?? 'pending') : 'pending');
 
 	const taskFor = (run: PlaybookRun, stepId: string) => run.tasks.find((t) => t.playbook_step_id === stepId);
+	const waiting = (run: PlaybookRun) => Object.values(run.step_status ?? {}).filter((s) => s === 'attention').length;
+
+	// Notifications link to /playbooks?run=<id>&step=<step>: open that run and step.
+	let linkedTo = '';
+	$effect(() => {
+		const runId = page.url.searchParams.get('run');
+		const stepId = page.url.searchParams.get('step');
+		const key = `${runId}:${stepId}`;
+		if (!runId || key === linkedTo) return;
+		linkedTo = key;
+		void openLinked(runId, stepId);
+	});
+
+	async function openLinked(runId: string, stepId: string | null) {
+		let run = runs.find((r) => r.id === runId);
+		try {
+			run = await api().playbookRuns.get(runId);
+			runs = [run, ...runs.filter((r) => r.id !== runId)];
+		} catch {
+			if (!run) return snackbar.error('That playbook run no longer exists');
+		}
+		activeTab = 'runs';
+		selectedRunId = run.id;
+		const step = run.spec_snapshot.steps.find((st) => st.id === stepId);
+		if (step) handleStepSelect(step, taskFor(run, step.id));
+		else selectFirstStep(run);
+	}
+
+	function applyRun(updated: PlaybookRun) {
+		runs = runs.map((r) => (r.id === updated.id ? updated : r));
+		if (selectedStep) {
+			const fresh = taskFor(updated, selectedStep.id);
+			if (fresh) selectedTask = fresh;
+		}
+	}
 
 	function selectFirstStep(run: PlaybookRun) {
 		const first = run.spec_snapshot.steps[0];
@@ -611,7 +649,12 @@ steps:
 								<h4 class="truncate font-medium title-small text-on-surface" title={run.playbook_name}>
 									{run.playbook_name}
 								</h4>
-								{#if run.status === 'running'}
+								{#if run.status === 'running' && waiting(run)}
+									<span class="flex items-center gap-1 rounded-full bg-tertiary-container px-2 py-0.5 font-semibold text-on-tertiary-container label-small">
+										<Icon name="front_hand" size={14} />
+										Needs you{waiting(run) > 1 ? ` (${waiting(run)})` : ''}
+									</span>
+								{:else if run.status === 'running'}
 									<span class="flex items-center gap-1 font-semibold text-primary label-small">
 										<span class="size-2 animate-ping rounded-full bg-primary"></span>
 										Running
@@ -786,12 +829,22 @@ steps:
 								{/if}
 							</div>
 
+							{#if selectedStatus === 'attention' && selectedRun}
+								<StepDecision run={selectedRun} step={selectedStep} result={selectedResult} onresolved={applyRun} />
+							{:else if selectedStatus === 'not_taken'}
+								<div class="flex items-start gap-2 rounded-xl border border-outline-variant/60 bg-surface-container-low p-4 body-medium text-on-surface">
+									<Icon name="alt_route" size={18} class="text-on-surface-variant" />
+									<div>Not taken: {selectedResult?.reason ?? 'a branch it needs was not taken'}.</div>
+								</div>
+							{/if}
+							<StepConditions step={selectedStep} result={selectedResult} status={selectedStatus} />
+
 							{#if selectedStep.kind === 'transform'}
 								<div class="rounded-xl border border-outline-variant/60 bg-surface p-4">
 									<TransformDetails step={selectedStep} result={selectedResult} status={selectedStatus} />
 								</div>
 							{:else}
-							{#if selectedResult?.error || selectedResult?.reason || selectedStatus === 'blocked'}
+							{#if (selectedResult?.error || selectedStatus === 'blocked' || selectedStatus === 'skipped') && selectedStatus !== 'attention'}
 								<div class="flex items-start gap-2 rounded-xl border border-outline-variant/60 bg-surface-container-low p-4 body-medium text-on-surface">
 									<Icon name={STEP_STATUS[selectedStatus].icon} size={18} class={STEP_STATUS[selectedStatus].text} />
 									<div>
@@ -800,7 +853,7 @@ steps:
 										{:else if selectedStatus === 'skipped'}
 											Skipped: {selectedResult?.reason}.
 										{:else}
-											Could not start: <span class="font-mono text-[12px]">{selectedResult?.error}</span>
+											<span class="font-mono text-[12px] break-words">{selectedResult?.error}</span>
 										{/if}
 									</div>
 								</div>

@@ -10,7 +10,7 @@
 		OutputSpec
 	} from '$lib/api';
 	import { Icon, IconButton } from '$lib/m3';
-	import { SATISFIED, STEP_STATUS, describeOp, stepBindings, stepRefs } from '$lib/playbook';
+	import { SATISFIED, STEP_STATUS, conditionSteps, describeCondition, describeOp, stepBindings, stepFlags, stepRefs } from '$lib/playbook';
 
 	interface Props {
 		spec: PlaybookSpec;
@@ -70,8 +70,10 @@
 		d: string;
 		midX: number;
 		midY: number;
-		status: 'active' | 'succeeded' | 'pending' | 'blocked';
+		status: 'active' | 'succeeded' | 'pending' | 'blocked' | 'not_taken';
 		bindings: EdgeBinding[];
+		/** The target's `when`, on edges from the steps it looks at. */
+		gate: string | null;
 		/** Parser that produced the value on this edge, or "transform". */
 		via: string | null;
 		/** Items carried, when known (transform outputs). */
@@ -121,9 +123,10 @@
 		return `${Math.floor(sec / 60)}m ${sec % 60}s`;
 	}
 
+	// Transforms grow a row for their flags; command cards always have one.
 	const sizeOf = (step: PlaybookStepSpec) =>
 		step.kind === 'transform'
-			? { width: TRANSFORM_WIDTH, height: TRANSFORM_HEIGHT }
+			? { width: TRANSFORM_WIDTH, height: TRANSFORM_HEIGHT + (stepFlags(step).length ? 20 : 0) }
 			: { width: NODE_WIDTH, height: NODE_HEIGHT };
 
 	let graph = $derived.by(() => {
@@ -242,9 +245,14 @@
 					if (Math.abs(p.x - wantX) < Math.abs(mid.x - wantX)) mid = p;
 				}
 
+				// A condition that looks at this step (its outputs or how it ended) gates the edge.
+				const gated = conditionSteps(node.step.when).has(depId);
+				const watched = gated && !stepRefs(JSON.stringify(node.step.when)).some((r) => r.step === depId);
 				let edgeStatus: EdgeLayout['status'] = 'pending';
-				if (fromNode.status === 'failed' || fromNode.status === 'blocked') edgeStatus = 'blocked';
-				else if (SATISFIED.has(fromNode.status)) {
+				if (node.status === 'not_taken' || fromNode.status === 'not_taken') edgeStatus = 'not_taken';
+				else if ((fromNode.status === 'failed' && !watched && node.step.on_failure !== 'continue') || fromNode.status === 'blocked')
+					edgeStatus = node.status === 'pending' || node.status === 'blocked' ? 'blocked' : 'succeeded';
+				else if (SATISFIED.has(fromNode.status) || fromNode.status === 'failed') {
 					if (node.status === 'running' || node.status === 'queued') edgeStatus = 'active';
 					else if (node.status !== 'pending') edgeStatus = 'succeeded';
 				}
@@ -277,6 +285,7 @@
 					midY: mid.y,
 					status: edgeStatus,
 					bindings,
+					gate: gated ? describeCondition(node.step.when) : null,
 					via: fromStep.transform ? null : (bindings[0]?.parser ?? fromCmd?.spec?.outputs?.[0]?.parser ?? null),
 					count: fromStep.transform && fromResult?.count !== undefined ? fromResult.count : null
 				});
@@ -536,6 +545,10 @@
 			<span class="h-0.5 w-4 rounded bg-primary"></span>
 			Data flow
 		</span>
+		<span class="flex items-center gap-1.5 font-medium text-tertiary">
+			<Icon name="alt_route" size={13} />
+			Condition
+		</span>
 		<span class="hidden sm:inline text-outline-variant">·</span>
 		<span class="hidden sm:inline font-mono text-[11px]">
 			{graph.nodes.length} step{graph.nodes.length === 1 ? '' : 's'} · {graph.edges.length} edge{graph.edges.length === 1 ? '' : 's'}
@@ -663,6 +676,12 @@
 							style="stroke: var(--md-sys-color-primary); stroke-width: 2.2px;"
 							marker-end="url(#arrow-succeeded)"
 						/>
+					{:else if edge.status === 'not_taken'}
+						<path
+							d={edge.d}
+							fill="none"
+							style="stroke: var(--md-sys-color-outline-variant); stroke-width: 1.5px; stroke-dasharray: 1 6; stroke-linecap: round;"
+						/>
 					{:else if edge.status === 'blocked'}
 						<path
 							d={edge.d}
@@ -684,21 +703,30 @@
 			<!-- Edge badges: the output that flows, the parser that made it, and how many items -->
 			{#each graph.edges as edge (edge.id + '-badge')}
 				<div
-					class="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-auto flex flex-col items-center gap-0.5 rounded-lg border bg-surface-container-high px-2 py-1 shadow-sm transition-transform duration-150 hover:scale-105 hover:shadow-md z-10 max-w-[150px]
+					class="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-auto flex flex-col items-center gap-0.5 rounded-lg border bg-surface-container-high px-2 py-1 shadow-sm transition-transform duration-150 hover:scale-105 hover:shadow-md z-10 {edge.gate ? 'max-w-[200px]' : 'max-w-[150px]'}
 						{edge.status === 'active'
 							? 'border-primary ring-2 ring-primary/25'
 							: edge.status === 'succeeded'
 								? 'border-primary/60'
 								: edge.status === 'blocked'
 									? 'border-error/40 opacity-70'
-									: 'border-outline-variant/80'}"
+									: edge.status === 'not_taken'
+										? 'border-outline-variant/60 opacity-50'
+										: 'border-outline-variant/80'}"
 					style="left: {edge.midX}px; top: {edge.midY}px;"
-					title={edge.bindings.length > 0
+					title={(edge.gate ? `${edge.toId} runs only if ${edge.gate}\n` : '') +
+						(edge.bindings.length > 0
 						? edge.bindings
 								.map((b) => `${edge.fromId}.${b.sourceOutput} (${b.parser || b.type || 'value'}) → ${edge.toId}.${b.targetArg}`)
 								.join('\n')
-						: `${edge.toId} waits for ${edge.fromId}`}
+						: `${edge.toId} waits for ${edge.fromId}`)}
 				>
+					{#if edge.gate}
+						<div class="flex max-w-full items-center gap-1 font-mono text-[10px] font-medium text-tertiary">
+							<Icon name="alt_route" size={12} class="shrink-0" />
+							<span class="truncate">if {edge.gate}</span>
+						</div>
+					{/if}
 					{#if edge.bindings.length > 0}
 						{#each edge.bindings as b (b.sourceOutput + b.targetArg)}
 							<div class="flex max-w-full items-center gap-1 font-mono text-[10.5px] text-on-surface-variant">
@@ -718,7 +746,7 @@
 								{/if}
 							</div>
 						{/if}
-					{:else}
+					{:else if !edge.gate}
 						<div class="flex items-center gap-1 font-mono text-[9.5px] text-on-surface-variant">
 							<Icon name="arrow_forward" size={11} class="opacity-70" />
 							<span>after</span>
@@ -733,7 +761,8 @@
 				{@const isDraggingThis = draggingNodeId === node.step.id}
 				{@const meta = STEP_STATUS[node.status]}
 				{@const isTransform = node.step.kind === 'transform'}
-				{@const dimmed = node.status === 'skipped' || node.status === 'blocked' || node.status === 'cancelled'}
+				{@const dimmed = node.status === 'skipped' || node.status === 'blocked' || node.status === 'cancelled' || node.status === 'not_taken'}
+				{@const flags = stepFlags(node.step)}
 				<div
 					role="button"
 					tabindex="0"
@@ -746,6 +775,7 @@
 							: isTransform
 								? 'border-tertiary/70 bg-surface-container-low hover:bg-surface-container'
 								: 'border-outline-variant bg-surface-container-low hover:border-outline hover:bg-surface-container'}
+						{node.status === 'attention' && !isSelected ? 'border-tertiary ring-3 ring-tertiary/30' : ''}
 						{dimmed && !isSelected ? 'opacity-60' : ''}"
 					style="left: {node.x}px; top: {node.y}px; width: {node.width}px; height: {node.height}px;"
 					onpointerdown={(e) => handleNodePointerDown(e, node)}
@@ -811,11 +841,22 @@
 									</span>
 								{/if}
 							</div>
-							{#if node.step.skip_if_empty}
-								<span class="mt-1 self-start rounded bg-surface-container-highest px-1.5 text-[9.5px] text-on-surface-variant" title="Skipped when an upstream value is empty">
-									skip if empty
-								</span>
-							{/if}
+						{/if}
+						{#if flags.length}
+							<div class="mt-1 flex min-w-0 gap-1 overflow-hidden">
+								{#each flags as f (f.label)}
+									<span
+										class="flex shrink-0 items-center gap-0.5 rounded px-1.5 text-[9.5px] leading-4 {f.tone === 'gate'
+											? 'bg-tertiary-container text-on-tertiary-container'
+											: f.tone === 'warn'
+												? 'border border-tertiary/60 text-tertiary'
+												: 'bg-surface-container-highest text-on-surface-variant'}"
+										title={f.title}
+									>
+										{#if f.tone === 'gate'}<Icon name="alt_route" size={11} />{/if}{f.label}
+									</span>
+								{/each}
+							</div>
 						{/if}
 					</div>
 

@@ -9,11 +9,20 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from .command_spec import ID_PATTERN, ArgSpec
+from .playbook_conditions import FINAL_STATUSES, Condition, Expect
 from .playbook_transforms import TransformSpec
 
 STEP_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
 PLACEHOLDER_RE = re.compile(r"^\{\{\s*(inputs\.[A-Za-z0-9_]+|steps\.[A-Za-z0-9_-]+\.outputs\.[A-Za-z0-9_]+)\s*\}\}$")
 INLINE_PLACEHOLDER_RE = re.compile(r"\{\{\s*(inputs\.[A-Za-z0-9_]+|steps\.[A-Za-z0-9_-]+\.outputs\.[A-Za-z0-9_]+)\s*\}\}")
+
+
+def compact_errors(exc: ValidationError) -> str:
+    return "; ".join(
+        (".".join(str(p) for p in err["loc"]) + ": " if err["loc"] else "")
+        + ("unknown key" if err["type"] == "extra_forbidden" else err["msg"].removeprefix("Value error, "))
+        for err in exc.errors()
+    )
 
 
 def references(value: Any) -> list[str]:
@@ -46,6 +55,53 @@ class PlaybookStepSpec(BaseModel):
     skip_if_empty: bool = False
     # Command variable slots → `{{ inputs.<varset input> }}` or the name of a variable set.
     vars: dict[str, str] = Field(default_factory=dict)
+    # Run only when this condition holds (playbook_conditions.Condition); otherwise the step
+    # is "not_taken", and so are the steps that need it (unless they join: any/always).
+    when: Any = None
+    # When the step starts. all: every dependency succeeded or was skipped. any: every
+    # dependency has ended and at least one succeeded (where branches meet). always: every
+    # dependency has ended, whatever happened (reports, clean-up).
+    join: Literal["all", "any", "always"] = "all"
+    # What a failure means (a failed job, a step that can't start, a transform error, or an
+    # `expect` that doesn't hold): stop (dependents are blocked), continue (dependents go
+    # ahead with whatever exists), or ask (pause the step and notify people to decide).
+    on_failure: Literal["stop", "continue", "ask"] = "stop"
+    # Command steps: what a successful result should look like (playbook_conditions.Expect).
+    expect: dict[str, Any] | None = None
+
+    @field_validator("when")
+    @classmethod
+    def check_when(cls, value: Any) -> Any:
+        if value is not None:
+            try:
+                Condition.model_validate(value)
+            except ValidationError as exc:
+                raise ValueError(compact_errors(exc)) from exc
+        return value
+
+    @field_validator("expect")
+    @classmethod
+    def check_expect(cls, value: Any) -> Any:
+        if value is not None:
+            try:
+                Expect.model_validate(value)
+            except ValidationError as exc:
+                raise ValueError(compact_errors(exc)) from exc
+        return value
+
+    def condition(self) -> Condition | None:
+        return Condition.model_validate(self.when) if self.when is not None else None
+
+    def expectation(self) -> Expect | None:
+        return Expect.model_validate(self.expect) if self.expect is not None else None
+
+    def watched_steps(self) -> list[str]:
+        cond = self.condition()
+        return cond.watched_steps() if cond else []
+
+    def condition_refs(self) -> list[str]:
+        cond = self.condition()
+        return cond.refs() if cond else []
 
     @model_validator(mode="after")
     def check_kind(self) -> PlaybookStepSpec:
@@ -56,6 +112,8 @@ class PlaybookStepSpec(BaseModel):
             raise ValueError(f"step {self.id}: transform steps take no args (use transform.input)")
         if self.transform is not None and self.vars:
             raise ValueError(f"step {self.id}: transform steps take no vars")
+        if self.transform is not None and self.expect is not None:
+            raise ValueError(f"step {self.id}: expect is for command steps (a transform's result is what you made it)")
         for slot, value in self.vars.items():
             refs = references(value)
             if refs and (not PLACEHOLDER_RE.match(str(value).strip()) or not refs[0].startswith("inputs.")):
@@ -135,7 +193,7 @@ class PlaybookSpec(BaseModel):
                     if inp.type != "varset":
                         raise ValueError(f"step {step.id}: vars.{slot} needs a varset input, {inp.name} is {inp.type}")
         for step in self.steps:
-            for ref in step.refs():
+            for ref in [*step.refs(), *step.condition_refs()]:
                 parts = ref.split(".")
                 if parts[0] == "inputs":
                     if parts[1] not in input_names:
@@ -150,6 +208,13 @@ class PlaybookSpec(BaseModel):
                         f"transform's output is named {source.transform.output.name}"
                     )
             for upstream in step.upstream_steps():
+                if upstream not in step.depends_on:
+                    step.depends_on.append(upstream)
+            # A condition waits for what it looks at: referenced outputs and watched steps.
+            cond_steps = [r.split(".")[1] for r in step.condition_refs() if r.startswith("steps.")]
+            for upstream in [*cond_steps, *step.watched_steps()]:
+                if upstream not in by_id:
+                    raise ValueError(f"step {step.id}: when refers to unknown step {upstream}")
                 if upstream not in step.depends_on:
                     step.depends_on.append(upstream)
 
@@ -200,12 +265,7 @@ def parse_playbook_spec(source: str | dict[str, Any]) -> PlaybookSpec:
     try:
         return PlaybookSpec.model_validate(raw)
     except ValidationError as exc:
-        msg = "; ".join(
-            f"{'.'.join(str(p) for p in err['loc'])}: "
-            + ("unknown key" if err["type"] == "extra_forbidden" else err["msg"].removeprefix("Value error, "))
-            for err in exc.errors()
-        )
-        raise ValueError(msg) from exc
+        raise ValueError(compact_errors(exc)) from exc
 
 
 def resolve_output_value(val: Any) -> Any:
@@ -292,6 +352,19 @@ def lookup_ref(ref: str, inputs: dict[str, Any], step_outputs: dict[str, dict[st
     return step_outputs.get(parts[1], {}).get(parts[3])
 
 
+def resolve_value(value: Any, inputs: dict[str, Any], step_outputs: dict[str, dict[str, Any]]) -> Any:
+    """A condition's `value`: the raw value behind exactly one reference (so lists stay
+    lists), references inside text substituted as in arguments, anything else as written."""
+    if not isinstance(value, str):
+        return value
+    exact = PLACEHOLDER_RE.match(value.strip())
+    if exact:
+        return lookup_ref(exact.group(1), inputs, step_outputs)
+    return INLINE_PLACEHOLDER_RE.sub(
+        lambda mt: str(resolve_output_value(lookup_ref(mt.group(1), inputs, step_outputs))), value
+    )
+
+
 def has_empty_upstream(
     step: PlaybookStepSpec, inputs: dict[str, Any], step_outputs: dict[str, dict[str, Any]]
 ) -> bool:
@@ -308,6 +381,8 @@ def has_empty_upstream(
 SATISFIED = frozenset({"succeeded", "skipped"})
 BLOCKING = frozenset({"failed", "cancelled", "blocked"})
 ACTIVE = frozenset({"queued", "running"})
+# Every way a step can end. `attention` (waiting for a person) is not one of them.
+FINAL = frozenset({*FINAL_STATUSES, "blocked"})
 
 
 def job_step_status(job_status: str | None) -> str | None:
@@ -323,36 +398,120 @@ def job_step_status(job_status: str | None) -> str | None:
     }.get(job_status or "")
 
 
+def satisfies(step: PlaybookStepSpec, status: str) -> bool:
+    """Whether this step's status lets a step that needs it go ahead."""
+    return status in SATISFIED or (status == "failed" and step.on_failure == "continue")
+
+
+def handled_steps(spec: PlaybookSpec) -> set[str]:
+    """Steps another step's condition watches: their failure is planned for."""
+    return {w for step in spec.steps for w in step.watched_steps()}
+
+
+def readiness(
+    step: PlaybookStepSpec,
+    status_of: Any,
+    by_id: dict[str, PlaybookStepSpec],
+    handled: set[str] | frozenset[str] = frozenset(),
+) -> str:
+    """Whether a pending step can start, judging only its dependencies (not its `when`):
+    ready, wait, blocked (it never will) or not_taken (a branch it needs wasn't taken).
+    A handled failure (another step's condition watches for it) acts like a branch not
+    taken: the failure path runs instead, and the normal path is left out, not blocked."""
+    deps = {d: status_of(d) for d in step.depends_on if d in by_id}
+    if step.join == "always":
+        return "ready" if all(s in FINAL for s in deps.values()) else "wait"
+    watched = set(step.watched_steps())
+    if step.join == "any":
+        if not all(s in FINAL for s in deps.values()):
+            return "wait"
+        if not deps or any(d in watched or satisfies(by_id[d], s) for d, s in deps.items()):
+            return "ready"
+        return "not_taken" if all(s == "not_taken" for s in deps.values()) else "blocked"
+    verdict = "ready"
+    for dep, s in deps.items():
+        if dep in watched:
+            # A status test waits for the step to end, however it ends.
+            if s not in FINAL and verdict == "ready":
+                verdict = "wait"
+        elif satisfies(by_id[dep], s):
+            continue
+        elif s == "failed" and dep in handled:
+            verdict = "not_taken"
+        elif s in BLOCKING:
+            return "blocked"
+        elif s == "not_taken":
+            verdict = "not_taken"
+        elif verdict == "ready":
+            verdict = "wait"
+    return verdict
+
+
 def step_statuses(
     spec: PlaybookSpec,
     job_status_by_step: dict[str, str | None],
     step_results: dict[str, Any],
     run_status: str = "running",
+    job_id_by_step: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """Status of every step: pending, queued, running, succeeded, failed, cancelled, skipped
-    or blocked (an upstream step failed, was cancelled or is itself blocked).
+    """Status of every step: pending, queued, running, succeeded, failed, cancelled, skipped,
+    not_taken (its condition was false, or a branch it needs wasn't taken), attention
+    (paused for a person to decide) or blocked (an upstream step failed and it never runs).
 
-    A command step's latest job wins over its stored result, so re-running a failed card
-    moves the step on; transform and skipped steps only have stored results."""
+    A command step's latest job wins over its stored result (re-running a card moves the
+    step on), unless the result was recorded for that very job: a judgement on it such as
+    an `expect` that didn't hold or a person's decision. Transform and skipped steps only
+    have stored results."""
     by_id = {s.id: s for s in spec.steps}
+    handled = handled_steps(spec)
+    job_ids = job_id_by_step or {}
     out: dict[str, str] = {}
+
+    def own(step: PlaybookStepSpec) -> str:
+        result = step_results.get(step.id) or {}
+        if step.kind == "command":
+            job_value = job_step_status(job_status_by_step.get(step.id))
+            if job_value is not None:
+                judged = result.get("job_id")
+                if judged and result.get("status") and judged == job_ids.get(step.id):
+                    return result["status"]
+                return job_value
+        return result.get("status") or "pending"
 
     def status(step_id: str, seen: frozenset[str] = frozenset()) -> str:
         if step_id in out:
             return out[step_id]
+        if step_id in seen:
+            return "pending"
         step = by_id[step_id]
-        value = job_step_status(job_status_by_step.get(step_id)) if step.kind == "command" else None
-        if value is None:
-            value = (step_results.get(step_id) or {}).get("status") or "pending"
+        value = own(step)
         if value == "pending":
-            deps = [d for d in step.depends_on if d in by_id and d not in seen]
             if run_status == "cancelled":
                 value = "cancelled"
-            elif any(status(d, seen | {step_id}) in BLOCKING for d in deps):
-                value = "blocked"
+            else:
+                gate = readiness(step, lambda d: status(d, seen | {step_id}), by_id, handled)
+                if gate in ("blocked", "not_taken"):
+                    value = gate
         out[step_id] = value
         return value
 
     for step in spec.steps:
         status(step.id)
     return out
+
+
+def run_outcome(spec: PlaybookSpec, statuses: dict[str, str]) -> str:
+    """running while anything can still move (or waits for a person), else succeeded when
+    every step ended well (a failure counts as fine when the step continues on failure or
+    another step's condition handles it), else failed."""
+    if any(s in ACTIVE or s in ("pending", "attention") for s in statuses.values()):
+        return "running"
+    handled = handled_steps(spec)
+    for step in spec.steps:
+        s = statuses.get(step.id, "pending")
+        if s in SATISFIED or s == "not_taken":
+            continue
+        if s == "failed" and (step.on_failure == "continue" or step.id in handled):
+            continue
+        return "failed"
+    return "succeeded"

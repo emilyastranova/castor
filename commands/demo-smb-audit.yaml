@@ -11,6 +11,11 @@ args:
     description: Comma-separated IPs
     required: true
     example: 10.20.0.11,10.20.0.15
+  - name: signing
+    type: string
+    description: "mixed: signing is off on some hosts; all: every host requires it"
+    choices: [mixed, all]
+    default: mixed
   - name: step
     type: string
     description: Playbook step id, compared with fail_at and empty_at
@@ -43,7 +48,7 @@ command: |
   if [ "$empty" = 0 ]; then
     for ip in $(echo "$targets" | tr ',' ' '); do
       n=$(octet "$ip")
-      signing=False; if [ $((n % 3)) = 0 ]; then signing=True; fi
+      signing=False; if [ $((n % 3)) = 0 ] || [ {{ signing }} = all ]; then signing=True; fi
       smbv1=False; if [ $((n % 5)) = 0 ]; then smbv1=True; fi
       echo "SMB $ip 445 HOST-$n [*] Windows Server 2019 Build 17763 x64 (name:HOST-$n) (domain:lab.internal) (signing:$signing) (SMBv1:$smbv1)"
     done

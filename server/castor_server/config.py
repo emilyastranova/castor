@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     # stored secret unreadable, so back it up with the database.
     vault_key: str | None = None
     variable_file_max_bytes: int = 1024 * 1024  # per file field
+    # Notifications (a playbook step waiting for a decision, a run finishing) also go to these
+    # webhook URLs, comma separated. Slack and Discord webhooks and ntfy topics get their own
+    # format; anything else receives JSON. public_url makes the links in them absolute.
+    notify_webhooks: str = ""
+    public_url: str = ""
     # Built-in command definitions (commands/*.yaml), synced into the library on startup.
     commands_dir: Path = Path(__file__).resolve().parents[2] / "commands"
     # Built-in playbook definitions (playbooks/*.yaml), synced into the library on startup.

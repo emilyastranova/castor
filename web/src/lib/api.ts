@@ -154,7 +154,21 @@ export interface PlaybookStepSpec {
 	skip_if_empty: boolean;
 	/** Command variable slot → `{{ inputs.x }}` or a variable set name. */
 	vars?: Record<string, string>;
+	/** Run only when this holds (see PlaybookCondition); otherwise the step is not_taken. */
+	when?: PlaybookCondition | null;
+	join?: 'all' | 'any' | 'always';
+	on_failure?: 'stop' | 'continue' | 'ask';
+	expect?: { outputs?: Record<string, Record<string, unknown>>; log?: Record<string, unknown> } | null;
 }
+
+/** A `when:` condition as written in the YAML. */
+export type PlaybookCondition =
+	| PlaybookCondition[]
+	| { all: PlaybookCondition[] }
+	| { any: PlaybookCondition[] }
+	| { not: PlaybookCondition }
+	| { step: string; status: string | string[] }
+	| ({ value: unknown } & Record<string, unknown>);
 
 export type PlaybookStepStatus =
 	| 'pending'
@@ -164,11 +178,23 @@ export type PlaybookStepStatus =
 	| 'failed'
 	| 'cancelled'
 	| 'skipped'
+	| 'not_taken'
+	| 'attention'
 	| 'blocked';
 
-/** What the run stores for transform steps and for steps that never got a job. */
+/** One test of a condition or an expectation, with what was found. */
+export interface ConditionCheck {
+	text: string;
+	met: boolean;
+	actual?: string;
+}
+
+export type ResolveAction = 'retry' | 'continue' | 'skip' | 'fail';
+
+/** What the run stores per step: transform results, steps that never got a job, how a
+ *  condition was evaluated, expectations, and decisions on paused steps. */
 export interface PlaybookStepResult {
-	status: 'succeeded' | 'failed' | 'skipped';
+	status?: 'succeeded' | 'failed' | 'skipped' | 'not_taken' | 'attention';
 	outputs?: Record<string, unknown>;
 	type?: string;
 	count?: number;
@@ -176,6 +202,26 @@ export interface PlaybookStepResult {
 	error?: string;
 	reason?: string;
 	finished_at?: string;
+	/** The job this result judges (expect, or a decision); a newer job supersedes it. */
+	job_id?: string;
+	condition?: { met: boolean; checks: ConditionCheck[] };
+	expect?: ConditionCheck[];
+	resolution?: { action: ResolveAction; by: string; note: string; reason: string; at: string };
+}
+
+export interface AppNotification {
+	id: UUID;
+	user_id: UUID;
+	project_id: UUID | null;
+	kind: string;
+	severity: 'info' | 'success' | 'warning' | 'error';
+	title: string;
+	body: string;
+	link: string;
+	subject: string;
+	payload: Record<string, unknown>;
+	read_at: string | null;
+	created_at: string;
 }
 
 export interface PlaybookSpec {
@@ -616,7 +662,15 @@ export function api(fetchFn: Fetch = fetch) {
 				return get<PlaybookRun[]>(`/playbook-runs${qs ? `?${qs}` : ''}`);
 			},
 			get: (id: UUID) => get<PlaybookRun>(`/playbook-runs/${id}`),
-			cancel: (id: UUID) => post<PlaybookRun>(`/playbook-runs/${id}/cancel`)
+			cancel: (id: UUID) => post<PlaybookRun>(`/playbook-runs/${id}/cancel`),
+			resolve: (id: UUID, stepId: string, action: ResolveAction, note = '') =>
+				post<PlaybookRun>(`/playbook-runs/${id}/steps/${stepId}/resolve`, { action, note })
+		},
+		notifications: {
+			list: (unreadOnly = false, limit = 50) =>
+				get<{ items: AppNotification[]; unread: number }>(`/notifications?unread_only=${unreadOnly}&limit=${limit}`),
+			read: (id: UUID) => post<AppNotification>(`/notifications/${id}/read`),
+			readAll: () => post<void>('/notifications/read-all')
 		},
 		commands: {
 			list: () => get<CommandDefinition[]>('/commands'),
