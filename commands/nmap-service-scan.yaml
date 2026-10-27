@@ -9,7 +9,7 @@ container_flags:
   - --network=bridge
 args:
   - name: targets
-    type: string
+    type: list
     description: Hosts to scan (output of a ping sweep works here)
     required: true
     example: 192.168.0.10,192.168.0.11

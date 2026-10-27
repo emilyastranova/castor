@@ -9,7 +9,7 @@ container_flags:
   - --network=bridge
 args:
   - name: targets
-    type: string
+    type: list
     description: Target IP, range, or comma-separated list
     required: true
     example: 192.168.1.0/24

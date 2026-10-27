@@ -1,0 +1,42 @@
+id: ssh-version-discovery
+name: SSH Version Discovery
+schema_version: 1
+description: Ping sweep an input subnet to discover live hosts, then run an SSH port scan with service version detection on the responsive hosts.
+tags: [network, discovery, ssh, nmap]
+inputs:
+  - name: subnet
+    type: string
+    description: Target subnet or CIDR range (e.g. 192.168.0.0/24)
+    required: true
+    example: 192.168.0.0/24
+  - name: ports
+    type: string
+    description: SSH port(s) to scan
+    required: false
+    default: "22"
+steps:
+  - id: ping_sweep
+    name: Ping sweep
+    command_ref: nmap-ping-sweep
+    description: Discover live hosts in the target subnet using ICMP ping sweep
+    args:
+      targets: "{{ inputs.subnet }}"
+
+  - id: live_hosts
+    name: Filter live hosts
+    description: Filter for hosts that responded as up and extract their IP addresses
+    transform:
+      input: "{{ steps.ping_sweep.outputs.hosts }}"
+      ops:
+        - filter: { field: status, equals: up }
+        - pluck: ip
+      output: { name: ips }
+
+  - id: ssh_scan
+    name: SSH version scan
+    command_ref: nmap-service-scan
+    description: Scan SSH ports on live hosts and detect software versions (-sV)
+    skip_if_empty: true
+    args:
+      targets: "{{ steps.live_hosts.outputs.ips }}"
+      ports: "{{ inputs.ports }}"
