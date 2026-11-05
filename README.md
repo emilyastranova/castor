@@ -9,7 +9,7 @@
   &nbsp;·&nbsp;
   <a href="commands/README.md">Commands</a>
   &nbsp;·&nbsp;
-  <a href="docs/PHASE2.md">Roadmap</a>
+  <a href="docs/PHASE3.md">Roadmap</a>
   &nbsp;·&nbsp;
   <a href="LICENSE">MIT</a>
 </p>
@@ -34,7 +34,7 @@ step appears on the board as its own card.
 
 > **■ Status: Phase 2 complete.** The board, agents with their own tokens, command
 > library, parsers, playbooks with a visual editor, and users with roles all work. Refer
-> to [docs/PHASE2.md](docs/PHASE2.md).
+> to [docs/PHASE2.md](docs/PHASE2.md); what's next is in [docs/PHASE3.md](docs/PHASE3.md).
 
 ---
 
@@ -253,7 +253,7 @@ with Python 3.10 or later.
 | [`agent/`](agent/) | The agent: runs jobs in podman/docker containers or the host shell |
 | [`commands/`](commands/) | Built-in command definitions (YAML). Format in [`commands/README.md`](commands/README.md) |
 | [`playbooks/`](playbooks/) | Built-in playbooks (YAML). Format in [`docs/PLAYBOOK_SPEC.md`](docs/PLAYBOOK_SPEC.md) |
-| [`docs/`](docs/) | [Architecture](docs/ARCHITECTURE.md) and agent protocol, [Phase 2 plan](docs/PHASE2.md), [playbook spec](docs/PLAYBOOK_SPEC.md) |
+| [`docs/`](docs/) | [Architecture](docs/ARCHITECTURE.md) and agent protocol, [Phase 2](docs/PHASE2.md) and [Phase 3](docs/PHASE3.md) plans, [playbook spec](docs/PLAYBOOK_SPEC.md) |
 | [`deploy/`](deploy/) | Caddy reverse-proxy configuration for `compose.yaml` |
 | [`.github/assets/`](.github/assets/) | README images, made by `build_assets.py` from the AstraLabs brand files |
 

@@ -207,9 +207,8 @@ Postgres with `CASTOR_TEST_DATABASE_URL`.
 
 ## Carried forward
 
-- An automated resolver for paused steps: an AI model (Gemini) that reads an unexpected
-  result and picks retry (possibly with a corrected command), continue or skip, falling
-  back to asking a person. `services.resolve_step` already takes an `actor` for this.
+The AI resolver for paused steps moved to [PHASE3.md](PHASE3.md) (3e), with the rest of
+what's next.
 
 ## Decisions (2026-10-15)
 

@@ -356,4 +356,6 @@ operator, and makes every existing user a member of every existing project.
 * **M2** (done, see [PHASE2.md](PHASE2.md)) — built: command library, parsers (nmap
   XML → hosts/ports, etc.), playbooks with transforms, conditions and decisions, variables,
   notifications, visual playbook editor, per-agent tokens, users with roles and project membership.
-* **M3** — reporting, run summaries, artifact export, agent auto-scaling.
+* **M3** (planned, see [PHASE3.md](PHASE3.md)) — tool environments, @mentions and a
+  "mine" filter, per-person view, pinned project notes, an AI resolver for paused steps.
+* Later: reporting, run summaries, artifact export, agent auto-scaling.
