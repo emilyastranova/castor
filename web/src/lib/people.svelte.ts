@@ -54,8 +54,35 @@ export const people = new PeopleStore();
 /** `@name` the way the server reads it (people.MENTION). */
 export const MENTION = /(?<![\w@./])@([A-Za-z0-9][A-Za-z0-9._-]{0,63})/g;
 
+/** The @username tooltip over a mention chip. It lives in the top layer (a popover), so a
+ *  clipped comment box (line-clamped in the feed) or a modal dialog can't hide it. */
+let tip: HTMLDivElement | null = null;
+export function showMentionTip(chip: HTMLElement) {
+	if (!chip.dataset.username) return;
+	if (!tip) {
+		tip = document.createElement('div');
+		tip.className = 'mention-tip';
+		tip.setAttribute('popover', 'manual');
+		tip.setAttribute('role', 'tooltip');
+		document.body.append(tip);
+	}
+	tip.textContent = chip.dataset.username;
+	const r = chip.getBoundingClientRect();
+	tip.style.left = `${r.left + r.width / 2}px`;
+	tip.style.top = `${r.top - 6}px`;
+	if (!tip.matches(':popover-open')) tip.showPopover();
+	tip.classList.add('shown');
+	// It's placed once; anything scrolling would leave it behind, so it goes.
+	window.addEventListener('scroll', hideMentionTip, { capture: true, once: true });
+}
+export function hideMentionTip() {
+	if (!tip) return;
+	tip.classList.remove('shown');
+	if (tip.matches(':popover-open')) tip.hidePopover();
+}
+
 /** A mention chip: the person's picture (or initials) and display name; `@username` shows on
- *  hover (CSS, from data-username) so the text never shifts. */
+ *  hover (showMentionTip) so the text never shifts. */
 function mentionChip(user: UserBrief, isMe: boolean): HTMLElement {
 	const chip = document.createElement('span');
 	chip.className = `mention${isMe ? ' mention-me' : ''}`;

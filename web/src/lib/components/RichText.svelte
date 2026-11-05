@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { renderMarkdown } from '$lib/markdown';
 	import { openImagesIn } from '$lib/lightbox.svelte';
-	import { people, chipMentions } from '$lib/people.svelte';
+	import { people, chipMentions, showMentionTip, hideMentionTip } from '$lib/people.svelte';
 	import { me } from '$lib/session';
 	import { goto } from '$app/navigation';
 
@@ -27,7 +27,23 @@
 		void html; // re-chip whenever the rendered text (or the people) change
 		if (root) chipMentions(root, who, me()?.id);
 	});
+	// Don't leave a tooltip behind when the comment goes away (e.g. navigating from a chip).
+	$effect(() => hideMentionTip);
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div bind:this={root} class="prose-m3 {klass}" onclick={onclick}>{@html html}</div>
+<div
+	bind:this={root}
+	class="prose-m3 {klass}"
+	{onclick}
+	onpointerover={(e) => {
+		const chip = (e.target as HTMLElement).closest<HTMLElement>('.mention');
+		if (chip) showMentionTip(chip);
+	}}
+	onpointerout={(e) => {
+		const chip = (e.target as HTMLElement).closest('.mention');
+		if (chip && !chip.contains(e.relatedTarget as Node | null)) hideMentionTip();
+	}}
+>
+	{@html html}
+</div>
