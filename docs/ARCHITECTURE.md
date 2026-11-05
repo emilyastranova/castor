@@ -301,6 +301,18 @@ project). `deps.Operator` / `deps.Admin` guard endpoints by role; there must alw
 active admin. `users.disabled_at` blocks sign-in and existing sessions (checked on every
 request).
 
+**Profile pictures** (`avatars.py`, `PUT /api/users/{id}/avatar`, `POST …/avatar/upload`):
+initials, an uploaded PNG/JPEG/WebP/GIF (≤ 2 MB, type checked from its bytes, no SVG,
+stored in `<data_dir>/avatars/`, served with `nosniff`), an https image URL, or Gravatar
+(SHA-256 of the email). Users change their own; admins anyone's. `User.avatar_url` is
+what the UI loads (null: initials); comments carry `author_avatar`.
+
+**Lockout.** The API refuses to demote or disable the last active admin, and on startup
+`accounts.ensure_active_admin` promotes the longest-standing active user (or re-enables
+the longest-standing one) if a database has no active admin. `castor-admin`
+(`manage.py`; `list-users`, `reset-password`, `enable`, `promote`, `create-admin`) works
+from the server's shell with the server's settings, for when nobody can sign in.
+
 **Projects** are seen by admins and by their members (`project_members`); `access.py` has
 the checks. Anything under a project (board, cards, jobs, logs, attachments, playbook runs,
 activity) follows it, and asking for something you can't see answers 404. Whoever creates

@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 
+from .. import avatars
 from .. import models as m
 from ..access import add_member
 from ..deps import DB, Admin, CurrentUser, parse_uuid
 from ..events import bus
 from ..models import utcnow
-from ..schemas import PasswordChange, ProfilePatch, UserBrief, UserIn, UserOut, UserPatch
+from ..schemas import AvatarIn, PasswordChange, ProfilePatch, UserBrief, UserIn, UserOut, UserPatch
 from ..security import hash_password, verify_password
 from ..services import actor_of, record_activity
 
@@ -111,3 +115,66 @@ async def change_password(body: PasswordChange, db: DB, user: CurrentUser):
         project_id=None, **actor_of(user),
     )
     await db.commit()
+
+
+# ----- profile pictures (your own, or anyone's for admins) -----
+
+
+async def _avatar_target(db: DB, user: m.User, user_id: str) -> m.User:
+    target = await db.get(m.User, parse_uuid(user_id))
+    if target is None:
+        raise HTTPException(404, "User not found")
+    if target.id != user.id and not user.is_admin:
+        raise HTTPException(403, "You can only change your own picture")
+    return target
+
+
+@router.put("/users/{user_id}/avatar", response_model=UserOut)
+async def set_avatar(user_id: str, body: AvatarIn, db: DB, user: CurrentUser):
+    """Choose initials, the uploaded picture, an https image URL, or a Gravatar email."""
+    target = await _avatar_target(db, user, user_id)
+    try:
+        if body.kind == "url":
+            target.avatar_link = avatars.check_url(body.url)
+        elif body.kind == "gravatar":
+            target.gravatar_email = avatars.check_email(body.gravatar_email)
+        elif body.kind == "upload" and not target.avatar_file:
+            raise avatars.AvatarError("upload a picture first")
+    except avatars.AvatarError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    target.avatar_kind = body.kind
+    await db.commit()
+    bus.publish("user.changed", None, {"id": target.id}, ref=target.id)
+    return UserOut.model_validate(target)
+
+
+@router.post("/users/{user_id}/avatar/upload", response_model=UserOut)
+async def upload_avatar(user_id: str, db: DB, user: CurrentUser, file: Annotated[UploadFile, File()]):
+    target = await _avatar_target(db, user, user_id)
+    data = await file.read(avatars.MAX_BYTES + 1)
+    old = target.avatar_file
+    try:
+        target.avatar_file = avatars.save(target.id, target.avatar_version + 1, data)
+    except avatars.AvatarError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    target.avatar_version += 1
+    target.avatar_kind = "upload"
+    await db.commit()
+    if old != target.avatar_file:
+        avatars.remove(old)
+    bus.publish("user.changed", None, {"id": target.id}, ref=target.id)
+    return UserOut.model_validate(target)
+
+
+@router.get("/users/{user_id}/avatar")
+async def get_avatar(user_id: str, db: DB, _: CurrentUser):
+    target = await db.get(m.User, parse_uuid(user_id))
+    path = avatars.directory() / target.avatar_file if target and target.avatar_file else None
+    if path is None or not path.is_file():
+        raise HTTPException(404, "No picture")
+    kind = avatars.image_type(path.read_bytes()[:16])
+    return FileResponse(
+        path,
+        media_type=kind[0] if kind else "application/octet-stream",
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=31536000, immutable"},
+    )

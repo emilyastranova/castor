@@ -31,6 +31,12 @@ class UserOut(ORM):
     is_admin: bool
     disabled_at: datetime | None = None
     created_at: datetime
+    avatar_url: str | None = None
+    avatar_kind: str = "initials"
+    avatar_link: str = ""
+    gravatar_email: str = ""
+    # Whether an uploaded picture exists (to switch back to it).
+    has_upload: bool = False
 
 
 class UserBrief(ORM):
@@ -40,6 +46,13 @@ class UserBrief(ORM):
     username: str
     display_name: str
     role: UserRole
+    avatar_url: str | None = None
+
+
+class AvatarIn(BaseModel):
+    kind: str = Field(pattern=r"^(initials|upload|url|gravatar)$")
+    url: str = Field("", max_length=500)
+    gravatar_email: str = Field("", max_length=254)
 
 
 USERNAME = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
@@ -311,6 +324,7 @@ class CommentOut(ORM):
     task_id: uuid.UUID
     author_id: uuid.UUID | None
     author_name: str = ""
+    author_avatar: str | None = None
     body: str
     created_at: datetime
     updated_at: datetime

@@ -238,6 +238,7 @@ async def task_activity(task_id: str, db: DB, user: CurrentUser):
 def _comment_out(comment: m.Comment) -> CommentOut:
     out = CommentOut.model_validate(comment)
     out.author_name = comment.author.display_name if comment.author else "unknown"
+    out.author_avatar = comment.author.avatar_url if comment.author else None
     return out
 
 

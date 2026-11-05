@@ -5,6 +5,7 @@
 	import { Button, Dialog, TextField } from '$lib/m3';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { ROLE_LABELS } from '$lib/session';
+	import AvatarEditor from './AvatarEditor.svelte';
 
 	/** The signed-in user's own account: display name and password. */
 	interface Props {
@@ -54,6 +55,8 @@
 		<p class="body-medium text-on-surface-variant">
 			@{user.username} · {ROLE_LABELS[user.role].label}: {ROLE_LABELS[user.role].detail.toLowerCase()}
 		</p>
+		<p class="label-large text-on-surface">Picture</p>
+		<AvatarEditor {user} onchange={() => invalidateAll()} />
 		<TextField label="Display name" bind:value={name} />
 		<p class="mt-2 label-large text-on-surface">Change password</p>
 		<TextField label="Current password" type="password" bind:value={current} autocomplete="current-password" />

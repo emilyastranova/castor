@@ -141,7 +141,21 @@ Add `--profile agent` to also run an agent inside the stack.
 Add more people under **Users** (admins only). Each person is a **viewer** (read-only),
 **operator** (works in their projects and edits the command, playbook and variable
 libraries) or **admin** (everything). Admins see every project; everyone else sees the
-projects they're a member of (a project's **Members**).
+projects they're a member of (a project's **Members**). Everyone can set a profile picture
+(upload, image URL or Gravatar) under their account menu; admins can set anyone's.
+
+### Locked out?
+
+Castor always keeps one active admin: the last one can't be demoted or disabled, and if a
+database ever has none, the server makes its longest-standing user an admin when it
+starts. A lost password is reset from the server's shell:
+
+```bash
+docker compose exec server castor-admin reset-password admin    # compose
+.venv/bin/castor-admin reset-password admin                     # dev checkout
+```
+
+`castor-admin` also has `list-users`, `enable`, `promote` and `create-admin`.
 
 ### Upgrading
 

@@ -78,7 +78,7 @@
 					<li class="border-b border-outline-variant/50 last:border-0">
 						<label class="flex items-center gap-3 px-3 py-2 {locked ? '' : 'cursor-pointer hover:bg-surface-container'}">
 							<input type="checkbox" class="size-4 accent-[var(--md-sys-color-primary)]" {checked} disabled={locked} onchange={() => toggle(u.id)} />
-							<Avatar name={u.display_name} size={28} />
+							<Avatar name={u.display_name} src={u.avatar_url} size={28} />
 							<span class="min-w-0 flex-1">
 								<span class="block truncate body-medium text-on-surface">{u.display_name}{u.id === self?.id ? ' (you)' : ''}</span>
 								<span class="block body-small text-on-surface-variant">@{u.username}</span>

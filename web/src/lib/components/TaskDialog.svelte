@@ -707,7 +707,7 @@
 				<div class="flex flex-col gap-4">
 					{#each comments as c (c.id)}
 						<div class="flex gap-3">
-							<Avatar name={c.author_name} tone="secondary" />
+							<Avatar name={c.author_name} src={c.author_avatar} tone="secondary" />
 							<div class="min-w-0 flex-1 rounded-md bg-surface-container px-4 py-3">
 								<div class="flex items-center gap-2 body-small text-on-surface-variant">
 									<span class="label-large text-on-surface">{c.author_name}</span>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import enum
+import hashlib
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -128,6 +129,29 @@ class User(Base, TimestampMixin):
     )
     # A disabled account can't sign in, and its sessions stop working.
     disabled_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    # Profile picture: initials | upload | url | gravatar (see avatar_url).
+    avatar_kind: Mapped[str] = mapped_column(String(16), default="initials", server_default="initials")
+    avatar_link: Mapped[str] = mapped_column(String(500), default="", server_default="")  # kind url
+    gravatar_email: Mapped[str] = mapped_column(String(254), default="", server_default="")
+    # kind upload: the file under <data_dir>/avatars/; the version busts browser caches.
+    avatar_file: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    avatar_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+    @property
+    def avatar_url(self) -> str | None:
+        """What an <img> should load, or None to show initials."""
+        if self.avatar_kind == "upload" and self.avatar_file:
+            return f"/api/users/{self.id}/avatar?v={self.avatar_version}"
+        if self.avatar_kind == "url" and self.avatar_link:
+            return self.avatar_link
+        if self.avatar_kind == "gravatar" and self.gravatar_email:
+            digest = hashlib.sha256(self.gravatar_email.strip().lower().encode()).hexdigest()
+            return f"https://gravatar.com/avatar/{digest}?s=160&d=identicon"
+        return None
+
+    @property
+    def has_upload(self) -> bool:
+        return bool(self.avatar_file)
 
     @property
     def is_admin(self) -> bool:

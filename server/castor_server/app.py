@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
 from . import models as m
+from .accounts import ensure_active_admin
 from .api import api_router
 from .command_library import sync_builtin_definitions
 from .config import settings
@@ -38,6 +39,7 @@ async def ensure_admin() -> None:
             )
             await db.commit()
             log.info("created initial admin user %r", settings.admin_username)
+        await ensure_active_admin(db)
         # Nothing should be marked running after a restart: connections are gone.
         agents = (await db.execute(select(m.Agent))).scalars().all()
         for agent in agents:

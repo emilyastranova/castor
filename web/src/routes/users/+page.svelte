@@ -5,6 +5,8 @@
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { absoluteTime, relativeTime } from '$lib/format';
 	import { me, ROLE_LABELS } from '$lib/session';
+	import { invalidateAll } from '$app/navigation';
+	import AvatarEditor from '$lib/components/AvatarEditor.svelte';
 
 	let { data } = $props();
 	// svelte-ignore state_referenced_locally
@@ -78,6 +80,10 @@
 		}
 	}
 	let self = $derived(me());
+	/** Editing the only active admin: role and disabling stay locked, so nobody's locked out. */
+	let lastAdmin = $derived(
+		!!editing && editing.role === 'admin' && !editing.disabled_at && users.filter((u) => u.role === 'admin' && !u.disabled_at).length === 1
+	);
 </script>
 
 <svelte:head><title>Users · Castor</title></svelte:head>
@@ -115,7 +121,7 @@
 					<tr class="border-b border-outline-variant/50 last:border-0 {u.disabled_at ? 'opacity-60' : ''}">
 						<td class="px-4 py-2">
 							<span class="flex items-center gap-3">
-								<Avatar name={u.display_name} size={32} />
+								<Avatar name={u.display_name} src={u.avatar_url} size={32} />
 								<span>
 									<span class="block text-on-surface">{u.display_name}{u.id === self?.id ? ' (you)' : ''}</span>
 									<span class="block body-small text-on-surface-variant">@{u.username}</span>
@@ -152,10 +158,31 @@
 
 <Dialog open={editing !== null} title="Edit {editing?.username ?? ''}" icon="manage_accounts" size="md" onclose={() => (editing = null)}>
 	<div class="flex flex-col gap-4 pt-2 pb-2">
+		{#if editing}
+			<AvatarEditor
+				user={editing}
+				onchange={(u) => {
+					users = users.map((x) => (x.id === u.id ? u : x));
+					editing = u;
+					if (u.id === self?.id) void invalidateAll();
+				}}
+			/>
+		{/if}
 		<TextField label="Display name" bind:value={edit.display_name} />
-		<Select label="Role" bind:value={edit.role} options={roleOptions} />
+		<Select label="Role" bind:value={edit.role} options={roleOptions} disabled={lastAdmin} />
 		<TextField label="New password (optional)" type="password" bind:value={edit.password} autocomplete="new-password" supporting="Leave empty to keep their password." />
-		<Switch bind:checked={edit.disabled} label={edit.disabled ? 'Disabled: can’t sign in; signed-in sessions stop working' : 'Active'} />
+		<Switch
+			checked={!edit.disabled}
+			disabled={lastAdmin}
+			label={edit.disabled ? 'Disabled: can’t sign in, and signed-in sessions stop working' : 'Can sign in'}
+			onchange={(on) => (edit.disabled = !on)}
+		/>
+		{#if lastAdmin}
+			<p class="flex items-start gap-2 rounded-md bg-surface-container px-3 py-2 body-small text-on-surface-variant">
+				<Icon name="lock" size={16} class="mt-px shrink-0" />
+				<span>This is the only active admin, so it stays an active admin: make someone else an admin first. If a password is ever lost, run <code class="font-mono">castor-admin reset-password &lt;username&gt;</code> on the server.</span>
+			</p>
+		{/if}
 		{#if error}<p class="body-small text-error">{error}</p>{/if}
 	</div>
 	{#snippet actions()}

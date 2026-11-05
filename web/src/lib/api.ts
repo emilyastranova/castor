@@ -13,7 +13,16 @@ export interface User {
 	is_admin: boolean;
 	disabled_at: string | null;
 	created_at: string;
+	/** What to show as their picture (null: initials). */
+	avatar_url: string | null;
+	avatar_kind: AvatarKind;
+	avatar_link: string;
+	gravatar_email: string;
+	/** An uploaded picture exists (so it can be switched back to). */
+	has_upload: boolean;
 }
+
+export type AvatarKind = 'initials' | 'upload' | 'url' | 'gravatar';
 
 /** A user as everyone sees them (pickers, member lists). */
 export interface UserBrief {
@@ -21,6 +30,7 @@ export interface UserBrief {
 	username: string;
 	display_name: string;
 	role: UserRole;
+	avatar_url: string | null;
 }
 
 export interface Client {
@@ -497,6 +507,7 @@ export interface Comment {
 	task_id: UUID;
 	author_id: UUID | null;
 	author_name: string;
+	author_avatar?: string | null;
 	body: string;
 	created_at: string;
 	updated_at: string;
@@ -635,7 +646,14 @@ export function api(fetchFn: Fetch = fetch) {
 			create: (body: { username: string; display_name?: string; role: UserRole; password: string; all_projects?: boolean }) =>
 				post<User>('/users', body),
 			update: (id: UUID, body: { display_name?: string; role?: UserRole; disabled?: boolean; password?: string }) =>
-				patch<User>(`/users/${id}`, body)
+				patch<User>(`/users/${id}`, body),
+			setAvatar: (id: UUID, body: { kind: AvatarKind; url?: string; gravatar_email?: string }) =>
+				request<User>(fetchFn, 'PUT', `/users/${id}/avatar`, body),
+			uploadAvatar: (id: UUID, file: File) => {
+				const form = new FormData();
+				form.append('file', file);
+				return post<User>(`/users/${id}/avatar/upload`, form);
+			}
 		},
 		clients: {
 			list: () => get<Client[]>('/clients'),

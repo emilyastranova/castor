@@ -80,10 +80,10 @@
 							dark = isDark();
 						}}
 					/>
-					<Menu align="left">
+					<Menu side>
 						{#snippet anchor()}
 							<button type="button" class="focus-ring rounded-full" aria-label="Account menu">
-								<Avatar name={data.user?.display_name ?? ''} size={40} />
+								<Avatar name={data.user?.display_name ?? ''} src={data.user?.avatar_url} size={40} />
 							</button>
 						{/snippet}
 						<div class="px-3 py-2">
