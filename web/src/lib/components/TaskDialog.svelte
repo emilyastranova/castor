@@ -17,6 +17,8 @@
 	import VarBindings from './VarBindings.svelte';
 	import { tick } from 'svelte';
 	import { page } from '$app/state';
+	import { canEdit as roleCanEdit } from '$lib/session';
+	import { isListRef, lists } from '$lib/lists.svelte';
 
 	interface Props {
 		task: Task;
@@ -29,6 +31,13 @@
 	let { task, columns, agents, onclose, onupdated, ondeleted }: Props = $props();
 
 	let open = $state(true);
+	const argText = (v: unknown) =>
+		isListRef(v) ? `saved list: ${lists.find(v.list)?.set.name ?? '…'}` : Array.isArray(v) ? v.join(', ') : String(v ?? '');
+	/** Viewers see the card read-only: no edit controls (the API refuses edits anyway). */
+	const editable = $derived(roleCanEdit());
+	$effect(() => {
+		if (!editable && Object.values(task.command_args ?? {}).some(isListRef) && !lists.loaded) void lists.load();
+	});
 	let tab = $state<'output' | 'comments' | 'attachments' | 'fields' | 'history'>('output');
 
 	// ---- editable fields (debounced save) ----
@@ -452,6 +461,7 @@
 	}
 
 	function onPaste(e: ClipboardEvent) {
+		if (!editable) return;
 		const files = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith('image/'));
 		if (files.length) {
 			e.preventDefault();
@@ -535,6 +545,7 @@
 				<input
 					class="w-full bg-transparent headline-small text-on-surface outline-none focus:underline decoration-primary/40 underline-offset-4"
 					bind:value={title}
+					readonly={!editable}
 					oninput={() => edited('title')}
 					onblur={() => title.trim() && title !== task.title && commit('title', { title: title.trim() })}
 					autocomplete="off"
@@ -546,7 +557,7 @@
 					<span>created {relativeTime(task.created_at)} · updated {relativeTime(task.updated_at)}</span>
 				</div>
 			</div>
-			{#if task.kind === 'command'}
+			{#if task.kind === 'command' && editable}
 				{#if activeJob}
 					<Button variant="tonal" icon="stop_circle" onclick={() => cancel(activeJob!)}>Cancel</Button>
 				{:else}
@@ -555,14 +566,16 @@
 			{/if}
 			<Menu>
 				{#snippet anchor()}<IconButton icon="more_vert" label="Card menu" />{/snippet}
-				<MenuItem icon={task.kind === 'command' ? 'person' : 'terminal'} onclick={() => save({ kind: task.kind === 'command' ? 'manual' : 'command' })}>
-					Convert to {task.kind === 'command' ? 'human task' : 'command'}
-				</MenuItem>
-				{#if task.command_ref}
-					<MenuItem icon="link_off" onclick={detachFromLibrary}>Detach from library</MenuItem>
+				{#if editable}
+					<MenuItem icon={task.kind === 'command' ? 'person' : 'terminal'} onclick={() => save({ kind: task.kind === 'command' ? 'manual' : 'command' })}>
+						Convert to {task.kind === 'command' ? 'human task' : 'command'}
+					</MenuItem>
+					{#if task.command_ref}
+						<MenuItem icon="link_off" onclick={detachFromLibrary}>Detach from library</MenuItem>
+					{/if}
 				{/if}
 				<MenuItem icon="link" onclick={() => { navigator.clipboard.writeText(location.href); snackbar.show('Link copied'); }}>Copy link</MenuItem>
-				<MenuItem icon="delete" danger onclick={remove}>Delete card</MenuItem>
+				{#if editable}<MenuItem icon="delete" danger onclick={remove}>Delete card</MenuItem>{/if}
 			</Menu>
 			<IconButton icon="close" label="Close" onclick={() => (open = false)} />
 		</div>
@@ -573,7 +586,34 @@
 	<div class="grid min-h-full grid-cols-[minmax(0,1fr)] gap-6 pt-2 pb-6 lg:grid-cols-[minmax(0,1fr)_300px]" onpaste={onPaste}>
 		<!-- main column -->
 		<div class="flex min-h-0 min-w-0 flex-col gap-4">
-			{#if task.kind === 'command'}
+			{#if task.kind === 'command' && !editable}
+				<div class="flex flex-col gap-3 rounded-md bg-surface-container p-4">
+					{#if task.command_ref}
+						<div class="flex items-center gap-2">
+							<Icon name="menu_book" size={20} class="shrink-0 text-primary" />
+							<span class="min-w-0 truncate title-small text-on-surface">{libraryDef?.name ?? task.command_ref}</span>
+						</div>
+						{#if Object.keys(task.command_args ?? {}).length}
+							<dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 body-small">
+								{#each Object.entries(task.command_args) as [name, value] (name)}
+									<dt class="font-mono text-on-surface-variant">{name}</dt>
+									<dd class="truncate font-mono text-on-surface" title={argText(value)}>{argText(value)}</dd>
+								{/each}
+							</dl>
+						{/if}
+					{/if}
+					<div>
+						<p class="mb-1 label-medium text-on-surface-variant">Command</p>
+						<pre class="overflow-auto rounded-sm bg-surface-container-highest p-3 font-mono text-[12.5px] whitespace-pre-wrap break-words text-on-surface">{task.command || '—'}</pre>
+					</div>
+					<dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 body-small text-on-surface-variant">
+						<dt>Runs in</dt><dd class="truncate font-mono text-on-surface">{task.image || 'the agent’s shell'}{task.container_flags?.length ? ` ${task.container_flags.join(' ')}` : ''}</dd>
+						<dt>Agent</dt><dd class="text-on-surface">{agentId ? agentName(agentId) : 'any available agent'}</dd>
+						<dt>Timeout</dt><dd class="text-on-surface">{task.timeout_s ? `${task.timeout_s}s` : 'none'}</dd>
+						<dt>On move</dt><dd class="text-on-surface">{task.run_on_move ? 'runs when moved to In Progress' : 'doesn’t run on move'}</dd>
+					</dl>
+				</div>
+			{:else if task.kind === 'command'}
 				<div class="flex flex-col gap-3 rounded-md bg-surface-container p-4">
 					{#if task.command_ref}
 						<div class="flex items-center gap-2">
@@ -632,9 +672,9 @@
 			<div>
 				<div class="mb-1 flex items-center justify-between">
 					<h3 class="title-small text-on-surface">Description</h3>
-					<Button variant="text" icon={editingDescription ? 'check' : 'edit'} onclick={() => { if (editingDescription && description !== task.description) commit('description', { description }); editingDescription = !editingDescription; }}>
+					{#if editable}<Button variant="text" icon={editingDescription ? 'check' : 'edit'} onclick={() => { if (editingDescription && description !== task.description) commit('description', { description }); editingDescription = !editingDescription; }}>
 						{editingDescription ? 'Done' : 'Edit'}
-					</Button>
+					</Button>{/if}
 				</div>
 				{#if editingDescription}
 					<TextField label="Description (markdown)" bind:value={description} multiline rows={6} autofocus oninput={() => edited('description')} />
@@ -682,7 +722,7 @@
 							{#if hasResults && outputView === 'results'}
 								<JobResults job={selectedJob} onload={(o) => (resultCount = o.filter((x) => !x.error).length || null)} />
 							{:else}
-								<JobConsole job={selectedJob} oncancel={cancel} title={task.title} />
+								<JobConsole job={selectedJob} oncancel={editable ? cancel : undefined} title={task.title} />
 							{/if}
 						{/key}
 						{#if runFiles.length}
@@ -699,7 +739,7 @@
 					{:else}
 						<div class="flex flex-1 flex-col items-center justify-center gap-2 rounded-md bg-surface-container p-8 text-center">
 							<Icon name="terminal" size={40} class="text-on-surface-variant" />
-							<p class="body-medium text-on-surface-variant">No runs yet. Press Run or drag the card into In Progress.</p>
+							<p class="body-medium text-on-surface-variant">{editable ? 'No runs yet. Press Run or drag the card into In Progress.' : 'No runs yet.'}</p>
 						</div>
 					{/if}
 				</div>
@@ -719,7 +759,7 @@
 									{#if canEdit(c) && editingId !== c.id}
 										<IconButton icon="edit" label="Edit comment" size="sm" onclick={() => startEdit(c)} />
 									{/if}
-									<IconButton icon="delete" label="Delete comment" size="sm" onclick={() => removeComment(c)} />
+									{#if canEdit(c)}<IconButton icon="delete" label="Delete comment" size="sm" onclick={() => removeComment(c)} />{/if}
 								</div>
 								{#if editingId === c.id}
 									<div class="mt-2 flex flex-col gap-2">
@@ -748,21 +788,23 @@
 					{:else}
 						<p class="body-medium text-on-surface-variant">No comments yet.</p>
 					{/each}
-					<div class="flex flex-col gap-2">
+					{#if editable}<div class="flex flex-col gap-2">
 						<TextField label="Add a comment" bind:value={newComment} multiline rows={3} supporting="Markdown supported · Ctrl+Enter to post · paste an image to add it to the comment" onkeydown={(e) => (e.ctrlKey || e.metaKey) && e.key === 'Enter' && postComment()} onpaste={pasteInto(newCommentTarget)} />
 						<div class="flex items-center justify-end gap-3">
 							{#if inlineUploads > 0}<span class="body-small text-on-surface-variant">Uploading image…</span>{/if}
 							<Button icon="send" loading={posting} onclick={postComment} disabled={!newComment.trim() || inlineUploads > 0}>Comment</Button>
 						</div>
-					</div>
+					</div>{/if}
 				</div>
 			{:else if tab === 'attachments'}
 				<div class="flex flex-col gap-4">
-					<div class="flex items-center gap-2">
-						<Button variant="tonal" icon="upload" loading={uploading} onclick={() => fileInput?.click()}>Upload</Button>
-						<span class="body-small text-on-surface-variant">or paste a screenshot anywhere in this card</span>
-						<input bind:this={fileInput} type="file" multiple class="hidden" onchange={(e) => upload((e.currentTarget as HTMLInputElement).files)} />
-					</div>
+					{#if editable}
+						<div class="flex items-center gap-2">
+							<Button variant="tonal" icon="upload" loading={uploading} onclick={() => fileInput?.click()}>Upload</Button>
+							<span class="body-small text-on-surface-variant">or paste a screenshot anywhere in this card</span>
+							<input bind:this={fileInput} type="file" multiple class="hidden" onchange={(e) => upload((e.currentTarget as HTMLInputElement).files)} />
+						</div>
+					{/if}
 					{#if screenshots.length}
 						<div class="grid grid-cols-2 gap-3 md:grid-cols-3">
 							{#each screenshots as a (a.id)}
@@ -773,7 +815,7 @@
 									<figcaption class="flex items-center gap-1 px-2 py-1 body-small text-on-surface-variant">
 										<span class="flex-1 truncate" title={a.filename}>{a.filename}</span>
 										<span>{bytes(a.size)}</span>
-										<IconButton icon="delete" label="Delete" size="sm" onclick={() => removeAttachment(a)} />
+										{#if editable}<IconButton icon="delete" label="Delete" size="sm" onclick={() => removeAttachment(a)} />{/if}
 									</figcaption>
 								</figure>
 							{/each}
@@ -786,13 +828,24 @@
 									<Icon name="draft" class="text-on-surface-variant" />
 									<a class="min-w-0 flex-1 truncate body-medium text-primary underline-offset-2 hover:underline" href={api().attachments.url(a.id)}>{a.filename}</a>
 									<span class="body-small text-on-surface-variant">{bytes(a.size)} · {relativeTime(a.created_at)}</span>
-									<IconButton icon="delete" label="Delete" size="sm" onclick={() => removeAttachment(a)} />
+									{#if editable}<IconButton icon="delete" label="Delete" size="sm" onclick={() => removeAttachment(a)} />{/if}
 								</li>
 							{/each}
 						</ul>
 					{/if}
 					{#if attachments.length === 0}<p class="body-medium text-on-surface-variant">No attachments.</p>{/if}
 				</div>
+			{:else if tab === 'fields' && !editable}
+				{#if Object.keys(task.custom_fields).length}
+					<dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-2 body-medium">
+						{#each Object.entries(task.custom_fields) as [key, value] (key)}
+							<dt class="label-large text-on-surface">{key}</dt>
+							<dd class="break-words text-on-surface">{String(value ?? '')}</dd>
+						{/each}
+					</dl>
+				{:else}
+					<p class="body-medium text-on-surface-variant">No custom fields.</p>
+				{/if}
 			{:else if tab === 'fields'}
 				<div class="flex flex-col gap-3">
 					{#each Object.entries(task.custom_fields) as [key, value] (key)}
@@ -827,13 +880,13 @@
 
 		<!-- side column -->
 		<aside class="flex flex-col gap-4">
-			<Select label="Column" value={task.column_id} options={columns.map((c) => ({ value: c.id, label: c.name }))} onchange={moveTo}>
+			<Select label="Column" value={task.column_id} disabled={!editable} options={columns.map((c) => ({ value: c.id, label: c.name }))} onchange={moveTo}>
 				{#snippet leading(id)}<ColumnGlyph role={columns.find((c) => c.id === id)?.role} />{/snippet}
 			</Select>
-			<Select label="Priority" bind:value={priority} options={priorityOptions} onchange={(v) => save({ priority: Number(v) })}>
+			<Select label="Priority" bind:value={priority} disabled={!editable} options={priorityOptions} onchange={(v) => save({ priority: Number(v) })}>
 				{#snippet leading(level)}<PriorityGlyph {level} />{/snippet}
 			</Select>
-			<TextField label="Tags" bind:value={tagsText} supporting="Comma separated" oninput={() => edited('tags')} onblur={() => { const tags = tagsText.split(',').map((t) => t.trim()).filter(Boolean); if (tags.join() !== task.tags.join()) commit('tags', { tags }); }} />
+			<TextField label="Tags" bind:value={tagsText} readonly={!editable} supporting={editable ? 'Comma separated' : ''} oninput={() => edited('tags')} onblur={() => { const tags = tagsText.split(',').map((t) => t.trim()).filter(Boolean); if (tags.join() !== task.tags.join()) commit('tags', { tags }); }} />
 			<div class="rounded-md bg-surface-container p-4 body-small text-on-surface-variant">
 				<p class="mb-2 title-small text-on-surface">Details</p>
 				<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
