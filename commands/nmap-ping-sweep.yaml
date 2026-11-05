@@ -3,7 +3,7 @@ name: Nmap ping sweep
 schema_version: 1
 description: Discover live hosts in a network range
 tags: [network, discovery, nmap]
-image: docker.io/instrumentisto/nmap
+tool: nmap
 container_flags:
   - --privileged
   - --network=bridge

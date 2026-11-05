@@ -202,6 +202,7 @@ class RenderIn(BaseModel):
 class RenderOut(BaseModel):
     command: str
     image: str | None
+    tool: str | None = None
     container_flags: list[str] = Field(default_factory=list)
 
 
@@ -258,6 +259,7 @@ class JobOut(ORM):
     agent_id: uuid.UUID | None
     command: str
     image: str | None
+    tool: str | None = None
     container_flags: list[str] = Field(default_factory=list)
     status: JobStatus
     exit_code: int | None
@@ -284,6 +286,7 @@ class TaskOut(ORM):
     command_ref: str | None
     command_args: dict[str, Any]
     image: str | None
+    tool: str | None = None
     container_flags: list[str] = Field(default_factory=list)
     agent_selector: dict[str, Any]
     run_on_move: bool

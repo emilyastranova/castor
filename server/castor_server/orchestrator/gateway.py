@@ -63,6 +63,8 @@ class AgentGateway:
         # job's bindings if the server restarted while the job ran.
         self._redactions: dict[uuid.UUID, variables.Resolved] = {}
         self.on_change: list = []  # callbacks invoked when capacity may have changed
+        # Last "prepare ahead" result per (agent, tool): preparing / ready / failed.
+        self.tool_status: dict[tuple[uuid.UUID, str], dict[str, Any]] = {}
 
     # ----- registry -----
 
@@ -304,8 +306,40 @@ class AgentGateway:
             await self._on_job_log(conn, msg)
         elif kind == "job.finished":
             await self._on_job_finished(conn, msg)
+        elif kind == "tool.prepared":
+            await self._on_tool_prepared(conn, msg)
         else:
             log.warning("agent %s sent unknown message type %r", conn.name, kind)
+
+    # ----- tools -----
+
+    async def _set_tools(self, agent: m.Agent, conn: AgentConnection, tags: list[Any]) -> None:
+        """The tool builds an agent has cached (castor-tools/<id>:<hash> tags)."""
+        tags = sorted({str(t) for t in tags})
+        if conn.capabilities.get("tools") == tags:
+            return
+        conn.capabilities = {**conn.capabilities, "tools": tags}
+        agent.capabilities = conn.capabilities  # reassign: JSON columns don't track mutation
+        await self._publish_agent(agent)
+
+    async def prepare_tool(self, conn: AgentConnection, way: dict[str, Any]) -> None:
+        """Ask an agent to pull/build/check a tool now, ahead of any job."""
+        self.tool_status[(conn.agent_id, way["id"])] = {"state": "preparing", "ref": way.get("ref"), "error": None, "at": utcnow()}
+        bus.publish("tool.status", None, {"agent_id": conn.agent_id, "tool_id": way["id"], **self.tool_status[(conn.agent_id, way["id"])]})
+        await conn.send({"type": "tool.prepare", "tool": way})
+
+    async def _on_tool_prepared(self, conn: AgentConnection, msg: dict[str, Any]) -> None:
+        tool_id = str(msg.get("tool_id") or "")
+        ok = bool(msg.get("ok"))
+        status = {"state": "ready" if ok else "failed", "ref": msg.get("ref"), "error": msg.get("error"), "at": utcnow()}
+        self.tool_status[(conn.agent_id, tool_id)] = status
+        if isinstance(msg.get("tools"), list):
+            async with SessionLocal() as db:
+                agent = await db.get(m.Agent, conn.agent_id)
+                if agent is not None:
+                    await self._set_tools(agent, conn, msg["tools"])
+                    await db.commit()
+        bus.publish("tool.status", None, {"agent_id": conn.agent_id, "tool_id": tool_id, **status})
 
     async def _on_heartbeat(self, conn: AgentConnection, msg: dict[str, Any]) -> None:
         async with SessionLocal() as db:
@@ -313,6 +347,8 @@ class AgentGateway:
             if agent is not None:
                 agent.last_seen_at = conn.last_seen
                 agent.status = m.AgentStatus.busy if conn.running else m.AgentStatus.idle
+                if isinstance(msg.get("tools"), list):
+                    await self._set_tools(agent, conn, msg["tools"])
                 await db.commit()
 
     async def _job_id(self, msg: dict[str, Any]) -> uuid.UUID | None:
@@ -483,6 +519,7 @@ class AgentGateway:
         job: m.Job,
         artifacts: dict[str, Any] | None = None,
         resolved: variables.Resolved | None = None,
+        tool: dict[str, Any] | None = None,
     ) -> None:
         resolved = resolved or variables.Resolved()
         self._redactions[job.id] = resolved
@@ -504,6 +541,9 @@ class AgentGateway:
                     "timeout_s": job.timeout_s,
                     # One-off upload token + files to collect from the job's /work afterwards.
                     "artifacts": artifacts or {},
+                    # How to get the tool first: pull an image, build a recipe, or check
+                    # (and maybe install) it on the host. None: nothing to prepare.
+                    "tool": tool,
                 },
             }
         )

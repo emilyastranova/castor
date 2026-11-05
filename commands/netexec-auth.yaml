@@ -2,6 +2,7 @@ id: netexec-auth
 name: NetExec authenticated check (choose protocol)
 schema_version: 1
 description: Authenticate to hosts over any NetExec protocol (password or NT hash) and report which logins worked
+tool: netexec
 tags: [network, netexec, credentials]
 args:
   - name: protocol

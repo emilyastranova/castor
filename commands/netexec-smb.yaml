@@ -2,6 +2,7 @@ id: netexec-smb
 name: NetExec SMB signing check
 schema_version: 1
 description: Enumerate SMB hosts and inspect SMB signing configuration status
+tool: netexec
 tags: [network, smb, netexec]
 args:
   - name: targets

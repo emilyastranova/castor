@@ -19,6 +19,7 @@ from .orchestrator.dispatcher import dispatcher
 from .orchestrator.gateway import gateway
 from .playbook_library import sync_builtin_playbooks
 from .security import hash_password
+from .tool_library import sync_builtin_tools
 from .variables import drop_unclaimed, sync_builtin_kinds
 from .ws.ui import router as ui_ws_router
 
@@ -67,8 +68,10 @@ async def lifespan(app: FastAPI):
     async with SessionLocal() as db:
         await sync_builtin_kinds(db)
         await drop_unclaimed(db)
+        loaded_tools = await sync_builtin_tools(db)  # before commands, which name tools
         loaded = await sync_builtin_definitions(db)
         loaded_playbooks = await sync_builtin_playbooks(db)
+    log.info("tool library: %d built-in tools", loaded_tools)
     log.info("command library: %d built-in definitions", loaded)
     log.info("playbook library: %d built-in playbooks", loaded_playbooks)
     await dispatcher.start()

@@ -252,6 +252,8 @@ class Task(Base, TimestampMixin):
     command_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     command_args: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     image: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    # A tool from the library (tool_definitions) the command runs with, instead of an image.
+    tool: Mapped[str | None] = mapped_column(String(64), nullable=True)
     container_flags: Mapped[list[str]] = mapped_column(JSONType, default=list)
     agent_selector: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     run_on_move: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -438,6 +440,8 @@ class Job(Base):
     )
     command: Mapped[str] = mapped_column(Text)
     image: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    # A tool from the library (tool_definitions) the command runs with, instead of an image.
+    tool: Mapped[str | None] = mapped_column(String(64), nullable=True)
     container_flags: Mapped[list[str]] = mapped_column(JSONType, default=list)
     env: Mapped[dict[str, str]] = mapped_column(JSONType, default=dict)
     # The card's variable bindings when the job was queued. Values are resolved (and
@@ -625,3 +629,18 @@ class AgentToken(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
     agent: Mapped[Agent | None] = relationship()
+
+
+class ToolDefinition(Base, TimestampMixin):
+    """A tool commands can run with (tool_spec.ToolSpec). Built-ins come from tools/*.yaml,
+    user definitions from the UI."""
+
+    __tablename__ = "tool_definitions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    origin: Mapped[str] = mapped_column(String(16), default="user")  # builtin | user
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="")
+    spec: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    source_yaml: Mapped[str] = mapped_column(Text, default="")
+    version: Mapped[int] = mapped_column(Integer, default=1)

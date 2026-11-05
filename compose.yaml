@@ -38,6 +38,7 @@ services:
       CASTOR_DATA_DIR: /data
       CASTOR_COMMANDS_DIR: /commands
       CASTOR_PLAYBOOKS_DIR: /playbooks
+      CASTOR_TOOLS_DIR: /tools
       CASTOR_ALLOW_SHARED_AGENT_SECRET: ${CASTOR_ALLOW_SHARED_AGENT_SECRET:-true}
       CASTOR_VAULT_KEY: ${CASTOR_VAULT_KEY:-}
       CASTOR_NOTIFY_WEBHOOKS: ${CASTOR_NOTIFY_WEBHOOKS:-}
@@ -46,6 +47,7 @@ services:
       - serverdata:/data
       - ./commands:/commands:ro
       - ./playbooks:/playbooks:ro
+      - ./tools:/tools:ro
 
   web:
     build:

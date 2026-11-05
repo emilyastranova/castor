@@ -147,6 +147,8 @@ class CommandSpec(BaseModel):
     description: str = ""
     tags: list[str] = Field(default_factory=list)
     image: str | None = None
+    # A tool from the library (tools/*.yaml) to run with, instead of naming an image.
+    tool: str | None = None
     container_flags: list[str] = Field(default_factory=list)
     args: list[ArgSpec] = Field(default_factory=list)
     vars: list[VarSlot] = Field(default_factory=list)
@@ -180,6 +182,12 @@ class CommandSpec(BaseModel):
         if not ID_PATTERN.match(value):
             raise ValueError("id uses lowercase letters, digits and dashes")
         return value
+
+    @model_validator(mode="after")
+    def image_or_tool(self) -> CommandSpec:
+        if self.image and self.tool:
+            raise ValueError("give image or tool, not both (a tool says which image to use)")
+        return self
 
     @model_validator(mode="after")
     def check_template(self) -> CommandSpec:

@@ -14,7 +14,7 @@
 	const TEMPLATE = `id: my-command
 name: My command
 description: What it does
-image: docker.io/library/alpine:3.20   # optional; omit to run in the agent shell
+tool: nmap                             # a tool from Tools (or: image: <ref>); omit both to run in the agent shell
 container_flags:                       # optional; e.g. ["--privileged", "--network=bridge"]
   - "--privileged"
 args:
@@ -113,7 +113,7 @@ outputs:
 			<Card variant="elevated" interactive class="flex flex-col gap-3 p-5" role="button" tabindex={0} onclick={() => openExisting(c)} onkeydown={(e) => e.key === 'Enter' && openExisting(c)}>
 				<div class="flex items-start gap-3">
 					<span class="flex size-10 items-center justify-center rounded-md bg-primary-container text-on-primary-container">
-						<Icon name={c.spec.image ? 'deployed_code' : 'terminal'} />
+						<Icon name={c.spec.tool ? 'handyman' : c.spec.image ? 'deployed_code' : 'terminal'} />
 					</span>
 					<div class="min-w-0 flex-1">
 						<h2 class="truncate title-medium text-on-surface">{c.name}</h2>
@@ -123,7 +123,7 @@ outputs:
 				</div>
 				{#if c.description}<p class="line-clamp-2 body-medium text-on-surface-variant">{c.description}</p>{/if}
 				<p class="body-small text-on-surface-variant">
-					{c.spec.args.length} argument{c.spec.args.length === 1 ? '' : 's'}{c.spec.vars?.length ? ` · ${c.spec.vars.length} variable slot${c.spec.vars.length === 1 ? '' : 's'}` : ''}{c.spec.outputs.length ? ` · ${c.spec.outputs.length} output${c.spec.outputs.length === 1 ? '' : 's'}` : ''}{c.in_use ? ' · used by cards' : ''}
+					{#if c.spec.tool}<a href="/tools#{c.spec.tool}" class="font-medium text-primary hover:underline" onclick={(e) => e.stopPropagation()}>tool: {c.spec.tool}</a> · {/if}{c.spec.args.length} argument{c.spec.args.length === 1 ? '' : 's'}{c.spec.vars?.length ? ` · ${c.spec.vars.length} variable slot${c.spec.vars.length === 1 ? '' : 's'}` : ''}{c.spec.outputs.length ? ` · ${c.spec.outputs.length} output${c.spec.outputs.length === 1 ? '' : 's'}` : ''}{c.in_use ? ' · used by cards' : ''}
 				</p>
 				{#if c.tags.length}
 					<div class="flex flex-wrap gap-1">{#each c.tags as t (t)}<Chip variant="suggestion">{t}</Chip>{/each}</div>

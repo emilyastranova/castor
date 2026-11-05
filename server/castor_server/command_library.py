@@ -58,6 +58,8 @@ async def sync_builtin_definitions(db: AsyncSession) -> int:
             log.warning("built-in command %s: %s", spec.id, problem)
         for problem in await check_choice_sources(db, spec):
             log.warning("built-in command %s: %s", spec.id, problem)
+        if spec.tool and await db.get(m.ToolDefinition, spec.tool) is None:
+            log.warning("built-in command %s: no tool %s in the library", spec.id, spec.tool)
         if row is None:
             row = m.CommandDefinition(id=spec.id, origin="builtin", version=1)
             db.add(row)
@@ -85,6 +87,7 @@ def apply_to_task(task: m.Task, spec: CommandSpec, args: dict[str, Any]) -> None
     task.command_ref = spec.id
     task.command_args = {k: v for k, v in resolved.items() if v is not None}
     task.image = spec.image
+    task.tool = spec.tool
     task.container_flags = list(spec.container_flags)
     task.kind = m.TaskKind.command
 

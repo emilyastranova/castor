@@ -3,7 +3,7 @@ name: Nmap service scan
 schema_version: 1
 description: Version-detect open TCP ports on the given hosts
 tags: [network, service, nmap]
-image: docker.io/instrumentisto/nmap
+tool: nmap
 container_flags:
   - --privileged
   - --network=bridge

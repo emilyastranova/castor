@@ -70,8 +70,9 @@ Agent → server
 
 | type | fields |
 | --- | --- |
-| `hello` | `token` or `secret`, `name, hostname, os, username, version, capabilities{runtimes[], default_image}, tags[], max_concurrency` |
-| `heartbeat` | `running[]` (job ids) |
+| `hello` | `token` or `secret`, `name, hostname, os, username, version, capabilities{runtimes[], default_image, host_install, tools[]}, tags[], max_concurrency` |
+| `heartbeat` | `running[]` (job ids), `tools[]` (cached tool image tags) |
+| `tool.prepared` | `tool_id, ref, ok, error?, tools[]` (answer to `tool.prepare`) |
 | `job.started` | `job_id, started_at` |
 | `job.log` | `job_id, seq, stream ("stdout"\|"stderr"\|"system"), data` |
 | `job.finished` | `job_id, exit_code, finished_at, error?` |
@@ -83,8 +84,9 @@ Server → agent
 | `hello.ok` | `agent_id, heartbeat_interval` |
 | `hello.error` | `reason` (then close 4401; the agent exits) |
 | `auth.revoked` | `reason` (token rotated or revoked; then close 4401) |
-| `job.run` | `job{id, command, display_command?, image?, runtime ("container"\|"host"), env{}, files[], timeout_s, artifacts{token, collect[]}}` |
+| `job.run` | `job{id, command, display_command?, image?, runtime ("container"\|"host"), env{}, files[], timeout_s, artifacts{token, collect[]}, tool?}` |
 | `job.cancel` | `job_id` |
+| `tool.prepare` | `tool` (same shape as `job.tool`; build or pull it now) |
 
 ### Job directories and artifacts
 
@@ -275,12 +277,30 @@ conditions, failure branches, `expect`, `on_failure` and `join: any`
 (`server/tests/test_playbook_conditions.py` drives it). `server/tests/test_playbook_transforms.py` runs it
 end to end with each command executed under `/bin/sh`.
 
+## Tool library
+
+Tools (`tools/*.yaml` built-ins synced from `CASTOR_TOOLS_DIR`, plus user tools as YAML) live
+in `tool_definitions`; a command names one with `tool: <id>` instead of `image:`, and the
+card and job copy it (`tasks.tool`, `jobs.tool`). A tool provides itself as a published
+`image`, a `build` recipe (`base` + `install` + `check`) or a `host` check/install
+(`tool_spec.py`). At dispatch `ToolSpec.way_for(agent runtimes)` picks the first way the
+agent can use and sends it as `job.tool`: `{id, name, kind: image|build|host, ref?, files?,
+check?, install?, install_hint?}`. A recipe's tag is `castor-tools/<id>:<sha256[:12]>` of the
+recipe, so any change is a new build; `files` is the build context (a Dockerfile with
+`LABEL castor.tool=<id>` that runs the scripts). The agent (`castor_agent/tools.py`) pulls,
+builds (one build per tag at a time) or checks the host before running the job, streaming
+the output as `system` log lines; host installs run only with `--allow-host-install`.
+Agents report cached tags in `hello` and heartbeats; the dispatcher prefers an agent with
+the tool ready. `POST /api/tools/{id}/prepare` sends `tool.prepare` ahead of time; state is
+published as `tool.status`, library edits as `tools.changed`.
+
 ## Dispatcher
 
 The dispatcher lives in the server process. `pump()` runs whenever a job is enqueued, an
 agent connects, a job finishes, or on a 5 s timer. For each queued job (FIFO) it picks the
 first online agent that: matches the task's selector, has spare concurrency, and supports
-the required runtime (a job with an `image` needs a container runtime). It sends `job.run`
+the required runtime (a job with an `image` needs a container runtime; a job with a `tool`
+needs an agent that has a way to provide it). It sends `job.run`
 and marks the job `dispatched`. Jobs with no eligible agent stay `queued`.
 
 ## Dashboard
@@ -290,7 +310,10 @@ same component (`web/src/lib/components/dashboard/`), across every visible proje
 `GET /api/dashboard/summary` gives the headline numbers (last 24 h), **needs attention**
 (playbook steps waiting for a decision; cards whose latest run failed in the last week and
 aren't done) and **live now** (queued/running jobs, running playbook runs with progress,
-agents and slots). `GET /api/dashboard/feed` is the timeline: activity events with what
+agents and slots), the user's own open cards (`mine`: assigned to them, opened by them) and a few
+`facts` about the work in scope. The greeting's headline rotates every 8 s between what's
+moving, what's yours and a random fact (those, or general trivia from
+`dashboard/trivia.ts`). `GET /api/dashboard/feed` is the timeline: activity events with what
 they're about attached (the comment's text, the job's outcome, duration and agent, the
 card, the author's picture), filtered by kind (`comment, job, card, move, file, playbook,
 agent, admin`; admin events only for admins; job queue/dispatch steps never), paged with
@@ -303,7 +326,7 @@ Authenticated by the session cookie. The server broadcasts every domain event as
 `{"type":"event","name":"task.moved","project_id":"…","data":{…}}`. Event names:
 `project.updated`, `column.*`, `task.created|updated|moved|deleted`, `job.updated`,
 `job.log`, `job.outputs`, `comment.created`, `attachment.created`, `agent.updated`,
-`playbook_run.updated`, `agent_tokens.changed`, `notification.created|read`,
+`playbook_run.updated`, `agent_tokens.changed`, `tool.status`, `tools.changed`, `notification.created|read`,
 `project.members`, `user.changed` (every browser receives them; the
 client keeps its own user's).
 The client keeps page state in sync by applying these to its stores.

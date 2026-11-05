@@ -1,6 +1,6 @@
 # Phase 3 plan
 
-Status: planned (2026-11-04). Nothing here is built yet. Roadmap item **M3** in
+Status: in progress (2026-11-04); 3a is built. Roadmap item **M3** in
 [ARCHITECTURE.md](ARCHITECTURE.md); Phase 2 is done and recorded in [PHASE2.md](PHASE2.md).
 
 Phase 3 makes Castor easier to run day to day: tools prepared on demand instead of baked
@@ -9,19 +9,22 @@ playbook step goes wrong.
 
 | Slice | What you get | Depends on | Status |
 | --- | --- | --- | --- |
-| 3a. Tool environments | Commands name a tool; agents pull or build it on demand and cache it; the agent image stays bare | nothing | Designed |
+| 3a. Tool environments | Commands name a tool; agents pull or build it on demand and cache it; the agent image stays bare | nothing | Built |
 | 3b. "Mine" and @mentions | Mention people in comments (and get notified); a dashboard filter for your cards and mentions | nothing | Idea |
 | 3c. Per-person view | Click a name to see everything that person did and has on their plate | 3b helps | Idea |
 | 3d. Pinned project notes | A short status/objectives note at the top of a project's dashboard | nothing | Idea |
 | 3e. AI resolver for paused steps | Gemini reads an unexpected result and retries (maybe with a fixed command), continues or skips | nothing | Idea |
+| 3f. Discovered artifacts | Typed objects Castor finds (IPs, hosts, services, credentials…) merged across tools, with triggers that act on new ones | parsers (2b) | Idea |
 
 Suggested order: 3a (it unblocks the NetExec commands on the compose agent), 3d (small),
-3b, 3c, then 3e.
+3b, 3c, then 3e. 3f is the largest; it can start any time after 3a (it builds on parsers).
 
 ## 3a. Tool environments
 
-The agent stays bare (its image has only the docker CLI); the tools commands need are
-described in a library and prepared on demand. Decided: all three ways of providing a tool
+**Built.** The agent stays bare (its image has only the docker CLI); the tools commands
+need are described in a library and prepared on demand. Code: `tool_spec.py`,
+`tool_library.py`, `api/tools.py`, `dispatcher.tool_way`, agent `tools.py`; built-ins in
+`tools/`. Decided: all three ways of providing a tool
 (published images, build recipes, opt-in host installs), and a local cache per agent (no
 registry yet).
 
@@ -37,15 +40,16 @@ name: NetExec
 description: Network service exploitation (nxc)
 
 # A) A published image, used as-is (pulled, then Docker's cache).
-image: docker.io/parrotsec/netexec:7.1
+# image: docker.io/someone/netexec:1.5
 
 # B) A recipe: built once per agent and cached by a hash of the recipe.
 build:
-  base: docker.io/library/python:3.12-slim
+  base: docker.io/library/python:3.13-slim-bookworm
   install: |
-    apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
-    pip install --no-cache-dir git+https://github.com/Pennyw0rth/NetExec@v1.4.0
-  check: nxc --version
+    apt-get update
+    apt-get install -y --no-install-recommends git g++ libffi-dev libxml2-dev libxslt-dev libssl-dev
+    pip install --no-cache-dir "git+https://github.com/Pennyw0rth/NetExec@<commit>"
+  check: nxc --version | grep -q "<commit[:8]>"   # must exit 0; nxc --version exits 1
 
 # C) On the agent's host, for agents without Docker (opt-in per agent).
 host:
@@ -71,9 +75,9 @@ host:
 
 ### Server and agents
 
-- `job.run` carries the resolved tool: `{kind: image|build|host, ref, dockerfile?, check?,
-  install?}`; the agent reports `job.log` lines for the preparation phase on a `system`
-  stream.
+- `job.run` carries the resolved tool: `{id, name, kind: image|build|host, ref?, files?,
+  check?, install?, install_hint?}` (`files` is the build context: `Dockerfile` plus the
+  install/check scripts); the agent reports the preparation phase as `system` log lines.
 - Agents report the tool tags they have cached (hello + heartbeat); the dispatcher prefers
   an agent with the tool ready over one that would build it, and won't send a host-only
   tool to an agent that can't run it.
@@ -87,9 +91,10 @@ chosen agent has it ready.
 
 ### Migration
 
-Until this is built, the NetExec commands stay host commands (decided): they work on agents
-with `nxc` on the host and fail on the compose agent. Then `netexec-*` move to
-`tool: netexec`, and the nmap/ffuf commands to tools wrapping their current images.
+Done: `netexec-*` use `tool: netexec` (a recipe pinned to a NetExec commit, because the
+v1.5.1 release no longer installs), and the nmap/ffuf commands use tools wrapping their
+previous images. Existing cards keep their stored `image` until their command is
+re-applied.
 
 ### References
 
@@ -110,6 +115,9 @@ Turns the dashboard into a personal inbox.
   cards assigned to you (`tasks.assignees`, which today holds free text and would hold
   usernames), comments that mention you, replies on cards you commented on, and steps you
   were asked to decide. Needs attention gets a "for you" section the same way.
+- **Headline.** The dashboard's rotating "what's yours" line already counts cards assigned
+  to you (matched by username) and cards you opened; it gains mentions, and assigned cards
+  start showing once there's an assignee picker (nothing in the UI sets them yet).
 - **Open questions:** should assignees become real user references (a picker, with a
   migration for existing free-text values)? Mention notifications by webhook too, or in-app
   only?
@@ -148,3 +156,47 @@ person.
   sent is the masked log).
 - **Open questions:** which decisions may it take alone (only retry and skip, or continue
   too)? A limit on retries per step?
+
+## 3f. Discovered artifacts
+
+Castor keeps what it finds as objects it understands, not just files and tables. When a
+run turns up an IP address it stores an **IP address**; when a scan shows a host without
+SMB signing it stores (or updates) that **host** with `smb_signing: false`. Several tools
+reporting on the same thing add to one record, so a host collects its ports from nmap, its
+signing and OS from NetExec, its web paths from ffuf, and so on: one melting pot per thing.
+
+**Naming.** "Artifacts" already means the files a job uploads (`attachments.kind =
+artifact`). Either rename those to "files"/"outputs" in the UI or call these something
+else (findings, entities, loot); decide before building.
+
+- **Types.** A small built-in set with an identity key each, so duplicates merge:
+  `ip` (address), `host` (IP, or hostname), `service` (host + port/proto), `url`,
+  `domain`, `user`, `credential` (user + secret in the vault, never in plain fields),
+  `share`. Each type has typed fields (`host.os`, `host.smb_signing`, `service.product`,
+  `service.version`…) plus free extra fields. Links between them (a service *on* a host, a
+  credential *valid on* a host) are first-class, so a host page shows everything known.
+- **Where they come from.** Parsers already turn output into JSON (2b); a parser (or an
+  output spec on a command) also declares **mappings** from its rows to artifacts, e.g.
+  `nmap-xml` → `host` + `service` per open port, NetExec SMB → `host` with `smb_signing`,
+  `os`, `domain`. Artifacts can also be added by hand or imported from a list.
+- **Provenance and conflicts.** Every field value remembers which job set it and when
+  (`observations`), so you can see who said what. The newest observation wins by default;
+  conflicting values are kept and shown. Each artifact is scoped to a project.
+- **Using them.** An artifact list per project (filter by type and field, e.g. "hosts
+  where smb_signing = false"), an artifact page with its fields, links, history and the
+  jobs that touched it, and artifact queries as inputs: a command argument or playbook
+  input can take "all hosts where …" (like the target lists from variable sets today).
+- **Triggers.** Rules that run a command or playbook when artifacts appear or change:
+  "every new `ip` → ping it", "a `host` gets `smb_signing: false` → queue the relay
+  check", "a `service` with `http` → run ffuf". A trigger has a type, an optional
+  condition (the same condition trees playbooks use for `when`), a target (command +
+  argument mapping, or a playbook), and guards: once per artifact, a rate limit, and
+  per-project on/off, so a scan can't snowball into thousands of jobs. Triggered runs are
+  cards like any other, labelled with the trigger that made them.
+- **Events.** `artifact.created|updated` on the bus, so the dashboard timeline can show
+  "found 12 new hosts" and the board stays live. The dashboard's rotating headline gets a
+  discoveries line ("Found 12 hosts and 3 services today").
+- **Open questions:** the name; whether artifacts are per project only or can be shared
+  across projects (same client network); how much of the type system is user-defined
+  (like variable kinds) versus built in; and whether triggers ask before running against
+  new targets (scope safety) or only inside a project's declared scope.

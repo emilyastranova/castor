@@ -60,5 +60,11 @@ def test_summary(client, auth):
     assert s["counts"]["open_cards"] == 1 and s["counts"]["comments_24h"] == 1 and s["counts"]["cards_24h"] == 1
     assert [j["task"]["name"] for j in s["live_jobs"]] == ["Scan"]
     assert set(s["agents"]) == {"online", "slots", "busy"}
+    assert s["mine"] == {"assigned": 0, "opened": 1}
+    client.patch(f"/api/tasks/{task['id']}", json={"assignees": ["admin"]}, headers=auth)
+    s = client.get(f"/api/dashboard/summary?project_id={project['id']}", headers=auth).json()
+    assert s["mine"]["assigned"] == 1
+    assert any("comment" in f for f in s["facts"])  # facts only for what has data: 1 comment, no finished job
+    assert not any("jobs have run" in f for f in s["facts"])
     assert client.get("/api/dashboard/summary", headers=auth).status_code == 200  # every project
     client.post(f"/api/jobs/{job['id']}/cancel", headers=auth)  # don't leave it for other tests' agents

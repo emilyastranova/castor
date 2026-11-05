@@ -9,6 +9,7 @@
 	import { api } from '$lib/api';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import ConfirmHost from '$lib/components/ConfirmHost.svelte';
+	import ImageViewer from '$lib/components/ImageViewer.svelte';
 	import NotificationBell from '$lib/components/NotificationBell.svelte';
 	import AccountDialog from '$lib/components/AccountDialog.svelte';
 	import { notifications } from '$lib/notifications.svelte';
@@ -21,6 +22,7 @@
 		{ href: '/projects', icon: 'view_kanban', label: 'Projects' },
 		{ href: '/playbooks', icon: 'account_tree', label: 'Playbooks' },
 		{ href: '/commands', icon: 'menu_book', label: 'Commands' },
+		{ href: '/tools', icon: 'handyman', label: 'Tools' },
 		{ href: '/variables', icon: 'key', label: 'Variables' },
 		{ href: '/parsers', icon: 'data_object', label: 'Parsers' },
 		{ href: '/agents', icon: 'dns', label: 'Agents' },
@@ -41,6 +43,18 @@
 		} else {
 			realtime.stop();
 			notifications.stop();
+		}
+	});
+
+	// Back after a dropped connection (e.g. the server restarted): reload what the page
+	// shows, since the events sent while it was away were missed.
+	let seenReconnects = 0;
+	$effect(() => {
+		const n = realtime.reconnects;
+		if (n > seenReconnects) {
+			seenReconnects = n;
+			void invalidateAll();
+			void notifications.load();
 		}
 	});
 
@@ -107,3 +121,4 @@
 {#if data.user}<AccountDialog bind:open={accountOpen} user={data.user} />{/if}
 <Snackbar />
 <ConfirmHost />
+<ImageViewer />

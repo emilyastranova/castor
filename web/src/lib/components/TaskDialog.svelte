@@ -5,6 +5,7 @@
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { confirmAction } from '$lib/confirm.svelte';
 	import { renderMarkdown } from '$lib/markdown';
+	import { lightbox, openImagesIn } from '$lib/lightbox.svelte';
 	import { relativeTime, absoluteTime, bytes, duration } from '$lib/format';
 	import { Button, Chip, Dialog, Icon, IconButton, Menu, MenuItem, Select, Switch, Tabs, TextField, Avatar } from '$lib/m3';
 	import StatusChip from './StatusChip.svelte';
@@ -438,12 +439,6 @@
 		if (item) refocus(item.textarea);
 	}
 
-	/** Comment images are scaled to fit; clicking one opens it full size. */
-	function openCommentImage(e: MouseEvent) {
-		const img = (e.target as HTMLElement).closest('img');
-		if (img?.src) window.open(img.src, '_blank', 'noopener');
-	}
-
 	async function upload(files: FileList | File[] | null) {
 		if (!files || files.length === 0) return;
 		uploading = true;
@@ -607,7 +602,7 @@
 						<pre class="overflow-auto rounded-sm bg-surface-container-highest p-3 font-mono text-[12.5px] whitespace-pre-wrap break-words text-on-surface">{task.command || '—'}</pre>
 					</div>
 					<dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 body-small text-on-surface-variant">
-						<dt>Runs in</dt><dd class="truncate font-mono text-on-surface">{task.image || 'the agent’s shell'}{task.container_flags?.length ? ` ${task.container_flags.join(' ')}` : ''}</dd>
+						<dt>Runs in</dt><dd class="truncate font-mono text-on-surface">{task.tool ? `the ${task.tool} tool` : task.image || 'the agent’s shell'}{task.container_flags?.length ? ` ${task.container_flags.join(' ')}` : ''}</dd>
 						<dt>Agent</dt><dd class="text-on-surface">{agentId ? agentName(agentId) : 'any available agent'}</dd>
 						<dt>Timeout</dt><dd class="text-on-surface">{task.timeout_s ? `${task.timeout_s}s` : 'none'}</dd>
 						<dt>On move</dt><dd class="text-on-surface">{task.run_on_move ? 'runs when moved to In Progress' : 'doesn’t run on move'}</dd>
@@ -643,7 +638,17 @@
 
 					<TextField label="Command" bind:value={command} multiline rows={2} mono oninput={() => edited('command')} onblur={() => command !== task.command && commit('command', { command })} />
 					<div class="grid gap-3 sm:grid-cols-2">
-						<TextField label="Container image" bind:value={image} mono placeholder="run in agent shell" oninput={() => edited('image')} onblur={() => (image.trim() || null) !== task.image && commit('image', { image: image.trim() || null })} />
+						{#if task.tool}
+							<a href="/tools#{task.tool}" class="flex h-14 items-center gap-2 rounded-xs border border-outline-variant px-4 hover:border-outline" title="The command's tool decides where it runs; see Tools">
+								<Icon name="handyman" size={20} class="text-primary" />
+								<span class="min-w-0">
+									<span class="block label-small text-on-surface-variant">Tool</span>
+									<span class="block truncate font-mono body-medium text-on-surface">{task.tool}</span>
+								</span>
+							</a>
+						{:else}
+							<TextField label="Container image" bind:value={image} mono placeholder="run in agent shell" oninput={() => edited('image')} onblur={() => (image.trim() || null) !== task.image && commit('image', { image: image.trim() || null })} />
+						{/if}
 						<Select label="Agent" bind:value={agentId} options={agentOptions} onchange={(v) => save({ agent_selector: v ? { agent_id: v } : {} })} />
 					</div>
 					{#if image.trim()}
@@ -679,7 +684,8 @@
 				{#if editingDescription}
 					<TextField label="Description (markdown)" bind:value={description} multiline rows={6} autofocus oninput={() => edited('description')} />
 				{:else if task.description.trim()}
-					<div class="prose-m3 body-medium text-on-surface">{@html renderMarkdown(task.description)}</div>
+					<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+					<div class="prose-m3 body-medium text-on-surface" onclick={openImagesIn}>{@html renderMarkdown(task.description)}</div>
 				{:else}
 					<p class="body-medium text-on-surface-variant italic">No description.</p>
 				{/if}
@@ -781,7 +787,7 @@
 									</div>
 								{:else}
 									<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-									<div class="prose-m3 mt-1 body-medium text-on-surface" onclick={openCommentImage}>{@html renderMarkdown(c.body)}</div>
+									<div class="prose-m3 mt-1 body-medium text-on-surface" onclick={openImagesIn}>{@html renderMarkdown(c.body)}</div>
 								{/if}
 							</div>
 						</div>
@@ -807,11 +813,11 @@
 					{/if}
 					{#if screenshots.length}
 						<div class="grid grid-cols-2 gap-3 md:grid-cols-3">
-							{#each screenshots as a (a.id)}
+							{#each screenshots as a, i (a.id)}
 								<figure class="group relative overflow-hidden rounded-md bg-surface-container">
-									<a href={api().attachments.url(a.id, true)} target="_blank" rel="noopener">
+									<button type="button" class="block w-full cursor-zoom-in" aria-label="View {a.filename}" onclick={() => lightbox.open(screenshots.map((s) => ({ src: api().attachments.url(s.id, true), name: s.filename })), i)}>
 										<img src={api().attachments.url(a.id, true)} alt={a.filename} class="aspect-video w-full object-cover" loading="lazy" />
-									</a>
+									</button>
 									<figcaption class="flex items-center gap-1 px-2 py-1 body-small text-on-surface-variant">
 										<span class="flex-1 truncate" title={a.filename}>{a.filename}</span>
 										<span>{bytes(a.size)}</span>

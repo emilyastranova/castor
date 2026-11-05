@@ -27,6 +27,8 @@ class AgentConfig:
     log_level: str = "INFO"
     # Its own token from the server (Agents → Enroll agent); preferred over the secret.
     token: str = ""
+    # Let tools with a host install run it on this machine (otherwise they must be there).
+    allow_host_install: bool = False
 
     @classmethod
     def from_args(cls, argv: list[str] | None = None) -> AgentConfig:
@@ -47,6 +49,9 @@ class AgentConfig:
                        default=env("CASTOR_AGENT_ALLOW_HOST", "true").lower() in ("1", "true", "yes"),
                        help="Allow jobs without an image to run in the host shell")
         p.add_argument("--no-allow-host", dest="allow_host", action="store_false")
+        p.add_argument("--allow-host-install", action="store_true",
+                       default=env("CASTOR_AGENT_ALLOW_HOST_INSTALL", "false").lower() in ("1", "true", "yes"),
+                       help="Let tools install themselves on this host when missing (CASTOR_AGENT_ALLOW_HOST_INSTALL)")
         p.add_argument("--default-image", default=env("CASTOR_AGENT_DEFAULT_IMAGE", "docker.io/library/alpine:latest"),
                        help="Image used when a job asks for a container but names none")
         p.add_argument("--tags", default=env("CASTOR_AGENT_TAGS", ""),
@@ -67,6 +72,7 @@ class AgentConfig:
             server_url=a.server,
             secret=a.secret,
             token=a.token,
+            allow_host_install=a.allow_host_install,
             name=a.name,
             runtime=a.runtime,
             allow_host=a.allow_host,

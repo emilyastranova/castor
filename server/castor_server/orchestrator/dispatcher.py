@@ -18,15 +18,31 @@ from ..config import settings
 from ..db import SessionLocal
 from ..outputs import output_specs_for
 from ..services import publish_job, publish_task, record_activity, utcnow
+from ..tool_library import tools_by_id
+from ..tool_spec import ToolSpec
 from .gateway import AgentConnection, gateway
 
 log = logging.getLogger(__name__)
 
 
-def agent_matches(conn: AgentConnection, job: m.Job, selector: dict[str, Any]) -> bool:
+def tool_way(conn: AgentConnection, tool: ToolSpec) -> dict[str, Any] | None:
+    """How this agent would run the tool (image, build or host), or None if it can't."""
+    return tool.way_for(conn.runtimes, bool(conn.capabilities.get("host_install")))
+
+
+def tool_ready(conn: AgentConnection, tool: ToolSpec | None) -> bool:
+    """Whether the agent has the tool already (a recipe it has built); used to prefer it."""
+    way = tool_way(conn, tool) if tool else None
+    return way is None or way["kind"] != "build" or way["ref"] in (conn.capabilities.get("tools") or [])
+
+
+def agent_matches(conn: AgentConnection, job: m.Job, selector: dict[str, Any], tool: ToolSpec | None = None) -> bool:
     if conn.free_slots <= 0:
         return False
-    if job.image:
+    if tool is not None:
+        if tool_way(conn, tool) is None:
+            return False
+    elif job.image:
         if not (conn.runtimes & {"podman", "docker"}):
             return False
     elif "host" not in conn.runtimes and not (conn.runtimes & {"podman", "docker"}):
@@ -83,16 +99,25 @@ class Dispatcher:
             ).scalars().all()
             if not queued:
                 return
+            tools = await tools_by_id(db) if any(j.tool for j in queued) else {}
             for job in queued:
                 task = job.task
                 selector = task.agent_selector or {}
+                tool = tools.get(job.tool) if job.tool else None
+                if job.tool and tool is None:
+                    await self._fail_unsent(db, job, task, f"the tool {job.tool} isn't in the library")
+                    continue
                 candidates = [
-                    c for c in gateway.connections.values() if agent_matches(c, job, selector)
+                    c for c in gateway.connections.values() if agent_matches(c, job, selector, tool)
                 ]
                 if not candidates:
                     continue
-                # Prefer the least-loaded agent.
-                conn = min(candidates, key=lambda c: len(c.running))
+                # Prefer an agent that has the tool ready, then the least-loaded one.
+                conn = min(candidates, key=lambda c: (not tool_ready(c, tool), len(c.running)))
+                way = tool_way(conn, tool) if tool else None
+                if way is not None:
+                    # The image the tool resolves to on this agent, kept on the job.
+                    job.image = way.get("ref") if way["kind"] in ("image", "build") else None
                 job.agent_id = conn.agent_id
                 job.status = m.JobStatus.dispatched
                 job.dispatched_at = utcnow()
@@ -117,7 +142,7 @@ class Dispatcher:
                 )
                 await db.commit()
                 try:
-                    await gateway.send_job(conn, job, artifacts, resolved)
+                    await gateway.send_job(conn, job, artifacts, resolved, way)
                 except Exception as exc:  # noqa: BLE001 - any send failure re-queues the job
                     log.warning("failed to send job %s to %s: %s", job.id, conn.name, exc)
                     conn.running.discard(job.id)

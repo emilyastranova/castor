@@ -1,0 +1,6 @@
+id: ffuf
+name: ffuf
+description: Fast web fuzzer (secsi/ffuf)
+tags: [web, fuzzing]
+homepage: https://github.com/ffuf/ffuf
+image: docker.io/secsi/ffuf

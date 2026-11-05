@@ -12,6 +12,10 @@ type Listener = (event: ServerEvent) => void;
 
 class Realtime {
 	connected = $state(false);
+	/** Times the socket came back after dropping. Events sent meanwhile were missed, so
+	 *  the layout reloads the page's data whenever this goes up. */
+	reconnects = $state(0);
+	private everConnected = false;
 	private socket: WebSocket | null = null;
 	private listeners = new Set<Listener>();
 	private retry = 1000;
@@ -26,6 +30,7 @@ class Realtime {
 
 	stop(): void {
 		this.stopped = true;
+		this.everConnected = false;
 		if (this.timer) clearTimeout(this.timer);
 		this.socket?.close();
 		this.socket = null;
@@ -44,6 +49,8 @@ class Realtime {
 		socket.onopen = () => {
 			this.connected = true;
 			this.retry = 1000;
+			if (this.everConnected) this.reconnects++;
+			this.everConnected = true;
 		};
 		socket.onmessage = (msg) => {
 			let event: ServerEvent;

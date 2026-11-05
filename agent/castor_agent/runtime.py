@@ -203,6 +203,10 @@ class JobRunner:
         await sink("system", f"[castor] exit code {exit_code}\n")
         return RunResult(exit_code=exit_code)
 
+    @property
+    def cancelled(self) -> bool:
+        return self._cancelled
+
     async def cancel(self) -> None:
         self._cancelled = True
         if self.container_runtime and self._wants_container():

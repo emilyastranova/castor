@@ -2,6 +2,7 @@
 	import type { FeedItem } from '$lib/api';
 	import { Avatar, Icon } from '$lib/m3';
 	import { renderMarkdown } from '$lib/markdown';
+	import { openImagesIn } from '$lib/lightbox.svelte';
 	import { absoluteTime } from '$lib/format';
 
 	/** One timeline entry; how it looks depends on its kind. */
@@ -74,7 +75,8 @@
 		</div>
 
 		{#if item.kind === 'comment' && item.comment}
-			<div class="prose-m3 mt-1.5 line-clamp-6 rounded-md bg-surface-container px-3.5 py-2.5 body-medium text-on-surface">
+			<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+			<div class="prose-m3 mt-1.5 line-clamp-6 rounded-md bg-surface-container px-3.5 py-2.5 body-medium text-on-surface" onclick={openImagesIn}>
 				{@html renderMarkdown(item.comment.body)}
 			</div>
 		{:else if item.kind === 'job' && item.job}

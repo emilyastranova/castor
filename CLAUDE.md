@@ -127,6 +127,12 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   a newer job supersedes it. `on_failure: ask` pauses a step (`attention`) and calls
   `notifications.notify`; `services.resolve_step` applies retry/continue/skip/fail and takes
   an `actor` for non-human resolvers. `branching-demo` exercises all of it.
+- Tools (Phase 3a): `tool_spec.py` (YAML → `ToolSpec`: `image`, `build` recipe, `host`;
+  `way_for` picks one per agent; recipe tags hash the recipe), `tool_library.py` (built-ins
+  from `CASTOR_TOOLS_DIR` = `tools/`), `api/tools.py`. Commands say `tool: <id>`; the
+  dispatcher resolves it into `job.tool` and the agent's `tools.py` pulls/builds/checks it.
+  A recipe's `check` must exit 0 (it is the last build step). Never add tools to the agent
+  image.
 - Notifications: `notifications.py` (one row per user, `subject` to clear related ones,
   webhooks via `CASTOR_NOTIFY_WEBHOOKS` posted from a thread so a dead webhook never blocks
   a run). Web: `lib/notifications.svelte.ts` + `NotificationBell.svelte` in the rail.

@@ -1,0 +1,24 @@
+# Built from a recipe the first time an agent needs it, then cached on that agent as
+# castor-tools/netexec:<hash>. Change the version (or anything here) and agents rebuild.
+id: netexec
+name: NetExec
+description: Network service exploitation tool (nxc), pinned to a commit on main
+tags: [network, smb, ldap, credentials]
+homepage: https://github.com/Pennyw0rth/NetExec
+build:
+  # Matches NetExec's own Dockerfile: Python 3.13, built from main. The v1.5.1 release
+  # no longer installs (its certipy fork renamed its package), so this pins a commit.
+  base: docker.io/library/python:3.13-slim-bookworm
+  install: |
+    apt-get update
+    apt-get install -y --no-install-recommends git g++ libffi-dev libxml2-dev libxslt-dev libssl-dev
+    pip install --no-cache-dir "git+https://github.com/Pennyw0rth/NetExec@f08f65a4596fdf4a4e98c958e292accf31801422"
+    apt-get purge -y g++ && apt-get autoremove -y
+    rm -rf /var/lib/apt/lists/* /root/.cache
+  # nxc --version prints the version but exits 1, so check what it prints. Running it here
+  # also does NetExec's first-run setup inside the image, so jobs don't repeat it.
+  check: nxc --version | grep -q "f08f65a4"
+# Agents without Docker can use an nxc on their host instead.
+host:
+  check: command -v nxc
+  install: pipx install "git+https://github.com/Pennyw0rth/NetExec@f08f65a4596fdf4a4e98c958e292accf31801422"

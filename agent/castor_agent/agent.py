@@ -16,7 +16,8 @@ from websockets.asyncio.client import ClientConnection
 
 from . import artifacts
 from .config import AgentConfig, host_info
-from .runtime import JobRunner, detect_container_runtime
+from .runtime import JobRunner, RunResult, detect_container_runtime
+from .tools import ToolPreparer
 
 log = logging.getLogger("castor.agent")
 
@@ -43,6 +44,8 @@ class Agent:
         self.ws: ClientConnection | None = None
         self.send_lock = asyncio.Lock()
         self.heartbeat_interval = 15
+        self._background: set[asyncio.Task] = set()
+        self.tools = ToolPreparer(self.container_runtime, config.allow_host_install, config.workdir)
 
     # ----- capabilities -----
 
@@ -52,7 +55,12 @@ class Agent:
             runtimes.append(self.container_runtime)
         if self.config.allow_host:
             runtimes.append("host")
-        return {"runtimes": runtimes, "default_image": self.config.default_image}
+        return {
+            "runtimes": runtimes,
+            "default_image": self.config.default_image,
+            "host_install": self.config.allow_host_install and self.config.allow_host,
+            "tools": self.tools.cached,
+        }
 
     # ----- wire helpers -----
 
@@ -94,6 +102,7 @@ class Agent:
             self.config.server_url, ping_interval=20, ping_timeout=20, max_size=8 * 1024 * 1024
         ) as ws:
             self.ws = ws
+            await self.tools.refresh_cached()
             info = host_info()
             await self.send(
                 {
@@ -127,10 +136,23 @@ class Agent:
                 # Running jobs keep going; their logs are dropped until a future
                 # milestone adds buffering. The server marks them lost.
 
+    async def _prepare_tool(self, tool: dict[str, Any]) -> None:
+        """Get a tool ready ahead of any job (Tools → Prepare on agents)."""
+        name = tool.get("name") or tool.get("id")
+
+        async def sink(_stream: str, data: str) -> None:
+            log.info("prepare %s: %s", name, data.rstrip())
+
+        error = await self.tools.prepare(tool, sink, tempfile.gettempdir())
+        await self.send({
+            "type": "tool.prepared", "tool_id": tool.get("id"), "ref": tool.get("ref"),
+            "ok": error is None, "error": error, "tools": await self.tools.refresh_cached(),
+        })
+
     async def _heartbeat(self) -> None:
         while True:
             await asyncio.sleep(self.heartbeat_interval)
-            await self.send({"type": "heartbeat", "running": list(self.runners)})
+            await self.send({"type": "heartbeat", "running": list(self.runners), "tools": self.tools.cached})
 
     # ----- messages -----
 
@@ -142,6 +164,10 @@ class Agent:
             if job_id in self.runners:
                 return
             self.tasks[job_id] = asyncio.create_task(self._run_job(job))
+        elif kind == "tool.prepare":
+            task = asyncio.create_task(self._prepare_tool(msg.get("tool") or {}))
+            self._background.add(task)  # keep a reference until it's done
+            task.add_done_callback(self._background.discard)
         elif kind == "auth.revoked":
             log.error("the server revoked this agent's credentials: %s", msg.get("reason", ""))
         elif kind == "job.cancel":
@@ -202,7 +228,15 @@ class Agent:
         log.info("job %s started", job_id)
         await self.send({"type": "job.started", "job_id": job_id, "started_at": now_iso()})
         try:
-            result = await runner.run(sink)
+            tool = job.get("tool")
+            error = await self.tools.prepare(tool, sink, str(job_dir)) if tool else None
+            if error:
+                await sink("system", f"[castor] {error}\n")
+                result = RunResult(exit_code=None, error=error)
+            elif runner.cancelled:
+                result = RunResult(exit_code=None, error="cancelled")
+            else:
+                result = await runner.run(sink)
         except Exception as exc:
             log.exception("job %s crashed", job_id)
             result_payload = {"exit_code": None, "error": f"agent error: {exc}"}

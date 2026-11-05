@@ -6,7 +6,9 @@
 	import { notifications } from '$lib/notifications.svelte';
 	import { relativeTime, absoluteTime } from '$lib/format';
 	import { me, isAdmin } from '$lib/session';
+	import { fade } from 'svelte/transition';
 	import TimelineItem from './TimelineItem.svelte';
+	import { TRIVIA } from './trivia';
 
 	/** The cockpit: a greeting with the headline numbers, what needs attention, what's
 	 *  running now, and a timeline of everything that happened. Across every project the
@@ -123,14 +125,63 @@
 		return h < 5 ? 'Working late' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
 	});
 	let today = $derived(new Date(now).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }));
-	let headline = $derived.by(() => {
+	// ---- headline: rotates between what's moving, what's yours and a random fact ----
+	// (Discoveries join it with Phase 3f, mentions with 3b.)
+	const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+	let moving = $derived.by(() => {
 		if (!summary) return '';
-		const parts: string[] = [];
-		const decisions = summary.attention.filter((a) => a.kind === 'decision').length;
-		if (decisions) parts.push(`${decisions} step${decisions === 1 ? '' : 's'} waiting for you`);
-		if (summary.live_jobs.length) parts.push(`${summary.live_jobs.length} job${summary.live_jobs.length === 1 ? '' : 's'} running or queued`);
-		if (summary.counts.jobs_failed_24h) parts.push(`${summary.counts.jobs_failed_24h} failed today`);
-		return parts.length ? parts.join(' · ') : 'All quiet: nothing needs you right now.';
+		const queued = summary.live_jobs.filter((j) => j.status === 'queued');
+		const running = summary.live_jobs.length - queued.length;
+		if (!summary.live_jobs.length) {
+			const idle = summary.agents.online;
+			return idle ? `Nothing running · ${plural(idle, 'agent')} online and ready` : 'Nothing running · no agents online';
+		}
+		const parts = [];
+		if (running) parts.push(`${plural(running, 'job')} running`);
+		if (queued.length) parts.push(`${queued.length} queued`, `next up: ${queued[0].task.name}`);
+		return parts.join(' · ');
+	});
+	let yours = $derived.by(() => {
+		if (!summary) return '';
+		const parts = [];
+		if (summary.mine.assigned) parts.push(`${plural(summary.mine.assigned, 'card')} assigned to you`);
+		if (summary.mine.opened) parts.push(`${plural(summary.mine.opened, 'open card')} you created`);
+		if (notifications.unread) parts.push(plural(notifications.unread, 'unread notification'));
+		return parts.length ? parts.join(' · ') : 'Nothing on your plate right now';
+	});
+	let fact = $state('');
+	function pickFact() {
+		// Facts about this workspace come up as often as general trivia.
+		const own = summary?.facts ?? [];
+		const pool = own.length && Math.random() < 0.5 ? own : TRIVIA;
+		let next = pool[Math.floor(Math.random() * pool.length)];
+		if (next === fact && pool.length > 1) next = pool[(pool.indexOf(next) + 1) % pool.length];
+		fact = next;
+	}
+	let slides = $derived(
+		summary
+			? [
+					{ key: 'moving', icon: 'play_circle', text: moving },
+					{ key: 'yours', icon: 'person', text: yours },
+					{ key: 'fact', icon: 'lightbulb', text: fact }
+				].filter((s) => s.text)
+			: []
+	);
+	let slideIndex = $state(0);
+	let headlinePaused = $state(false);
+	let slide = $derived(slides.length ? slides[slideIndex % slides.length] : null);
+	function nextSlide() {
+		slideIndex = (slideIndex + 1) % Math.max(slides.length, 1);
+		if (slides[slideIndex]?.key === 'fact') pickFact();
+	}
+	$effect(() => {
+		if (headlinePaused) return;
+		// Not while the tab is hidden: its fades don't run, so lines would pile up until it's shown.
+		const t = setInterval(() => !document.hidden && nextSlide(), 8000);
+		return () => clearInterval(t);
+	});
+	$effect(() => {
+		if (summary && !fact) pickFact();
 	});
 
 	// ---- timeline grouped by day ----
@@ -172,7 +223,27 @@
 		<div>
 			<p class="label-large text-on-surface-variant">{today}</p>
 			<h1 class="display-small text-on-surface">{greeting}{firstName ? `, ${firstName}` : ''}</h1>
-			<p class="mt-1 body-large text-on-surface-variant">{headline}</p>
+			<!-- Hover (or focus) holds the current line; a click moves on. -->
+			<button
+				type="button"
+				class="mt-1 grid min-h-7 max-w-full text-left body-large text-on-surface-variant"
+				title="Click for the next one"
+				onclick={nextSlide}
+				onmouseenter={() => (headlinePaused = true)}
+				onmouseleave={() => (headlinePaused = false)}
+				onfocus={() => (headlinePaused = true)}
+				onblur={() => (headlinePaused = false)}
+				aria-live="polite"
+			>
+				{#if slide}
+					{#key slide.key + slide.text}
+						<span class="col-start-1 row-start-1 flex items-start gap-2" in:fade={{ duration: 250, delay: 150 }} out:fade={{ duration: 150 }}>
+							<Icon name={slide.icon} size={20} class="mt-0.5 shrink-0 text-primary" />
+							<span>{slide.text}</span>
+						</span>
+					{/key}
+				{/if}
+			</button>
 		</div>
 		{#if !projectId && projects.length > 1}
 			<div class="w-64">

@@ -194,6 +194,84 @@ async def _enrich(db: DB, events: list[m.ActivityEvent]) -> list[FeedItem]:
     return out
 
 
+def _n(count: int, noun: str) -> str:
+    return f"{count:,} {noun}{'' if count == 1 else 's'}"
+
+
+def _duration(seconds: float) -> str:
+    s = int(seconds)
+    if s < 60:
+        return f"{s}s"
+    if s < 3600:
+        return f"{s // 60}m {s % 60}s"
+    return f"{s // 3600}h {s % 3600 // 60}m"
+
+
+async def _facts(db: DB, in_scope) -> list[str]:
+    """A few facts about the jobs and cards in scope (each only when there's data for it)."""
+    facts: list[str] = []
+    finished = select(m.Job).join(m.Task, m.Task.id == m.Job.task_id).where(
+        in_scope(m.Task.project_id), m.Job.finished_at.is_not(None)
+    )
+    total = (await db.execute(select(func.count()).select_from(finished.subquery()))).scalar_one()
+    if total:
+        succeeded = (
+            await db.execute(select(func.count()).select_from(finished.where(m.Job.status == m.JobStatus.succeeded).subquery()))
+        ).scalar_one()
+        facts.append(f"{_n(total, 'job')} {'has' if total == 1 else 'have'} run so far; {round(100 * succeeded / total)}% succeeded.")
+
+    top = (
+        await db.execute(
+            select(m.Task.command_ref, func.count(m.Job.id).label("n"))
+            .join(m.Job, m.Job.task_id == m.Task.id)
+            .where(in_scope(m.Task.project_id), m.Task.command_ref.is_not(None))
+            .group_by(m.Task.command_ref)
+            .order_by(func.count(m.Job.id).desc())
+            .limit(1)
+        )
+    ).first()
+    if top:
+        definition = await db.get(m.CommandDefinition, top[0])
+        facts.append(f"The most-run command is {definition.name if definition else top[0]}, with {_n(top[1], 'run')}.")
+
+    # Durations are compared in Python: date arithmetic differs between SQLite and Postgres.
+    recent = (
+        await db.execute(
+            select(m.Job.started_at, m.Job.finished_at, m.Task.title)
+            .join(m.Task, m.Task.id == m.Job.task_id)
+            .where(in_scope(m.Task.project_id), m.Job.started_at.is_not(None), m.Job.finished_at.is_not(None))
+            .order_by(m.Job.finished_at.desc())
+            .limit(2000)
+        )
+    ).all()
+    if recent:
+        started, ended, title = max(recent, key=lambda r: r[1] - r[0])
+        if (ended - started).total_seconds() >= 1:
+            facts.append(f"The longest recent job was “{title}”: {_duration((ended - started).total_seconds())}.")
+
+    week = utcnow() - timedelta(days=7)
+    busiest = (
+        await db.execute(
+            select(m.Agent.name, func.count(m.Job.id))
+            .join(m.Job, m.Job.agent_id == m.Agent.id)
+            .join(m.Task, m.Task.id == m.Job.task_id)
+            .where(in_scope(m.Task.project_id), m.Job.queued_at >= week)
+            .group_by(m.Agent.name)
+            .order_by(func.count(m.Job.id).desc())
+            .limit(1)
+        )
+    ).first()
+    if busiest:
+        facts.append(f"The busiest agent this week is {busiest[0]}, with {_n(busiest[1], 'job')}.")
+
+    comments = (
+        await db.execute(select(func.count()).select_from(m.Comment).join(m.Task, m.Task.id == m.Comment.task_id).where(in_scope(m.Task.project_id)))
+    ).scalar_one()
+    if comments:
+        facts.append(f"{_n(comments, 'comment')} {'has' if comments == 1 else 'have'} been written on these cards.")
+    return facts
+
+
 def _is_uuid(value: Any) -> bool:
     try:
         uuid.UUID(str(value))
@@ -211,6 +289,10 @@ class Summary(BaseModel):
     live_jobs: list[dict[str, Any]]
     live_runs: list[dict[str, Any]]
     agents: dict[str, int]
+    # The user's own open cards: assigned to them, and opened by them.
+    mine: dict[str, int]
+    # Short facts about the work in scope, for the dashboard's rotating headline.
+    facts: list[str]
 
 
 @router.get("/summary", response_model=Summary)
@@ -356,7 +438,21 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
         })
 
     online = [c for c in gateway.connections.values()]
+    open_rows = (
+        await db.execute(
+            select(m.Task.assignees, m.Task.created_by)
+            .join(m.BoardColumn, m.BoardColumn.id == m.Task.column_id)
+            .where(in_scope(m.Task.project_id), m.BoardColumn.role.is_(None) | m.BoardColumn.role.not_in(done_roles))
+        )
+    ).all()
+    me = {user.username, str(user.id)}  # assignees hold usernames (ids accepted too)
+    mine = {
+        "assigned": sum(bool(me & set(a or [])) for a, _ in open_rows),
+        "opened": sum(c == user.id for _, c in open_rows),
+    }
     return Summary(
+        mine=mine,
+        facts=await _facts(db, in_scope),
         counts=counts,
         attention=attention[:20],
         live_jobs=live_jobs,

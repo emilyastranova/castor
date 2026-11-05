@@ -2,6 +2,7 @@ id: netexec-smb-auth
 name: NetExec SMB authenticated check
 schema_version: 1
 description: Authenticate to SMB hosts with a credential set (password or NT hash) and report access and signing
+tool: netexec
 tags: [network, smb, netexec, credentials]
 args:
   - name: targets

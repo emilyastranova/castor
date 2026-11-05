@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     public_url: str = ""
     # Built-in command definitions (commands/*.yaml), synced into the library on startup.
     commands_dir: Path = Path(__file__).resolve().parents[2] / "commands"
+    # Built-in tool definitions (tools/*.yaml), synced into the library on startup.
+    tools_dir: Path = Path(__file__).resolve().parents[2] / "tools"
     # Built-in playbook definitions (playbooks/*.yaml), synced into the library on startup.
     playbooks_dir: Path = Path(__file__).resolve().parents[2] / "playbooks"
 

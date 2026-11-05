@@ -248,6 +248,7 @@ async def enqueue_job(
         task_id=task.id,
         command=task.command,
         image=task.image,
+        tool=task.tool,
         container_flags=list(task.container_flags or []),
         timeout_s=task.timeout_s,
         env={},

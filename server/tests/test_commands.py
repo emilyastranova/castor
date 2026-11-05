@@ -108,6 +108,7 @@ def test_user_definition_lifecycle_and_render(client, auth):
     assert r.json() == {
         "command": "wget -q -T 5 -O - https://example.test/",
         "image": "docker.io/library/alpine:3.20",
+        "tool": None,
         "container_flags": [],
     }
 
@@ -123,7 +124,7 @@ def test_card_from_library_command(client, auth):
     task = r.json()
     assert task["command_ref"] == "nmap-ping-sweep"
     assert task["command"] == "nmap -sn -oX /work/ping-sweep.xml 10.0.0.0/24"
-    assert task["image"] == "docker.io/instrumentisto/nmap"
+    assert task["image"] is None and task["tool"] == "nmap"  # the tool says which image
     assert task["container_flags"] == ["--privileged", "--network=bridge"]
 
     # Editing the args re-renders the command line

@@ -89,6 +89,7 @@ export interface Job {
 	agent_id: UUID | null;
 	command: string;
 	image: string | null;
+	tool?: string | null;
 	container_flags?: string[];
 	status: JobStatus;
 	exit_code: number | null;
@@ -267,6 +268,42 @@ export interface DashboardSummary {
 	live_jobs: { job_id: UUID; status: string; task: { id: UUID; name: string }; project: ProjectRef | null; agent: string | null; queued_at: string; started_at: string | null }[];
 	live_runs: { run_id: UUID; name: string; project: ProjectRef | null; done: number; total: number; running: number; waiting: number; started_at: string }[];
 	agents: { online: number; slots: number; busy: number };
+	mine: { assigned: number; opened: number };
+	facts: string[];
+}
+
+export interface ToolAgentState {
+	agent_id: UUID;
+	agent_name: string;
+	/** How it would get the tool: image (pull), build (recipe) or host; null if it can't. */
+	way: 'image' | 'build' | 'host' | null;
+	/** build: cached there; image/host: unknown (null) until a job or a prepare. */
+	ready: boolean | null;
+	state: 'preparing' | 'ready' | 'failed' | null;
+	error: string | null;
+	at: string | null;
+}
+
+export interface ToolDefinition {
+	id: string;
+	origin: 'builtin' | 'user';
+	name: string;
+	description: string;
+	spec: {
+		id: string;
+		name: string;
+		description: string;
+		tags: string[];
+		homepage: string;
+		image: string | null;
+		build: { base: string; install: string; check: string } | null;
+		host: { check: string; install: string } | null;
+	};
+	source_yaml: string;
+	version: number;
+	used_by: string[];
+	recipe_tag: string | null;
+	agents: ToolAgentState[];
 }
 
 export interface AppNotification {
@@ -465,6 +502,8 @@ export interface CommandSpec {
 	description: string;
 	tags: string[];
 	image: string | null;
+	/** A tool from the library (Tools) the command runs with, instead of an image. */
+	tool?: string | null;
 	container_flags?: string[];
 	args: ArgSpec[];
 	vars?: VarSlot[];
@@ -504,6 +543,7 @@ export interface Task {
 	command_ref: string | null;
 	command_args: Record<string, unknown>;
 	image: string | null;
+	tool?: string | null;
 	container_flags?: string[];
 	agent_selector: { agent_id?: UUID; tags?: string[] };
 	run_on_move: boolean;
@@ -846,6 +886,17 @@ export function api(fetchFn: Fetch = fetch) {
 			rotate: (id: UUID) => post<AgentToken & { token: string }>(`/agent-tokens/${id}/rotate`),
 			revoke: (id: UUID) => post<AgentToken>(`/agent-tokens/${id}/revoke`),
 			remove: (id: UUID) => del(`/agent-tokens/${id}`)
+		},
+		tools: {
+			list: () => get<ToolDefinition[]>('/tools'),
+			get: (id: string) => get<ToolDefinition>(`/tools/${id}`),
+			create: (yaml: string) => post<ToolDefinition>('/tools', { yaml }),
+			update: (id: string, yaml: string) => request<ToolDefinition>(fetchFn, 'PUT', `/tools/${id}`, { yaml }),
+			remove: (id: string) => del(`/tools/${id}`),
+			validate: (yaml: string) =>
+				post<{ ok: boolean; errors: string[]; recipe_tag?: string | null; dockerfile?: string | null }>('/tools/validate', { yaml }),
+			prepare: (id: string, agentIds: string[] = []) =>
+				post<{ started: string[]; skipped: Record<string, string> }>(`/tools/${id}/prepare`, { agent_ids: agentIds })
 		},
 		dashboard: {
 			summary: (projectId?: string | null) => get<DashboardSummary>(`/dashboard/summary${projectId ? `?project_id=${projectId}` : ''}`),

@@ -10,6 +10,7 @@ from ..command_render import ArgumentError, render_command
 from ..command_spec import CommandSpec, parse_spec
 from ..deps import DB, CurrentUser, Operator
 from ..schemas import CommandDefinitionOut, CommandYamlIn, RenderIn, RenderOut
+from ..tool_library import load_tool
 
 router = APIRouter(prefix="/commands", tags=["commands"])
 
@@ -47,6 +48,8 @@ async def get_command(command_id: str, db: DB, _: CurrentUser):
 async def _check_vars(db, spec) -> None:
     problems = variables.check_command_vars(spec, await variables.kinds_by_id(db))
     problems += await variables.check_choice_sources(db, spec)
+    if spec.tool and await load_tool(db, spec.tool) is None:
+        problems.append(f"tool: no tool {spec.tool} in the library (see Tools)")
     if problems:
         raise HTTPException(422, "; ".join(problems))
 
@@ -109,6 +112,7 @@ async def render(command_id: str, body: RenderIn, db: DB, _: CurrentUser):
         return RenderOut(
             command=render_command(spec, args),
             image=spec.image,
+            tool=spec.tool,
             container_flags=spec.container_flags,
         )
     except ArgumentError as exc:
