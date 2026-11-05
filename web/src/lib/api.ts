@@ -273,6 +273,27 @@ export interface DashboardSummary {
 	pinned: { project: ProjectRef | null; note_id: UUID; title: string; color: string; line: string; updated_at: string }[];
 }
 
+/** One search result (GET /api/search). */
+export interface SearchHit {
+	id: string;
+	title: string;
+	snippet: string;
+	link: string | null;
+	icon: string;
+	project: ProjectRef | null;
+	at: string | null;
+	/** Show the snippet in a monospace font (console output). */
+	mono?: boolean;
+	avatar?: string | null;
+}
+
+export interface SearchGroup {
+	type: string;
+	label: string;
+	hits: SearchHit[];
+	more: boolean;
+}
+
 export interface ProjectNote {
 	id: UUID;
 	project_id: UUID;
@@ -926,6 +947,7 @@ export function api(fetchFn: Fetch = fetch) {
 			prepare: (id: string, agentIds: string[] = []) =>
 				post<{ started: string[]; skipped: Record<string, string> }>(`/tools/${id}/prepare`, { agent_ids: agentIds })
 		},
+		search: (q: string, limit = 6) => get<{ query: string; groups: SearchGroup[]; note?: string }>(`/search?q=${encodeURIComponent(q)}&limit=${limit}`),
 		notes: {
 			list: (projectId: UUID) => get<ProjectNote[]>(`/projects/${projectId}/notes`),
 			create: (projectId: UUID, body: { title: string; body: string; color?: string }) => post<ProjectNote>(`/projects/${projectId}/notes`, body),

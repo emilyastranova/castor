@@ -139,6 +139,10 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `tasks.assignees` and `comments.mentions` hold user ids as strings. Personal notifications
   (`task.assigned`, `comment.mention`) use `notify(user_ids=..., webhooks=False)`. Web:
   `lib/people.svelte.ts` (per-project people + mention chips), `mentionSuggest.svelte.ts`.
+- Search (Phase 3g): `search.py` (one permission-scoped query per kind of thing over the live
+  tables; add new kinds to `TYPES` and a `Searcher` method) behind `GET /api/search`; web
+  `CommandPalette.svelte` (Ctrl/Cmd+K, `lib/palette.svelte.ts`). `m3/Select` searches its
+  options automatically past 7 (options can have `description`, `group`, `keywords`).
 - Notifications: `notifications.py` (one row per user, `subject` to clear related ones,
   webhooks via `CASTOR_NOTIFY_WEBHOOKS` posted from a thread so a dead webhook never blocks
   a run). Web: `lib/notifications.svelte.ts` + `NotificationBell.svelte` in the rail.

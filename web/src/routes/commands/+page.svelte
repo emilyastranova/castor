@@ -5,6 +5,7 @@
 	import { Button, Card, Chip, Dialog, Icon, TextField, TopAppBar } from '$lib/m3';
 	import { confirmAction } from '$lib/confirm.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
+	import { page } from '$app/state';
 
 	let { data } = $props();
 	// svelte-ignore state_referenced_locally
@@ -86,6 +87,13 @@ outputs:
 			snackbar.error(err instanceof ApiError ? err.message : 'Could not delete');
 		}
 	}
+
+	// ?open=<id> (from search) opens that command.
+	$effect(() => {
+		const id = page.url.searchParams.get('open');
+		const c = id ? commands.find((x) => x.id === id) : undefined;
+		if (c) openExisting(c);
+	});
 
 	let visible = $derived(
 		commands.filter((c) => {

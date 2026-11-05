@@ -77,7 +77,8 @@
 	let projectOptions = $derived(
 		projects.map((p) => ({
 			value: p.id,
-			label: `${p.codename} — ${p.name}`
+			label: `${p.codename} — ${p.name}`,
+			keywords: p.codename
 		}))
 	);
 

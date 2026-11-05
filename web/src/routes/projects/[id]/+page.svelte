@@ -72,13 +72,13 @@
 	function openTask(task: Task) {
 		const url = new URL(page.url);
 		url.searchParams.set('task', task.id);
-		url.searchParams.delete('comment');
+		for (const k of ['comment', 'tab', 'job', 'view']) url.searchParams.delete(k);
 		void goto(url, { replaceState: false, noScroll: true, keepFocus: true });
 	}
 	function closeTask() {
 		const url = new URL(page.url);
 		url.searchParams.delete('task');
-		url.searchParams.delete('comment');
+		for (const k of ['comment', 'tab', 'job', 'view']) url.searchParams.delete(k);
 		void goto(url, { replaceState: true, noScroll: true });
 	}
 

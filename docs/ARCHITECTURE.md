@@ -294,6 +294,16 @@ Agents report cached tags in `hello` and heartbeats; the dispatcher prefers an a
 the tool ready. `POST /api/tools/{id}/prepare` sends `tool.prepare` ahead of time; state is
 published as `tool.status`, library edits as `tools.changed`.
 
+## Search
+
+`GET /api/search?q=` (`search.py`) searches everything the user can see: cards (title,
+description, command, tags, custom fields), comments, parsed outputs, console logs (one hit
+per run, with the matching line), attachment names, playbook runs and their inputs, pinned
+notes, projects and clients, and the playbook/command/tool/parser/variable libraries, people
+and agents. Every word must appear in some field (case-insensitive, over the live tables);
+`in:CODE`, `type:`, `by:`, `tag:`, `is:mine` and `status:` filter. Results come back grouped,
+each with a snippet and a link into the UI. Variable-set secrets are never searched.
+
 ## Dispatcher
 
 The dispatcher lives in the server process. `pump()` runs whenever a job is enqueued, an

@@ -82,8 +82,18 @@
 		editingDescription = false;
 		// A notification about a comment (?comment=<id>) opens the card on it.
 		const linked = page.url.searchParams.get('comment');
-		tab = linked ? 'comments' : task.kind === 'command' ? 'output' : 'comments';
-		selectedJobId = task.latest_job?.id ?? null;
+		// Search results link straight to a tab, a run and its results (?tab=&job=&view=).
+		const params = page.url.searchParams;
+		const wantedTab = params.get('tab');
+		tab = linked
+			? 'comments'
+			: wantedTab && ['output', 'comments', 'attachments', 'fields', 'history'].includes(wantedTab)
+				? (wantedTab as typeof tab)
+				: task.kind === 'command'
+					? 'output'
+					: 'comments';
+		selectedJobId = params.get('job') ?? task.latest_job?.id ?? null;
+		wantedView = params.get('view') === 'results' ? 'results' : params.get('job') ? 'console' : null;
 		shownLink = linked;
 		void loadSide().then(() => {
 			if (linked) void showComment(linked);
@@ -165,13 +175,15 @@
 	let resultCount = $state<number | null>(null);
 	let hasResults = $derived(!!selectedJob && (!!selectedJob.output_specs?.length || !!task.command_ref));
 	let viewFor: UUID | null = null;
+	let wantedView: 'console' | 'results' | null = null;
 	$effect(() => {
 		const job = selectedJob;
 		if (!job || job.id === viewFor) return;
 		viewFor = job.id;
 		resultCount = null;
 		const done = ['succeeded', 'failed', 'lost'].includes(job.status);
-		outputView = done && job.output_specs?.length ? 'results' : 'console';
+		outputView = wantedView ?? (done && job.output_specs?.length ? 'results' : 'console');
+		wantedView = null;
 	});
 	let activeJob = $derived(task.latest_job && ['queued', 'dispatched', 'running'].includes(task.latest_job.status) ? task.latest_job : null);
 
@@ -466,7 +478,15 @@
 	}
 
 	let column = $derived(columns.find((c) => c.id === task.column_id));
-	let agentOptions = $derived([{ value: '', label: 'Any available agent' }, ...agents.map((a) => ({ value: a.id, label: `${a.name}${a.connected ? '' : ' (offline)'}` }))]);
+	let agentOptions = $derived([
+		{ value: '', label: 'Any available agent' },
+		...agents.map((a) => ({
+			value: a.id,
+			label: `${a.name}${a.connected ? '' : ' (offline)'}`,
+			description: [a.hostname, a.os, a.tags.length ? a.tags.join(', ') : ''].filter(Boolean).join(' · '),
+			keywords: a.tags.join(' ')
+		}))
+	]);
 	let agentName = (id: UUID | null) => agents.find((a) => a.id === id)?.name ?? '—';
 	let runFiles = $derived(attachments.filter((a) => a.job_id && a.job_id === selectedJob?.id));
 	let screenshots = $derived(attachments.filter((a) => a.content_type.startsWith('image/')));

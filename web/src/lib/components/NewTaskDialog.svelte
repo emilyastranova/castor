@@ -118,9 +118,26 @@
 	}
 
 	let targetColumn = $derived(columns.find((c) => c.id === columnId));
+	// Your commands first, then the built-ins; search matches the id, tags and tool too.
+	let commandOptions = $derived(
+		[...library]
+			.sort((a, b) => (a.origin === b.origin ? a.name.localeCompare(b.name) : a.origin === 'user' ? -1 : 1))
+			.map((c) => ({
+				value: c.id,
+				label: c.name,
+				description: c.description || c.id,
+				group: c.origin === 'user' ? 'Yours' : 'Built-in',
+				keywords: [c.id, ...c.tags, c.spec.tool ?? '', c.spec.image ?? ''].join(' ')
+			}))
+	);
 	let agentOptions = $derived([
 		{ value: '', label: 'Any available agent' },
-		...agents.map((a) => ({ value: a.id, label: `${a.name}${a.connected ? '' : ' (offline)'}` }))
+		...agents.map((a) => ({
+			value: a.id,
+			label: `${a.name}${a.connected ? '' : ' (offline)'}`,
+			description: [a.hostname, a.os, a.tags.length ? a.tags.join(', ') : ''].filter(Boolean).join(' · '),
+			keywords: a.tags.join(' ')
+		}))
 	]);
 </script>
 
@@ -141,7 +158,7 @@
 					<Select
 						label="Command"
 						value={commandRef}
-						options={library.map((c) => ({ value: c.id, label: `${c.name}${c.origin === 'user' ? ' · yours' : ''}` }))}
+						options={commandOptions}
 						onchange={pickCommand}
 					/>
 					{#if chosen}

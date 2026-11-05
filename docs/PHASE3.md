@@ -1,6 +1,6 @@
 # Phase 3 plan
 
-Status: in progress (2026-11-05); 3a, 3b and 3d are built. Roadmap item **M3** in
+Status: in progress (2026-11-05); 3a, 3b, 3d and 3g are built. Roadmap item **M3** in
 [ARCHITECTURE.md](ARCHITECTURE.md); Phase 2 is done and recorded in [PHASE2.md](PHASE2.md).
 
 Phase 3 makes Castor easier to run day to day: tools prepared on demand instead of baked
@@ -15,7 +15,7 @@ playbook step goes wrong.
 | 3d. Pinned project notes | A few titled notes (status, objectives…) at the top of a project's dashboard | nothing | Built |
 | 3e. AI resolver for paused steps | Gemini reads an unexpected result and retries (maybe with a fixed command), continues or skips | nothing | Idea |
 | 3f. Discovered artifacts | Typed objects Castor finds (IPs, hosts, services, credentials…) merged across tools, with triggers that act on new ones | parsers (2b) | Idea |
-| 3g. Search everywhere | Type-to-filter in every long picker; Ctrl+K searches everything you can see | nothing | Idea |
+| 3g. Search everywhere | Type-to-filter in every long picker; Ctrl+K searches everything you can see | nothing | Built |
 | 3h. Playbook runs as one card | A run is a single card on the board that opens into its graph and steps, instead of a card per step | nothing | Idea |
 
 Suggested order: 3a (it unblocks the NetExec commands on the compose agent), 3d (small),
@@ -232,6 +232,19 @@ else (findings, entities, loot); decide before building.
   new targets (scope safety) or only inside a project's declared scope.
 
 ## 3g. Search everywhere
+
+**Built.** Pickers: the shared `Select` gets a search box when it has more than 7 options,
+and options can carry a description, a group and keywords (the command picker uses all
+three; agents show host, OS and tags). Global search: `GET /api/search` (`search.py`) and
+`CommandPalette.svelte` on Ctrl/Cmd+K or the rail's search button, with recent results and
+places when empty, the filters below, highlighted matches, and deep links (`?task=&comment=`,
+`&tab=output&job=&view=results`, `&tab=attachments`, `/commands?open=`, `/parsers?parser=`).
+Decided while building: search runs over the live tables (every word must match some field,
+case-insensitively) instead of a separate index, so nothing can go stale and it behaves the
+same on SQLite and Postgres; a full-text index can replace it if logs get large. Secret
+values are never searched (they live in their own encrypted column).
+
+The plan, as written before building:
 
 Two parts: long pickers you can type into, and one search box for everything.
 

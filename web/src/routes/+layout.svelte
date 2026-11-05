@@ -10,6 +10,8 @@
 	import { snackbar } from '$lib/snackbar.svelte';
 	import ConfirmHost from '$lib/components/ConfirmHost.svelte';
 	import ImageViewer from '$lib/components/ImageViewer.svelte';
+	import CommandPalette from '$lib/components/CommandPalette.svelte';
+	import { palette } from '$lib/palette.svelte';
 	import NotificationBell from '$lib/components/NotificationBell.svelte';
 	import AccountDialog from '$lib/components/AccountDialog.svelte';
 	import { notifications } from '$lib/notifications.svelte';
@@ -58,6 +60,14 @@
 		}
 	});
 
+	/** Ctrl+K / Cmd+K opens search from anywhere (and closes it again). */
+	function shortcut(e: KeyboardEvent) {
+		if (!data.user || e.key.toLowerCase() !== 'k' || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+		e.preventDefault();
+		if (palette.open) palette.hide();
+		else palette.show();
+	}
+
 	async function logout() {
 		await api().auth.logout();
 		realtime.stop();
@@ -70,6 +80,7 @@
 <svelte:head>
 	<title>Castor</title>
 </svelte:head>
+<svelte:window onkeydown={shortcut} />
 
 {#if data.user}
 	<div class="flex h-dvh w-full overflow-hidden bg-surface">
@@ -78,6 +89,7 @@
 				<a href="/" class="flex size-12 items-center justify-center rounded-lg bg-primary-container text-on-primary-container" aria-label="Castor home">
 					<Icon name="radar" filled />
 				</a>
+				<IconButton icon="search" label="Search everything (Ctrl+K)" class="mt-2" onclick={() => palette.show()} />
 			{/snippet}
 			{#snippet bottom()}
 				<div class="flex flex-col items-center gap-2">
@@ -122,3 +134,4 @@
 <Snackbar />
 <ConfirmHost />
 <ImageViewer />
+{#if data.user}<CommandPalette />{/if}
