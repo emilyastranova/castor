@@ -204,6 +204,7 @@ async def _enrich(db: DB, events: list[m.ActivityEvent]) -> list[FeedItem]:
             actor={
                 "type": e.actor_type,
                 "name": author.display_name if author else e.actor_name,
+                "username": author.username if author else None,
                 "avatar_url": author.avatar_url if author else None,
             },
             run_id=payload.get("run_id"),

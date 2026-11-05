@@ -139,6 +139,9 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `tasks.assignees` and `comments.mentions` hold user ids as strings. Personal notifications
   (`task.assigned`, `comment.mention`) use `notify(user_ids=..., webhooks=False)`. Web:
   `lib/people.svelte.ts` (per-project people + mention chips), `mentionSuggest.svelte.ts`.
+  Person pages (3c): `api/people.py` (`/api/people`, `/api/people/{username}`, scoped to the
+  viewer's projects), web `routes/people/`. Admin pages live under `routes/settings/` (its
+  `+layout.ts` refuses non-admins; add sections to `SECTIONS` in its `+layout.svelte`).
 - Search (Phase 3g): `search.py` (one permission-scoped query per kind of thing over the live
   tables; add new kinds to `TYPES` and a `Searcher` method) behind `GET /api/search`; web
   `CommandPalette.svelte` (Ctrl/Cmd+K, `lib/palette.svelte.ts`). `m3/Select` searches its

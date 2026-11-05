@@ -63,7 +63,7 @@
 			{#each assigned as u (u.id)}
 				<li class="flex h-8 items-center gap-1.5 rounded-full bg-surface-container-high py-1 pr-1 pl-1 {editable ? '' : 'pr-3'}">
 					<Avatar name={u.display_name} src={u.avatar_url} size={24} />
-					<span class="max-w-36 truncate label-large text-on-surface">{u.display_name}</span>
+					{#if u.username}<a href="/people/{u.username}" class="max-w-36 truncate label-large text-on-surface hover:underline">{u.display_name}</a>{:else}<span class="max-w-36 truncate label-large text-on-surface">{u.display_name}</span>{/if}
 					{#if editable}
 						<button type="button" class="state-layer flex size-6 items-center justify-center rounded-full text-on-surface-variant" aria-label="Unassign {u.display_name}" title="Unassign" onclick={() => toggle(u.id)}><Icon name="close" size={16} /></button>
 					{/if}

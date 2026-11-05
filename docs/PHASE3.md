@@ -1,6 +1,6 @@
 # Phase 3 plan
 
-Status: in progress (2026-11-05); 3a, 3b, 3d and 3g are built. Roadmap item **M3** in
+Status: in progress (2026-11-05); 3a, 3b, 3c, 3d and 3g are built. Roadmap item **M3** in
 [ARCHITECTURE.md](ARCHITECTURE.md); Phase 2 is done and recorded in [PHASE2.md](PHASE2.md).
 
 Phase 3 makes Castor easier to run day to day: tools prepared on demand instead of baked
@@ -11,7 +11,7 @@ playbook step goes wrong.
 | --- | --- | --- | --- |
 | 3a. Tool environments | Commands name a tool; agents pull or build it on demand and cache it; the agent image stays bare | nothing | Built |
 | 3b. "Mine", @mentions, assignees | Assign cards to people; mention people in comments (they get notified); a "Mine" filter on the dashboard and board | nothing | Built |
-| 3c. Per-person view | Click a name to see everything that person did and has on their plate | 3b helps | Idea |
+| 3c. Per-person view | Click a name to see everything that person did and has on their plate | 3b helps | Built |
 | 3d. Pinned project notes | A few titled notes (status, objectives…) at the top of a project's dashboard | nothing | Built |
 | 3e. AI resolver for paused steps | Gemini reads an unexpected result and retries (maybe with a fixed command), continues or skips | nothing | Idea |
 | 3f. Discovered artifacts | Typed objects Castor finds (IPs, hosts, services, credentials…) merged across tools, with triggers that act on new ones | parsers (2b) | Idea |
@@ -136,12 +136,19 @@ in-app only (the team webhooks stay for run events).
 
 ## 3c. Per-person view
 
-- Clicking a name or avatar in the timeline (and on the Users page) opens a person page,
-  `/people/<username>`: picture, role, projects, what they did recently (the feed already
-  filters by actor), cards assigned to them, and comments mentioning them.
-- Respects visibility: you only see their activity in projects you can see.
-- **Open question:** a "team" overview (everyone's open cards side by side) for admins, or
-  just the per-person page?
+**Built.** Decided: a team overview for everyone (not only admins), next to the person pages.
+
+- `/people/<username>` (`GET /api/people/{username}`): picture, role, when they joined and
+  were last active, their projects, numbers for the last 30 days (comments, cards created,
+  runs started), their activity timeline (the dashboard feed with `actor=`), the open cards
+  assigned to them ("on their plate", by priority) and the comments that mention them.
+- `/people` (`GET /api/people`): everyone active, with open assigned cards and last activity;
+  sort by name, most assigned or recently active; also in the rail as **People**.
+- Everything about what someone did or has is counted only in projects the viewer can see.
+- Names lead there: timeline names and avatars, comment authors, mention chips, assignee chips,
+  Settings → Users, and people in search.
+- Admins manage accounts under **Settings → Users** (`/settings/users`; `/users` redirects),
+  so the rail has People for everyone and Settings for admins instead of People and Users.
 
 ## 3d. Pinned project notes
 

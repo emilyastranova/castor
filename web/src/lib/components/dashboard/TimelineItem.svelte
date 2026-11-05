@@ -55,7 +55,11 @@
 	<!-- the rail of the timeline -->
 	<span class="absolute top-10 bottom-0 left-[19px] w-px bg-outline-variant/60" aria-hidden="true"></span>
 	{#if item.kind === 'comment' && item.actor.type === 'user'}
-		<Avatar name={item.actor.name} src={item.actor.avatar_url} size={40} tone="secondary" />
+		{#if item.actor.username}
+			<a href="/people/{item.actor.username}" class="shrink-0 rounded-full" aria-label="{item.actor.name}'s page"><Avatar name={item.actor.name} src={item.actor.avatar_url} size={40} tone="secondary" /></a>
+		{:else}
+			<Avatar name={item.actor.name} src={item.actor.avatar_url} size={40} tone="secondary" />
+		{/if}
 	{:else}
 		<span class="flex size-10 shrink-0 items-center justify-center rounded-full {meta.tone}">
 			<Icon name={outcome?.icon ?? meta.icon} size={20} />
@@ -63,7 +67,11 @@
 	{/if}
 	<div class="min-w-0 flex-1 pt-0.5">
 		<div class="flex flex-wrap items-baseline gap-x-2 body-small text-on-surface-variant">
-			<span class="label-large text-on-surface">{item.actor.name}</span>
+			{#if item.actor.username}
+				<a href="/people/{item.actor.username}" class="label-large text-on-surface hover:underline">{item.actor.name}</a>
+			{:else}
+				<span class="label-large text-on-surface">{item.actor.name}</span>
+			{/if}
 			{#if item.kind === 'comment'}
 				<span>commented on</span>
 			{/if}

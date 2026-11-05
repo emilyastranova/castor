@@ -720,11 +720,16 @@
 			{:else if tab === 'comments'}
 				<div class="flex flex-col gap-4">
 					{#each comments as c (c.id)}
+						{@const authorName = people.user(task.project_id, c.author_id ?? '')?.username}
 						<div class="flex gap-3" id="comment-{c.id}" in:enter={{ enabled: liveSide }} out:leave={{ enabled: liveSide }}>
-							<Avatar name={c.author_name} src={c.author_avatar} tone="secondary" />
+							{#if authorName}
+								<a href="/people/{authorName}" class="shrink-0 self-start rounded-full" aria-label="{c.author_name}'s page"><Avatar name={c.author_name} src={c.author_avatar} tone="secondary" /></a>
+							{:else}
+								<Avatar name={c.author_name} src={c.author_avatar} tone="secondary" />
+							{/if}
 							<div class="min-w-0 flex-1 rounded-md bg-surface-container px-4 py-3" class:mentions-me={mentionsMe(c)} class:flash={flashing === c.id}>
 								<div class="flex items-center gap-2 body-small text-on-surface-variant">
-									<span class="label-large text-on-surface">{c.author_name}</span>
+									{#if authorName}<a href="/people/{authorName}" class="label-large text-on-surface hover:underline">{c.author_name}</a>{:else}<span class="label-large text-on-surface">{c.author_name}</span>{/if}
 									<span title={absoluteTime(c.created_at)}>{relativeTime(c.created_at)}</span>
 									{#if mentionsMe(c)}<span class="flex items-center gap-0.5 rounded-full bg-primary-container px-1.5 py-0.5 label-small text-on-primary-container"><Icon name="alternate_email" size={12} />Mentions you</span>{/if}
 									{#if c.edited_at}

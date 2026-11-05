@@ -254,7 +254,7 @@ select optgroup {
 	font-weight: 500;
 	line-height: 1.35;
 	white-space: nowrap;
-	cursor: default;
+	cursor: pointer;
 }
 .prose-m3 .mention .mention-face {
 	display: inline-block;

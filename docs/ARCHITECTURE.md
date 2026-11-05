@@ -294,6 +294,14 @@ Agents report cached tags in `hello` and heartbeats; the dispatcher prefers an a
 the tool ready. `POST /api/tools/{id}/prepare` sends `tool.prepare` ahead of time; state is
 published as `tool.status`, library edits as `tools.changed`.
 
+## People
+
+`GET /api/people` lists everyone active with their open assigned cards and last activity;
+`GET /api/people/{username}` adds their projects, 30-day numbers, assigned cards and the
+comments mentioning them. Both count only what's in projects the viewer can see; the web
+pages are `/people` and `/people/<username>` (the timeline is the dashboard feed with
+`actor=<id>`).
+
 ## Search
 
 `GET /api/search?q=` (`search.py`) searches everything the user can see: cards (title,

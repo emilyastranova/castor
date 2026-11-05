@@ -81,7 +81,9 @@
 		place('parsers', 'Parsers', 'Turn tool output into results', '/parsers', 'data_object', 'outputs results nmap ffuf netexec parse'),
 		place('agents', 'Agents', 'Machines that run jobs', '/agents', 'dns', 'runners workers machines hosts tokens'),
 		place('activity', 'Activity', 'Everything that happened', '/activity', 'history', 'log audit events history'),
-		place('users', 'Users', 'Accounts and roles', '/users', 'group', 'people accounts roles admins members permissions', true)
+		place('people', 'People', 'Who is on the team and what they have on', '/people', 'groups', 'team people members workload assigned'),
+		place('settings', 'Settings', 'Admin settings', '/settings', 'settings', 'admin configuration preferences', true),
+		place('users', 'Users', 'Settings · accounts and roles', '/settings/users', 'group', 'people accounts roles admins members permissions passwords', true)
 	];
 	let typed = $derived(query.trim().length > 0);
 	let places = $derived(PLACES.filter((p) => !p.admin || isAdmin()));

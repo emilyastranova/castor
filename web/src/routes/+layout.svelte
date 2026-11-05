@@ -28,9 +28,10 @@
 		{ href: '/variables', icon: 'key', label: 'Variables' },
 		{ href: '/parsers', icon: 'data_object', label: 'Parsers' },
 		{ href: '/agents', icon: 'dns', label: 'Agents' },
-		{ href: '/activity', icon: 'history', label: 'Activity' }
+		{ href: '/activity', icon: 'history', label: 'Activity' },
+		{ href: '/people', icon: 'groups', label: 'People' }
 	];
-	let nav = $derived(data.user?.role === 'admin' ? [...baseNav, { href: '/users', icon: 'group', label: 'Users' }] : baseNav);
+	let nav = $derived(data.user?.role === 'admin' ? [...baseNav, { href: '/settings', icon: 'settings', label: 'Settings' }] : baseNav);
 	let accountOpen = $state(false);
 
 	onMount(() => {

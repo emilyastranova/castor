@@ -377,7 +377,7 @@ class Searcher:
             return []
         rows = await self.rows(select(u).where(u.disabled_at.is_(None), _match([u.username, u.display_name], q.terms)).order_by(u.display_name))
         return [{"id": str(p.id), "title": p.display_name, "snippet": f"@{p.username} · {p.role.value}", "project": None,
-                 "at": None, "icon": "person", "avatar": p.avatar_url, "link": "/users" if self.user.is_admin else None} for (p,) in rows]
+                 "at": None, "icon": "person", "avatar": p.avatar_url, "link": f"/people/{p.username}"} for (p,) in rows]
 
     async def agent(self) -> list[dict[str, Any]]:
         q, a = self.q, m.Agent

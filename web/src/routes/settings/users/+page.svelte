@@ -123,7 +123,7 @@
 							<span class="flex items-center gap-3">
 								<Avatar name={u.display_name} src={u.avatar_url} size={32} />
 								<span>
-									<span class="block text-on-surface">{u.display_name}{u.id === self?.id ? ' (you)' : ''}</span>
+									<a href="/people/{u.username}" class="block text-on-surface hover:underline">{u.display_name}{u.id === self?.id ? ' (you)' : ''}</a>
 									<span class="block body-small text-on-surface-variant">@{u.username}</span>
 								</span>
 							</span>

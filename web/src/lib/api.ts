@@ -255,7 +255,7 @@ export interface FeedItem {
 	message: string;
 	project: ProjectRef | null;
 	task: { id: UUID; name: string } | null;
-	actor: { type: 'user' | 'agent' | 'system'; name: string; avatar_url: string | null };
+	actor: { type: 'user' | 'agent' | 'system'; name: string; avatar_url: string | null; username?: string | null };
 	comment: { id: UUID; body: string; edited: boolean; mentions: string[] } | null;
 	job: { id: UUID; status: string; exit_code: number | null; seconds: number | null; agent: string | null; command: string } | null;
 	run_id: string | null;
@@ -271,6 +271,25 @@ export interface DashboardSummary {
 	mine: { assigned: number; opened: number; mentions: number };
 	facts: string[];
 	pinned: { project: ProjectRef | null; note_id: UUID; title: string; color: string; line: string; updated_at: string }[];
+}
+
+/** Someone on the team, with what's on their plate (counted in projects you can see). */
+export interface PersonBrief {
+	id: UUID;
+	username: string;
+	display_name: string;
+	role: UserRole;
+	avatar_url: string | null;
+	open_assigned: number;
+	last_active: string | null;
+}
+
+export interface Person extends PersonBrief {
+	created_at: string;
+	projects: ProjectRef[];
+	counts: { open_assigned: number; comments_30d: number; cards_30d: number; runs_30d: number; mentions_30d: number };
+	assigned: { id: UUID; title: string; kind: 'manual' | 'command'; priority: number; column: string; column_role: ColumnRole | null; status: string | null; project: ProjectRef | null; updated_at: string }[];
+	mentions: { id: UUID; body: string; created_at: string; author: { name: string; username: string | null; avatar_url: string | null }; task: { id: UUID; title: string }; project: ProjectRef | null; link: string }[];
 }
 
 /** One search result (GET /api/search). */
@@ -947,6 +966,10 @@ export function api(fetchFn: Fetch = fetch) {
 			prepare: (id: string, agentIds: string[] = []) =>
 				post<{ started: string[]; skipped: Record<string, string> }>(`/tools/${id}/prepare`, { agent_ids: agentIds })
 		},
+		people: {
+			team: () => get<PersonBrief[]>('/people'),
+			get: (username: string) => get<Person>(`/people/${encodeURIComponent(username)}`)
+		},
 		search: (q: string, limit = 6) => get<{ query: string; groups: SearchGroup[]; note?: string }>(`/search?q=${encodeURIComponent(q)}&limit=${limit}`),
 		notes: {
 			list: (projectId: UUID) => get<ProjectNote[]>(`/projects/${projectId}/notes`),
@@ -965,9 +988,10 @@ export function api(fetchFn: Fetch = fetch) {
 		},
 		dashboard: {
 			summary: (projectId?: string | null) => get<DashboardSummary>(`/dashboard/summary${projectId ? `?project_id=${projectId}` : ''}`),
-			feed: (params: { project_id?: string | null; kinds?: FeedKind[]; mine?: boolean; before?: number | null; limit?: number } = {}) => {
+			feed: (params: { project_id?: string | null; kinds?: FeedKind[]; mine?: boolean; actor?: string | null; before?: number | null; limit?: number } = {}) => {
 				const q = new URLSearchParams();
 				if (params.project_id) q.set('project_id', params.project_id);
+				if (params.actor) q.set('actor', params.actor);
 				if (params.mine) q.set('mine', 'true');
 				if (params.kinds?.length) q.set('kinds', params.kinds.join(','));
 				if (params.before) q.set('before', String(params.before));
