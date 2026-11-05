@@ -2,11 +2,25 @@
 
 export type UUID = string;
 
+export type UserRole = 'viewer' | 'operator' | 'admin';
+
 export interface User {
 	id: UUID;
 	username: string;
 	display_name: string;
+	/** viewer: read-only; operator: works in their projects; admin: everything. */
+	role: UserRole;
 	is_admin: boolean;
+	disabled_at: string | null;
+	created_at: string;
+}
+
+/** A user as everyone sees them (pickers, member lists). */
+export interface UserBrief {
+	id: UUID;
+	username: string;
+	display_name: string;
+	role: UserRole;
 }
 
 export interface Client {
@@ -610,13 +624,26 @@ export function api(fetchFn: Fetch = fetch) {
 			login: (username: string, password: string) =>
 				post<{ token: string; user: User }>('/auth/login', { username, password }),
 			logout: () => post<void>('/auth/logout'),
-			me: () => get<User>('/auth/me')
+			me: () => get<User>('/auth/me'),
+			updateMe: (display_name: string) => patch<User>('/auth/me', { display_name }),
+			changePassword: (current_password: string, new_password: string) =>
+				post<void>('/auth/password', { current_password, new_password })
+		},
+		users: {
+			list: () => get<User[]>('/users'),
+			directory: () => get<UserBrief[]>('/users/directory'),
+			create: (body: { username: string; display_name?: string; role: UserRole; password: string; all_projects?: boolean }) =>
+				post<User>('/users', body),
+			update: (id: UUID, body: { display_name?: string; role?: UserRole; disabled?: boolean; password?: string }) =>
+				patch<User>(`/users/${id}`, body)
 		},
 		clients: {
 			list: () => get<Client[]>('/clients'),
 			create: (body: { name: string; notes?: string }) => post<Client>('/clients', body)
 		},
 		projects: {
+			members: (id: UUID) => get<UserBrief[]>(`/projects/${id}/members`),
+			setMembers: (id: UUID, userIds: UUID[]) => request<UserBrief[]>(fetchFn, 'PUT', `/projects/${id}/members`, userIds),
 			list: () => get<ProjectSummary[]>('/projects'),
 			get: (id: UUID) => get<Project>(`/projects/${id}`),
 			create: (body: Partial<Project> & { codename: string; name: string }) =>

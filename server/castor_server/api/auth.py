@@ -19,6 +19,8 @@ async def login(body: LoginRequest, response: Response, db: DB):
     ).scalar_one_or_none()
     if user is None or not verify_password(body.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid username or password")
+    if user.disabled_at is not None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "This account is disabled")
     token = create_session_token(user.id)
     response.set_cookie(
         settings.cookie_name,

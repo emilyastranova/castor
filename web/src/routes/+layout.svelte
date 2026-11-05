@@ -10,12 +10,13 @@
 	import { snackbar } from '$lib/snackbar.svelte';
 	import ConfirmHost from '$lib/components/ConfirmHost.svelte';
 	import NotificationBell from '$lib/components/NotificationBell.svelte';
+	import AccountDialog from '$lib/components/AccountDialog.svelte';
 	import { notifications } from '$lib/notifications.svelte';
 
 	let { data, children } = $props();
 	let dark = $state(false);
 
-	const nav = [
+	const baseNav = [
 		{ href: '/projects', icon: 'view_kanban', label: 'Projects' },
 		{ href: '/playbooks', icon: 'account_tree', label: 'Playbooks' },
 		{ href: '/commands', icon: 'menu_book', label: 'Commands' },
@@ -24,6 +25,8 @@
 		{ href: '/agents', icon: 'dns', label: 'Agents' },
 		{ href: '/activity', icon: 'history', label: 'Activity' }
 	];
+	let nav = $derived(data.user?.role === 'admin' ? [...baseNav, { href: '/users', icon: 'group', label: 'Users' }] : baseNav);
+	let accountOpen = $state(false);
 
 	onMount(() => {
 		initTheme();
@@ -85,8 +88,9 @@
 						{/snippet}
 						<div class="px-3 py-2">
 							<p class="title-small text-on-surface">{data.user?.display_name}</p>
-							<p class="body-small text-on-surface-variant">@{data.user?.username}</p>
+							<p class="body-small text-on-surface-variant">@{data.user?.username} · {data.user?.role}</p>
 						</div>
+						<MenuItem icon="manage_accounts" onclick={() => (accountOpen = true)}>Account and password</MenuItem>
 						<MenuItem icon="logout" onclick={logout}>Sign out</MenuItem>
 					</Menu>
 				</div>
@@ -99,5 +103,6 @@
 {:else}
 	{@render children()}
 {/if}
+{#if data.user}<AccountDialog bind:open={accountOpen} user={data.user} />{/if}
 <Snackbar />
 <ConfirmHost />

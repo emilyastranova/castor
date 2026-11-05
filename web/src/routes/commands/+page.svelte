@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { canEdit } from '$lib/session';
 	import type { CommandDefinition } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Card, Chip, Dialog, Icon, TextField, TopAppBar } from '$lib/m3';
@@ -102,7 +103,7 @@ outputs:
 			<Icon name="search" size={20} class="text-on-surface-variant" />
 			<input class="h-10 w-44 bg-transparent body-medium text-on-surface outline-none placeholder:text-on-surface-variant" placeholder="Filter commands" bind:value={filter} autocomplete="off" />
 		</label>
-		<Button icon="add" class="ml-2" onclick={() => openNew()}>New command</Button>
+		{#if canEdit()}<Button icon="add" class="ml-2" onclick={() => openNew()}>New command</Button>{/if}
 	{/snippet}
 </TopAppBar>
 

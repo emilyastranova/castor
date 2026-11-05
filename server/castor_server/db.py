@@ -31,7 +31,8 @@ _ensure_sqlite_dir(settings.database_url)
 # SQLite: a fresh connection per session (NullPool). Opening a local file is cheap, and pooled
 # aiosqlite connections are tied to the event loop that created them, which breaks when work
 # runs on more than one loop (e.g. the test client's WebSocket sessions).
-_pool = {"poolclass": NullPool} if settings.database_url.startswith("sqlite") else {}
+# The test suite can ask for the same with other databases (db_null_pool).
+_pool = {"poolclass": NullPool} if settings.database_url.startswith("sqlite") or settings.db_null_pool else {}
 engine = create_async_engine(settings.database_url, echo=False, future=True, **_pool)
 
 if settings.database_url.startswith("sqlite"):
@@ -81,6 +82,7 @@ async def run_migrations(url: str | None = None) -> None:
             tables = await conn.run_sync(lambda c: set(inspect(c).get_table_names()))
         if "alembic_version" in tables:
             await _repair_orphaned_revision(probe, url)
+            await _backup_before_upgrade(probe, url)
     finally:
         await probe.dispose()
 
@@ -90,6 +92,27 @@ async def run_migrations(url: str | None = None) -> None:
         log.info("existing database has no migration history; stamping %s", BASELINE_REVISION)
         await asyncio.to_thread(command.stamp, cfg, BASELINE_REVISION)
     await asyncio.to_thread(command.upgrade, cfg, "head")
+
+
+async def _backup_before_upgrade(probe, url: str) -> None:
+    """Copy a SQLite database aside before migrations change it. (Postgres can't be copied
+    from here: back it up with pg_dump before updating, see README.)"""
+    from alembic.script import ScriptDirectory
+
+    async with probe.connect() as conn:
+        current = (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar()
+    head = ScriptDirectory.from_config(alembic_config(url)).get_current_head()
+    if current == head:
+        return
+    if not url.startswith("sqlite"):
+        log.warning("applying database migrations (%s → %s); make sure you have a backup", current, head)
+        return
+    path = Path(url.split("///", 1)[-1])
+    backup = path.parent / "backups" / f"{path.stem}-before-upgrade-{current}{path.suffix}"
+    backup.parent.mkdir(parents=True, exist_ok=True)
+    if not backup.exists():
+        shutil.copy2(path, backup)
+    log.info("database upgrade %s → %s; backed up to %s", current, head, backup)
 
 
 async def _repair_orphaned_revision(probe, url: str) -> None:

@@ -13,8 +13,9 @@ from sqlalchemy import func, select
 from .. import models as m
 from .. import variables as v
 from .. import vault
+from ..access import visible_project_ids
 from ..config import settings
-from ..deps import DB, CurrentUser, parse_uuid
+from ..deps import DB, CurrentUser, Operator, parse_uuid
 from ..services import actor_of, record_activity
 
 router = APIRouter(prefix="/variables", tags=["variables"])
@@ -141,9 +142,9 @@ def _set_out(row: m.VariableSet, spec: v.KindSpec) -> SetOut:
     )
 
 
-async def _set_or_404(db, set_id: str) -> tuple[m.VariableSet, v.KindSpec]:
+async def _set_or_404(db, set_id: str, user: m.User) -> tuple[m.VariableSet, v.KindSpec]:
     row = await db.get(m.VariableSet, parse_uuid(set_id))
-    if row is None:
+    if row is None or not _can_see_set(row, await visible_project_ids(db, user)):
         raise HTTPException(404, "Variable set not found")
     _, spec = await _kind_or_404(db, row.kind_id)
     return row, spec
@@ -183,7 +184,7 @@ async def list_kinds(db: DB, _: CurrentUser):
 
 
 @router.post("/kinds", response_model=KindOut, status_code=201)
-async def create_kind(body: KindIn, db: DB, _: CurrentUser):
+async def create_kind(body: KindIn, db: DB, _: Operator):
     spec = _parse_kind(body)
     if await db.get(m.VariableKind, spec.id) is not None:
         raise HTTPException(409, f"A variable kind with id “{spec.id}” already exists")
@@ -197,7 +198,7 @@ async def create_kind(body: KindIn, db: DB, _: CurrentUser):
 
 
 @router.put("/kinds/{kind_id}", response_model=KindOut)
-async def update_kind(kind_id: str, body: KindIn, db: DB, _: CurrentUser):
+async def update_kind(kind_id: str, body: KindIn, db: DB, _: Operator):
     row, old = await _kind_or_404(db, kind_id)
     if row.origin == "builtin":
         raise HTTPException(409, "Built-in kinds are read-only; create your own to customise")
@@ -221,7 +222,7 @@ async def update_kind(kind_id: str, body: KindIn, db: DB, _: CurrentUser):
 
 
 @router.delete("/kinds/{kind_id}", status_code=204)
-async def delete_kind(kind_id: str, db: DB, _: CurrentUser):
+async def delete_kind(kind_id: str, db: DB, _: Operator):
     row, _spec = await _kind_or_404(db, kind_id)
     if row.origin == "builtin":
         raise HTTPException(409, "Built-in kinds cannot be deleted")
@@ -235,14 +236,24 @@ async def delete_kind(kind_id: str, db: DB, _: CurrentUser):
 # ---------- sets ----------
 
 
+def _can_see_set(row: m.VariableSet, visible) -> bool:
+    """Sets for every project are for everyone; a set limited to some projects is seen
+    by those who can see one of them."""
+    if visible is None or not row.project_ids:
+        return True
+    return any(uuid.UUID(str(p)) in visible for p in row.project_ids)
+
+
 @router.get("/sets", response_model=list[SetOut])
 async def list_sets(
-    db: DB, _: CurrentUser, kind: str | None = None, project_id: str | None = None
+    db: DB, user: CurrentUser, kind: str | None = None, project_id: str | None = None
 ):
     query = select(m.VariableSet).where(m.VariableSet.ephemeral.is_(False)).order_by(m.VariableSet.name)
     if kind:
         query = query.where(m.VariableSet.kind_id == kind)
     rows = (await db.execute(query)).scalars().all()
+    visible = await visible_project_ids(db, user)
+    rows = [r for r in rows if _can_see_set(r, visible)]
     if project_id:
         rows = [r for r in rows if v.allowed_in(r, project_id)]
     kinds = await v.kinds_by_id(db)
@@ -250,13 +261,13 @@ async def list_sets(
 
 
 @router.get("/sets/{set_id}", response_model=SetOut)
-async def get_set(set_id: str, db: DB, _: CurrentUser):
-    row, spec = await _set_or_404(db, set_id)
+async def get_set(set_id: str, db: DB, user: CurrentUser):
+    row, spec = await _set_or_404(db, set_id, user)
     return _set_out(row, spec)
 
 
 @router.post("/sets", response_model=SetOut, status_code=201)
-async def create_set(body: SetIn, db: DB, user: CurrentUser):
+async def create_set(body: SetIn, db: DB, user: Operator):
     _, spec = await _kind_or_404(db, body.kind_id)
     if body.ephemeral:
         name = f"manual-{uuid.uuid4().hex[:12]}"
@@ -280,8 +291,8 @@ async def create_set(body: SetIn, db: DB, user: CurrentUser):
 
 
 @router.patch("/sets/{set_id}", response_model=SetOut)
-async def update_set(set_id: str, body: SetPatch, db: DB, _: CurrentUser):
-    row, spec = await _set_or_404(db, set_id)
+async def update_set(set_id: str, body: SetPatch, db: DB, user: Operator):
+    row, spec = await _set_or_404(db, set_id, user)
     if body.ephemeral is False and row.ephemeral:
         if not body.name:
             raise HTTPException(422, "name: enter a name to save it to Variables")
@@ -303,17 +314,17 @@ async def update_set(set_id: str, body: SetPatch, db: DB, _: CurrentUser):
 
 
 @router.delete("/sets/{set_id}", status_code=204)
-async def delete_set(set_id: str, db: DB, _: CurrentUser):
-    row, _spec = await _set_or_404(db, set_id)
+async def delete_set(set_id: str, db: DB, user: Operator):
+    row, _spec = await _set_or_404(db, set_id, user)
     await db.delete(row)
     await db.commit()
 
 
 @router.put("/sets/{set_id}/files/{field}", response_model=SetOut)
 async def upload_file(
-    set_id: str, field: str, db: DB, _: CurrentUser, file: Annotated[UploadFile, File()]
+    set_id: str, field: str, db: DB, user: Operator, file: Annotated[UploadFile, File()]
 ):
-    row, spec = await _set_or_404(db, set_id)
+    row, spec = await _set_or_404(db, set_id, user)
     f = spec.field(field)
     if f is None or not f.is_file:
         raise HTTPException(422, f"{field} is not a file field of {spec.id}")
@@ -326,8 +337,8 @@ async def upload_file(
 
 
 @router.delete("/sets/{set_id}/files/{field}", response_model=SetOut)
-async def delete_file(set_id: str, field: str, db: DB, _: CurrentUser):
-    row, spec = await _set_or_404(db, set_id)
+async def delete_file(set_id: str, field: str, db: DB, user: Operator):
+    row, spec = await _set_or_404(db, set_id, user)
     files = dict(row.files or {})
     files.pop(field, None)
     row.files = files
@@ -336,10 +347,10 @@ async def delete_file(set_id: str, field: str, db: DB, _: CurrentUser):
 
 
 @router.post("/sets/{set_id}/reveal/{field}", response_model=FieldValue)
-async def reveal(set_id: str, field: str, db: DB, user: CurrentUser):
+async def reveal(set_id: str, field: str, db: DB, user: Operator):
     """A field's stored value. Reading a secret or secret file is recorded in the
     activity feed."""
-    row, spec = await _set_or_404(db, set_id)
+    row, spec = await _set_or_404(db, set_id, user)
     try:
         f, value = v.read_field(row, spec, field)
     except v.VariableError as exc:

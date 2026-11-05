@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import settings
 from .db import get_session
-from .models import User
+from .models import User, UserRole
 from .security import decode_session_token
 
 DB = Annotated[AsyncSession, Depends(get_session)]
@@ -46,14 +46,36 @@ async def current_user(request: Request, db: DB) -> User:
     user = await _load_user(db, _token_from_request(request))
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
+    if user.disabled_at is not None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "This account is disabled")
     return user
 
 
 async def websocket_user(ws: WebSocket, db: AsyncSession) -> User | None:
-    return await _load_user(db, _token_from_websocket(ws))
+    user = await _load_user(db, _token_from_websocket(ws))
+    return user if user is not None and user.disabled_at is None else None
 
 
 CurrentUser = Annotated[User, Depends(current_user)]
+
+ROLE_ERRORS = {
+    UserRole.operator: "Viewers can look but not change anything; ask an admin for the operator role",
+    UserRole.admin: "Only admins can do this",
+}
+
+
+def _needs(role: UserRole):
+    async def check(user: CurrentUser) -> User:
+        if not user.can(role):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, ROLE_ERRORS[role])
+        return user
+
+    return check
+
+
+# An operator or admin (anything that changes something); an admin.
+Operator = Annotated[User, Depends(_needs(UserRole.operator))]
+Admin = Annotated[User, Depends(_needs(UserRole.admin))]
 
 
 def parse_uuid(value: str) -> uuid.UUID:

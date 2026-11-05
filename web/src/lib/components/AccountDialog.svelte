@@ -1,0 +1,73 @@
+<script lang="ts">
+	import { invalidateAll } from '$app/navigation';
+	import type { User } from '$lib/api';
+	import { api, ApiError } from '$lib/api';
+	import { Button, Dialog, TextField } from '$lib/m3';
+	import { snackbar } from '$lib/snackbar.svelte';
+	import { ROLE_LABELS } from '$lib/session';
+
+	/** The signed-in user's own account: display name and password. */
+	interface Props {
+		open: boolean;
+		user: User;
+	}
+	let { open = $bindable(false), user }: Props = $props();
+
+	let name = $state('');
+	let current = $state('');
+	let next = $state('');
+	let repeat = $state('');
+	let saving = $state(false);
+	let error = $state<string | null>(null);
+	let openedFor = false;
+	$effect(() => {
+		if (open === openedFor) return;
+		openedFor = open;
+		if (open) {
+			name = user.display_name;
+			current = next = repeat = '';
+			error = null;
+		}
+	});
+
+	let mismatch = $derived(!!repeat && next !== repeat);
+
+	async function save() {
+		saving = true;
+		error = null;
+		try {
+			if (name.trim() && name.trim() !== user.display_name) await api().auth.updateMe(name.trim());
+			if (next) await api().auth.changePassword(current, next);
+			snackbar.show(next ? 'Password changed' : 'Saved');
+			open = false;
+			await invalidateAll();
+		} catch (err) {
+			error = err instanceof ApiError ? err.message : 'Could not save';
+		} finally {
+			saving = false;
+		}
+	}
+</script>
+
+<Dialog bind:open title="Your account" icon="account_circle" size="sm">
+	<div class="flex flex-col gap-4 pt-2 pb-2">
+		<p class="body-medium text-on-surface-variant">
+			@{user.username} · {ROLE_LABELS[user.role].label}: {ROLE_LABELS[user.role].detail.toLowerCase()}
+		</p>
+		<TextField label="Display name" bind:value={name} />
+		<p class="mt-2 label-large text-on-surface">Change password</p>
+		<TextField label="Current password" type="password" bind:value={current} autocomplete="current-password" />
+		<TextField label="New password" type="password" bind:value={next} autocomplete="new-password" supporting="At least 8 characters" />
+		<TextField label="New password again" type="password" bind:value={repeat} autocomplete="new-password" error={mismatch ? 'doesn’t match' : null} />
+		{#if error}<p class="body-small text-error">{error}</p>{/if}
+	</div>
+	{#snippet actions()}
+		<Button variant="text" onclick={() => (open = false)}>Cancel</Button>
+		<Button
+			icon="check"
+			loading={saving}
+			disabled={!name.trim() || (!!next && (next.length < 8 || next !== repeat || !current))}
+			onclick={save}>Save</Button
+		>
+	{/snippet}
+</Dialog>

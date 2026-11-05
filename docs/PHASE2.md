@@ -1,8 +1,7 @@
 # Phase 2 design: command library, structured outputs, playbooks
 
-Status (2026-10-27): 2a, 2b and 2c are built, along with several things the original plan
-didn't have (see [Built beyond the plan](#built-beyond-the-plan)). Still to do:
-users and roles (2f).
+Status (2026-11-04): every slice is built (2a–2f), along with several things the original
+plan didn't have (see [Built beyond the plan](#built-beyond-the-plan)).
 Roadmap item **M2** in [ARCHITECTURE.md](ARCHITECTURE.md). The sections below keep the
 original design (decided 2026-10-15), with notes on how each part was actually built.
 
@@ -17,7 +16,7 @@ parts. They are listed in build order; each one is usable on its own.
 | 2c. Playbooks (runs as cards) | A chain of blocks becomes linked cards that dispatch as their inputs become ready | 2b | Built |
 | 2d. Playbook graph editor | Drag blocks and wire outputs to inputs | 2c | Built |
 | 2e. Per-agent tokens | Enroll and revoke agents individually | nothing | Built |
-| 2f. Users and roles | Real accounts, project membership, viewer/operator/admin | nothing | Not started |
+| 2f. Users and roles | Real accounts, project membership, viewer/operator/admin | nothing | Built |
 
 2e and 2f are independent of the playbook track and can be slotted in anywhere.
 
@@ -170,6 +169,15 @@ User CRUD for admins, roles `admin` / `operator` / `viewer`, per-project members
 authorization checks in the API (viewers read-only; operators can run jobs; admins manage
 users, agents and tokens). Comment/attachment author checks reuse this.
 
+As built (see Auth in ARCHITECTURE.md): one global role per user, and membership decides
+which projects a non-admin sees (no per-project roles). Operators also edit the shared
+libraries and create projects (becoming members). Users are disabled, not deleted, so
+their history keeps its authors. The UI socket filters events by what each user can see.
+The migration keeps existing access: `is_admin` → admin, others → operator, and every
+existing user becomes a member of every existing project. Tested on SQLite and Postgres,
+including an install with hand-made users; the server test suite also runs against
+Postgres with `CASTOR_TEST_DATABASE_URL`.
+
 ## Built beyond the plan
 
 - **Transform steps** (`playbook_transforms.py`): server-side steps between commands that
@@ -190,7 +198,6 @@ users, agents and tokens). Comment/attachment author checks reuse this.
 
 ## Next
 
-- 2f users and roles (above).
 - An automated resolver for paused steps: an AI model (Gemini) that reads an unexpected
   result and picks retry (possibly with a corrected command), continue or skip, falling
   back to asking a person. `services.resolve_step` already takes an `actor` for this.

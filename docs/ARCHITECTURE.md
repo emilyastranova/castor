@@ -29,7 +29,7 @@ Client 1──* Project 1──* BoardColumn 1──* Task 1──* Job 1──*
                         └──* ActivityEvent
 Agent 1──* Job
       1──* AgentToken (an unused token has no agent yet)
-User   (single admin in M1; multi-user in M2)
+User *──* Project (project_members; admins see every project)
 ```
 
 * **BoardColumn.role** is one of `backlog`, `todo`, `active`, `review`, `done` or null.
@@ -283,22 +283,45 @@ Authenticated by the session cookie. The server broadcasts every domain event as
 `{"type":"event","name":"task.moved","project_id":"…","data":{…}}`. Event names:
 `project.updated`, `column.*`, `task.created|updated|moved|deleted`, `job.updated`,
 `job.log`, `job.outputs`, `comment.created`, `attachment.created`, `agent.updated`,
-`playbook_run.updated`, `agent_tokens.changed`, `notification.created|read` (every browser receives them; the
+`playbook_run.updated`, `agent_tokens.changed`, `notification.created|read`,
+`project.members`, `user.changed` (every browser receives them; the
 client keeps its own user's).
 The client keeps page state in sync by applying these to its stores.
 
 ## Auth
 
-Single local admin for M1. `POST /api/auth/login` sets an httpOnly `castor_session`
-cookie (JWT). The same token is accepted as `Authorization: Bearer` for scripts.
-The first admin is created from `CASTOR_ADMIN_USERNAME` / `CASTOR_ADMIN_PASSWORD` on
-first start.
+`POST /api/auth/login` sets an httpOnly `castor_session` cookie (JWT). The same token is
+accepted as `Authorization: Bearer` for scripts. The first admin is created from
+`CASTOR_ADMIN_USERNAME` / `CASTOR_ADMIN_PASSWORD` when the database has no users.
+
+**Roles** (`users.role`): `viewer` (read-only), `operator` (changes things in their
+projects, creates projects, edits the command/playbook/variable libraries, reveals
+secrets), `admin` (also users, agents and agent tokens, deleting projects, and every
+project). `deps.Operator` / `deps.Admin` guard endpoints by role; there must always be one
+active admin. `users.disabled_at` blocks sign-in and existing sessions (checked on every
+request).
+
+**Projects** are seen by admins and by their members (`project_members`); `access.py` has
+the checks. Anything under a project (board, cards, jobs, logs, attachments, playbook runs,
+activity) follows it, and asking for something you can't see answers 404. Whoever creates
+a project becomes a member; members who are operators, and admins, edit the member list
+(`PUT /api/projects/{id}/members`). Variable sets limited to some projects are seen by
+whoever sees one of them. Notifications go to the admins and members of their project.
+
+The UI socket filters events per user (`ws/ui.py`): events of a project go only to those
+who see it, `bus.publish(..., user_id=)` events only to that user. `project.members` and
+`user.changed` make the affected sockets reload what they may see (a disabled user's
+sockets are closed).
+
+The migration to roles (`e5b1c7a93d42`) maps `is_admin` to admin, everyone else to
+operator, and makes every existing user a member of every existing project.
+`run_migrations` copies a SQLite database to `data/backups/` before applying migrations.
 
 ## Roadmap
 
 * **M1** — this document. Board, cards, agents, container jobs, streamed output,
   comments, attachments/screenshots, custom fields, activity feed.
-* **M2** (in progress, see [PHASE2.md](PHASE2.md)) — built: command library, parsers (nmap
+* **M2** (done, see [PHASE2.md](PHASE2.md)) — built: command library, parsers (nmap
   XML → hosts/ports, etc.), playbooks with transforms, conditions and decisions, variables,
-  notifications, visual playbook editor, per-agent tokens. To do: multi-user + roles.
+  notifications, visual playbook editor, per-agent tokens, users with roles and project membership.
 * **M3** — reporting, run summaries, artifact export, agent auto-scaling.

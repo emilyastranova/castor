@@ -32,9 +32,9 @@ the workflow's execution log.
 transform steps reshape one tool's results into the next tool's input, and every
 step appears on the board as its own card.
 
-> **■ Status: Phase 2 in progress.** The board, agents, command library, parsers,
-> playbooks, the visual playbook editor and per-agent tokens work. Multiple users
-> and roles are next. Refer to [docs/PHASE2.md](docs/PHASE2.md).
+> **■ Status: Phase 2 complete.** The board, agents with their own tokens, command
+> library, parsers, playbooks with a visual editor, and users with roles all work. Refer
+> to [docs/PHASE2.md](docs/PHASE2.md).
 
 ---
 
@@ -137,6 +137,27 @@ docker compose up -d --build
 
 Open <http://localhost:8080> and log in with the admin credentials from `.env`.
 Add `--profile agent` to also run an agent inside the stack.
+
+Add more people under **Users** (admins only). Each person is a **viewer** (read-only),
+**operator** (works in their projects and edits the command, playbook and variable
+libraries) or **admin** (everything). Admins see every project; everyone else sees the
+projects they're a member of (a project's **Members**).
+
+### Upgrading
+
+The server applies database migrations when it starts. Back up first:
+
+```bash
+# Compose (Postgres)
+docker compose exec -T db pg_dump -U castor castor > castor-$(date +%F).sql
+git pull && docker compose up -d --build
+# to restore: docker compose exec -T db psql -U castor castor < castor-YYYY-MM-DD.sql
+```
+
+A SQLite database is copied to `data/backups/` automatically before migrations run.
+Upgrading to roles keeps everyone's access: users who were admins stay admins, everyone
+else becomes an operator, and every existing user becomes a member of every existing
+project.
 
 ## Development
 

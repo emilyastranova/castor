@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { isAdmin } from '$lib/session';
 	import { invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { Agent, AgentToken, Job } from '$lib/api';
@@ -162,7 +163,7 @@
 <TopAppBar title="Agents" subtitle="{online} of {agents.length} online">
 	{#snippet actions()}
 		<IconButton icon="refresh" label="Refresh" onclick={() => invalidateAll()} />
-		<Button variant="tonal" icon="add" onclick={() => { revealed = null; enrollOpen = true; }}>Enroll agent</Button>
+		{#if isAdmin()}<Button variant="tonal" icon="add" onclick={() => { revealed = null; enrollOpen = true; }}>Enroll agent</Button>{/if}
 	{/snippet}
 </TopAppBar>
 
@@ -201,8 +202,8 @@
 									<span class="flex items-center gap-1 text-error"><Icon name="key_off" size={14} />token revoked</span>
 								{:else}
 									<span class="flex min-w-0 items-center gap-1 text-on-surface" title="Last used {absoluteTime(t.last_used_at)}"><Icon name="key" size={14} /><span class="truncate font-mono">{t.prefix}…</span></span>
-									<button type="button" class="label-small text-primary hover:underline" onclick={() => rotate(t, a.name)}>Rotate</button>
-									<button type="button" class="label-small text-error hover:underline" onclick={() => revoke(t, `${a.name}'s token`)}>Revoke</button>
+									{#if isAdmin()}<button type="button" class="label-small text-primary hover:underline" onclick={() => rotate(t, a.name)}>Rotate</button>
+									<button type="button" class="label-small text-error hover:underline" onclick={() => revoke(t, `${a.name}'s token`)}>Revoke</button>{/if}
 								{/if}
 							{:else}
 								<span class="flex items-center gap-1 {sharedSecretAllowed ? 'text-on-surface' : 'text-error'}" title="Connects with the shared CASTOR_AGENT_SECRET. Enroll it with a token: forget it, create a token, restart it with --token.">
@@ -214,8 +215,10 @@
 					<div class="flex flex-wrap items-center gap-1">
 						{#each a.tags as t (t)}<Chip variant="suggestion">{t}</Chip>{/each}
 						<span class="flex-1"></span>
-						<IconButton icon="edit" label="Edit agent" size="sm" onclick={() => edit(a)} />
-						<IconButton icon="delete" label="Forget agent" size="sm" disabled={a.connected} onclick={() => removeAgent(a)} />
+						{#if isAdmin()}
+							<IconButton icon="edit" label="Edit agent" size="sm" onclick={() => edit(a)} />
+							<IconButton icon="delete" label="Forget agent" size="sm" disabled={a.connected} onclick={() => removeAgent(a)} />
+						{/if}
 					</div>
 				</Card>
 			{/each}

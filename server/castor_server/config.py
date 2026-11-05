@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     # Database. SQLite is fine for local development; Postgres for everything else.
     database_url: str = "sqlite+aiosqlite:///./data/castor.db"
     auto_migrate: bool = True  # apply database migrations on startup
+    db_null_pool: bool = False  # no connection pool (tests that run on several event loops)
 
     # Auth
     secret_key: str = "change-me-castor-dev-secret"

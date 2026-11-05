@@ -3,7 +3,10 @@ import tempfile
 from pathlib import Path
 
 _tmp = Path(tempfile.mkdtemp(prefix="castor-test-"))
-os.environ["CASTOR_DATABASE_URL"] = f"sqlite+aiosqlite:///{_tmp / 'test.db'}"
+# CASTOR_TEST_DATABASE_URL runs the suite against another database, e.g. an empty Postgres:
+# postgresql+asyncpg://postgres:pw@localhost:55432/postgres
+os.environ["CASTOR_DATABASE_URL"] = os.environ.get("CASTOR_TEST_DATABASE_URL") or f"sqlite+aiosqlite:///{_tmp / 'test.db'}"
+os.environ["CASTOR_DB_NULL_POOL"] = "true"
 os.environ["CASTOR_DATA_DIR"] = str(_tmp / "data")
 os.environ["CASTOR_AGENT_SECRET"] = "test-agent-secret"
 os.environ["CASTOR_ADMIN_USERNAME"] = "admin"

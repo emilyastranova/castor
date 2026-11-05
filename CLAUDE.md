@@ -142,7 +142,12 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   library commands through `command_library.apply_library` (not `apply_to_task`) so these
   are expanded.
 - Auth: `POST /api/auth/login` sets an httpOnly cookie; the same JWT works as
-  `Authorization: Bearer`. Agents authenticate with their own token (`agent_tokens.py`:
+  `Authorization: Bearer`. Users have a role (viewer/operator/admin): guard mutations
+  with `deps.Operator` / `deps.Admin`, and anything under a project with `access.py`
+  (`project_or_404`, `task_or_404`, `job_or_404`, `check_project`, `visible_project_ids`
+  for lists; 404 for what the user can't see). Events of a project only reach sockets
+  whose user sees it, so keep passing `project_id` to `bus.publish` (and `user_id=` for
+  one user's events). Agents authenticate with their own token (`agent_tokens.py`:
   only the SHA-256 is stored; the first agent to use an unused token is bound to it) or,
   while `CASTOR_ALLOW_SHARED_AGENT_SECRET` is on, the shared `CASTOR_AGENT_SECRET`, which
   is never accepted for an agent that has or had a token. Revoke/rotate call
@@ -150,7 +155,8 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
 - Config is `pydantic-settings` with the `CASTOR_` prefix (`config.py`).
 - SQLite uses `NullPool` (aiosqlite connections are bound to the event loop that opened
   them; the test client runs WebSocket sessions on another loop).
-- Tests use Starlette's `TestClient` with a temp SQLite DB set via env vars in
+- Tests use Starlette's `TestClient` with a temp SQLite DB (or
+  `CASTOR_TEST_DATABASE_URL`, e.g. a throwaway Postgres container) set via env vars in
   `tests/conftest.py` **before** the app is imported; the `auth` fixture clears the login
   cookie so tests authenticate only via the Bearer header. Test files share one database, so
   don't assume a test's data is the only data (look agents/projects up by name); the fake agent in `test_flow.py`

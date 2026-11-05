@@ -1,12 +1,10 @@
 """Variable kinds and sets: storage, the API, binding to cards and playbooks, dispatch."""
 
+import asyncio
 import base64
 import json
-import sqlite3
 import time
 import uuid
-
-from castor_server.config import settings
 
 COMMAND = """
 id: vartest-login
@@ -60,9 +58,16 @@ def test_secrets_are_encrypted_and_hidden_until_revealed(client, auth):
     assert "Sup3rS3cret!" not in json.dumps(client.get("/api/variables/sets", headers=auth).json())
 
     # Stored encrypted, not as plain text.
-    db = sqlite3.connect(settings.database_url.split("///", 1)[1])
-    raw = db.execute("SELECT secrets FROM variable_sets WHERE name = ?", (s["name"],)).fetchone()[0]
-    assert "Sup3rS3cret!" not in raw
+    async def stored():
+        from sqlalchemy import text
+
+        from castor_server.db import SessionLocal
+
+        async with SessionLocal() as db:
+            row = await db.execute(text("SELECT secrets FROM variable_sets WHERE name = :n"), {"n": s["name"]})
+            return str(row.scalar_one())
+
+    assert "Sup3rS3cret!" not in asyncio.run(stored())
 
     r = client.post(f"/api/variables/sets/{s['id']}/reveal/password", headers=auth)
     assert r.json()["value"] == "Sup3rS3cret!"

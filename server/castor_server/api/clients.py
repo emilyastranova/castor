@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
 from .. import models as m
-from ..deps import DB, CurrentUser, parse_uuid
+from ..deps import DB, Admin, CurrentUser, Operator, parse_uuid
 from ..schemas import ClientIn, ClientOut
 
 router = APIRouter(prefix="/clients", tags=["clients"])
@@ -16,7 +16,7 @@ async def list_clients(db: DB, _: CurrentUser):
 
 
 @router.post("", response_model=ClientOut, status_code=201)
-async def create_client(body: ClientIn, db: DB, _: CurrentUser):
+async def create_client(body: ClientIn, db: DB, _: Operator):
     client = m.Client(name=body.name, notes=body.notes)
     db.add(client)
     await db.commit()
@@ -24,7 +24,7 @@ async def create_client(body: ClientIn, db: DB, _: CurrentUser):
 
 
 @router.patch("/{client_id}", response_model=ClientOut)
-async def update_client(client_id: str, body: ClientIn, db: DB, _: CurrentUser):
+async def update_client(client_id: str, body: ClientIn, db: DB, _: Operator):
     client = await db.get(m.Client, parse_uuid(client_id))
     if client is None:
         raise HTTPException(404, "Client not found")
@@ -35,7 +35,7 @@ async def update_client(client_id: str, body: ClientIn, db: DB, _: CurrentUser):
 
 
 @router.delete("/{client_id}", status_code=204)
-async def delete_client(client_id: str, db: DB, _: CurrentUser):
+async def delete_client(client_id: str, db: DB, _: Admin):
     client = await db.get(m.Client, parse_uuid(client_id))
     if client is None:
         raise HTTPException(404, "Client not found")

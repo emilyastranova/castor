@@ -14,9 +14,10 @@ from . import (
     playbooks,
     projects,
     tasks,
+    users,
     variables,
 )
 
 api_router = APIRouter(prefix="/api")
-for module in (auth, clients, projects, tasks, jobs, agents, attachments, activity, commands, parsers, playbooks, variables, notifications, agent_tokens):
+for module in (auth, clients, projects, tasks, jobs, agents, attachments, activity, commands, parsers, playbooks, variables, notifications, agent_tokens, users):
     api_router.include_router(module.router)

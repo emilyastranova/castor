@@ -8,7 +8,7 @@ from sqlalchemy import select
 from .. import agent_tokens
 from .. import models as m
 from ..config import settings
-from ..deps import DB, CurrentUser, parse_uuid
+from ..deps import DB, Admin, parse_uuid
 from ..events import bus
 from ..models import utcnow
 from ..orchestrator.gateway import gateway
@@ -38,7 +38,7 @@ async def _get(db: DB, token_id: str) -> m.AgentToken:
 
 
 @router.get("", response_model=AgentTokenList)
-async def list_tokens(db: DB, _: CurrentUser):
+async def list_tokens(db: DB, _: Admin):
     rows = (await db.execute(select(m.AgentToken).order_by(m.AgentToken.created_at.desc()))).scalars().all()
     return AgentTokenList(
         tokens=[await _out(db, r) for r in rows],
@@ -47,7 +47,7 @@ async def list_tokens(db: DB, _: CurrentUser):
 
 
 @router.post("", response_model=AgentTokenCreated, status_code=201)
-async def create_token(body: AgentTokenIn, db: DB, user: CurrentUser):
+async def create_token(body: AgentTokenIn, db: DB, user: Admin):
     """An enrollment token: the first agent that connects with it becomes its agent."""
     token, digest, prefix = agent_tokens.new_token()
     row = m.AgentToken(
@@ -73,7 +73,7 @@ async def create_token(body: AgentTokenIn, db: DB, user: CurrentUser):
 
 
 @router.post("/{token_id}/rotate", response_model=AgentTokenCreated)
-async def rotate_token(token_id: str, db: DB, user: CurrentUser):
+async def rotate_token(token_id: str, db: DB, user: Admin):
     """Replace the token; the old one stops working and its agent is disconnected."""
     row = await _get(db, token_id)
     if row.revoked_at is not None:
@@ -98,7 +98,7 @@ async def rotate_token(token_id: str, db: DB, user: CurrentUser):
 
 
 @router.post("/{token_id}/revoke", response_model=AgentTokenOut)
-async def revoke_token(token_id: str, db: DB, user: CurrentUser):
+async def revoke_token(token_id: str, db: DB, user: Admin):
     """Stop the token working now. Its agent is disconnected and can't reconnect with it
     (nor with the shared secret, until it's given a new token or forgotten)."""
     row = await _get(db, token_id)
@@ -122,7 +122,7 @@ async def revoke_token(token_id: str, db: DB, user: CurrentUser):
 
 
 @router.delete("/{token_id}", status_code=204)
-async def delete_token(token_id: str, db: DB, _: CurrentUser):
+async def delete_token(token_id: str, db: DB, _: Admin):
     """Remove a token that was revoked or never used."""
     row = await _get(db, token_id)
     if row.revoked_at is None and row.agent_id is not None:

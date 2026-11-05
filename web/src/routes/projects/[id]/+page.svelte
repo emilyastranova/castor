@@ -12,6 +12,8 @@
 	import NewTaskDialog from '$lib/components/NewTaskDialog.svelte';
 	import TaskDialog from '$lib/components/TaskDialog.svelte';
 	import ProjectDialog from '$lib/components/ProjectDialog.svelte';
+	import MembersDialog from '$lib/components/MembersDialog.svelte';
+	import { canEdit, isAdmin } from '$lib/session';
 	import ActivityFeed from '$lib/components/ActivityFeed.svelte';
 
 	let { data } = $props();
@@ -57,6 +59,8 @@
 	let newOpen = $state(false);
 	let newColumn = $state<Column | null>(null);
 	let editOpen = $state(false);
+	let membersOpen = $state(false);
+	let editable = $derived(canEdit());
 	let activityOpen = $state(false);
 	let filter = $state('');
 
@@ -138,18 +142,23 @@
 		<IconButton icon="history" label="Activity" selected={activityOpen} onclick={() => (activityOpen = !activityOpen)} />
 		<Menu>
 			{#snippet anchor()}<IconButton icon="more_vert" label="Project menu" />{/snippet}
-			<MenuItem icon="edit" onclick={() => (editOpen = true)}>Edit project</MenuItem>
+			<MenuItem icon="group" onclick={() => (membersOpen = true)}>Members</MenuItem>
+			{#if editable}<MenuItem icon="edit" onclick={() => (editOpen = true)}>Edit project</MenuItem>{/if}
 			<MenuItem icon="refresh" onclick={() => invalidateAll()}>Reload board</MenuItem>
-			<MenuItem icon="delete" danger onclick={deleteProject}>Delete project</MenuItem>
+			{#if isAdmin()}<MenuItem icon="delete" danger onclick={deleteProject}>Delete project</MenuItem>{/if}
 		</Menu>
-		<Button icon="add" class="ml-2" onclick={() => { newColumn = null; newOpen = true; }}>New card</Button>
+		{#if editable}
+			<Button icon="add" class="ml-2" onclick={() => { newColumn = null; newOpen = true; }}>New card</Button>
+		{:else}
+			<Chip variant="assist" icon="visibility">View only</Chip>
+		{/if}
 	{/snippet}
 </TopAppBar>
 
 <div class="flex min-h-0 flex-1">
 	<div class="flex min-h-0 flex-1 gap-3 overflow-x-auto px-4 pb-4">
 		{#each store.columns as column (column.id)}
-			<BoardColumn {column} tasks={filtered(column)} onopen={openTask} onadd={(c) => { newColumn = c; newOpen = true; }} onmove={move} />
+			<BoardColumn {column} tasks={filtered(column)} readonly={!editable} onopen={openTask} onadd={(c) => { newColumn = c; newOpen = true; }} onmove={move} />
 		{/each}
 	</div>
 	{#if activityOpen}
@@ -164,6 +173,7 @@
 </div>
 
 <NewTaskDialog bind:open={newOpen} projectId={store.project.id} columns={store.columns} column={newColumn} {agents} oncreated={(t) => { store.upsertTask(t); snackbar.show(`Created “${t.title}”`); }} />
+<MembersDialog bind:open={membersOpen} projectId={store.project.id} projectName={store.project.name} />
 <ProjectDialog bind:open={editOpen} clients={[]} project={store.project} onsaved={(p) => (store.project = p)} />
 
 {#if selectedTask}

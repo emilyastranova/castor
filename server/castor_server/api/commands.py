@@ -8,7 +8,7 @@ from .. import variables
 from ..command_library import definition_from_spec, ids_in_use, load_spec
 from ..command_render import ArgumentError, render_command
 from ..command_spec import CommandSpec, parse_spec
-from ..deps import DB, CurrentUser
+from ..deps import DB, CurrentUser, Operator
 from ..schemas import CommandDefinitionOut, CommandYamlIn, RenderIn, RenderOut
 
 router = APIRouter(prefix="/commands", tags=["commands"])
@@ -52,7 +52,7 @@ async def _check_vars(db, spec) -> None:
 
 
 @router.post("", response_model=CommandDefinitionOut, status_code=201)
-async def create_command(body: CommandYamlIn, db: DB, _: CurrentUser):
+async def create_command(body: CommandYamlIn, db: DB, _: Operator):
     spec = _parse_or_422(body.yaml)
     await _check_vars(db, spec)
     if await db.get(m.CommandDefinition, spec.id) is not None:
@@ -65,7 +65,7 @@ async def create_command(body: CommandYamlIn, db: DB, _: CurrentUser):
 
 
 @router.put("/{command_id}", response_model=CommandDefinitionOut)
-async def update_command(command_id: str, body: CommandYamlIn, db: DB, _: CurrentUser):
+async def update_command(command_id: str, body: CommandYamlIn, db: DB, _: Operator):
     row = await db.get(m.CommandDefinition, command_id)
     if row is None:
         raise HTTPException(404, "Command not found")
@@ -81,7 +81,7 @@ async def update_command(command_id: str, body: CommandYamlIn, db: DB, _: Curren
 
 
 @router.delete("/{command_id}", status_code=204)
-async def delete_command(command_id: str, db: DB, _: CurrentUser):
+async def delete_command(command_id: str, db: DB, _: Operator):
     row = await db.get(m.CommandDefinition, command_id)
     if row is None:
         raise HTTPException(404, "Command not found")

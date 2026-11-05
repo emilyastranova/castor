@@ -249,13 +249,16 @@ def test_edit_comment_requires_author_or_admin(client, auth):
 
     async def make_user():
         async with SessionLocal() as db:
-            user = m.User(username="viewer", display_name="viewer", password_hash=hash_password("x"), is_admin=False)
+            user = m.User(username="viewer", display_name="viewer", password_hash=hash_password("x"), role=m.UserRole.operator)
             db.add(user)
             await db.commit()
             return user.id
 
-    other = {"Authorization": f"Bearer {create_session_token(asyncio.run(make_user()))}"}
+    other_id = asyncio.run(make_user())
+    other = {"Authorization": f"Bearer {create_session_token(other_id)}"}
     project = client.get("/api/projects", headers=auth).json()[0]
+    members = [u["id"] for u in client.get(f"/api/projects/{project['id']}/members", headers=auth).json()]
+    client.put(f"/api/projects/{project['id']}/members", json=[*members, str(other_id)], headers=auth)
     task = client.post(f"/api/projects/{project['id']}/tasks", json={"title": "Owned"}, headers=auth).json()
     c = client.post(f"/api/tasks/{task['id']}/comments", json={"body": "mine"}, headers=auth).json()
     r = client.patch(f"/api/tasks/{task['id']}/comments/{c['id']}", json={"body": "theirs"}, headers=other)

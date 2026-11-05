@@ -93,3 +93,100 @@ def test_playbook_cards_survive_the_fk_change_and_now_cascade():
         db.execute("DELETE FROM playbook_runs WHERE id = 'r1'")
         assert db.execute("SELECT count(*) FROM tasks WHERE id = 't1'").fetchone() == (0,)
         db.close()
+
+
+def _seed_old_install(conn):
+    """What an install from before roles looks like: the initial admin plus two users made
+    by hand (one admin, one not), a project with a card, at the first schema revision."""
+    from datetime import UTC, datetime
+
+    import sqlalchemy as sa
+
+    t = sa.DateTime(timezone=True)
+    users = sa.table("users", *(sa.column(c) for c in ("username", "display_name", "password_hash", "is_admin")),
+                     sa.column("id", sa.Uuid), sa.column("created_at", t), sa.column("updated_at", t))
+    projects = sa.table("projects", *(sa.column(c) for c in ("codename", "name", "kind", "status", "description")),
+                        sa.column("settings", sa.JSON), sa.column("id", sa.Uuid), sa.column("created_at", t), sa.column("updated_at", t))
+    columns = sa.table("board_columns", *(sa.column(c) for c in ("name", "position", "role")),
+                       sa.column("id", sa.Uuid), sa.column("project_id", sa.Uuid), sa.column("created_at", t), sa.column("updated_at", t))
+    tasks = sa.table("tasks", *(sa.column(c) for c in ("title", "description", "kind", "command", "run_on_move", "priority", "position")),
+                     *(sa.column(c, sa.JSON) for c in ("agent_selector", "tags", "assignees", "custom_fields")),
+                     *(sa.column(c, sa.Uuid) for c in ("id", "project_id", "column_id", "created_by")),
+                     sa.column("created_at", t), sa.column("updated_at", t))
+    now = datetime(2026, 10, 15, 12, tzinfo=UTC)
+    stamp = {"created_at": now, "updated_at": now}
+    for label, name, admin in (("u1", "admin", True), ("u2", "alice", True), ("u3", "bob", False)):
+        conn.execute(users.insert().values(id=_uuid(label), username=name, display_name=name,
+                                           password_hash=f"hash-of-{name}", is_admin=admin, **stamp))
+    conn.execute(projects.insert().values(id=_uuid("p1"), codename="OLD-1", name="Old project", kind="internal",
+                                          status="active", description="", settings={}, **stamp))
+    conn.execute(columns.insert().values(id=_uuid("c1"), project_id=_uuid("p1"), name="To Do", position=1, role="todo", **stamp))
+    conn.execute(tasks.insert().values(id=_uuid("t1"), project_id=_uuid("p1"), column_id=_uuid("c1"), position=1,
+                                       title="Old card", description="", kind="manual", command="", agent_selector={},
+                                       run_on_move=True, priority=0, tags=[], assignees=[], custom_fields={},
+                                       created_by=_uuid("u3"), **stamp))
+
+
+def _uuid(label: str):
+    import uuid as _u
+
+    return _u.uuid5(_u.NAMESPACE_URL, label)
+
+
+def _check_upgraded(conn):
+    import sqlalchemy as sa
+
+    users = sa.table("users", sa.column("username"), sa.column("password_hash"), sa.column("role"), sa.column("disabled_at"))
+    members = sa.table("project_members", sa.column("user_id", sa.Uuid), sa.column("project_id", sa.Uuid))
+    tasks = sa.table("tasks", sa.column("title"), sa.column("created_by", sa.Uuid))
+    rows = {r.username: r for r in conn.execute(sa.select(users))}
+    assert {n: u.role for n, u in rows.items()} == {"admin": "admin", "alice": "admin", "bob": "operator"}
+    assert rows["bob"].password_hash == "hash-of-bob" and rows["bob"].disabled_at is None
+    assert set(conn.execute(sa.select(members.c.user_id, members.c.project_id))) == {
+        (_uuid(u), _uuid("p1")) for u in ("u1", "u2", "u3")
+    }
+    assert tuple(conn.execute(sa.select(tasks)).one()) == ("Old card", _uuid("u3"))
+
+
+def _upgrade_old_install(url: str):
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    async def run(fn):
+        engine = create_async_engine(url)
+        async with engine.begin() as conn:
+            await conn.run_sync(fn)
+        await engine.dispose()
+
+    command.upgrade(alembic_config(url), "c6680e13126d")  # the first schema
+    asyncio.run(run(_seed_old_install))
+    command.upgrade(alembic_config(url), "head")
+    asyncio.run(run(_check_upgraded))
+
+
+def test_old_install_with_hand_made_users_upgrades_on_sqlite():
+    with tempfile.TemporaryDirectory() as tmp:
+        _upgrade_old_install(f"sqlite+aiosqlite:///{Path(tmp) / 'castor.db'}")
+
+
+def test_old_install_with_hand_made_users_upgrades_on_postgres():
+    """Runs when CASTOR_TEST_POSTGRES_URL points at an empty Postgres database, e.g.
+    postgresql+asyncpg://postgres:pw@localhost:55432/postgres (compose uses Postgres)."""
+    import os
+
+    import pytest
+
+    url = os.environ.get("CASTOR_TEST_POSTGRES_URL")
+    if not url:
+        pytest.skip("CASTOR_TEST_POSTGRES_URL not set")
+    _upgrade_old_install(url)
+
+
+def test_sqlite_is_backed_up_before_an_upgrade():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "castor.db"
+        url = f"sqlite+aiosqlite:///{path}"
+        command.upgrade(alembic_config(url), "8c8bf25ced78")
+        asyncio.run(run_migrations(url))
+        assert (Path(tmp) / "backups" / "castor-before-upgrade-8c8bf25ced78.db").exists()
+        asyncio.run(run_migrations(url))  # already at head: nothing more
+        assert len(list((Path(tmp) / "backups").iterdir())) == 1

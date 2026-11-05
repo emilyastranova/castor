@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from .. import models as m
 from .. import variables
+from ..access import check_project, project_or_404
 from ..command_library import apply_library, load_spec
 from ..command_render import ArgumentError
 from ..deps import DB, CurrentUser, parse_uuid
@@ -61,18 +62,17 @@ async def _use_library_command(db, task: m.Task, command_ref: str, args: dict) -
         raise HTTPException(422, {"message": str(exc), "errors": exc.errors}) from exc
 
 
-async def _task_or_404(db, task_id: str) -> m.Task:
+async def _task_or_404(db, user: m.User, task_id: str, *, write: bool = False) -> m.Task:
     task = await get_task(db, parse_uuid(task_id))
     if task is None:
         raise HTTPException(404, "Task not found")
+    await check_project(db, user, task.project_id, write=write)
     return task
 
 
 @router.post("/projects/{project_id}/tasks", response_model=TaskOut, status_code=201)
 async def create_task(project_id: str, body: TaskIn, db: DB, user: CurrentUser):
-    project = await db.get(m.Project, parse_uuid(project_id))
-    if project is None:
-        raise HTTPException(404, "Project not found")
+    project = await project_or_404(db, user, parse_uuid(project_id), write=True)
     column: m.BoardColumn | None = None
     if body.column_id is not None:
         column = await db.get(m.BoardColumn, body.column_id)
@@ -128,13 +128,13 @@ async def create_task(project_id: str, body: TaskIn, db: DB, user: CurrentUser):
 
 
 @router.get("/tasks/{task_id}", response_model=TaskOut)
-async def read_task(task_id: str, db: DB, _: CurrentUser):
-    return await task_out(db, await _task_or_404(db, task_id))
+async def read_task(task_id: str, db: DB, user: CurrentUser):
+    return await task_out(db, await _task_or_404(db, user, task_id))
 
 
 @router.patch("/tasks/{task_id}", response_model=TaskOut)
 async def update_task(task_id: str, body: TaskPatch, db: DB, user: CurrentUser):
-    task = await _task_or_404(db, task_id)
+    task = await _task_or_404(db, user, task_id, write=True)
     changes = body.model_dump(exclude_unset=True)
     bindings = changes.pop("var_bindings", None)
     library_ref = changes.pop("command_ref", task.command_ref)
@@ -167,7 +167,7 @@ async def update_task(task_id: str, body: TaskPatch, db: DB, user: CurrentUser):
 
 @router.delete("/tasks/{task_id}", status_code=204)
 async def delete_task(task_id: str, db: DB, user: CurrentUser):
-    task = await _task_or_404(db, task_id)
+    task = await _task_or_404(db, user, task_id, write=True)
     project_id = task.project_id
     await record_activity(
         db,
@@ -183,7 +183,7 @@ async def delete_task(task_id: str, db: DB, user: CurrentUser):
 
 @router.post("/tasks/{task_id}/move", response_model=TaskOut)
 async def move(task_id: str, body: TaskMove, db: DB, user: CurrentUser):
-    task = await _task_or_404(db, task_id)
+    task = await _task_or_404(db, user, task_id, write=True)
     column = await db.get(m.BoardColumn, body.column_id)
     if column is None or column.project_id != task.project_id:
         raise HTTPException(404, "Column not found")
@@ -197,7 +197,7 @@ async def move(task_id: str, body: TaskMove, db: DB, user: CurrentUser):
 
 @router.post("/tasks/{task_id}/run", response_model=JobOut, status_code=201)
 async def run(task_id: str, db: DB, user: CurrentUser):
-    task = await _task_or_404(db, task_id)
+    task = await _task_or_404(db, user, task_id, write=True)
     if task.kind != m.TaskKind.command or not task.command.strip():
         raise HTTPException(400, "This card has no command to run")
     if await active_job_for(db, task.id) is not None:
@@ -210,8 +210,8 @@ async def run(task_id: str, db: DB, user: CurrentUser):
 
 
 @router.get("/tasks/{task_id}/jobs", response_model=list[JobOut])
-async def task_jobs(task_id: str, db: DB, _: CurrentUser):
-    task = await _task_or_404(db, task_id)
+async def task_jobs(task_id: str, db: DB, user: CurrentUser):
+    task = await _task_or_404(db, user, task_id)
     return (
         await db.execute(
             select(m.Job).where(m.Job.task_id == task.id).order_by(m.Job.queued_at.desc())
@@ -220,8 +220,8 @@ async def task_jobs(task_id: str, db: DB, _: CurrentUser):
 
 
 @router.get("/tasks/{task_id}/activity", response_model=list[ActivityOut])
-async def task_activity(task_id: str, db: DB, _: CurrentUser):
-    task = await _task_or_404(db, task_id)
+async def task_activity(task_id: str, db: DB, user: CurrentUser):
+    task = await _task_or_404(db, user, task_id)
     return (
         await db.execute(
             select(m.ActivityEvent)
@@ -242,8 +242,8 @@ def _comment_out(comment: m.Comment) -> CommentOut:
 
 
 @router.get("/tasks/{task_id}/comments", response_model=list[CommentOut])
-async def list_comments(task_id: str, db: DB, _: CurrentUser):
-    task = await _task_or_404(db, task_id)
+async def list_comments(task_id: str, db: DB, user: CurrentUser):
+    task = await _task_or_404(db, user, task_id)
     from sqlalchemy.orm import selectinload
 
     rows = (
@@ -259,7 +259,7 @@ async def list_comments(task_id: str, db: DB, _: CurrentUser):
 
 @router.post("/tasks/{task_id}/comments", response_model=CommentOut, status_code=201)
 async def create_comment(task_id: str, body: CommentIn, db: DB, user: CurrentUser):
-    task = await _task_or_404(db, task_id)
+    task = await _task_or_404(db, user, task_id, write=True)
     if not body.body.strip():
         raise HTTPException(400, "Comment is empty")
     comment = m.Comment(task_id=task.id, author_id=user.id, body=body.body)
@@ -285,7 +285,7 @@ async def create_comment(task_id: str, body: CommentIn, db: DB, user: CurrentUse
 async def update_comment(
     task_id: str, comment_id: str, body: CommentIn, db: DB, user: CurrentUser
 ):
-    task = await _task_or_404(db, task_id)
+    task = await _task_or_404(db, user, task_id, write=True)
     comment = await db.get(m.Comment, parse_uuid(comment_id))
     if comment is None or comment.task_id != task.id:
         raise HTTPException(404, "Comment not found")
@@ -304,11 +304,13 @@ async def update_comment(
 
 
 @router.delete("/tasks/{task_id}/comments/{comment_id}", status_code=204)
-async def delete_comment(task_id: str, comment_id: str, db: DB, _: CurrentUser):
-    task = await _task_or_404(db, task_id)
+async def delete_comment(task_id: str, comment_id: str, db: DB, user: CurrentUser):
+    task = await _task_or_404(db, user, task_id, write=True)
     comment = await db.get(m.Comment, parse_uuid(comment_id))
     if comment is None or comment.task_id != task.id:
         raise HTTPException(404, "Comment not found")
+    if comment.author_id != user.id and not user.is_admin:
+        raise HTTPException(403, "You can only delete your own comments")
     await db.delete(comment)
     await db.commit()
     bus.publish("comment.deleted", task.project_id, {"id": comment.id, "task_id": task.id})

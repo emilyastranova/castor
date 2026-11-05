@@ -33,7 +33,7 @@ async def ensure_admin() -> None:
                     username=settings.admin_username,
                     display_name=settings.admin_username,
                     password_hash=hash_password(settings.admin_password),
-                    is_admin=True,
+                    role=m.UserRole.admin,
                 )
             )
             await db.commit()

@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
 from .. import models as m
-from ..deps import DB, CurrentUser, parse_uuid
+from ..deps import DB, Admin, CurrentUser, parse_uuid
 from ..events import bus
 from ..orchestrator.gateway import gateway
 from ..schemas import AgentOut, AgentPatch
@@ -19,7 +19,7 @@ async def list_agents(db: DB, _: CurrentUser):
 
 
 @router.patch("/{agent_id}", response_model=AgentOut)
-async def update_agent(agent_id: str, body: AgentPatch, db: DB, _: CurrentUser):
+async def update_agent(agent_id: str, body: AgentPatch, db: DB, _: Admin):
     agent = await db.get(m.Agent, parse_uuid(agent_id))
     if agent is None:
         raise HTTPException(404, "Agent not found")
@@ -40,7 +40,7 @@ async def update_agent(agent_id: str, body: AgentPatch, db: DB, _: CurrentUser):
 
 
 @router.delete("/{agent_id}", status_code=204)
-async def delete_agent(agent_id: str, db: DB, _: CurrentUser):
+async def delete_agent(agent_id: str, db: DB, _: Admin):
     agent = await db.get(m.Agent, parse_uuid(agent_id))
     if agent is None:
         raise HTTPException(404, "Agent not found")

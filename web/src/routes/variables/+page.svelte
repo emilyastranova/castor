@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { canEdit } from '$lib/session';
 	import type { VariableKind, VariableSet } from '$lib/api';
 	import { Button, Card, Chip, Icon, Tabs, TopAppBar } from '$lib/m3';
 	import VariableSetDialog from '$lib/components/VariableSetDialog.svelte';
@@ -76,10 +77,12 @@
 				<Icon name="search" size={20} class="text-on-surface-variant" />
 				<input class="h-10 w-44 bg-transparent body-medium text-on-surface outline-none placeholder:text-on-surface-variant" placeholder="Filter sets" bind:value={filter} autocomplete="off" />
 			</label>
-			<Button variant="tonal" icon="playlist_add" class="ml-2" onclick={() => (importOpen = true)}>New target list</Button>
-			<Button icon="add" class="ml-2" onclick={() => openSet(null)}>New set</Button>
+			{#if canEdit()}
+				<Button variant="tonal" icon="playlist_add" class="ml-2" onclick={() => (importOpen = true)}>New target list</Button>
+				<Button icon="add" class="ml-2" onclick={() => openSet(null)}>New set</Button>
+			{/if}
 		{:else}
-			<Button icon="add" onclick={() => openKind(null)}>New kind</Button>
+			{#if canEdit()}<Button icon="add" onclick={() => openKind(null)}>New kind</Button>{/if}
 		{/if}
 	{/snippet}
 </TopAppBar>

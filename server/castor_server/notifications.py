@@ -37,8 +37,13 @@ async def notify(
     subject: str = "",
     payload: dict[str, Any] | None = None,
 ) -> list[m.Notification]:
-    """Notify every user and the configured webhooks. Flushes; the caller commits."""
-    users = (await db.execute(select(m.User.id))).scalars().all()
+    """Notify the active users who can see the project (all of them for a notification
+    without one) and the configured webhooks. Flushes; the caller commits."""
+    query = select(m.User.id).where(m.User.disabled_at.is_(None))
+    if project_id is not None:
+        members = select(m.ProjectMember.user_id).where(m.ProjectMember.project_id == project_id)
+        query = query.where((m.User.role == m.UserRole.admin) | m.User.id.in_(members))
+    users = (await db.execute(query)).scalars().all()
     rows = [
         m.Notification(
             user_id=uid,
@@ -56,7 +61,7 @@ async def notify(
     db.add_all(rows)
     await db.flush()
     for row in rows:
-        bus.publish("notification.created", project_id, NotificationOut.model_validate(row))
+        bus.publish("notification.created", project_id, NotificationOut.model_validate(row), user_id=row.user_id)
     _send_webhooks(title=title, body=body, link=link, severity=severity, kind=kind, payload=payload or {})
     return rows
 

@@ -9,6 +9,7 @@ from fastapi.responses import PlainTextResponse
 from sqlalchemy import func, select
 
 from .. import models as m
+from ..access import job_or_404, visible_project_ids
 from ..artifacts import token_matches
 from ..config import settings
 from ..deps import DB, CurrentUser, parse_uuid
@@ -23,18 +24,19 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
 @router.get("", response_model=list[JobOut])
-async def list_jobs(db: DB, _: CurrentUser, status: str | None = None, limit: int = 100):
+async def list_jobs(db: DB, user: CurrentUser, status: str | None = None, limit: int = 100):
     query = select(m.Job).order_by(m.Job.queued_at.desc()).limit(min(limit, 500))
+    visible = await visible_project_ids(db, user)
+    if visible is not None:
+        query = query.join(m.Task, m.Task.id == m.Job.task_id).where(m.Task.project_id.in_(visible))
     if status:
         query = query.where(m.Job.status == status)
     return (await db.execute(query)).scalars().all()
 
 
 @router.get("/{job_id}", response_model=JobDetail)
-async def get_job(job_id: str, db: DB, _: CurrentUser, after_seq: int = -1):
-    job = await db.get(m.Job, parse_uuid(job_id))
-    if job is None:
-        raise HTTPException(404, "Job not found")
+async def get_job(job_id: str, db: DB, user: CurrentUser, after_seq: int = -1):
+    job = await job_or_404(db, user, parse_uuid(job_id))
     chunks = (
         await db.execute(
             select(m.JobLogChunk)
@@ -56,29 +58,23 @@ async def _outputs(db, job_id: uuid.UUID) -> list[m.JobOutput]:
 
 
 @router.get("/{job_id}/outputs", response_model=list[JobOutputOut])
-async def job_outputs(job_id: str, db: DB, _: CurrentUser):
-    job = await db.get(m.Job, parse_uuid(job_id))
-    if job is None:
-        raise HTTPException(404, "Job not found")
+async def job_outputs(job_id: str, db: DB, user: CurrentUser):
+    job = await job_or_404(db, user, parse_uuid(job_id))
     return await _outputs(db, job.id)
 
 
 @router.post("/{job_id}/outputs/parse", response_model=list[JobOutputOut])
-async def reparse_outputs(job_id: str, db: DB, _: CurrentUser):
+async def reparse_outputs(job_id: str, db: DB, user: CurrentUser):
     """Run the parsers again (after a parser fix, or for a job from before Phase 2b)."""
-    job = await db.get(m.Job, parse_uuid(job_id))
-    if job is None:
-        raise HTTPException(404, "Job not found")
+    job = await job_or_404(db, user, parse_uuid(job_id), write=True)
     if not job.status.is_terminal:
         raise HTTPException(409, "The job is still running")
     return sorted(await parse_job(db, job), key=lambda o: o.name)
 
 
 @router.get("/{job_id}/output", response_class=PlainTextResponse)
-async def job_output(job_id: str, db: DB, _: CurrentUser, stream: str = "both"):
-    job = await db.get(m.Job, parse_uuid(job_id))
-    if job is None:
-        raise HTTPException(404, "Job not found")
+async def job_output(job_id: str, db: DB, user: CurrentUser, stream: str = "both"):
+    job = await job_or_404(db, user, parse_uuid(job_id))
     query = select(m.JobLogChunk).where(m.JobLogChunk.job_id == job.id)
     if stream in ("stdout", "stderr"):
         query = query.where(m.JobLogChunk.stream == stream)
@@ -87,7 +83,8 @@ async def job_output(job_id: str, db: DB, _: CurrentUser, stream: str = "both"):
 
 
 @router.post("/{job_id}/cancel", response_model=JobOut)
-async def cancel_job(job_id: str, db: DB, _: CurrentUser):
+async def cancel_job(job_id: str, db: DB, user: CurrentUser):
+    await job_or_404(db, user, parse_uuid(job_id), write=True)
     job = await dispatcher.cancel(parse_uuid(job_id))
     if job is None:
         raise HTTPException(404, "Job not found")
@@ -95,7 +92,8 @@ async def cancel_job(job_id: str, db: DB, _: CurrentUser):
 
 
 @router.get("/{job_id}/artifacts", response_model=list[AttachmentOut])
-async def list_artifacts(job_id: str, db: DB, _: CurrentUser):
+async def list_artifacts(job_id: str, db: DB, user: CurrentUser):
+    await job_or_404(db, user, parse_uuid(job_id))
     rows = await db.execute(
         select(m.Attachment)
         .where(m.Attachment.job_id == parse_uuid(job_id))

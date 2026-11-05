@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .models import AgentStatus, ColumnRole, JobStatus, TaskKind
+from .models import AgentStatus, ColumnRole, JobStatus, TaskKind, UserRole
 
 
 class ORM(BaseModel):
@@ -27,7 +27,48 @@ class UserOut(ORM):
     id: uuid.UUID
     username: str
     display_name: str
+    role: UserRole
     is_admin: bool
+    disabled_at: datetime | None = None
+    created_at: datetime
+
+
+class UserBrief(ORM):
+    """A user as others see them (pickers, member lists)."""
+
+    id: uuid.UUID
+    username: str
+    display_name: str
+    role: UserRole
+
+
+USERNAME = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+
+
+class UserIn(BaseModel):
+    username: str = Field(pattern=USERNAME)
+    display_name: str = Field("", max_length=128)
+    role: UserRole = UserRole.operator
+    password: str = Field(min_length=8, max_length=256)
+    # Make them a member of every project that exists now.
+    all_projects: bool = False
+
+
+class UserPatch(BaseModel):
+    display_name: str | None = Field(None, min_length=1, max_length=128)
+    role: UserRole | None = None
+    disabled: bool | None = None
+    # An admin setting a new password for them.
+    password: str | None = Field(None, min_length=8, max_length=256)
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=256)
+
+
+class ProfilePatch(BaseModel):
+    display_name: str = Field(min_length=1, max_length=128)
 
 
 class LoginResponse(BaseModel):

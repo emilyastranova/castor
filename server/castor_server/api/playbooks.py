@@ -9,7 +9,8 @@ from sqlalchemy import select
 
 from .. import models as m
 from .. import variables
-from ..deps import DB, CurrentUser, parse_uuid
+from ..access import check_project, project_or_404, visible_project_ids
+from ..deps import DB, CurrentUser, Operator, parse_uuid
 from ..orchestrator.dispatcher import dispatcher
 from ..playbook_library import check_against_library, definition_from_spec, load_playbook_spec
 from ..playbook_spec import parse_playbook_spec
@@ -103,7 +104,7 @@ async def spec_to_yaml(body: SpecIn, db: DB, _: CurrentUser):
 
 
 @router.post("/playbooks", response_model=PlaybookDefinitionOut, status_code=201)
-async def create_playbook(body: PlaybookDefinitionIn, db: DB, _: CurrentUser):
+async def create_playbook(body: PlaybookDefinitionIn, db: DB, _: Operator):
     spec = await _checked_spec(db, body.yaml)
     if await db.get(m.PlaybookDefinition, spec.id) is not None:
         raise HTTPException(409, f"A playbook with id “{spec.id}” already exists")
@@ -116,7 +117,7 @@ async def create_playbook(body: PlaybookDefinitionIn, db: DB, _: CurrentUser):
 
 
 @router.put("/playbooks/{playbook_id}", response_model=PlaybookDefinitionOut)
-async def update_playbook(playbook_id: str, body: PlaybookDefinitionIn, db: DB, _: CurrentUser):
+async def update_playbook(playbook_id: str, body: PlaybookDefinitionIn, db: DB, _: Operator):
     row = await db.get(m.PlaybookDefinition, playbook_id)
     if row is None:
         raise HTTPException(404, "Playbook not found")
@@ -133,7 +134,7 @@ async def update_playbook(playbook_id: str, body: PlaybookDefinitionIn, db: DB, 
 
 
 @router.delete("/playbooks/{playbook_id}", status_code=204)
-async def delete_playbook(playbook_id: str, db: DB, _: CurrentUser):
+async def delete_playbook(playbook_id: str, db: DB, _: Operator):
     row = await db.get(m.PlaybookDefinition, playbook_id)
     if row is None:
         raise HTTPException(404, "Playbook not found")
@@ -161,9 +162,7 @@ async def _execute_playbook_run(
     if spec is None:
         raise HTTPException(404, f"Playbook “{playbook_id}” not found")
 
-    project = await db.get(m.Project, project_id)
-    if project is None:
-        raise HTTPException(404, "Project not found")
+    await project_or_404(db, user, project_id, write=True)
 
     # Validate required inputs
     for inp in spec.inputs:
@@ -195,15 +194,31 @@ async def _execute_playbook_run(
     return await playbook_run_out(db, run)
 
 
+async def _run_or_404(db: DB, user: m.User, run_id: str, *, write: bool = False) -> m.PlaybookRun:
+    run = await db.get(m.PlaybookRun, parse_uuid(run_id))
+    if run is None:
+        raise HTTPException(404, "Playbook run not found")
+    try:
+        await check_project(db, user, run.project_id, write=write)
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            raise HTTPException(404, "Playbook run not found") from exc
+        raise
+    return run
+
+
 @router.get("/playbook-runs", response_model=list[PlaybookRunOut])
 async def list_playbook_runs(
     db: DB,
-    _: CurrentUser,
+    user: CurrentUser,
     project_id: str | None = None,
     playbook_id: str | None = None,
     limit: int = 50,
 ):
     query = select(m.PlaybookRun).order_by(m.PlaybookRun.created_at.desc()).limit(min(limit, 200))
+    visible = await visible_project_ids(db, user)
+    if visible is not None:
+        query = query.where(m.PlaybookRun.project_id.in_(visible))
     if project_id:
         query = query.where(m.PlaybookRun.project_id == parse_uuid(project_id))
     if playbook_id:
@@ -214,15 +229,14 @@ async def list_playbook_runs(
 
 
 @router.get("/playbook-runs/{run_id}", response_model=PlaybookRunOut)
-async def get_playbook_run(run_id: str, db: DB, _: CurrentUser):
-    run = await db.get(m.PlaybookRun, parse_uuid(run_id))
-    if run is None:
-        raise HTTPException(404, "Playbook run not found")
+async def get_playbook_run(run_id: str, db: DB, user: CurrentUser):
+    run = await _run_or_404(db, user, run_id)
     return await playbook_run_out(db, run)
 
 
 @router.post("/playbook-runs/{run_id}/cancel", response_model=PlaybookRunOut)
 async def cancel_run(run_id: str, db: DB, user: CurrentUser):
+    await _run_or_404(db, user, run_id, write=True)
     run = await cancel_playbook_run(db, parse_uuid(run_id), user)
     if run is None:
         raise HTTPException(404, "Playbook run not found")
@@ -237,9 +251,7 @@ class ResolveIn(BaseModel):
 @router.post("/playbook-runs/{run_id}/steps/{step_id}/resolve", response_model=PlaybookRunOut)
 async def resolve_run_step(run_id: str, step_id: str, body: ResolveIn, db: DB, user: CurrentUser):
     """Decide what happens to a step waiting for a person: retry, continue, skip or fail."""
-    run = await db.get(m.PlaybookRun, parse_uuid(run_id))
-    if run is None:
-        raise HTTPException(404, "Playbook run not found")
+    run = await _run_or_404(db, user, run_id, write=True)
     try:
         jobs = await resolve_step(db, run, step_id, body.action, user, body.note)
     except ResolveError as exc:

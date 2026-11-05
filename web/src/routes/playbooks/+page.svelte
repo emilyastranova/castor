@@ -14,6 +14,7 @@
 	import StepDecision from '$lib/components/StepDecision.svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { canEdit } from '$lib/session';
 	import { STEP_STATUS } from '$lib/playbook';
 
 	let { data } = $props();
@@ -393,10 +394,12 @@ steps:
 	subtitle="Multi-step command automation · dependency chaining & parallel execution"
 >
 	{#snippet actions()}
-		<Button variant="text" icon="code" onclick={openNewEditor}>New from YAML</Button>
-		<Button variant="filled" icon="add" onclick={() => goto('/playbooks/edit/new')}>
-			New Playbook
-		</Button>
+		{#if canEdit()}
+			<Button variant="text" icon="code" onclick={openNewEditor}>New from YAML</Button>
+			<Button variant="filled" icon="add" onclick={() => goto('/playbooks/edit/new')}>
+				New Playbook
+			</Button>
+		{/if}
 	{/snippet}
 </TopAppBar>
 

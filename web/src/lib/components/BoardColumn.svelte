@@ -12,8 +12,10 @@
 		onopen: (task: Task) => void;
 		onadd: (column: Column) => void;
 		onmove: (taskId: UUID, columnId: UUID, position: number) => void;
+		/** Viewers: no dragging, no adding. */
+		readonly?: boolean;
 	}
-	let { column, tasks, onopen, onadd, onmove }: Props = $props();
+	let { column, tasks, onopen, onadd, onmove, readonly = false }: Props = $props();
 
 	// Local copy so svelte-dnd-action can insert its placeholder while dragging.
 	let items = $state<Task[]>([]);
@@ -55,7 +57,7 @@
 		<span class="rounded-full px-2 py-0.5 label-small {overLimit ? 'bg-error-container text-on-error-container' : 'bg-surface-container-highest text-on-surface-variant'}">
 			{tasks.length}{column.wip_limit !== null ? `/${column.wip_limit}` : ''}
 		</span>
-		<IconButton icon="add" label="Add card to {column.name}" size="sm" onclick={() => onadd(column)} />
+		{#if !readonly}<IconButton icon="add" label="Add card to {column.name}" size="sm" onclick={() => onadd(column)} />{/if}
 	</header>
 	{#if column.role === 'active'}
 		<p class="px-4 label-small text-on-surface-variant">Command cards dropped here run on an agent</p>
@@ -64,7 +66,7 @@
 	     header) so a running card's outline and hover shadow aren't clipped at the top. -->
 	<div
 		class="flex min-h-24 flex-1 flex-col gap-2 overflow-y-auto px-2 pt-2 pb-2"
-		use:dndzone={{ items, flipDurationMs: 150, type: 'task', dropTargetStyle: {}, dropTargetClasses: ['outline-2', 'outline-dashed', 'outline-primary/40', 'rounded-md'] }}
+		use:dndzone={{ items, flipDurationMs: 150, type: 'task', dragDisabled: readonly, dropTargetStyle: {}, dropTargetClasses: ['outline-2', 'outline-dashed', 'outline-primary/40', 'rounded-md'] }}
 		onconsider={consider}
 		onfinalize={finalize}
 	>

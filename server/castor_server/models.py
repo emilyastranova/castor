@@ -101,6 +101,19 @@ class TimestampMixin:
     )
 
 
+class UserRole(str, enum.Enum):
+    """viewer: read-only. operator: works in their projects and edits the libraries.
+    admin: everything, including users, agents and every project."""
+
+    viewer = "viewer"
+    operator = "operator"
+    admin = "admin"
+
+    @property
+    def rank(self) -> int:
+        return ["viewer", "operator", "admin"].index(self.value)
+
+
 class User(Base, TimestampMixin):
     __tablename__ = "users"
 
@@ -108,7 +121,34 @@ class User(Base, TimestampMixin):
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(128))
     password_hash: Mapped[str] = mapped_column(String(256))
-    is_admin: Mapped[bool] = mapped_column(Boolean, default=True)
+    role: Mapped[UserRole] = mapped_column(
+        Enum(UserRole, name="user_role", native_enum=False, length=16),
+        default=UserRole.operator,
+        server_default=UserRole.operator.value,  # rows inserted by hand get a role too
+    )
+    # A disabled account can't sign in, and its sessions stop working.
+    disabled_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == UserRole.admin
+
+    def can(self, role: UserRole) -> bool:
+        return self.role.rank >= role.rank
+
+
+class ProjectMember(Base):
+    """Who can see a project (admins see every project without being members)."""
+
+    __tablename__ = "project_members"
+
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
 class Client(Base, TimestampMixin):

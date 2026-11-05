@@ -34,7 +34,7 @@ async def mark_read(notification_id: str, db: DB, user: CurrentUser):
     if row.read_at is None:
         row.read_at = utcnow()
         await db.commit()
-        bus.publish("notification.read", None, {"ids": [str(row.id)]})
+        bus.publish("notification.read", None, {"ids": [str(row.id)]}, user_id=user.id)
     return row
 
 
@@ -46,4 +46,4 @@ async def mark_all_read(db: DB, user: CurrentUser):
         .values(read_at=utcnow())
     )
     await db.commit()
-    bus.publish("notification.read", None, {"user_id": str(user.id), "all": True})
+    bus.publish("notification.read", None, {"user_id": str(user.id), "all": True}, user_id=user.id)

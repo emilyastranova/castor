@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 
 from .. import models as m
+from ..access import check_project, task_or_404
 from ..config import settings
 from ..deps import DB, CurrentUser, parse_uuid
 from ..events import bus
@@ -27,7 +28,8 @@ def _safe_name(name: str) -> str:
 
 
 @router.get("/tasks/{task_id}/attachments", response_model=list[AttachmentOut])
-async def list_task_attachments(task_id: str, db: DB, _: CurrentUser):
+async def list_task_attachments(task_id: str, db: DB, user: CurrentUser):
+    await task_or_404(db, user, parse_uuid(task_id))
     rows = (
         await db.execute(
             select(m.Attachment)
@@ -46,9 +48,7 @@ async def upload_task_attachment(
     file: Annotated[UploadFile, File()],
     kind: Annotated[str, Form()] = "file",
 ):
-    task = await db.get(m.Task, parse_uuid(task_id))
-    if task is None:
-        raise HTTPException(404, "Task not found")
+    task = await task_or_404(db, user, parse_uuid(task_id), write=True)
     if kind not in ("file", "screenshot", "artifact"):
         kind = "file"
     content_type = file.content_type or "application/octet-stream"
@@ -94,10 +94,11 @@ async def upload_task_attachment(
 
 
 @router.get("/attachments/{attachment_id}/download")
-async def download_attachment(attachment_id: str, db: DB, _: CurrentUser, inline: bool = False):
+async def download_attachment(attachment_id: str, db: DB, user: CurrentUser, inline: bool = False):
     attachment = await db.get(m.Attachment, parse_uuid(attachment_id))
     if attachment is None:
         raise HTTPException(404, "Attachment not found")
+    await check_project(db, user, attachment.project_id)
     path = settings.data_dir / attachment.storage_path
     if not path.exists():
         raise HTTPException(410, "File is missing from storage")
@@ -110,10 +111,11 @@ async def download_attachment(attachment_id: str, db: DB, _: CurrentUser, inline
 
 
 @router.delete("/attachments/{attachment_id}", status_code=204)
-async def delete_attachment(attachment_id: str, db: DB, _: CurrentUser):
+async def delete_attachment(attachment_id: str, db: DB, user: CurrentUser):
     attachment = await db.get(m.Attachment, parse_uuid(attachment_id))
     if attachment is None:
         raise HTTPException(404, "Attachment not found")
+    await check_project(db, user, attachment.project_id, write=True)
     path = settings.data_dir / attachment.storage_path
     task = await db.get(m.Task, attachment.task_id) if attachment.task_id else None
     project_id = attachment.project_id

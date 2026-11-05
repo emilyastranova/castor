@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { canEdit } from '$lib/session';
 	import { invalidateAll } from '$app/navigation';
 	import { TopAppBar, Card, Fab, Icon, Chip } from '$lib/m3';
 	import ProjectDialog from '$lib/components/ProjectDialog.svelte';
@@ -76,7 +77,7 @@
 </div>
 
 <div class="fixed right-6 bottom-6">
-	<Fab icon="add" label="New project" extended onclick={() => (createOpen = true)}>New project</Fab>
+	{#if canEdit()}<Fab icon="add" label="New project" extended onclick={() => (createOpen = true)}>New project</Fab>{/if}
 </div>
 
 <ProjectDialog bind:open={createOpen} clients={data.clients} oncreated={() => invalidateAll()} />
