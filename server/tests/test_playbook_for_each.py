@@ -1,5 +1,6 @@
 """for_each: one card and job per item, concurrency, merged outputs, failures and retries."""
 
+import asyncio
 import uuid
 
 import pytest
@@ -170,3 +171,34 @@ async def test_too_many_items_and_no_items(client, auth):
     _, run = _start(client, auth, hosts=" ")
     assert run["step_status"]["scan"] == "skipped"
     assert run["step_status"]["report"] == "queued"
+
+
+async def test_concurrent_advances_queue_each_step_once(client, auth):
+    """Two jobs finishing together advance the run from two sessions at once (their
+    outputs are parsed in parallel); the next step must still be queued once."""
+    from sqlalchemy import func
+
+    from castor_server import models as m
+    from castor_server.db import SessionLocal
+    from castor_server.services import advance_playbook_run
+
+    run_id, _ = _start(client, auth, hosts="10.0.0.1,10.0.0.2")
+    async with SessionLocal() as db:
+        _, jobs = await _items(db, run_id)
+        for job_id, host in zip(jobs, ("10.0.0.1", "10.0.0.2"), strict=True):
+            job = await db.get(m.Job, job_id)
+            job.status, job.exit_code = m.JobStatus.succeeded, 0
+            db.add(m.JobOutput(job_id=job.id, name="hosts", type="list<host>", parser="t", value=[{"ip": host}]))
+        await db.commit()
+
+    async def advance():
+        async with SessionLocal() as db:
+            await advance_playbook_run(db, run_id)
+
+    await asyncio.gather(advance(), advance(), advance())
+    async with SessionLocal() as db:
+        report = (
+            await db.execute(select(m.Task).where(m.Task.playbook_run_id == run_id, m.Task.playbook_step_id == "report"))
+        ).scalar_one()
+        count = (await db.execute(select(func.count()).where(m.Job.task_id == report.id))).scalar_one()
+    assert count == 1

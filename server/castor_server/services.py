@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -113,6 +114,7 @@ async def latest_jobs_for(db: AsyncSession, task_ids: list[uuid.UUID]) -> dict[u
             select(m.Job)
             .where(m.Job.task_id.in_(task_ids))
             .order_by(m.Job.task_id, m.Job.queued_at.desc())
+            .execution_options(populate_existing=True)
         )
     ).scalars()
     latest: dict[uuid.UUID, m.Job] = {}
@@ -362,7 +364,9 @@ def _group_items(tasks: list[m.Task]) -> dict[str, list[m.Task]]:
 async def _item_tasks(db: AsyncSession, run: m.PlaybookRun) -> dict[str, list[m.Task]]:
     rows = (
         await db.execute(
-            select(m.Task).where(m.Task.playbook_run_id == run.id, m.Task.playbook_item.is_not(None))
+            select(m.Task)
+            .where(m.Task.playbook_run_id == run.id, m.Task.playbook_item.is_not(None))
+            .execution_options(populate_existing=True)
         )
     ).scalars().all()
     return _group_items(list(rows))
@@ -664,7 +668,11 @@ async def _advance(
     tasks = {
         t.id: t
         for t in (
-            await db.execute(select(m.Task).where(m.Task.id.in_(list(task_ids.values()))))
+            await db.execute(
+                select(m.Task)
+                .where(m.Task.id.in_(list(task_ids.values())))
+                .execution_options(populate_existing=True)
+            )
         ).scalars()
     }
     items = await _item_tasks(db, run)
@@ -777,7 +785,7 @@ async def _advance(
             for t, state in zip(fan.items, fan.states, strict=True):
                 if room <= 0:
                     break
-                if state == "waiting":
+                if state == "waiting" and await active_job_for(db, t.id) is None:
                     await move(t, active_col)
                     job = await enqueue_job(db, t, user, reason=f"playbook item of {step.name}")
                     latest_jobs[t.id] = job
@@ -979,6 +987,10 @@ async def _advance(
             reason = (
                 "playbook step ready" if step.depends_on else f"playbook started: {step.name}"
             )
+            existing = await active_job_for(db, task.id)
+            if existing is not None:  # backstop: never queue a card twice
+                latest_jobs[task.id] = existing
+                continue
             job = await enqueue_job(db, task, user, reason=reason)
             latest_jobs[task.id] = job
             jobs.append(job)
@@ -1083,16 +1095,41 @@ async def _settle_run(db: AsyncSession, run: m.PlaybookRun, spec: PlaybookSpec, 
     )
 
 
+# Advancing a run is one at a time: several jobs finishing together have their outputs
+# parsed in parallel, and each would otherwise queue the same ready step. A lock per run
+# (per event loop) serialises this process; the run row's FOR UPDATE does the same across
+# server processes on Postgres (SQLite ignores it).
+_run_locks: dict[tuple[int, uuid.UUID], asyncio.Lock] = {}
+
+
+def _run_lock(run_id: uuid.UUID) -> asyncio.Lock:
+    return _run_locks.setdefault((id(asyncio.get_running_loop()), run_id), asyncio.Lock())
+
+
+async def _load_run_for_update(db: AsyncSession, run_id: uuid.UUID) -> m.PlaybookRun | None:
+    """The run, re-read now (not a copy this session cached earlier) and locked for update."""
+    return (
+        await db.execute(
+            select(m.PlaybookRun)
+            .where(m.PlaybookRun.id == run_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+
+
 async def advance_playbook_run(
     db: AsyncSession, run_id: uuid.UUID
 ) -> tuple[m.PlaybookRun | None, list[m.Job]]:
     """Called whenever one of the run's jobs finishes (after its outputs are parsed): queue
     the steps that became ready, commit and publish. The caller wakes the dispatcher."""
-    run = await db.get(m.PlaybookRun, run_id)
-    if run is None or run.status == m.PlaybookRunStatus.cancelled:
-        return run, []
-    jobs, touched = await _advance(db, run)
-    await db.commit()
+    async with _run_lock(run_id):
+        run = await _load_run_for_update(db, run_id)
+        if run is None or run.status == m.PlaybookRunStatus.cancelled:
+            await db.rollback()
+            return run, []
+        jobs, touched = await _advance(db, run)
+        await db.commit()
     for task in touched:
         await publish_task(db, task)
     await publish_playbook_run(db, run)
@@ -1112,6 +1149,27 @@ class ResolveError(ValueError):
 
 
 async def resolve_step(
+    db: AsyncSession,
+    run: m.PlaybookRun,
+    step_id: str,
+    action: str,
+    user: m.User | None,
+    note: str = "",
+    actor: str | None = None,
+) -> list[m.Job]:
+    """Apply a decision to a paused step (see _resolve_step), one at a time per run."""
+    async with _run_lock(run.id):
+        fresh = await _load_run_for_update(db, run.id)
+        if fresh is None:
+            raise ResolveError("the run no longer exists")
+        try:
+            return await _resolve_step(db, fresh, step_id, action, user, note, actor)
+        except ResolveError:
+            await db.rollback()
+            raise
+
+
+async def _resolve_step(
     db: AsyncSession,
     run: m.PlaybookRun,
     step_id: str,
