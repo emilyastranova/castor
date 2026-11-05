@@ -4,7 +4,7 @@
 	import { IconButton } from '$lib/m3';
 	import TaskCard from './TaskCard.svelte';
 	import ColumnGlyph from './ColumnGlyph.svelte';
-	import { enter, glide, leave } from '$lib/motion';
+	import { enter, flying, glide, leave } from '$lib/motion';
 
 	interface Props {
 		column: Column;
@@ -80,7 +80,8 @@
 		onfinalize={finalize}
 	>
 		{#each items as task (task.id)}
-			<div animate:glide={{ duration: 150 }} in:enter={{ enabled: live }} out:leave={{ enabled: live }} class={(task as unknown as Record<string, unknown>)[SHADOW_ITEM_MARKER_PROPERTY_NAME] ? 'opacity-40' : ''}>
+			<!-- A card flying in from another column (fly) doesn't also grow in or shrink out. -->
+			<div data-card={task.id} animate:glide={{ duration: 150 }} in:enter={{ enabled: live && !flying.has(task.id) }} out:leave={{ enabled: live && !flying.has(task.id) }} class={(task as unknown as Record<string, unknown>)[SHADOW_ITEM_MARKER_PROPERTY_NAME] ? 'opacity-40' : ''}>
 				<TaskCard {task} {onopen} />
 			</div>
 		{/each}

@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { goto, invalidateAll } from '$app/navigation';
+	import { tick } from 'svelte';
+	import { flying, fly, rectOf, shift, snapshot } from '$lib/motion';
 	import { page } from '$app/state';
 	import type { Agent, Column, Task, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
@@ -47,7 +49,30 @@
 
 	$effect(() =>
 		realtime.subscribe((e) => {
+			// A card moving to another place (someone else moved it): note where it was, so it
+			// can glide there instead of vanishing from one column and growing in another.
+			const changed = e.name === 'task.moved' || e.name === 'task.updated' ? (e.data as Task) : null;
+			const before = changed ? store.tasks.get(changed.id) : undefined;
+			let from: DOMRect | undefined;
+			let layout: Map<string, DOMRect> | undefined;
+			if (changed && before && (before.column_id !== changed.column_id || before.position !== changed.position)) {
+				from = rectOf(`[data-card="${changed.id}"]`);
+				layout = snapshot('[data-card]', 'data-card');
+				if (from) flying.add(changed.id);
+			}
 			store.apply(e);
+			if (layout && changed) {
+				const id = changed.id;
+				const was = layout;
+				// After the columns have re-rendered with the card in its new place: it flies
+				// there, and the cards it pushed or left behind slide to theirs.
+				void tick().then(() =>
+					requestAnimationFrame(() => {
+						shift('[data-card]', 'data-card', was, id);
+						if (from) fly(`[data-card="${id}"]`, from, id);
+					})
+				);
+			}
 			// The board ignores step cards; the one open on top still follows its changes.
 			if ((e.name === 'task.updated' || e.name === 'task.moved') && stepTask && (e.data as Task).id === stepTask.id) stepTask = e.data as Task;
 			// The open card was deleted (here or elsewhere): drop ?task= from the address. The
