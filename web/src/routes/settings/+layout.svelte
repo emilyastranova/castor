@@ -6,7 +6,10 @@
 	let { children }: { children: Snippet } = $props();
 
 	/** Admin settings, one section per page; add new ones here. */
-	const SECTIONS = [{ href: '/settings/users', icon: 'group', label: 'Users', detail: 'Accounts and roles' }];
+	const SECTIONS = [
+		{ href: '/settings/users', icon: 'group', label: 'Users', detail: 'Accounts and roles' },
+		{ href: '/settings/transfer', icon: 'sync_alt', label: 'Import and export', detail: 'Archives of projects and libraries' }
+	];
 </script>
 
 <div class="flex min-h-0 min-w-0 flex-1">

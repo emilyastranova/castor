@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { canEdit } from '$lib/session';
 	import type { CommandDefinition } from '$lib/api';
-	import { api, ApiError } from '$lib/api';
+	import { api, ApiError, saveBlob } from '$lib/api';
+	import LibraryTransfer from '$lib/components/LibraryTransfer.svelte';
 	import { Button, Card, Chip, Dialog, Icon, TextField, TopAppBar } from '$lib/m3';
 	import { confirmAction } from '$lib/confirm.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
@@ -11,6 +12,7 @@
 	// svelte-ignore state_referenced_locally
 	let commands = $state<CommandDefinition[]>(data.commands);
 	let filter = $state('');
+	let mine = $derived(commands.filter((c) => c.origin === 'user').map((c) => c.id));
 
 	const TEMPLATE = `id: my-command
 name: My command
@@ -111,6 +113,7 @@ outputs:
 			<Icon name="search" size={20} class="text-on-surface-variant" />
 			<input class="h-10 w-44 bg-transparent body-medium text-on-surface outline-none placeholder:text-on-surface-variant" placeholder="Filter commands" bind:value={filter} autocomplete="off" />
 		</label>
+		<LibraryTransfer noun="commands" request={{ commands: mine, label: 'castor-commands' }} count={mine.length} onimported={async () => (commands = await api().commands.list())} />
 		{#if canEdit()}<Button icon="add" class="ml-2" onclick={() => openNew()}>New command</Button>{/if}
 	{/snippet}
 </TopAppBar>
@@ -154,6 +157,7 @@ outputs:
 		{#if editing && !readOnly}
 			<Button variant="text" icon="delete" class="mr-auto text-error" onclick={() => editing && remove(editing)}>Delete</Button>
 		{/if}
+		{#if editing}<Button variant="text" icon="download" onclick={() => editing && saveBlob(editing.source_yaml, `${editing.id}.yaml`)}>Export YAML</Button>{/if}
 		<Button variant="text" onclick={() => (editorOpen = false)}>{readOnly ? 'Close' : 'Cancel'}</Button>
 		{#if readOnly && editing}
 			<Button variant="tonal" icon="content_copy" onclick={() => editing && duplicate(editing)}>Duplicate</Button>

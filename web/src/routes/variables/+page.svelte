@@ -5,6 +5,8 @@
 	import VariableSetDialog from '$lib/components/VariableSetDialog.svelte';
 	import VariableKindDialog from '$lib/components/VariableKindDialog.svelte';
 	import ListIngestDialog from '$lib/components/ListIngestDialog.svelte';
+	import LibraryTransfer from '$lib/components/LibraryTransfer.svelte';
+	import { api } from '$lib/api';
 	import { FIELD_TYPES, fieldLabel, fieldSummary, isSecret, kindIcon } from '$lib/variables';
 
 	let { data } = $props();
@@ -24,6 +26,11 @@
 	let kindDialogOpen = $state(false);
 	let importOpen = $state(false);
 	let editingKind = $state<VariableKind | null>(null);
+
+	let myKinds = $derived(kinds.filter((k) => k.origin === 'user').map((k) => k.id));
+	async function reload() {
+		[kinds, sets] = await Promise.all([api().variables.kinds(), api().variables.sets()]);
+	}
 
 	const projectCodes = (ids: string[]) => ids.map((id) => projects.find((p) => p.id === id)?.codename ?? 'deleted project');
 
@@ -77,12 +84,14 @@
 				<Icon name="search" size={20} class="text-on-surface-variant" />
 				<input class="h-10 w-44 bg-transparent body-medium text-on-surface outline-none placeholder:text-on-surface-variant" placeholder="Filter sets" bind:value={filter} autocomplete="off" />
 			</label>
+			<LibraryTransfer noun="variable sets" request={{ variable_sets: sets.map((s) => s.id), label: 'castor-variables' }} count={sets.length} secrets onimported={reload} />
 			{#if canEdit()}
 				<Button variant="tonal" icon="playlist_add" class="ml-2" onclick={() => (importOpen = true)}>New target list</Button>
 				<Button icon="add" class="ml-2" onclick={() => openSet(null)}>New set</Button>
 			{/if}
 		{:else}
-			{#if canEdit()}<Button icon="add" onclick={() => openKind(null)}>New kind</Button>{/if}
+			<LibraryTransfer noun="variable kinds" request={{ variable_kinds: myKinds, label: 'castor-variable-kinds' }} count={myKinds.length} onimported={reload} />
+			{#if canEdit()}<Button icon="add" class="ml-2" onclick={() => openKind(null)}>New kind</Button>{/if}
 		{/if}
 	{/snippet}
 </TopAppBar>

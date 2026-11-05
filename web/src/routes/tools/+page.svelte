@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { ToolAgentState, ToolDefinition } from '$lib/api';
-	import { api, ApiError } from '$lib/api';
+	import { api, ApiError, saveBlob } from '$lib/api';
+	import LibraryTransfer from '$lib/components/LibraryTransfer.svelte';
 	import { Button, Card, Chip, Dialog, Icon, TopAppBar } from '$lib/m3';
 	import { realtime } from '$lib/realtime.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
@@ -11,6 +12,7 @@
 	let { data } = $props();
 	// svelte-ignore state_referenced_locally
 	let tools = $state<ToolDefinition[]>(data.tools);
+	let mine = $derived(tools.filter((t) => t.origin === 'user').map((t) => t.id));
 	// svelte-ignore state_referenced_locally
 	let loaded = data.tools;
 	$effect(() => {
@@ -148,7 +150,8 @@ build:
 
 <TopAppBar title="Tools" subtitle="What commands run with, prepared on agents when needed">
 	{#snippet actions()}
-		{#if editable}<Button icon="add" onclick={() => openNew()}>New tool</Button>{/if}
+		<LibraryTransfer noun="tools" request={{ tools: mine, label: 'castor-tools' }} count={mine.length} onimported={async () => (tools = await api().tools.list())} />
+		{#if editable}<Button icon="add" class="ml-2" onclick={() => openNew()}>New tool</Button>{/if}
 	{/snippet}
 </TopAppBar>
 
@@ -258,6 +261,7 @@ build:
 	{#snippet actions()}
 		{#if editing && editing.origin === 'user' && editable}<Button variant="text" icon="delete" class="mr-auto" onclick={() => editing && remove(editing)}>Delete</Button>{/if}
 		{#if editing && editable}<Button variant="text" icon="content_copy" onclick={() => editing && duplicate(editing)}>Duplicate</Button>{/if}
+		{#if editing}<Button variant="text" icon="download" onclick={() => editing && saveBlob(editing.source_yaml, `${editing.id}.yaml`)}>Export YAML</Button>{/if}
 		<Button variant="text" onclick={check}>Check</Button>
 		<Button variant="text" onclick={() => (editorOpen = false)}>{readOnly ? 'Close' : 'Cancel'}</Button>
 		{#if !readOnly}<Button icon="check" loading={saving} onclick={save}>{editing ? 'Save' : 'Create'}</Button>{/if}

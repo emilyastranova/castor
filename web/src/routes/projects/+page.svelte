@@ -1,13 +1,16 @@
 <script lang="ts">
 	import { canEdit } from '$lib/session';
 	import { invalidateAll } from '$app/navigation';
-	import { TopAppBar, Card, Fab, Icon, Chip } from '$lib/m3';
+	import { goto } from '$app/navigation';
+	import { TopAppBar, Card, Fab, Icon, Chip, Button } from '$lib/m3';
 	import ProjectDialog from '$lib/components/ProjectDialog.svelte';
+	import ImportDialog from '$lib/components/ImportDialog.svelte';
 	import { relativeTime } from '$lib/format';
 	import { realtime } from '$lib/realtime.svelte';
 
 	let { data } = $props();
 	let createOpen = $state(false);
+	let importOpen = $state(false);
 
 	$effect(() =>
 		realtime.subscribe((e) => {
@@ -22,7 +25,11 @@
 
 <svelte:head><title>Projects · Castor</title></svelte:head>
 
-<TopAppBar title="Projects" subtitle="{data.projects.length} project{data.projects.length === 1 ? '' : 's'} · {online} agent{online === 1 ? '' : 's'} online" />
+<TopAppBar title="Projects" subtitle="{data.projects.length} project{data.projects.length === 1 ? '' : 's'} · {online} agent{online === 1 ? '' : 's'} online">
+	{#snippet actions()}
+		{#if canEdit()}<Button variant="text" icon="upload" onclick={() => (importOpen = true)}>Import project…</Button>{/if}
+	{/snippet}
+</TopAppBar>
 
 <div class="flex-1 overflow-auto px-6 pb-24">
 	{#if data.projects.length === 0}
@@ -81,3 +88,10 @@
 </div>
 
 <ProjectDialog bind:open={createOpen} clients={data.clients} oncreated={() => invalidateAll()} />
+
+<ImportDialog
+	bind:open={importOpen}
+	title="Import a project"
+	accept=".zip"
+	onimported={(r) => (r.projects.length === 1 ? goto(`/projects/${r.projects[0]}`) : invalidateAll())}
+/>

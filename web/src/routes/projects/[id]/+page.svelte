@@ -15,6 +15,7 @@
 	import TaskDialog from '$lib/components/TaskDialog.svelte';
 	import ProjectDialog from '$lib/components/ProjectDialog.svelte';
 	import MembersDialog from '$lib/components/MembersDialog.svelte';
+	import ExportDialog from '$lib/components/ExportDialog.svelte';
 	import ProjectViewSwitch from '$lib/components/ProjectViewSwitch.svelte';
 	import { canEdit, isAdmin, me } from '$lib/session';
 	import { people } from '$lib/people.svelte';
@@ -89,6 +90,7 @@
 	let newColumn = $state<Column | null>(null);
 	let editOpen = $state(false);
 	let membersOpen = $state(false);
+	let exportOpen = $state(false);
 	let editable = $derived(canEdit());
 	let activityOpen = $state(false);
 	let filter = $state('');
@@ -244,6 +246,7 @@
 			{#snippet anchor()}<IconButton icon="more_vert" label="Project menu" />{/snippet}
 			<MenuItem icon="group" onclick={() => (membersOpen = true)}>Members</MenuItem>
 			{#if editable}<MenuItem icon="edit" onclick={() => (editOpen = true)}>Edit project</MenuItem>{/if}
+			<MenuItem icon="download" onclick={() => (exportOpen = true)}>Export project…</MenuItem>
 			<MenuItem icon="refresh" onclick={() => invalidateAll()}>Reload board</MenuItem>
 			{#if isAdmin()}<MenuItem icon="delete" danger onclick={deleteProject}>Delete project</MenuItem>{/if}
 		</Menu>
@@ -274,6 +277,13 @@
 
 <NewTaskDialog bind:open={newOpen} projectId={store.project.id} columns={store.columns} column={newColumn} {agents} oncreated={(t) => { store.upsertTask(t); snackbar.show(`Created “${t.title}”`); }} />
 <MembersDialog bind:open={membersOpen} projectId={store.project.id} projectName={store.project.name} />
+<ExportDialog
+	bind:open={exportOpen}
+	title="Export {store.project.codename}"
+	request={{ projects: [store.project.id], label: store.project.codename }}
+	summary="Settings, columns, cards, comments, files, pinned notes, playbook runs and assets, as one .castor.zip another Castor can import."
+	history
+/>
 <ProjectDialog bind:open={editOpen} clients={[]} project={store.project} onsaved={(p) => (store.project = p)} />
 
 {#if selectedTask}

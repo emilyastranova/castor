@@ -2,7 +2,8 @@
 	import { enter, leave, glide } from '$lib/motion';
 	import { onMount } from 'svelte';
 	import type { PlaybookDefinition, PlaybookRun, PlaybookStepSpec, Project, Task, JobOutput, CommandDefinition } from '$lib/api';
-	import { api, ApiError } from '$lib/api';
+	import { api, ApiError, saveBlob } from '$lib/api';
+	import LibraryTransfer from '$lib/components/LibraryTransfer.svelte';
 	import { Button, Card, Chip, Dialog, Icon, IconButton, Tabs, TextField, TopAppBar } from '$lib/m3';
 	import { confirmAction } from '$lib/confirm.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
@@ -22,6 +23,7 @@
 
 	// svelte-ignore state_referenced_locally
 	let playbooks = $state<PlaybookDefinition[]>(data.playbooks);
+	let mine = $derived(playbooks.filter((p) => p.origin === 'user').map((p) => p.id));
 	// svelte-ignore state_referenced_locally
 	let runs = $state<PlaybookRun[]>(data.runs);
 	// svelte-ignore state_referenced_locally
@@ -395,6 +397,7 @@ steps:
 	subtitle="Multi-step command automation · dependency chaining & parallel execution"
 >
 	{#snippet actions()}
+		<LibraryTransfer noun="playbooks" request={{ playbooks: mine, label: 'castor-playbooks' }} count={mine.length} onimported={async () => (playbooks = await api().playbooks.list())} />
 		{#if canEdit()}
 			<Button variant="text" icon="code" onclick={openNewEditor}>New from YAML</Button>
 			<Button variant="filled" icon="add" onclick={() => goto('/playbooks/edit/new')}>
@@ -1085,6 +1088,9 @@ steps:
 			<Button variant="outlined" icon="content_copy" onclick={() => duplicatePlaybook(editing!)}>
 				Duplicate to Custom
 			</Button>
+		{/if}
+		{#if editing}
+			<Button variant="text" icon="download" onclick={() => editing && saveBlob(editing.source_yaml, `${editing.id}.yaml`)}>Export YAML</Button>
 		{/if}
 		<Button variant="text" onclick={() => (editorOpen = false)} disabled={savingYaml}>
 			Close

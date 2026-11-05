@@ -181,6 +181,11 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   while `CASTOR_ALLOW_SHARED_AGENT_SECRET` is on, the shared `CASTOR_AGENT_SECRET`, which
   is never accepted for an agent that has or had a token. Revoke/rotate call
   `gateway.disconnect`.
+- Import and export (3i): `transfer.py` (archive format, `values_for`/`remap` give rows new
+  ids and rewrite ids inside JSON and text, `plan` is the preview, `run_import`), `api/transfer.py`.
+  A new table that belongs to a project must be added to `PROJECT_TABLES` (in insert order)
+  or it won't travel; vault-encrypted values go through `Secrets` (never plain text).
+  Web: `ExportDialog`, `ImportDialog`, `LibraryTransfer`, `routes/settings/transfer`.
 - Config is `pydantic-settings` with the `CASTOR_` prefix (`config.py`).
 - SQLite uses `NullPool` (aiosqlite connections are bound to the event loop that opened
   them; the test client runs WebSocket sessions on another loop).

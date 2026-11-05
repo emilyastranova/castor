@@ -1,6 +1,6 @@
 # Phase 3 plan
 
-Status: in progress (2026-11-05); 3a, 3b, 3c, 3d, 3f, 3g and 3h are built; 3e and 3i are left. Roadmap item **M3** in
+Status: in progress (2026-11-05); 3a, 3b, 3c, 3d, 3f, 3g, 3h and 3i are built; 3e, 3j, 3k, 3l and 3m are left. Roadmap item **M3** in
 [ARCHITECTURE.md](ARCHITECTURE.md); Phase 2 is done and recorded in [PHASE2.md](PHASE2.md).
 
 Phase 3 makes Castor easier to run day to day: tools prepared on demand instead of baked
@@ -17,7 +17,11 @@ playbook step goes wrong.
 | 3f. Assets (discovered objects) | Typed objects Castor finds (hosts, services, URLs, credentials…) merged across tools, with triggers that act on new ones | parsers (2b) | Built |
 | 3g. Search everywhere | Type-to-filter in every long picker; Ctrl+K searches everything you can see | nothing | Built |
 | 3h. Playbook runs as one card | A run is a single card on the board that opens into its graph and steps, instead of a card per step | nothing | Built |
-| 3i. Import and export | Move projects, commands, tools, playbooks, variables (everything) between Castor instances as files | nothing | Idea |
+| 3i. Import and export | Move projects, commands, tools, playbooks, variables (everything) between Castor instances as files | nothing | Built |
+| 3j. Interactive jobs | Type into a running job's stdin; the console keeps following the output; an alert when an automated job stops to ask for input | nothing | Idea |
+| 3k. Chat alerts for long runs | Google Chat and Slack webhooks set up in Settings, switched on per card or per playbook run for when it finishes or runs long | nothing | Idea |
+| 3l. Your theme colour | Each person picks a Material You seed colour that recolours the whole UI | nothing | Idea |
+| 3m. Duplicate a card | Copy an existing card into To Do: just the blueprint, or with its comments and output | nothing | Idea |
 
 Suggested order: 3a (it unblocks the NetExec commands on the compose agent), 3d (small),
 3b, 3c, then 3e. 3f is the largest; it can start any time after 3a (it builds on parsers).
@@ -400,6 +404,18 @@ Elsewhere:
 
 ## 3i. Import and export
 
+**Built.** Decided: no scheduled exports yet, and an import always creates new projects
+(keep both renames the codename to `CODE-copy`) rather than merging into an existing one.
+`transfer.py` writes rows column by column from the models (a new column travels without
+changes there) and rewrites every id the archive carries, including ids inside JSON and text
+(image links, step-task maps, activity payloads). Variable sets a card names but the file
+doesn't carry are matched by name. Secrets are re-encrypted under a key derived from the
+passphrase (PBKDF2-SHA256), with a check token in the manifest so a wrong passphrase is
+refused in the preview. Uploads are staged under `<data_dir>/imports/` for a day so the
+preview and the import don't upload twice. The history on Settings is the `transfer.export`
+and `transfer.import` activity events (admin-only in the feed). Imported people who don't
+exist are created only by an admin who asks, with an unusable password to reset.
+
 Get things out of one Castor and into another (a second install, a fresh host, a teammate's
 lab), or keep a copy: one item, a project, or everything.
 
@@ -458,3 +474,103 @@ lab), or keep a copy: one item, a project, or everything.
 - **Open questions:** should exports be scheduled (a nightly "everything" archive to a folder
   or bucket as a backup)? Should an import be able to merge into an existing project (add the
   archive's cards to it) rather than always creating a new one?
+
+## 3j. Interactive jobs (stdin, console follow, input prompts)
+
+Some tools stop and ask (a passphrase, "continue? [y/N]", an interactive shell), and today a
+job has no way to answer: it just hangs until its timeout.
+
+- **Typing into a running job.** The console gets an input line (and a "send Ctrl+C / EOF"
+  menu) while the job runs, for operators who can edit the project. The text goes UI →
+  server → agent as a new `job.stdin` message (`{job_id, data}`); the agent writes it to the
+  process's stdin, which it currently doesn't open. Input shows in the log as its own
+  `stdin` stream (what was typed, by whom; masked when the field is marked secret) so the
+  record stays complete. A job whose stdin was never touched behaves as it does now.
+  Interactive tools may also want a real terminal (pty): decide whether jobs can ask for a
+  pty (`tty: true` on the command, `podman run -t`), since some programs only prompt on a
+  tty and buffer output differently on one.
+- **The console keeps following.** If you're scrolled to the bottom, new output keeps you at
+  the bottom. It sometimes loses that today (it ends up partway up the output while output
+  keeps coming). The likely cause is the "near the bottom" check in `JobConsole.svelte`
+  running on scroll events caused by its own `scrollTop` writes, or measuring before the new
+  lines are laid out. Track "following" as user intent: change it only on user scroll
+  (wheel, touch, keys, scrollbar drag), not on scrolls the console made itself. Add a "Jump
+  to latest" button when you're not following.
+- **"This job is waiting for input."** When an automated job (a playbook step, a trigger, a
+  card dragged to the active column) looks like it's prompting, notify the people who'd
+  care: whoever started it, the card's assignees and the run's owner. Show it in Needs
+  attention and on the card ("Waiting for input"). Heuristics, decided on the agent or
+  server:
+  - output stopped mid-line for a few seconds with no newline;
+  - the last line matches a prompt pattern (`password:`, `[y/N]`, `(yes/no)`, `> $`);
+  - optionally the process is blocked reading stdin (on Linux, `/proc/<pid>/wchan` or the
+    fd state).
+
+  A command can declare its known prompts so the alert says what it's asking.
+  **Not** when someone is already at the console: once a person sends input or an
+  interrupt, the job counts as taken over and prompts stop alerting until the job ends.
+- **Open questions:** pty by default or opt-in? Should a playbook step be able to answer
+  known prompts itself (an `answers:` map, values from variable sets)?
+
+## 3k. Google Chat and Slack alerts for long runs
+
+`CASTOR_NOTIFY_WEBHOOKS` already posts run notifications to Slack, Discord and ntfy URLs
+from the environment, to every hook, for every run. Make it something you configure and aim:
+
+- **Settings → Alerts** (admins): named channels, each a Google Chat or Slack incoming
+  webhook (plus the existing generic JSON / ntfy / Discord kinds). Webhook URLs are secrets:
+  stored through the vault, shown masked, with a "Send test" button. The env var keeps
+  working as a channel nobody can edit in the UI.
+- **Per card and per playbook run:** an "Alert me" control (in the card's menu and the Run
+  Playbook dialog) picks channels and when to alert: when it finishes, only if it fails, and/or
+  when it has run longer than N minutes (long-running jobs are the point). A playbook can
+  set a default in its YAML (`alerts:`), and a project can set defaults for its runs.
+- **Messages:** Google Chat cards (`cardsV2`) and Slack Block Kit, with what ran, the result,
+  how long it took, and a link back (`public_url`). Posted from a thread like today's webhooks
+  so a dead endpoint never blocks a run; failures show in Settings with the last error.
+- **Open questions:** do personal DMs belong here (each user adds their own Slack/Chat
+  webhook in their account and gets their mentions and assignments there)?
+
+## 3l. Your theme colour
+
+Let each person choose the seed colour of their Material You palette; the whole UI (every
+role token) recolours from it, in light and dark.
+
+- The engine exists: `m3/theme.ts` has `applySeed(seed)`, which generates the scheme in the
+  browser with `material-color-utilities` (as `scripts/gen-tokens.mjs` does at build time),
+  but nothing in the UI calls it and the seed lives only in `localStorage`.
+- Add a colour picker to the account dialog (beside light/dark): a few presets, a custom
+  colour and "Default". Store it on the user (`users.theme_seed`, an additive migration) so
+  it follows them across browsers, and apply it before first paint (from the layout's user
+  data or an inline script) so the page doesn't flash the default palette.
+- Check the spots with fixed colours for contrast: sticky-note colours, status chips and
+  charts. (The extra colours in `custom-colors.json` are already harmonised to the seed.)
+- **Open questions:** should an admin be able to set an instance-wide default seed (branding),
+  with people's own choice on top?
+
+## 3m. Duplicate a card
+
+Run the same thing again, or reuse a card as a template, without retyping it.
+
+- **Duplicate…** in the card's menu (and on the board card's context menu) opens a small
+  dialog and puts the copy at the top of the project's **To Do** column (role `todo`; the
+  first column if there isn't one), never in the active column, so nothing starts running.
+- **Blueprint only (default):** title (with "(copy)"), description, kind, command or library
+  command with its arguments (asset and list references stay references), tool/image, container
+  flags, agent selector, timeout, run-on-move, priority, tags, custom fields, due date and
+  variable bindings. One-off variable sets are copied, not shared (they belong to one card).
+  Assignees are kept or cleared by a checkbox.
+- **Optionally include:** comments (as they were, authors and times kept, mentions not
+  re-notified), attachments (the files are copied, so deleting one card's file doesn't break
+  the other's embedded images; links in the description and comments are rewritten), and
+  output: past job runs with their logs and parsed results, read-only on the copy. Output is
+  the big one, so it's off by default.
+- The copy records "Duplicated from <card>" in its timeline, with a link back; the original
+  gets a matching entry. Publishes `task.created` like any new card.
+- Playbook run cards and step cards: duplicating a run card means "run this playbook again
+  with the same inputs" (a new run, via Run Playbook pre-filled) rather than copying rows;
+  step cards don't offer Duplicate.
+- Reuses 3i's id remapping (`transfer.values_for`/`remap`) to copy rows with new ids.
+- **Open questions:** duplicate several selected cards at once? Duplicate into another
+  project (the 3i code would make that easy; the command, tools and people must exist there)?
+

@@ -1127,8 +1127,116 @@ export function api(fetchFn: Fetch = fetch) {
 		},
 		activity: {
 			recent: (limit = 50) => get<Activity[]>(`/activity?limit=${limit}`)
+		},
+		transfer: {
+			/** Upload an archive (or a library .yaml), or re-preview a staged one with a passphrase. */
+			preview: (source: { file: File } | { token: string; filename: string }, passphrase?: string) => {
+				const form = new FormData();
+				if ('file' in source) form.append('file', source.file);
+				else {
+					form.append('token', source.token);
+					form.append('filename', source.filename);
+				}
+				if (passphrase) form.append('passphrase', passphrase);
+				return post<ImportPreview>('/import/preview', form);
+			},
+			run: (body: { token: string; filename: string; choices: Record<string, ImportChoice>; passphrase?: string; create_users?: boolean }) =>
+				post<ImportResult>('/import', body),
+			history: () => get<TransferEvent[]>('/transfer/history')
 		}
 	};
+}
+
+export type ImportChoice = 'import' | 'skip' | 'replace' | 'copy';
+
+export interface ImportItem {
+	key: string;
+	kind: 'command' | 'tool' | 'playbook' | 'variable_kind' | 'variable_set' | 'project';
+	id: string;
+	name: string;
+	/** new; exists (yours); builtin; same (identical, nothing to do). */
+	state: 'new' | 'exists' | 'builtin' | 'same';
+	choices: ImportChoice[];
+	default: ImportChoice;
+	/** The id, name or codename "keep both" would use. */
+	new_name: string;
+	notes: string[];
+}
+
+export interface ImportPreview {
+	token: string;
+	filename: string;
+	manifest: { format: number; castor_version?: string; created_at?: string; created_by?: string; scope?: string; contents?: Record<string, number>; includes?: { jobs: boolean; activity: boolean } };
+	secrets: { mode: 'none' | 'passphrase'; unlocked: boolean };
+	items: ImportItem[];
+	people: { matched: string[]; missing: { username: string; display_name: string }[]; can_create: boolean };
+	warnings: string[];
+}
+
+export interface ImportResult {
+	imported: Record<string, string[]>;
+	skipped: number;
+	created_users: string[];
+	projects: UUID[];
+}
+
+export interface ExportRequest {
+	everything?: boolean;
+	commands?: string[];
+	tools?: string[];
+	playbooks?: string[];
+	variable_kinds?: string[];
+	variable_sets?: UUID[];
+	projects?: UUID[];
+	jobs?: boolean;
+	activity?: boolean;
+	passphrase?: string;
+	label?: string;
+}
+
+export interface TransferEvent {
+	id: number;
+	type: 'transfer.export' | 'transfer.import';
+	message: string;
+	actor_name: string;
+	created_at: string;
+	payload: { file?: string; secrets?: string };
+}
+
+/** Ask for an archive and save it (the server streams a zip with its file name). */
+export async function downloadExport(body: ExportRequest): Promise<string> {
+	const res = await fetch('/api/export', {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify(body),
+		credentials: 'same-origin'
+	});
+	if (!res.ok) {
+		let message = res.statusText;
+		try {
+			const data = await res.json();
+			if (typeof data.detail === 'string') message = data.detail;
+		} catch {
+			/* no body */
+		}
+		throw new ApiError(res.status, message);
+	}
+	const name = /filename="?([^";]+)"?/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? 'castor-export.castor.zip';
+	saveBlob(await res.blob(), name);
+	return name;
+}
+
+/** Save text or a blob as a file. */
+export function saveBlob(data: Blob | string, filename: string, type = 'application/yaml') {
+	const blob = typeof data === 'string' ? new Blob([data], { type }) : data;
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = filename;
+	document.body.append(a);
+	a.click();
+	a.remove();
+	setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export type Api = ReturnType<typeof api>;

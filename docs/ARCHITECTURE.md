@@ -311,6 +311,24 @@ domains, users, credentials and shares, one record per identity key with merged 
 inside the project's scope (`projects.settings.scope`), otherwise after approval; once per
 asset and rate-limited. Command arguments can take `{"assets": {type, where, field}}`.
 
+## Import and export
+
+`transfer.py`, `api/transfer.py`. `POST /api/export` (JSON: library ids, variable set ids,
+project ids or `everything`, plus `jobs`, `activity`, `passphrase`) streams a `.castor.zip`:
+`manifest.json` (`format`, version, creator, contents, `secrets.mode` none|passphrase with
+salt and check), `library/{commands,tools,playbooks}/<id>.yaml`,
+`library/variable_kinds.json`, `variable_sets.json`, `projects/<id>.json` (every row of the
+project: columns, runs, cards, comments, attachments, notes, one-off sets, assets and
+triggers; jobs, logs, outputs and activity optionally), `files/<attachment id>`,
+`users.json` (username and name; role and pictures under `avatars/` for everything; never
+password hashes or tokens), `clients.json`, `set_names.json`. `POST /api/import/preview`
+(multipart file, or `token` + `passphrase`) stages the upload and returns the plan: items
+with state new/exists/builtin/same and choices import/skip/replace/copy, people matched by
+username, warnings. `POST /api/import` applies the choices in one transaction with new ids
+everywhere; `GET /api/transfer/history` lists the activity. Format versions newer than the
+server's are refused. Exporting everything needs an admin, secrets an operator, a project
+read access; importing needs an operator.
+
 ## People
 
 `GET /api/people` lists everyone active with their open assigned cards and last activity;
