@@ -122,7 +122,9 @@ in-app only (the team webhooks stay for run events).
 - **"Mine".** A dashboard toggle (home and project, remembered per browser) that narrows
   the timeline to what's about you that someone else did: events on cards assigned to you,
   opened by you or commented on by you, and comments that mention you (`feed?mine=true`).
-  Needs attention keeps decisions and your failed cards (tagged "for you"). The headline's
+  Needs attention keeps decisions and your failed cards (tagged "for you"). Unread mentions
+  of you head Needs attention in every view, and drop off once opened. The timeline's
+  filters (kinds and Mine) are remembered per browser. The headline's
   "what's yours" line counts assigned cards, unread mentions and cards you opened.
 - Code: `people.py`, `api/tasks.py` (`_assignees_changed`, `_mention`),
   `dashboard._mine`, web `lib/people.svelte.ts`, `lib/mentionSuggest.svelte.ts`,

@@ -51,7 +51,7 @@
 	const secs = (s: number) => (s < 60 ? `${Math.round(s)}s` : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`);
 </script>
 
-<li class="relative flex gap-3 pb-5">
+<div class="relative flex gap-3 pb-5">
 	<!-- the rail of the timeline -->
 	<span class="absolute top-10 bottom-0 left-[19px] w-px bg-outline-variant/60" aria-hidden="true"></span>
 	{#if item.kind === 'comment' && item.actor.type === 'user'}
@@ -97,4 +97,4 @@
 			</p>
 		{/if}
 	</div>
-</li>
+</div>

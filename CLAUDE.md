@@ -228,5 +228,9 @@ agent stays trivially installable on target boxes.
   A project dashboard starts with `ProjectNotes.svelte` (pinned notes, `api/notes.py`; edits
   keep earlier versions in `project_notes.history`). Pasting images into markdown boxes
   (comments, notes) goes through `lib/pastedImages.svelte.ts` + `NameImageDialog`.
+- Motion: `lib/motion.ts` (`enter`/`leave` for list rows, `pop` for grid cards, `glide` for
+  reorders). Use it for anything that appears or disappears live, and pass
+  `{ enabled: false }` while a list (re)loads so page loads and filter changes don't cascade.
+  It honours prefers-reduced-motion (fades only) and skips hidden tabs.
 - `JobConsole.svelte` loads `/api/jobs/{id}` then appends `job.log` events, buffering any
   that arrive during the initial load and de-duplicating by `seq`.

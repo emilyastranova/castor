@@ -65,7 +65,13 @@ def test_mentions_and_mine(client, auth):
     ).json()
     assert c["mentions"] == [bob["id"]]  # someone who can't see the project is just text
     assert len(_notes(client, bh, "comment.mention")) == 1 and not _notes(client, oh, "comment.mention")
-    assert client.get("/api/dashboard/summary", headers=bh).json()["mine"]["mentions"] == 1
+    summary = client.get("/api/dashboard/summary", headers=bh).json()
+    assert summary["mine"]["mentions"] == 1
+    item = next(a for a in summary["attention"] if a["kind"] == "mention")
+    assert "mentioned you" in item["title"] and f"comment={c['id']}" in item["link"]
+    # Read, it's no longer waiting on Bob.
+    client.post(f"/api/notifications/{item['notification_id']}/read", headers=bh)
+    assert not [a for a in client.get("/api/dashboard/summary", headers=bh).json()["attention"] if a["kind"] == "mention"]
 
     # An edit notifies only the people it adds.
     client.patch(f"/api/tasks/{task['id']}/comments/{c['id']}", json={"body": f"@{bob['username']} and @{cat['username']}"}, headers=auth)

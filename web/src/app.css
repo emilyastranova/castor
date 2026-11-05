@@ -242,7 +242,7 @@ select optgroup {
 	position: relative;
 	display: inline;
 	border-radius: 999px;
-	padding: 0.1em 0.5em 0.1em 0.15em;
+	padding: 0.2em 0.5em 0.2em 0.15em;
 	background: var(--md-sys-color-secondary-container);
 	color: var(--md-sys-color-on-secondary-container);
 	font-weight: 500;
@@ -251,23 +251,30 @@ select optgroup {
 	cursor: default;
 }
 .prose-m3 .mention .mention-face {
-	display: inline-flex;
-	width: 1.25em;
-	height: 1.25em;
-	align-items: center;
-	justify-content: center;
-	/* Centre the picture on the text: its bottom sits a little below the baseline. */
-	vertical-align: -0.28em;
+	display: inline-block;
+	/* 1.4× the text, centred on the name (its middle sits ~0.35em above the baseline). */
+	width: 1.4em;
+	height: 1.4em;
+	vertical-align: -0.35em;
 	margin: 0 0.3em 0 0;
 	border: 0;
 	border-radius: 999px;
 	object-fit: cover;
 	background: var(--md-sys-color-primary);
 	color: var(--md-sys-color-on-primary);
+	cursor: inherit;
+}
+/* Initials: smaller letters, so the circle is sized in that smaller em (1.4 / 0.6). */
+.prose-m3 .mention span.mention-face {
+	width: 2.333em;
+	height: 2.333em;
+	vertical-align: -0.583em;
+	overflow: hidden; /* aligns by its bottom edge (like the picture), not by its text */
 	font-size: 0.6em;
 	font-weight: 600;
+	line-height: 2.333em;
+	text-align: center;
 	letter-spacing: 0;
-	cursor: inherit;
 }
 .prose-m3 .mention::after {
 	content: attr(data-username);

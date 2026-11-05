@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { enter, leave, glide } from '$lib/motion';
 	import { onMount } from 'svelte';
 	import type { PlaybookDefinition, PlaybookRun, PlaybookStepSpec, Project, Task, JobOutput, CommandDefinition } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
@@ -652,6 +653,7 @@ steps:
 					{#each runs as run (run.id)}
 						{@const isSelected = selectedRunId === run.id}
 						{@const project = projects.find((p) => p.id === run.project_id)}
+						<div in:enter out:leave animate:glide>
 						<Card
 							variant={isSelected ? 'filled' : 'outlined'}
 							class="cursor-pointer transition-all duration-150 p-3.5 border {isSelected ? 'border-primary ring-2 ring-primary/20 bg-primary-container/20' : 'hover:border-outline'}"
@@ -701,6 +703,7 @@ steps:
 								</span>
 							</div>
 						</Card>
+						</div>
 					{:else}
 						<div class="py-12 text-center text-on-surface-variant body-medium">
 							No playbook runs yet. Launch one from the Library!

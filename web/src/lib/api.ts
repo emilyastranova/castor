@@ -264,7 +264,7 @@ export interface FeedItem {
 
 export interface DashboardSummary {
 	counts: { open_cards: number; comments_24h: number; cards_24h: number; jobs_succeeded_24h: number; jobs_failed_24h: number };
-	attention: { kind: 'decision' | 'failed'; title: string; detail: string; since: string | null; project: ProjectRef | null; link: string; for_you: boolean }[];
+	attention: { kind: 'mention' | 'decision' | 'failed'; title: string; detail: string; since: string | null; project: ProjectRef | null; link: string; for_you: boolean; notification_id?: string }[];
 	live_jobs: { job_id: UUID; status: string; task: { id: UUID; name: string }; project: ProjectRef | null; agent: string | null; queued_at: string; started_at: string | null }[];
 	live_runs: { run_id: UUID; name: string; project: ProjectRef | null; done: number; total: number; running: number; waiting: number; started_at: string }[];
 	agents: { online: number; slots: number; busy: number };

@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { dndzone, type DndEvent, SHADOW_ITEM_MARKER_PROPERTY_NAME } from 'svelte-dnd-action';
-	import { flip } from 'svelte/animate';
 	import type { Column, Task, UUID } from '$lib/api';
 	import { IconButton } from '$lib/m3';
 	import TaskCard from './TaskCard.svelte';
 	import ColumnGlyph from './ColumnGlyph.svelte';
+	import { enter, glide, leave } from '$lib/motion';
 
 	interface Props {
 		column: Column;
@@ -20,16 +20,25 @@
 	// Local copy so svelte-dnd-action can insert its placeholder while dragging.
 	let items = $state<Task[]>([]);
 	let dragging = $state(false);
+	// Cards that appear or leave because of someone else (or a move made elsewhere) slide in
+	// and out; drag and drop has its own motion, and the first fill of the board doesn't animate.
+	let live = $state(false);
+	let filled = false;
 	$effect(() => {
-		if (!dragging) items = tasks;
+		if (dragging) return;
+		live = filled;
+		items = tasks;
+		filled = true;
 	});
 
 	function consider(e: CustomEvent<DndEvent<Task>>) {
 		dragging = true;
+		live = false;
 		items = e.detail.items;
 	}
 
 	function finalize(e: CustomEvent<DndEvent<Task>>) {
+		live = false;
 		items = e.detail.items;
 		dragging = false;
 		const { id, trigger } = e.detail.info;
@@ -71,7 +80,7 @@
 		onfinalize={finalize}
 	>
 		{#each items as task (task.id)}
-			<div animate:flip={{ duration: 150 }} class={(task as unknown as Record<string, unknown>)[SHADOW_ITEM_MARKER_PROPERTY_NAME] ? 'opacity-40' : ''}>
+			<div animate:glide={{ duration: 150 }} in:enter={{ enabled: live }} out:leave={{ enabled: live }} class={(task as unknown as Record<string, unknown>)[SHADOW_ITEM_MARKER_PROPERTY_NAME] ? 'opacity-40' : ''}>
 				<TaskCard {task} {onopen} />
 			</div>
 		{/each}

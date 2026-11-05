@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { enter, leave } from '$lib/motion';
 	import { goto } from '$app/navigation';
 	import type { AppNotification } from '$lib/api';
 	import { Button, Icon, IconButton, Switch } from '$lib/m3';
@@ -62,7 +63,7 @@
 			<ul class="min-h-24 flex-1 overflow-auto">
 				{#each shown as n (n.id)}
 					{@const sev = SEVERITY[n.severity] ?? SEVERITY.info}
-					<li class="border-b border-outline-variant/50 last:border-b-0">
+					<li class="border-b border-outline-variant/50 last:border-b-0" in:enter out:leave>
 						<div class="flex items-start gap-3 px-4 py-3 {n.read_at ? 'opacity-70' : ''}">
 							<Icon name={sev.icon} size={20} class="mt-0.5 shrink-0 {sev.tone}" filled />
 							<button type="button" class="min-w-0 flex-1 text-left" onclick={() => visit(n)}>

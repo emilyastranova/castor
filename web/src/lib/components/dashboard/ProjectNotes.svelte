@@ -13,6 +13,7 @@
 	import { PastedImages } from '$lib/pastedImages.svelte';
 	import NameImageDialog from '../NameImageDialog.svelte';
 	import NoteColorPicker, { noteBg } from './NoteColorPicker.svelte';
+	import { pop, glide } from '$lib/motion';
 
 	/** Pinned notes at the top of a project's dashboard: status, objectives, scope, contacts… */
 	let { projectId }: { projectId: UUID } = $props();
@@ -218,6 +219,7 @@
 {#if loaded && (notes.length || canEdit())}
 	<section aria-label="Pinned notes" class="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] items-start gap-3">
 		{#each notes as note, i (note.id)}
+			<div class="min-w-0" in:pop out:pop animate:glide>
 			{#if editingId === note.id}
 				{@render editor()}
 			{:else}
@@ -271,6 +273,7 @@
 					</footer>
 				</article>
 			{/if}
+			</div>
 		{/each}
 
 		{#if editingId === 'new'}

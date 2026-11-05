@@ -20,6 +20,7 @@
 	import RichText from './RichText.svelte';
 	import { MentionSuggest } from '$lib/mentionSuggest.svelte';
 	import { people } from '$lib/people.svelte';
+	import { enter, leave, pop, glide } from '$lib/motion';
 	import CommandArgsForm from './CommandArgsForm.svelte';
 	import VarBindings from './VarBindings.svelte';
 	import { tick } from 'svelte';
@@ -183,8 +184,11 @@
 	let uploading = $state(false);
 	let fileInput: HTMLInputElement | undefined = $state();
 
+	/** Comments, files and runs animate only when they change live, not as the card loads. */
+	let liveSide = $state(false);
 	async function loadSide() {
 		const id = task.id;
+		liveSide = false;
 		const client = api();
 		const [j, c, a, h] = await Promise.all([
 			client.tasks.jobs(id),
@@ -198,6 +202,8 @@
 		attachments = a;
 		history = h;
 		if (!selectedJobId && j[0]) selectedJobId = j[0].id;
+		await tick();
+		if (id === task.id) liveSide = true;
 	}
 
 	/** Scroll to a comment and flash it (opened from a notification). */
@@ -640,9 +646,9 @@
 					{#if jobs.length > 1}
 						<div class="flex flex-wrap gap-1">
 							{#each jobs as j (j.id)}
-								<Chip variant="filter" selected={selectedJobId === j.id} onclick={() => (selectedJobId = j.id)}>
+								<span class="inline-flex" in:pop={{ enabled: liveSide }} animate:glide={{ enabled: liveSide }}><Chip variant="filter" selected={selectedJobId === j.id} onclick={() => (selectedJobId = j.id)}>
 									{relativeTime(j.queued_at)} · {j.status}{j.started_at ? ` · ${duration(j.started_at, j.finished_at)}` : ''}
-								</Chip>
+								</Chip></span>
 							{/each}
 						</div>
 					{/if}
@@ -694,7 +700,7 @@
 			{:else if tab === 'comments'}
 				<div class="flex flex-col gap-4">
 					{#each comments as c (c.id)}
-						<div class="flex gap-3" id="comment-{c.id}">
+						<div class="flex gap-3" id="comment-{c.id}" in:enter={{ enabled: liveSide }} out:leave={{ enabled: liveSide }}>
 							<Avatar name={c.author_name} src={c.author_avatar} tone="secondary" />
 							<div class="min-w-0 flex-1 rounded-md bg-surface-container px-4 py-3" class:mentions-me={mentionsMe(c)} class:flash={flashing === c.id}>
 								<div class="flex items-center gap-2 body-small text-on-surface-variant">
@@ -764,7 +770,7 @@
 					{#if screenshots.length}
 						<div class="grid grid-cols-2 gap-3 md:grid-cols-3">
 							{#each screenshots as a, i (a.id)}
-								<figure class="group relative overflow-hidden rounded-md bg-surface-container">
+								<figure class="group relative overflow-hidden rounded-md bg-surface-container" in:pop={{ enabled: liveSide }} out:pop={{ enabled: liveSide }} animate:glide={{ enabled: liveSide }}>
 									<button type="button" class="block w-full cursor-zoom-in" aria-label="View {a.filename}" onclick={() => lightbox.open(screenshots.map((s) => ({ src: api().attachments.url(s.id, true), name: s.filename })), i)}>
 										<img src={api().attachments.url(a.id, true)} alt={a.filename} class="aspect-video w-full object-cover" loading="lazy" />
 									</button>
@@ -780,7 +786,7 @@
 					{#if files.length}
 						<ul class="divide-y divide-outline-variant rounded-md bg-surface-container">
 							{#each files as a (a.id)}
-								<li class="flex items-center gap-3 px-3 py-2">
+								<li class="flex items-center gap-3 px-3 py-2" in:enter={{ enabled: liveSide }} out:leave={{ enabled: liveSide }}>
 									<Icon name="draft" class="text-on-surface-variant" />
 									<a class="min-w-0 flex-1 truncate body-medium text-primary underline-offset-2 hover:underline" href={api().attachments.url(a.id)}>{a.filename}</a>
 									<span class="body-small text-on-surface-variant">{bytes(a.size)} · {relativeTime(a.created_at)}</span>

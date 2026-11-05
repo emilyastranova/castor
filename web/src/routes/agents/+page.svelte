@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { pop, glide } from '$lib/motion';
 	import { isAdmin } from '$lib/session';
 	import { invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
@@ -178,7 +179,8 @@
 	{:else}
 		<div class="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4 pt-2">
 			{#each agents as a (a.id)}
-				<Card variant="elevated" class="flex flex-col gap-3 p-5">
+				<div class="flex flex-col" in:pop out:pop animate:glide>
+				<Card variant="elevated" class="flex flex-1 flex-col gap-3 p-5">
 					<div class="flex items-start gap-3">
 						<span class="flex size-10 items-center justify-center rounded-md {a.connected ? 'bg-primary-container text-on-primary-container' : 'bg-surface-container-highest text-on-surface-variant'}">
 							<Icon name="dns" filled={a.connected} />
@@ -221,6 +223,7 @@
 						{/if}
 					</div>
 				</Card>
+				</div>
 			{/each}
 		</div>
 	{/if}

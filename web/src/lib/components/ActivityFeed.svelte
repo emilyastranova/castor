@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { enter, leave } from '$lib/motion';
 	import type { Activity, UUID } from '$lib/api';
 	import { Icon } from '$lib/m3';
 	import { relativeTime, absoluteTime } from '$lib/format';
@@ -34,7 +35,7 @@
 	{/if}
 	{#each items as a (a.id)}
 		{@const ic = iconFor(a.type)}
-		<li>
+		<li in:enter out:leave>
 			<button
 				type="button"
 				class="state-layer flex w-full items-start gap-3 px-4 py-2.5 text-left disabled:cursor-default"

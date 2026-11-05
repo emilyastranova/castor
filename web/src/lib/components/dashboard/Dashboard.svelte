@@ -12,6 +12,7 @@
 	import TimelineItem from './TimelineItem.svelte';
 	import ProjectNotes from './ProjectNotes.svelte';
 	import { TRIVIA } from './trivia';
+	import { enter, leave } from '$lib/motion';
 	import { PastedImages } from '$lib/pastedImages.svelte';
 	import NameImageDialog from '../NameImageDialog.svelte';
 	import NoteColorPicker, { noteBg } from './NoteColorPicker.svelte';
@@ -45,22 +46,38 @@
 	/** What the timeline shows by default: the work, not agent connections or admin. */
 	const WORK: FeedKind[] = ['comment', 'job', 'card', 'playbook', 'file', 'note'];
 	let kinds = $state<Set<FeedKind>>(new Set(WORK));
-	/** "Mine": only what's about you (your cards, mentions, replies), remembered per browser. */
+	/** "Mine": only what's about you (your cards, mentions, replies). */
 	let mine = $state(false);
+
+	// The timeline filters are remembered per browser (the same for home and every project).
+	// They're read before the first load, so the page doesn't load twice.
+	const PREFS = 'castor.dashboard.filters';
+	let prefsRead = $state(false);
 	$effect(() => {
 		try {
-			mine = localStorage.getItem('castor.dashboard.mine') === '1';
+			const saved = JSON.parse(localStorage.getItem(PREFS) ?? 'null') as { kinds?: string[]; mine?: boolean } | null;
+			if (saved?.kinds) kinds = new Set(saved.kinds.filter((k): k is FeedKind => ALL_KINDS.some((x) => x.kind === k)));
+			if (saved?.mine !== undefined) mine = !!saved.mine;
+			else mine = localStorage.getItem('castor.dashboard.mine') === '1'; // before filters were saved
+		} catch {
+			/* storage unavailable, or a bad value: use the defaults */
+		}
+		prefsRead = true;
+	});
+	function savePrefs() {
+		try {
+			localStorage.setItem(PREFS, JSON.stringify({ kinds: [...kinds], mine }));
 		} catch {
 			/* storage unavailable */
 		}
-	});
+	}
+	function setKinds(next: Set<FeedKind>) {
+		kinds = next;
+		savePrefs();
+	}
 	function toggleMine() {
 		mine = !mine;
-		try {
-			localStorage.setItem('castor.dashboard.mine', mine ? '1' : '0');
-		} catch {
-			/* storage unavailable */
-		}
+		savePrefs();
 	}
 	let isDefault = $derived(kinds.size === WORK.length && WORK.every((k) => kinds.has(k)));
 
@@ -69,6 +86,8 @@
 	let nextBefore = $state<number | null>(null);
 	let loadingMore = $state(false);
 	let loaded = $state(false);
+	/** Animate timeline changes: only events arriving live (not a page or filter (re)load). */
+	let liveFeed = $state(false);
 
 	async function loadSummary() {
 		try {
@@ -79,6 +98,7 @@
 	}
 	async function loadFeed() {
 		const res = await api().dashboard.feed({ project_id: scope, kinds: [...kinds], mine, limit: 40 });
+		liveFeed = false;
 		items = res.items;
 		nextBefore = res.next_before;
 		loaded = true;
@@ -88,13 +108,16 @@
 		const res = await api().dashboard.feed({ project_id: scope, kinds: [...kinds], mine, limit: 40 });
 		const known = new Set(items.map((i) => i.id));
 		const fresh = res.items.filter((i) => !known.has(i.id));
-		if (fresh.length) items = [...fresh, ...items];
+		if (!fresh.length) return;
+		liveFeed = true;
+		items = [...fresh, ...items];
 	}
 	async function more() {
 		if (!nextBefore) return;
 		loadingMore = true;
 		try {
 			const res = await api().dashboard.feed({ project_id: scope, kinds: [...kinds], mine, before: nextBefore, limit: 40 });
+			liveFeed = true;
 			items = [...items, ...res.items];
 			nextBefore = res.next_before;
 		} finally {
@@ -104,6 +127,7 @@
 
 	// (Re)load when the scope or the filters change.
 	$effect(() => {
+		if (!prefsRead) return;
 		void scope;
 		void kinds;
 		void mine;
@@ -122,7 +146,7 @@
 				clearTimeout(headTimer);
 				headTimer = setTimeout(refreshHead, 400);
 			}
-			if (['activity.created', 'job.updated', 'playbook_run.updated', 'agent.updated', 'task.moved', 'project.notes'].includes(e.name)) {
+			if (['activity.created', 'job.updated', 'playbook_run.updated', 'agent.updated', 'task.moved', 'project.notes', 'notification.created', 'notification.read'].includes(e.name)) {
 				clearTimeout(summaryTimer);
 				summaryTimer = setTimeout(loadSummary, 800);
 			}
@@ -139,7 +163,7 @@
 		const next = new Set(kinds);
 		if (next.has(kind)) next.delete(kind);
 		else next.add(kind);
-		kinds = next;
+		setKinds(next);
 	}
 
 	// ---- greeting ----
@@ -393,9 +417,9 @@
 					</button>
 				{/each}
 				{#if isDefault}
-					<button type="button" class="label-medium text-primary hover:underline" onclick={() => (kinds = new Set(kindOptions.map((k) => k.kind)))}>Show everything</button>
+					<button type="button" class="label-medium text-primary hover:underline" onclick={() => setKinds(new Set(kindOptions.map((k) => k.kind)))}>Show everything</button>
 				{:else}
-					<button type="button" class="label-medium text-primary hover:underline" onclick={() => (kinds = new Set(WORK))}>Just the work</button>
+					<button type="button" class="label-medium text-primary hover:underline" onclick={() => setKinds(new Set(WORK))}>Just the work</button>
 				{/if}
 			</div>
 			{#if !loaded}
@@ -407,12 +431,14 @@
 				</div>
 			{:else}
 				{#each days as day (day.label)}
-					<h3 class="sticky top-0 z-10 -mx-1 mb-2 bg-surface px-1 py-1 title-small text-on-surface-variant">{day.label}</h3>
-					<ol>
-						{#each day.items as item (item.id)}
-							<TimelineItem {item} showProject={!scope} />
-						{/each}
-					</ol>
+					<div in:enter={{ enabled: liveFeed }} out:leave={{ enabled: liveFeed }}>
+						<h3 class="sticky top-0 z-10 -mx-1 mb-2 bg-surface px-1 py-1 title-small text-on-surface-variant">{day.label}</h3>
+						<ol>
+							{#each day.items as item (item.id)}
+								<li in:enter={{ enabled: liveFeed }} out:leave={{ enabled: liveFeed }}><TimelineItem {item} showProject={!scope} /></li>
+							{/each}
+						</ol>
+					</div>
 				{/each}
 				{#if nextBefore}
 					<div class="flex justify-center"><Button variant="tonal" loading={loadingMore} onclick={more}>Show older</Button></div>
@@ -431,9 +457,9 @@
 				{#if attention.length}
 					<ul class="flex flex-col gap-1.5">
 						{#each attention as a (a.link)}
-							<li>
-								<a href={a.link} class="state-layer flex items-start gap-2.5 rounded-md px-2 py-2">
-									<Icon name={a.kind === 'decision' ? 'front_hand' : 'error'} size={18} class="mt-0.5 shrink-0 {a.kind === 'decision' ? 'text-tertiary' : 'text-error'}" />
+							<li in:enter out:leave>
+								<a href={a.link} class="state-layer flex items-start gap-2.5 rounded-md px-2 py-2" onclick={() => a.notification_id && void api().notifications.read(a.notification_id).catch(() => {})}>
+									<Icon name={a.kind === 'mention' ? 'alternate_email' : a.kind === 'decision' ? 'front_hand' : 'error'} size={18} class="mt-0.5 shrink-0 {a.kind === 'mention' ? 'text-primary' : a.kind === 'decision' ? 'text-tertiary' : 'text-error'}" />
 									<span class="min-w-0 flex-1">
 										<span class="block body-medium text-on-surface">{a.title}{#if a.for_you && a.kind === 'failed'}<span class="ml-1.5 rounded-full bg-primary-container px-1.5 py-0.5 align-middle label-small text-on-primary-container">for you</span>{/if}</span>
 										<span class="block truncate body-small text-on-surface-variant" title={a.detail}>
@@ -464,14 +490,14 @@
 					{/if}
 					<div class="flex flex-col gap-3">
 						{#each pinnedGroups as g (g.project.id)}
-							<div>
+							<div in:enter out:leave>
 								<a href="/projects/{g.project.id}/dashboard" class="flex items-center gap-2 px-2 pb-0.5 body-small text-on-surface-variant hover:underline">
 									<span class="rounded bg-surface-container-highest px-1.5 font-mono text-[11px]">{g.project.codename}</span>
 									<span class="truncate">{g.project.name}</span>
 								</a>
 								<ul class="flex flex-col">
 									{#each g.notes.slice(0, PINNED_PER_PROJECT) as p (p.note_id)}
-										<li>
+										<li in:enter out:leave>
 											<a href="/projects/{g.project.id}/dashboard" class="state-layer block rounded-md px-2 py-1.5">
 												<span class="flex items-center gap-2 truncate label-large text-on-surface">
 													<span class="size-2.5 shrink-0 rounded-full border border-outline-variant" style:background-color={noteBg(p.color)}></span>
@@ -505,7 +531,7 @@
 					<p class="mt-1 mb-1 px-2 label-medium text-on-surface-variant">Playbooks</p>
 					<ul class="flex flex-col gap-1">
 						{#each summary.live_runs as r (r.run_id)}
-							<li>
+							<li in:enter out:leave>
 								<a href="/playbooks?run={r.run_id}" class="state-layer block rounded-md px-2 py-2">
 									<span class="flex items-center gap-2">
 										<Icon name="account_tree" size={16} class="text-primary" />
@@ -527,7 +553,7 @@
 					<p class="mt-2 mb-1 px-2 label-medium text-on-surface-variant">Jobs</p>
 					<ul class="flex flex-col gap-0.5">
 						{#each summary.live_jobs as j (j.job_id)}
-							<li>
+							<li in:enter out:leave>
 								<a href={j.project ? `/projects/${j.project.id}?task=${j.task.id}` : '#'} class="state-layer flex items-center gap-2 rounded-md px-2 py-1.5">
 									{#if j.status === 'running'}
 										<span class="size-2 shrink-0 animate-pulse rounded-full bg-primary"></span>

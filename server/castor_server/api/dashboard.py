@@ -522,6 +522,34 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
             "for_you": str(user.id) in (task.assignees or []) or task.created_by == user.id,
         })
 
+    # Unread mentions of you come first: someone is waiting on you. Opening one marks it read.
+    mention_rows = (
+        await db.execute(
+            select(m.Notification)
+            .where(
+                m.Notification.user_id == user.id,
+                m.Notification.kind == "comment.mention",
+                m.Notification.read_at.is_(None),
+                in_scope(m.Notification.project_id),
+            )
+            .order_by(m.Notification.created_at.desc())
+            .limit(10)
+        )
+    ).scalars().all()
+    attention[:0] = [
+        {
+            "kind": "mention",
+            "title": n.title,
+            "detail": n.body,
+            "since": n.created_at,
+            "project": project_ref(n.project_id),
+            "link": n.link,
+            "for_you": True,
+            "notification_id": str(n.id),
+        }
+        for n in mention_rows
+    ]
+
     online = [c for c in gateway.connections.values()]
     open_rows = (
         await db.execute(
