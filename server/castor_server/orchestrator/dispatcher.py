@@ -112,8 +112,16 @@ class Dispatcher:
                 ]
                 if not candidates:
                     continue
-                # Prefer an agent that has the tool ready, then the least-loaded one.
-                conn = min(candidates, key=lambda c: (not tool_ready(c, tool), len(c.running)))
+                # Prefer an agent with the tool ready and, for a plain shell command, one that
+                # runs it on the host over one that would use its default image.
+                conn = min(
+                    candidates,
+                    key=lambda c: (
+                        not tool_ready(c, tool),
+                        not job.image and tool is None and "host" not in c.runtimes,
+                        len(c.running),
+                    ),
+                )
                 way = tool_way(conn, tool) if tool else None
                 if way is not None:
                     # The image the tool resolves to on this agent, kept on the job.

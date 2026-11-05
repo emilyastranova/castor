@@ -32,9 +32,46 @@ the workflow's execution log.
 transform steps reshape one tool's results into the next tool's input, and every
 step appears on the board as its own card.
 
-> **■ Status: Phase 2 complete.** The board, agents with their own tokens, command
-> library, parsers, playbooks with a visual editor, and users with roles all work. Refer
-> to [docs/PHASE2.md](docs/PHASE2.md); what's next is in [docs/PHASE3.md](docs/PHASE3.md).
+> **■ Status: Phase 3 in progress.** Phase 2 (the board, agents with their own tokens,
+> command library, parsers, playbooks with a visual editor, users with roles) is done; see
+> [docs/PHASE2.md](docs/PHASE2.md). Phase 3 has added tool environments, assignees and
+> @mentions, and pinned project notes so far; the rest is in [docs/PHASE3.md](docs/PHASE3.md).
+
+## A look around
+
+<p align="center">
+  <img src=".github/assets/screenshots/dashboard.png" alt="The home dashboard: a greeting with today's numbers, a timeline of comments, card changes, job results and playbook runs across projects, and side panels for mentions and steps that need attention and for pinned project notes." width="100%">
+</p>
+
+The home dashboard is a cockpit for everything you can see: what changed, what's
+running, and what's waiting on you (mentions, playbook decisions, failed runs).
+
+<table>
+  <tr>
+    <td width="50%"><img src=".github/assets/screenshots/board.png" alt="A project board with Backlog, To Do, In Progress and Review columns; command cards show their command line and run status, and assignees show as avatars."></td>
+    <td width="50%"><img src=".github/assets/screenshots/card.png" alt="A card's detail dialog: its command, agent and run settings, and a comment thread where a comment mentioning you is highlighted and @mentions show as name chips."></td>
+  </tr>
+  <tr>
+    <td><b>The board.</b> Manual and command cards; dragging a command card into In
+    Progress runs it on an agent.</td>
+    <td><b>A card.</b> Its command and runs, files, history, and a comment thread with
+    @mentions that notify people.</td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src=".github/assets/screenshots/playbook.png" alt="A finished playbook run drawn as a graph: a seed step fans out to a service scan, an SMB scan and DNS names; transform steps reshape results between commands; a report collects the branches."></td>
+  </tr>
+  <tr>
+    <td colspan="2"><b>Playbooks.</b> A run drawn as a graph: commands, the transforms
+    between them, and each step's status and outputs.</td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src=".github/assets/screenshots/project-dashboard.png" alt="A project's dashboard in the light theme, topped by four colored pinned notes: Status with a checklist, Objectives, Scope, and Contacts."></td>
+  </tr>
+  <tr>
+    <td colspan="2"><b>Project dashboards</b> open with the team's pinned notes (status,
+    objectives, scope, contacts), shown here in the light theme.</td>
+  </tr>
+</table>
 
 ---
 

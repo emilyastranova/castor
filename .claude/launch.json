@@ -4,7 +4,12 @@
     {
       "name": "web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "web"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "web"
+      ],
       "port": 5173
     },
     {
@@ -12,6 +17,24 @@
       "runtimeExecutable": ".venv/bin/castor-server",
       "runtimeArgs": [],
       "port": 8000
+    },
+    {
+      "name": "demo-api",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "mkdir -p .demo/data && cd .demo && CASTOR_PORT=8100 CASTOR_DATA_DIR=./data CASTOR_DATABASE_URL=sqlite+aiosqlite:///./data/castor.db CASTOR_COOKIE_NAME=castor_demo_session CASTOR_AGENT_SECRET=demo-agent-secret CASTOR_SECRET_KEY=demo-only-secret CASTOR_CORS_ORIGINS='[\"http://localhost:5174\"]' exec ../.venv/bin/castor-server"
+      ],
+      "port": 8100
+    },
+    {
+      "name": "demo-web",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd web && CASTOR_API_URL=http://localhost:8100 API_INTERNAL_URL=http://localhost:8100 exec npx vite dev --port 5174 --strictPort"
+      ],
+      "port": 5174
     }
   ]
 }

@@ -68,6 +68,8 @@ writes `src/lib/m3/tokens.css` (committed, do not hand-edit).
 README images (`.github/assets/*.svg`) are generated from the AstraLabs brand repo
 (`../astralabs_design`) with fontTools: `python3 .github/assets/build_assets.py`. Don't
 hand-edit the SVGs; change the script and regenerate.
+README screenshots (`.github/assets/screenshots/*.png`) come from a seeded throwaway demo
+instance (`seed_demo.py`, `capture.py`); the steps are in that folder's README.
 
 Full stack: `cp .env.example .env && docker compose up -d --build` (also works with
 `podman compose` if a compose provider is installed). The Postgres path has not been

@@ -524,6 +524,10 @@ class AgentGateway:
         resolved = resolved or variables.Resolved()
         self._redactions[job.id] = resolved
         conn.running.add(job.id)
+        # A job without an image runs in the host shell, or (on an agent that doesn't allow
+        # host commands) in the agent's default image; the dispatcher only sends it to an
+        # agent that can do one of the two (agent_matches).
+        in_container = bool(job.image) or "host" not in conn.runtimes
         await conn.send(
             {
                 "type": "job.run",
@@ -531,10 +535,10 @@ class AgentGateway:
                     "id": job.id,
                     "command": job.command,
                     # Shown as the first line of the output; values filled in, secrets masked.
-                    "display_command": resolved.display_command(job.command, bool(job.image)),
+                    "display_command": resolved.display_command(job.command, in_container),
                     "image": job.image,
                     "container_flags": job.container_flags or [],
-                    "runtime": "container" if job.image else "host",
+                    "runtime": "container" if in_container else "host",
                     # Variable values exist only in this message: never on the job row.
                     "env": {**(job.env or {}), **resolved.env},
                     "files": resolved.files,

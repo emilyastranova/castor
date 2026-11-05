@@ -152,3 +152,28 @@ def test_agent_that_cant_run_the_tool_isnt_sent_it(client, auth):
     assert not agent_matches(conn(["host"]), Job(), {}, image_only)
     assert not tool_ready(conn(["docker"]), spec)
     assert tool_ready(conn(["docker"], [spec.build_tag()]), spec)
+
+
+def test_plain_command_on_an_agent_without_host_runs_in_its_default_image(client, auth):
+    """An agent without --allow-host can take a shell command, but in a container: it must be
+    told so (it refuses runtime "host")."""
+    code = f"RT-{uuid.uuid4().hex[:6]}"
+    project = client.post("/api/projects", json={"codename": code, "name": code, "kind": "internal"}, headers=auth).json()
+    agent = f"nohost-{uuid.uuid4().hex[:5]}"
+    with client.websocket_connect("/ws/agent") as ws:
+        _hello(ws, agent, ["docker"])
+        task = client.post(
+            f"/api/projects/{project['id']}/tasks",
+            json={"title": "Plain", "kind": "command", "command": "echo plain-shell", "agent_selector": {"tags": [agent]}},
+            headers=auth,
+        ).json()
+        client.post(f"/api/tasks/{task['id']}/run", headers=auth)
+        while True:
+            run = json.loads(ws.receive_text())
+            if run["type"] != "job.run":
+                continue
+            job = run["job"]
+            ws.send_text(json.dumps({"type": "job.finished", "job_id": job["id"], "exit_code": 0}))
+            if job["command"] == "echo plain-shell":
+                break
+        assert job["runtime"] == "container" and job["image"] is None
