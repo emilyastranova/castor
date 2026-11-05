@@ -701,12 +701,12 @@
 	</div>
 
 	<!-- Hint Overlay (Floating bottom-left) -->
-	<div class="pointer-events-none absolute bottom-4 left-4 z-20 hidden md:flex items-center gap-2 rounded-lg bg-surface-container-high/70 px-2.5 py-1 text-[11px] text-on-surface-variant/90 backdrop-blur-xs select-none">
+	<div class="pointer-events-none absolute bottom-4 left-4 z-20 hidden {editable ? '' : 'md:flex'} items-center gap-2 rounded-lg bg-surface-container-high/70 px-2.5 py-1 text-[11px] text-on-surface-variant/90 backdrop-blur-xs select-none">
 		<Icon name="pan_tool" size={13} class="opacity-70" />
 		<span>Drag canvas to pan · Scroll to zoom · Drag cards to reposition</span>
 	</div>
 
-	{#if graph.nodes.length === 0}
+	{#if graph.nodes.length === 0 && !editable}
 		<div class="flex h-full flex-col items-center justify-center text-on-surface-variant">
 			<Icon name="schema" size={44} class="opacity-40" />
 			<p class="mt-2 title-small text-on-surface">No Steps in Playbook</p>
