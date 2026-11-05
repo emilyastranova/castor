@@ -1,6 +1,6 @@
 # Phase 3 plan
 
-Status: in progress (2026-11-04); 3a is built. Roadmap item **M3** in
+Status: in progress (2026-11-05); 3a and 3d are built. Roadmap item **M3** in
 [ARCHITECTURE.md](ARCHITECTURE.md); Phase 2 is done and recorded in [PHASE2.md](PHASE2.md).
 
 Phase 3 makes Castor easier to run day to day: tools prepared on demand instead of baked
@@ -12,7 +12,7 @@ playbook step goes wrong.
 | 3a. Tool environments | Commands name a tool; agents pull or build it on demand and cache it; the agent image stays bare | nothing | Built |
 | 3b. "Mine" and @mentions | Mention people in comments (and get notified); a dashboard filter for your cards and mentions | nothing | Idea |
 | 3c. Per-person view | Click a name to see everything that person did and has on their plate | 3b helps | Idea |
-| 3d. Pinned project notes | A short status/objectives note at the top of a project's dashboard | nothing | Idea |
+| 3d. Pinned project notes | A few titled notes (status, objectives…) at the top of a project's dashboard | nothing | Built |
 | 3e. AI resolver for paused steps | Gemini reads an unexpected result and retries (maybe with a fixed command), continues or skips | nothing | Idea |
 | 3f. Discovered artifacts | Typed objects Castor finds (IPs, hosts, services, credentials…) merged across tools, with triggers that act on new ones | parsers (2b) | Idea |
 
@@ -133,12 +133,24 @@ Turns the dashboard into a personal inbox.
 
 ## 3d. Pinned project notes
 
-- One markdown note per project (`projects.pinned_note`, plus who edited it and when) shown
-  at the top of the project dashboard; the home dashboard shows the first line of each
-  project's note under its name.
-- Operators who are members (and admins) edit it in place; changes go to the activity feed
-  (`project.note`) and keep a short history so an edit can be undone.
-- **Open question:** one note, or a few pinned notes (status, objectives, contacts)?
+**Built.** Decided: a few notes per project rather than one.
+
+- Up to 12 titled markdown notes per project (`project_notes`: title, body, position, who
+  edited it last), shown as cards at the top of the project dashboard. Suggested titles
+  for the first one: Status, Objectives, Scope, Contacts.
+- Everyone who sees the project reads them; operators edit them in place (Ctrl+Enter
+  saves), reorder them (Move left/right) and remove them. Pasted images work as in
+  comments: named, uploaded as project attachments (`POST /api/projects/{id}/attachments`,
+  no card) and embedded as markdown.
+- Every edit keeps the previous version (last 20, `project_notes.history`); History shows
+  them and restores one, which is itself kept, so a restore can be undone.
+- Changes go to the activity feed (`note.created|updated|deleted`, feed kind `note`) and
+  publish `project.notes`, so open dashboards reload them.
+- The home dashboard's **Pinned notes** panel lists every note as its title and first line
+  in plain text (`summary.pinned`), grouped by project (up to 4 each, then "+N more"), and
+  can pin a new note on any project.
+- Code: `api/notes.py`, `dashboard._pinned`/`first_line`,
+  `web/src/lib/components/dashboard/ProjectNotes.svelte`.
 
 ## 3e. AI resolver for paused steps
 

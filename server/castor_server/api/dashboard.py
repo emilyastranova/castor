@@ -3,6 +3,7 @@ happened, across the projects the user can see (or one of them)."""
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timedelta
 from typing import Any
@@ -41,6 +42,8 @@ def kind_of(event_type: str) -> str:
         return "playbook"
     if head in ("agent", "agent_token"):
         return "agent"
+    if head == "note":
+        return "note"
     return "admin"  # users, projects, variables
 
 
@@ -194,6 +197,47 @@ async def _enrich(db: DB, events: list[m.ActivityEvent]) -> list[FeedItem]:
     return out
 
 
+def first_line(markdown: str, limit: int = 140) -> str:
+    """The first line with text, as plain text (no list/heading/quote markers or emphasis)."""
+    for line in markdown.splitlines():
+        text = re.sub(r"^(?:(?:#{1,6}|>|[-*+]|\d+[.)])\s+)+", "", line.strip())
+        text = re.sub(r"^\[([ xX])\]\s*", lambda c: "☐ " if c[1] == " " else "☑ ", text)  # task lists
+        text = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", text)  # links and images: their text
+        text = re.sub(r"(\*\*|~~|`)(.+?)\1", r"\2", text)
+        text = re.sub(r"(?<!\w)(__|\*|_)(\S.*?)\1(?!\w)", r"\2", text).strip()  # not snake_case
+        if text and not re.fullmatch(r"[-*_=\s]+", text):  # skip rules
+            return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+    return ""
+
+
+async def _pinned(db: DB, in_scope, project_ref) -> list[dict[str, Any]]:
+    """Every pinned note in scope as one line, grouped by project (the project edited most
+    recently first, its notes in their order)."""
+    notes = (
+        await db.execute(
+            select(m.ProjectNote)
+            .where(in_scope(m.ProjectNote.project_id))
+            .order_by(m.ProjectNote.position, m.ProjectNote.created_at)
+        )
+    ).scalars().all()
+    latest: dict[uuid.UUID, datetime] = {}
+    for note in notes:
+        latest[note.project_id] = max(latest.get(note.project_id, note.updated_at), note.updated_at)
+    ordered = sorted(
+        (n for n in notes if project_ref(n.project_id)), key=lambda n: (-latest[n.project_id].timestamp(), str(n.project_id))
+    )
+    return [
+        {
+            "project": project_ref(note.project_id),
+            "note_id": str(note.id),
+            "title": note.title,
+            "line": first_line(note.body),
+            "updated_at": note.updated_at,
+        }
+        for note in ordered[:60]
+    ]
+
+
 def _n(count: int, noun: str) -> str:
     return f"{count:,} {noun}{'' if count == 1 else 's'}"
 
@@ -293,6 +337,8 @@ class Summary(BaseModel):
     mine: dict[str, int]
     # Short facts about the work in scope, for the dashboard's rotating headline.
     facts: list[str]
+    # Pinned notes in scope as one line each, grouped by project (the home dashboard lists them).
+    pinned: list[dict[str, Any]]
 
 
 @router.get("/summary", response_model=Summary)
@@ -453,6 +499,7 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
     return Summary(
         mine=mine,
         facts=await _facts(db, in_scope),
+        pinned=await _pinned(db, in_scope, project_ref),
         counts=counts,
         attention=attention[:20],
         live_jobs=live_jobs,

@@ -238,7 +238,7 @@ export interface PlaybookStepResult {
 	items?: number;
 }
 
-export type FeedKind = 'comment' | 'job' | 'card' | 'move' | 'file' | 'playbook' | 'agent' | 'admin';
+export type FeedKind = 'comment' | 'job' | 'card' | 'move' | 'file' | 'playbook' | 'note' | 'agent' | 'admin';
 
 export interface ProjectRef {
 	id: UUID;
@@ -270,6 +270,28 @@ export interface DashboardSummary {
 	agents: { online: number; slots: number; busy: number };
 	mine: { assigned: number; opened: number };
 	facts: string[];
+	pinned: { project: ProjectRef | null; note_id: UUID; title: string; line: string; updated_at: string }[];
+}
+
+export interface ProjectNote {
+	id: UUID;
+	project_id: UUID;
+	title: string;
+	body: string;
+	position: number;
+	created_at: string;
+	updated_at: string;
+	updated_by: { id: string; name: string; avatar_url: string | null } | null;
+	/** Earlier versions kept (see notes.history). */
+	versions: number;
+}
+
+export interface NoteVersion {
+	index: number;
+	title: string;
+	body: string;
+	by_name: string;
+	at: string;
 }
 
 export interface ToolAgentState {
@@ -897,6 +919,21 @@ export function api(fetchFn: Fetch = fetch) {
 				post<{ ok: boolean; errors: string[]; recipe_tag?: string | null; dockerfile?: string | null }>('/tools/validate', { yaml }),
 			prepare: (id: string, agentIds: string[] = []) =>
 				post<{ started: string[]; skipped: Record<string, string> }>(`/tools/${id}/prepare`, { agent_ids: agentIds })
+		},
+		notes: {
+			list: (projectId: UUID) => get<ProjectNote[]>(`/projects/${projectId}/notes`),
+			create: (projectId: UUID, body: { title: string; body: string }) => post<ProjectNote>(`/projects/${projectId}/notes`, body),
+			update: (id: UUID, body: { title?: string; body?: string }) => patch<ProjectNote>(`/notes/${id}`, body),
+			remove: (id: UUID) => del(`/notes/${id}`),
+			history: (id: UUID) => get<NoteVersion[]>(`/notes/${id}/history`),
+			restore: (id: UUID, index: number) => post<ProjectNote>(`/notes/${id}/restore/${index}`),
+			order: (projectId: UUID, ids: UUID[]) => post<ProjectNote[]>(`/projects/${projectId}/notes/order`, { ids }),
+			/** An image for a note: stored on the project (not a card); embed its download URL. */
+			uploadImage: (projectId: UUID, file: File) => {
+				const form = new FormData();
+				form.append('file', file);
+				return post<Attachment>(`/projects/${projectId}/attachments`, form);
+			}
 		},
 		dashboard: {
 			summary: (projectId?: string | null) => get<DashboardSummary>(`/dashboard/summary${projectId ? `?project_id=${projectId}` : ''}`),

@@ -531,6 +531,27 @@ class Comment(Base, TimestampMixin):
     author: Mapped[User | None] = relationship()
 
 
+class ProjectNote(Base, TimestampMixin):
+    """A pinned markdown note on a project's dashboard (status, objectives, contacts…)."""
+
+    __tablename__ = "project_notes"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    title: Mapped[str] = mapped_column(String(120))
+    body: Mapped[str] = mapped_column(Text, default="")
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # Earlier versions, newest first: [{title, body, by, by_name, at}] (capped; see api/notes.py).
+    history: Mapped[list[dict[str, Any]]] = mapped_column(JSONType, default=list)
+
+    editor: Mapped[User | None] = relationship()
+
+
 class Attachment(Base):
     __tablename__ = "attachments"
 

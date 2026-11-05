@@ -1,14 +1,19 @@
 <script lang="ts">
 	import type { DashboardSummary, FeedItem, FeedKind, ProjectRef } from '$lib/api';
-	import { api } from '$lib/api';
-	import { Button, Icon, Select } from '$lib/m3';
+	import { api, ApiError } from '$lib/api';
+	import { Button, Dialog, Icon, IconButton, Select, TextField } from '$lib/m3';
+	import { snackbar } from '$lib/snackbar.svelte';
+	import { goto } from '$app/navigation';
 	import { realtime } from '$lib/realtime.svelte';
 	import { notifications } from '$lib/notifications.svelte';
 	import { relativeTime, absoluteTime } from '$lib/format';
-	import { me, isAdmin } from '$lib/session';
+	import { me, isAdmin, canEdit } from '$lib/session';
 	import { fade } from 'svelte/transition';
 	import TimelineItem from './TimelineItem.svelte';
+	import ProjectNotes from './ProjectNotes.svelte';
 	import { TRIVIA } from './trivia';
+	import { PastedImages } from '$lib/pastedImages.svelte';
+	import NameImageDialog from '../NameImageDialog.svelte';
 
 	/** The cockpit: a greeting with the headline numbers, what needs attention, what's
 	 *  running now, and a timeline of everything that happened. Across every project the
@@ -31,12 +36,13 @@
 		{ kind: 'move', label: 'Moves', icon: 'move_item' },
 		{ kind: 'playbook', label: 'Playbooks', icon: 'account_tree' },
 		{ kind: 'file', label: 'Files', icon: 'attach_file' },
+		{ kind: 'note', label: 'Notes', icon: 'push_pin' },
 		{ kind: 'agent', label: 'Agents', icon: 'dns' },
 		{ kind: 'admin', label: 'Admin', icon: 'shield_person' }
 	];
 	let kindOptions = $derived(ALL_KINDS.filter((k) => k.kind !== 'admin' || isAdmin()));
 	/** What the timeline shows by default: the work, not agent connections or admin. */
-	const WORK: FeedKind[] = ['comment', 'job', 'card', 'playbook', 'file'];
+	const WORK: FeedKind[] = ['comment', 'job', 'card', 'playbook', 'file', 'note'];
 	let kinds = $state<Set<FeedKind>>(new Set(WORK));
 	let isDefault = $derived(kinds.size === WORK.length && WORK.every((k) => kinds.has(k)));
 
@@ -97,7 +103,7 @@
 				clearTimeout(headTimer);
 				headTimer = setTimeout(refreshHead, 400);
 			}
-			if (['activity.created', 'job.updated', 'playbook_run.updated', 'agent.updated', 'task.moved'].includes(e.name)) {
+			if (['activity.created', 'job.updated', 'playbook_run.updated', 'agent.updated', 'task.moved', 'project.notes'].includes(e.name)) {
 				clearTimeout(summaryTimer);
 				summaryTimer = setTimeout(loadSummary, 800);
 			}
@@ -184,6 +190,67 @@
 		if (summary && !fact) pickFact();
 	});
 
+	// Pinned notes by project, in the order the server gives (most recently edited project first).
+	const PINNED_PER_PROJECT = 4;
+	let pinnedGroups = $derived.by(() => {
+		const groups: { project: ProjectRef; notes: DashboardSummary['pinned'] }[] = [];
+		for (const p of summary?.pinned ?? []) {
+			if (!p.project) continue;
+			const g = groups.find((x) => x.project.id === p.project!.id);
+			if (g) g.notes.push(p);
+			else groups.push({ project: p.project, notes: [p] });
+		}
+		return groups;
+	});
+
+	// ---- pinning a note from the home dashboard (projects show theirs on their own dashboard) ----
+	let pinOpen = $state(false);
+	let pinProject = $state('');
+	let pinTitle = $state('');
+	let pinBody = $state('');
+	let pinning = $state(false);
+	let pinError = $state<string | null>(null);
+	const pinImages = new PastedImages(async (file) => {
+		if (!pinProject) throw new Error('Choose the project first');
+		return api().attachments.url((await api().notes.uploadImage(pinProject, file)).id, true);
+	});
+	const pinTarget = { get: () => pinBody, set: (v: string) => (pinBody = v) };
+	function pastePin(e: ClipboardEvent & { currentTarget: HTMLTextAreaElement }) {
+		// Images are stored on the project, so it has to be chosen first.
+		if (!pinProject && Array.from(e.clipboardData?.files ?? []).some((f) => f.type.startsWith('image/'))) {
+			e.preventDefault();
+			pinError = 'Choose the project before pasting an image';
+			return;
+		}
+		pinImages.pasteInto(pinTarget)(e);
+	}
+	function openPin() {
+		pinProject = filterProject || (projects.length === 1 ? projects[0].id : '');
+		pinTitle = '';
+		pinBody = '';
+		pinError = null;
+		pinOpen = true;
+	}
+	async function pin() {
+		if (pinImages.uploading > 0) return;
+		if (!pinProject || !pinTitle.trim()) {
+			pinError = !pinProject ? 'Choose a project' : 'Give the note a title';
+			return;
+		}
+		pinning = true;
+		pinError = null;
+		try {
+			const note = await api().notes.create(pinProject, { title: pinTitle.trim(), body: pinBody });
+			pinOpen = false;
+			void loadSummary();
+			snackbar.show(`Pinned “${note.title}”`, { action: { label: 'Open', run: () => goto(`/projects/${note.project_id}/dashboard`) } });
+		} catch (err) {
+			pinError = err instanceof ApiError ? err.message : 'Could not pin the note';
+		} finally {
+			pinning = false;
+		}
+	}
+
 	// ---- timeline grouped by day ----
 	let days = $derived.by(() => {
 		const groups: { label: string; items: FeedItem[] }[] = [];
@@ -255,6 +322,8 @@
 			</div>
 		{/if}
 	</header>
+
+	{#if projectId}<ProjectNotes {projectId} />{/if}
 
 	<!-- headline numbers (last 24 hours) -->
 	<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -343,6 +412,45 @@
 				{/if}
 			</section>
 
+			{#if !projectId && summary && (summary.pinned.length || (canEdit() && projects.length))}
+				<section class="rounded-lg bg-surface-container-low p-4">
+					<div class="mb-2 flex items-center gap-2">
+						<Icon name="push_pin" class="text-tertiary" />
+						<h2 class="flex-1 title-medium text-on-surface">Pinned notes</h2>
+						{#if canEdit() && projects.length}<IconButton icon="add" label="Pin a note on a project" size="sm" onclick={openPin} />{/if}
+					</div>
+					{#if !summary.pinned.length}
+						<p class="px-2 py-1 body-medium text-on-surface-variant">
+							Notes the team pins on a project (status, objectives, scope, contacts) show here.
+							<button type="button" class="font-medium text-primary hover:underline" onclick={openPin}>Pin one</button>, or add them from a project's Dashboard.
+						</p>
+					{/if}
+					<div class="flex flex-col gap-3">
+						{#each pinnedGroups as g (g.project.id)}
+							<div>
+								<a href="/projects/{g.project.id}/dashboard" class="flex items-center gap-2 px-2 pb-0.5 body-small text-on-surface-variant hover:underline">
+									<span class="rounded bg-surface-container-highest px-1.5 font-mono text-[11px]">{g.project.codename}</span>
+									<span class="truncate">{g.project.name}</span>
+								</a>
+								<ul class="flex flex-col">
+									{#each g.notes.slice(0, PINNED_PER_PROJECT) as p (p.note_id)}
+										<li>
+											<a href="/projects/{g.project.id}/dashboard" class="state-layer block rounded-md px-2 py-1.5">
+												<span class="block truncate label-large text-on-surface">{p.title}</span>
+												{#if p.line}<span class="block truncate body-medium text-on-surface-variant">{p.line}</span>{/if}
+											</a>
+										</li>
+									{/each}
+								</ul>
+								{#if g.notes.length > PINNED_PER_PROJECT}
+									<a href="/projects/{g.project.id}/dashboard" class="block px-2 body-small text-primary hover:underline">+{g.notes.length - PINNED_PER_PROJECT} more on its dashboard</a>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				</section>
+			{/if}
+
 			<section class="rounded-lg bg-surface-container-low p-4">
 				<div class="mb-2 flex items-center gap-2">
 					<Icon name="bolt" class="text-primary" />
@@ -402,3 +510,22 @@
 		</aside>
 	</div>
 </div>
+
+<Dialog bind:open={pinOpen} title="Pin a note" icon="push_pin" size="sm">
+	<div class="flex flex-col gap-3 pt-2 pb-2">
+		<Select label="Project" bind:value={pinProject} options={[{ value: '', label: 'Choose a project' }, ...projects.map((p) => ({ value: p.id, label: `${p.codename} · ${p.name}` }))]} />
+		<TextField label="Title" bind:value={pinTitle} placeholder="Status, Objectives, Scope…" />
+		<TextField label="Note (markdown)" bind:value={pinBody} multiline rows={6} error={pinError} onpaste={pastePin} supporting="Markdown · paste an image to add it · shows at the top of the project's dashboard, and here." />
+	</div>
+	{#snippet actions()}
+		<Button variant="text" onclick={() => (pinOpen = false)}>Cancel</Button>
+		{#if pinImages.uploading > 0}<span class="mr-auto body-small text-on-surface-variant">Uploading image…</span>{/if}
+		<Button icon="push_pin" loading={pinning} disabled={pinImages.uploading > 0} onclick={pin}>Pin note</Button>
+	{/snippet}
+</Dialog>
+
+{#if pinImages.pending[0]}
+	{#key pinImages.pending[0]}
+		<NameImageDialog file={pinImages.pending[0].file} remaining={pinImages.pending.length - 1} onconfirm={(name) => pinImages.confirm(name)} oncancel={() => pinImages.cancel()} />
+	{/key}
+{/if}

@@ -310,14 +310,18 @@ same component (`web/src/lib/components/dashboard/`), across every visible proje
 `GET /api/dashboard/summary` gives the headline numbers (last 24 h), **needs attention**
 (playbook steps waiting for a decision; cards whose latest run failed in the last week and
 aren't done) and **live now** (queued/running jobs, running playbook runs with progress,
-agents and slots), the user's own open cards (`mine`: assigned to them, opened by them) and a few
+agents and slots), the pinned notes as one line each (`pinned`), the user's own open cards (`mine`: assigned to them, opened by them) and a few
 `facts` about the work in scope. The greeting's headline rotates every 8 s between what's
 moving, what's yours and a random fact (those, or general trivia from
 `dashboard/trivia.ts`). `GET /api/dashboard/feed` is the timeline: activity events with what
 they're about attached (the comment's text, the job's outcome, duration and agent, the
-card, the author's picture), filtered by kind (`comment, job, card, move, file, playbook,
+card, the author's picture), filtered by kind (`comment, job, card, move, file, playbook, note,
 agent, admin`; admin events only for admins; job queue/dispatch steps never), paged with
-`before=<id>`. The page refreshes from `activity.created`, `job.updated`,
+`before=<id>`. A project's dashboard starts with its pinned notes (`GET/POST
+/api/projects/{id}/notes`, `PATCH/DELETE /api/notes/{id}`, `GET /api/notes/{id}/history`,
+`POST /api/notes/{id}/restore/{index}`, `POST /api/projects/{id}/notes/order`); every edit
+keeps the previous version. Images pasted into a note are project attachments without a card
+(`POST /api/projects/{id}/attachments`). The page refreshes from `activity.created`, `job.updated`,
 `playbook_run.updated` and `agent.updated` events.
 
 ## UI realtime (`/ws/ui`)
@@ -326,7 +330,7 @@ Authenticated by the session cookie. The server broadcasts every domain event as
 `{"type":"event","name":"task.moved","project_id":"…","data":{…}}`. Event names:
 `project.updated`, `column.*`, `task.created|updated|moved|deleted`, `job.updated`,
 `job.log`, `job.outputs`, `comment.created`, `attachment.created`, `agent.updated`,
-`playbook_run.updated`, `agent_tokens.changed`, `tool.status`, `tools.changed`, `notification.created|read`,
+`playbook_run.updated`, `agent_tokens.changed`, `tool.status`, `tools.changed`, `project.notes`, `notification.created|read`,
 `project.members`, `user.changed` (every browser receives them; the
 client keeps its own user's).
 The client keeps page state in sync by applying these to its stores.

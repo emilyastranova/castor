@@ -221,5 +221,8 @@ agent stays trivially installable on target boxes.
   `lib/components/dashboard/Dashboard.svelte` (global, or one `projectId`), fed by
   `api/dashboard.py` (`/summary`, `/feed`: activity events enriched with the comment, job,
   card and author). New activity types map to feed kinds in `dashboard.kind_of`.
+  A project dashboard starts with `ProjectNotes.svelte` (pinned notes, `api/notes.py`; edits
+  keep earlier versions in `project_notes.history`). Pasting images into markdown boxes
+  (comments, notes) goes through `lib/pastedImages.svelte.ts` + `NameImageDialog`.
 - `JobConsole.svelte` loads `/api/jobs/{id}` then appends `job.log` events, buffering any
   that arrive during the initial load and de-duplicating by `seq`.

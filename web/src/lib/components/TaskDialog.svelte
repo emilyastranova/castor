@@ -6,6 +6,7 @@
 	import { confirmAction } from '$lib/confirm.svelte';
 	import { renderMarkdown } from '$lib/markdown';
 	import { lightbox, openImagesIn } from '$lib/lightbox.svelte';
+	import { PastedImages, type DraftTarget } from '$lib/pastedImages.svelte';
 	import { relativeTime, absoluteTime, bytes, duration } from '$lib/format';
 	import { Button, Chip, Dialog, Icon, IconButton, Menu, MenuItem, Select, Switch, Tabs, TextField, Avatar } from '$lib/m3';
 	import StatusChip from './StatusChip.svelte';
@@ -257,7 +258,7 @@
 	}
 
 	async function postComment() {
-		if (!newComment.trim() || inlineUploads > 0) return;
+		if (!newComment.trim() || images.uploading > 0) return;
 		posting = true;
 		try {
 			const c = await api().tasks.addComment(task.id, newComment);
@@ -311,7 +312,7 @@
 	}
 
 	async function saveEdit(c: Comment) {
-		if (!editDraft.trim() || inlineUploads > 0 || savingEdit) return;
+		if (!editDraft.trim() || images.uploading > 0 || savingEdit) return;
 		if (editDraft === c.body) return cancelEdit();
 		savingEdit = true;
 		try {
@@ -337,107 +338,14 @@
 		}
 	}
 
-	// ---- images pasted into the comment box ----
-	// Each pasted image is named first, then uploaded as a task attachment and embedded in
-	// the comment as markdown at the caret. A placeholder holds its place during the upload.
-	/** The markdown text an image is inserted into: the new-comment box or a comment being edited. */
-	interface DraftTarget {
-		get: () => string;
-		set: (value: string) => void;
-	}
-	interface PendingImage {
-		file: File;
-		textarea: HTMLTextAreaElement;
-		target: DraftTarget;
-	}
+	// ---- images pasted into the comment box: named, uploaded as card attachments, embedded ----
+	const images = new PastedImages(async (file) => {
+		const a = await api().tasks.upload(task.id, file, 'screenshot');
+		if (!attachments.some((x) => x.id === a.id)) attachments = [...attachments, a];
+		return api().attachments.url(a.id, true);
+	});
 	const newCommentTarget: DraftTarget = { get: () => newComment, set: (v) => (newComment = v) };
 	const editTarget: DraftTarget = { get: () => editDraft, set: (v) => (editDraft = v) };
-	let pendingImages = $state<PendingImage[]>([]);
-	let inlineUploads = $state(0);
-
-	const IMAGE_EXT: Record<string, string> = {
-		'image/png': 'png',
-		'image/jpeg': 'jpg',
-		'image/gif': 'gif',
-		'image/webp': 'webp',
-		'image/bmp': 'bmp',
-		'image/svg+xml': 'svg'
-	};
-
-	function pasteInto(target: DraftTarget) {
-		return (e: ClipboardEvent & { currentTarget: HTMLTextAreaElement }) => {
-			const images = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith('image/'));
-			if (!images.length) return;
-			e.preventDefault();
-			e.stopPropagation(); // don't also run the card-wide paste-to-attachments handler
-			const textarea = e.currentTarget;
-			pendingImages = [...pendingImages, ...images.map((file) => ({ file, textarea, target }))];
-		};
-	}
-
-	/** Insert text at the textarea's caret (or over its selection) and put the caret after it. */
-	function insertAtCaret(textarea: HTMLTextAreaElement, target: DraftTarget, text: string) {
-		const current = target.get();
-		const start = textarea.selectionStart ?? current.length;
-		const end = textarea.selectionEnd ?? start;
-		const before = current.slice(0, start);
-		const after = current.slice(end);
-		// Give the image its own line so it renders as a block, not mid-sentence.
-		const lead = before && !before.endsWith('\n') ? '\n' : '';
-		const trail = after.startsWith('\n') ? '' : '\n';
-		const inserted = lead + text + trail;
-		target.set(before + inserted + after);
-		refocus(textarea, start + inserted.length);
-	}
-
-	/** Return the caret to the comment box once the name prompt has closed. Focus calls made
-	 *  while the prompt is still the active modal dialog are ignored by the browser. */
-	function refocus(textarea: HTMLTextAreaElement, caret?: number) {
-		void tick().then(() =>
-			requestAnimationFrame(() => {
-				if (pendingImages.length > 0) return; // another name prompt is open
-				textarea.focus();
-				if (caret !== undefined) textarea.setSelectionRange(caret, caret);
-			})
-		);
-	}
-
-	async function confirmImageName(name: string) {
-		const item = pendingImages[0];
-		pendingImages = pendingImages.slice(1);
-		if (!item) return;
-		const ext = IMAGE_EXT[item.file.type] ?? 'png';
-		// Only real image extensions count, so a name like "scan 10.0.0.55" still gets one.
-		const extPattern = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
-		const filename = extPattern.test(name) ? name : `${name}.${ext}`;
-		const alt = name.replace(extPattern, '').replace(/[[\]]/g, '');
-		const token = `![Uploading ${alt}…](#upload-${Math.random().toString(36).slice(2, 10)})`;
-		const { target } = item;
-		insertAtCaret(item.textarea, target, token);
-		inlineUploads += 1;
-		try {
-			const a = await api().tasks.upload(task.id, new File([item.file], filename, { type: item.file.type }), 'screenshot');
-			if (!attachments.some((x) => x.id === a.id)) attachments = [...attachments, a];
-			const markdown = `![${alt}](${api().attachments.url(a.id, true)})`;
-			const text = target.get();
-			target.set(
-				text.includes(token)
-					? text.replace(token, markdown)
-					: `${text}${text.endsWith('\n') || !text ? '' : '\n'}${markdown}\n`
-			);
-		} catch (err) {
-			target.set(target.get().replace(token, ''));
-			snackbar.error(err instanceof ApiError ? `Image upload failed: ${err.message}` : 'Image upload failed');
-		} finally {
-			inlineUploads -= 1;
-		}
-	}
-
-	function cancelImageName() {
-		const item = pendingImages[0];
-		pendingImages = pendingImages.slice(1);
-		if (item) refocus(item.textarea);
-	}
 
 	async function upload(files: FileList | File[] | null) {
 		if (!files || files.length === 0) return;
@@ -777,12 +685,12 @@
 											rows={4}
 											supporting="Ctrl+Enter to save · Esc to cancel · paste an image to add it"
 											onkeydown={(e) => onEditKey(c, e)}
-											onpaste={pasteInto(editTarget)}
+											onpaste={images.pasteInto(editTarget)}
 										/>
 										<div class="flex items-center justify-end gap-2">
-											{#if inlineUploads > 0}<span class="body-small text-on-surface-variant">Uploading image…</span>{/if}
+											{#if images.uploading > 0}<span class="body-small text-on-surface-variant">Uploading image…</span>{/if}
 											<Button variant="text" onclick={cancelEdit}>Cancel</Button>
-											<Button icon="check" loading={savingEdit} disabled={!editDraft.trim() || inlineUploads > 0} onclick={() => saveEdit(c)}>Save</Button>
+											<Button icon="check" loading={savingEdit} disabled={!editDraft.trim() || images.uploading > 0} onclick={() => saveEdit(c)}>Save</Button>
 										</div>
 									</div>
 								{:else}
@@ -795,10 +703,10 @@
 						<p class="body-medium text-on-surface-variant">No comments yet.</p>
 					{/each}
 					{#if editable}<div class="flex flex-col gap-2">
-						<TextField label="Add a comment" bind:value={newComment} multiline rows={3} supporting="Markdown supported · Ctrl+Enter to post · paste an image to add it to the comment" onkeydown={(e) => (e.ctrlKey || e.metaKey) && e.key === 'Enter' && postComment()} onpaste={pasteInto(newCommentTarget)} />
+						<TextField label="Add a comment" bind:value={newComment} multiline rows={3} supporting="Markdown supported · Ctrl+Enter to post · paste an image to add it to the comment" onkeydown={(e) => (e.ctrlKey || e.metaKey) && e.key === 'Enter' && postComment()} onpaste={images.pasteInto(newCommentTarget)} />
 						<div class="flex items-center justify-end gap-3">
-							{#if inlineUploads > 0}<span class="body-small text-on-surface-variant">Uploading image…</span>{/if}
-							<Button icon="send" loading={posting} onclick={postComment} disabled={!newComment.trim() || inlineUploads > 0}>Comment</Button>
+							{#if images.uploading > 0}<span class="body-small text-on-surface-variant">Uploading image…</span>{/if}
+							<Button icon="send" loading={posting} onclick={postComment} disabled={!newComment.trim() || images.uploading > 0}>Comment</Button>
 						</div>
 					</div>{/if}
 				</div>
@@ -908,13 +816,13 @@
 	</div>
 </Dialog>
 
-{#if pendingImages[0]}
-	{#key pendingImages[0]}
+{#if images.pending[0]}
+	{#key images.pending[0]}
 		<NameImageDialog
-			file={pendingImages[0].file}
-			remaining={pendingImages.length - 1}
-			onconfirm={confirmImageName}
-			oncancel={cancelImageName}
+			file={images.pending[0].file}
+			remaining={images.pending.length - 1}
+			onconfirm={(name) => images.confirm(name)}
+			oncancel={() => images.cancel()}
 		/>
 	{/key}
 {/if}

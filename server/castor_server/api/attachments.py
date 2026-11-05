@@ -27,6 +27,54 @@ def _safe_name(name: str) -> str:
     return cleaned[:120]
 
 
+async def _store(
+    db: DB, user: m.User, project_id: uuid.UUID, task_id: uuid.UUID | None, file: UploadFile, kind: str
+) -> m.Attachment:
+    """Write an upload to the project's uploads directory and add its attachment row."""
+    if kind not in ("file", "screenshot", "artifact"):
+        kind = "file"
+    content_type = file.content_type or "application/octet-stream"
+    if kind == "file" and content_type.startswith("image/"):
+        kind = "screenshot"
+    attachment_id = uuid.uuid4()
+    filename = _safe_name(file.filename or "upload")
+    directory = settings.uploads_dir / str(project_id)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{attachment_id}-{filename}"
+    size = 0
+    async with aiofiles.open(path, "wb") as fh:
+        while chunk := await file.read(1024 * 1024):
+            size += len(chunk)
+            await fh.write(chunk)
+    attachment = m.Attachment(
+        id=attachment_id,
+        project_id=project_id,
+        task_id=task_id,
+        uploader_id=user.id,
+        kind=kind,
+        filename=file.filename or filename,
+        content_type=content_type,
+        size=size,
+        storage_path=str(path.relative_to(settings.data_dir)),
+    )
+    db.add(attachment)
+    await db.flush()
+    return attachment
+
+
+@router.post("/projects/{project_id}/attachments", response_model=AttachmentOut, status_code=201)
+async def upload_project_attachment(
+    project_id: str, db: DB, user: CurrentUser, file: Annotated[UploadFile, File()]
+):
+    """A file that belongs to the project rather than a card, such as an image pasted into a
+    pinned note. It shows wherever it's embedded; the note's edit is what goes in the feed."""
+    pid = parse_uuid(project_id)
+    await check_project(db, user, pid, write=True)
+    attachment = await _store(db, user, pid, None, file, "file")
+    await db.commit()
+    return AttachmentOut.model_validate(attachment)
+
+
 @router.get("/tasks/{task_id}/attachments", response_model=list[AttachmentOut])
 async def list_task_attachments(task_id: str, db: DB, user: CurrentUser):
     await task_or_404(db, user, parse_uuid(task_id))
@@ -49,34 +97,7 @@ async def upload_task_attachment(
     kind: Annotated[str, Form()] = "file",
 ):
     task = await task_or_404(db, user, parse_uuid(task_id), write=True)
-    if kind not in ("file", "screenshot", "artifact"):
-        kind = "file"
-    content_type = file.content_type or "application/octet-stream"
-    if kind == "file" and content_type.startswith("image/"):
-        kind = "screenshot"
-    attachment_id = uuid.uuid4()
-    filename = _safe_name(file.filename or "upload")
-    directory = settings.uploads_dir / str(task.project_id)
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{attachment_id}-{filename}"
-    size = 0
-    async with aiofiles.open(path, "wb") as fh:
-        while chunk := await file.read(1024 * 1024):
-            size += len(chunk)
-            await fh.write(chunk)
-    attachment = m.Attachment(
-        id=attachment_id,
-        project_id=task.project_id,
-        task_id=task.id,
-        uploader_id=user.id,
-        kind=kind,
-        filename=file.filename or filename,
-        content_type=content_type,
-        size=size,
-        storage_path=str(path.relative_to(settings.data_dir)),
-    )
-    db.add(attachment)
-    await db.flush()
+    attachment = await _store(db, user, task.project_id, task.id, file, kind)
     await record_activity(
         db,
         type="attachment.created",

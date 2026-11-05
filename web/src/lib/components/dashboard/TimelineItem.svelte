@@ -21,6 +21,7 @@
 		file: { icon: 'attach_file', tone: 'bg-surface-container-highest text-on-surface-variant' },
 		playbook: { icon: 'account_tree', tone: 'bg-primary-container text-on-primary-container' },
 		agent: { icon: 'dns', tone: 'bg-surface-container-highest text-on-surface-variant' },
+		note: { icon: 'push_pin', tone: 'bg-tertiary-container text-on-tertiary-container' },
 		admin: { icon: 'shield_person', tone: 'bg-surface-container-highest text-on-surface-variant' }
 	};
 	const JOB: Record<string, { icon: string; text: string; label: string }> = {
@@ -40,7 +41,7 @@
 			: item.task && item.project
 				? `/projects/${item.project.id}?task=${item.task.id}`
 				: item.project
-					? `/projects/${item.project.id}`
+					? `/projects/${item.project.id}${item.kind === 'note' ? '/dashboard' : ''}`
 					: null
 	);
 	// The job outcome is the event itself ("job.failed"), not the job's state now.
