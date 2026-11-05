@@ -32,9 +32,9 @@ the workflow's execution log.
 transform steps reshape one tool's results into the next tool's input, and every
 step appears on the board as its own card.
 
-> **■ Status: Phase 2 in progress.** The board, agents, command library, parsers
-> and playbooks work. The graph editor, per-agent tokens and multiple users are
-> next. Refer to [docs/PHASE2.md](docs/PHASE2.md).
+> **■ Status: Phase 2 in progress.** The board, agents, command library, parsers,
+> playbooks and the visual playbook editor work. Per-agent tokens and multiple users
+> are next. Refer to [docs/PHASE2.md](docs/PHASE2.md).
 
 ---
 

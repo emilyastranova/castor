@@ -216,12 +216,26 @@ queued, running, succeeded, failed, cancelled, skipped, not_taken, attention, bl
 `PlaybookRunOut.step_status` carries it to the UI; `run_outcome` settles the run (running
 while anything can move or waits for a person). Re-running a card reopens a finished run.
 
+A `for_each` step has no card at the start; when it becomes ready `_advance` creates one
+card per item (`tasks.playbook_item` = its position), renders each with `{{ item }}`, and
+queues them up to `for_each.concurrency`. `FanOut` sums the items' latest jobs into one
+status and a synthetic job id (so a judgement on the set is superseded when an item
+re-runs); the step's outputs are its succeeded items' outputs merged in item order.
+
 A paused step is decided with `POST /api/playbook-runs/{id}/steps/{step}/resolve
 {action: retry|continue|skip|fail, note}` (`services.resolve_step`, which records who
 decided, why and the note in `step_results[step].resolution`). `resolve_step` takes an
 `actor` for decisions that aren't a person's, which is where an automated resolver would
 plug in. Events: `playbook_run.updated` on every change, plus `task.created|updated` for
 the step cards.
+
+**Visual editor** (`web/src/routes/playbooks/edit/[id]`). Edits the spec as an author
+would write it (`depends_on` only for ordering the references don't imply;
+`lib/playbookEditor.ts` adds those back for drawing) and sends it, debounced, to
+`POST /api/playbooks/to-yaml`, which renders minimal YAML (`playbook_yaml.authoring_dict`:
+no defaults, no derived `kind`, no implied `depends_on`) and validates it. Saving goes
+through the normal create/update endpoints with that YAML. Step positions are kept in the
+spec's `layout` (`{step_id: {x, y}}`, ignored by the engine), and run graphs use it too.
 
 **Notifications** (`notifications.py`, `api/notifications.py`). `notify()` writes one
 `notifications` row per user (own read state; `subject` such as `run:<id>:step:<step>` lets
@@ -271,5 +285,5 @@ first start.
   comments, attachments/screenshots, custom fields, activity feed.
 * **M2** (in progress, see [PHASE2.md](PHASE2.md)) — built: command library, parsers (nmap
   XML → hosts/ports, etc.), playbooks with transforms, conditions and decisions, variables,
-  notifications. To do: graph editor, `for_each` fan-out, per-agent tokens, multi-user + roles.
+  notifications, visual playbook editor. To do: per-agent tokens, multi-user + roles.
 * **M3** — reporting, run summaries, artifact export, agent auto-scaling.

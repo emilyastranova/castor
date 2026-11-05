@@ -12,7 +12,7 @@ from .command_library import load_spec
 from .command_render import _normalise
 from .command_spec import CommandSpec
 from .config import settings
-from .playbook_spec import INLINE_PLACEHOLDER_RE, PlaybookSpec, parse_playbook_spec
+from .playbook_spec import INLINE_PLACEHOLDER_RE, ITEM_RE, PlaybookSpec, parse_playbook_spec
 
 log = logging.getLogger(__name__)
 
@@ -136,7 +136,7 @@ async def check_against_library(db: AsyncSession, spec: PlaybookSpec) -> list[st
                         _row, _entries, problem = await list_entries(db, value)
                         if problem:
                             problems.append(f"step {step.id}: {name}: {problem}")
-                elif not (isinstance(value, str) and INLINE_PLACEHOLDER_RE.search(value)):
+                elif not (isinstance(value, str) and (INLINE_PLACEHOLDER_RE.search(value) or ITEM_RE.search(value))):
                     try:
                         _normalise(arg, value)
                     except ValueError as exc:

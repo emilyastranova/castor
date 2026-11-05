@@ -13,6 +13,7 @@
 	import StepConditions from '$lib/components/StepConditions.svelte';
 	import StepDecision from '$lib/components/StepDecision.svelte';
 	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import { STEP_STATUS } from '$lib/playbook';
 
 	let { data } = $props();
@@ -53,7 +54,10 @@
 	let selectedResult = $derived(selectedStep ? (selectedRun?.step_results?.[selectedStep.id] ?? null) : null);
 	let selectedStatus = $derived(selectedStep ? (selectedRun?.step_status?.[selectedStep.id] ?? 'pending') : 'pending');
 
-	const taskFor = (run: PlaybookRun, stepId: string) => run.tasks.find((t) => t.playbook_step_id === stepId);
+	const taskFor = (run: PlaybookRun, stepId: string) =>
+		run.tasks.find((t) => t.playbook_step_id === stepId && t.playbook_item == null);
+	const itemsFor = (run: PlaybookRun | null, stepId: string) =>
+		(run?.tasks ?? []).filter((t) => t.playbook_step_id === stepId && t.playbook_item != null).sort((a, b) => (a.playbook_item ?? 0) - (b.playbook_item ?? 0));
 	const waiting = (run: PlaybookRun) => Object.values(run.step_status ?? {}).filter((s) => s === 'attention').length;
 
 	// Notifications link to /playbooks?run=<id>&step=<step>: open that run and step.
@@ -85,7 +89,7 @@
 	function applyRun(updated: PlaybookRun) {
 		runs = runs.map((r) => (r.id === updated.id ? updated : r));
 		if (selectedStep) {
-			const fresh = taskFor(updated, selectedStep.id);
+			const fresh = updated.tasks.find((t) => t.id === selectedTask?.id) ?? taskFor(updated, selectedStep.id);
 			if (fresh) selectedTask = fresh;
 		}
 	}
@@ -152,7 +156,7 @@ steps:
 					runs = [updatedRun, ...runs.filter((r) => r.id !== updatedRun.id)];
 					if (selectedRunId === updatedRun.id) {
 						if (selectedStep) {
-							const fresh = taskFor(updatedRun, selectedStep.id);
+							const fresh = updatedRun.tasks.find((t) => t.id === selectedTask?.id) ?? taskFor(updatedRun, selectedStep.id);
 							if (fresh) {
 								selectedTask = fresh;
 								if (!taskCommandDirty) editingTaskCommand = fresh.command;
@@ -389,7 +393,8 @@ steps:
 	subtitle="Multi-step command automation · dependency chaining & parallel execution"
 >
 	{#snippet actions()}
-		<Button variant="filled" icon="add" onclick={openNewEditor}>
+		<Button variant="text" icon="code" onclick={openNewEditor}>New from YAML</Button>
+		<Button variant="filled" icon="add" onclick={() => goto('/playbooks/edit/new')}>
 			New Playbook
 		</Button>
 	{/snippet}
@@ -463,10 +468,10 @@ steps:
 										onclick={() => triggerRunPlaybook(pb)}
 									/>
 									<IconButton
-										icon="code"
-										label="View / Edit YAML"
+										icon="edit"
+										label={pb.origin === 'builtin' ? 'Copy into the editor' : 'Open in the editor'}
 										size="sm"
-										onclick={() => openEditEditor(pb)}
+										onclick={() => goto(`/playbooks/edit/${pb.id}`)}
 									/>
 								</div>
 							</div>
@@ -499,11 +504,18 @@ steps:
 
 						<div class="flex items-center gap-2 shrink-0">
 							<Button
-								variant="outlined"
+								variant="text"
 								icon="code"
 								onclick={() => openEditEditor(selectedPlaybook)}
 							>
 								{selectedPlaybook.origin === 'builtin' ? 'View YAML' : 'Edit YAML'}
+							</Button>
+							<Button
+								variant="outlined"
+								icon="edit"
+								onclick={() => goto(`/playbooks/edit/${selectedPlaybook.id}`)}
+							>
+								{selectedPlaybook.origin === 'builtin' ? 'Copy & edit' : 'Edit'}
 							</Button>
 							<Button
 								variant="filled"
@@ -838,6 +850,45 @@ steps:
 								</div>
 							{/if}
 							<StepConditions step={selectedStep} result={selectedResult} status={selectedStatus} />
+
+							{#if selectedStep.for_each}
+								{@const stepItems = itemsFor(selectedRun, selectedStep.id)}
+								<div class="flex flex-col gap-2 rounded-xl border border-outline-variant/60 bg-surface p-4">
+									<div class="flex items-center gap-2">
+										<Icon name="stacks" size={18} class="text-on-surface-variant" />
+										<span class="label-large text-on-surface">For each item</span>
+										<span class="ml-auto body-small text-on-surface-variant">
+											{#if stepItems.length}
+												{stepItems.filter((t) => t.latest_job?.status === 'succeeded').length} of {stepItems.length} done{selectedStep.for_each.concurrency ? ` · ${selectedStep.for_each.concurrency} at a time` : ''}
+											{:else}
+												of <span class="font-mono">{selectedStep.for_each.items}</span>, once it's ready
+											{/if}
+										</span>
+									</div>
+									{#if stepItems.length}
+										<ul class="flex max-h-72 flex-col overflow-auto rounded-lg border border-outline-variant/50">
+											{#each stepItems as item (item.id)}
+												{@const st = item.latest_job?.status}
+												{@const label = item.title.split(' · ').slice(1).join(' · ') || item.title}
+												<li class="border-b border-outline-variant/40 last:border-b-0">
+													<button
+														type="button"
+														class="state-layer flex w-full items-center gap-3 px-3 py-2 text-left {selectedTask?.id === item.id ? 'bg-secondary-container/60' : ''}"
+														onclick={() => selectedStep && handleStepSelect(selectedStep, item)}
+													>
+														<span class="w-6 shrink-0 text-right font-mono text-[11px] text-on-surface-variant">{(item.playbook_item ?? 0) + 1}</span>
+														<span class="min-w-0 flex-1 truncate font-mono text-[12.5px] text-on-surface" title={label}>{label}</span>
+														<span class="shrink-0 label-small {st === 'succeeded' ? 'text-primary' : st === 'failed' || st === 'lost' ? 'text-error' : 'text-on-surface-variant'}">
+															{st ?? 'waiting'}
+														</span>
+													</button>
+												</li>
+											{/each}
+										</ul>
+										<p class="body-small text-on-surface-variant">Pick an item to see its command and outputs below. The step's output is every succeeded item's output, merged in this order.</p>
+									{/if}
+								</div>
+							{/if}
 
 							{#if selectedStep.kind === 'transform'}
 								<div class="rounded-xl border border-outline-variant/60 bg-surface p-4">

@@ -2,11 +2,12 @@
 # command is a demo-* command that invents its output (nmap XML, NetExec text, ffuf JSON),
 # so it runs in seconds on any agent started with --allow-host and never touches a network.
 #
-#                ┌─► svc_scan ─► [web_targets] ─► dir_brute ─► [interesting] ─┐
+#                ┌─► svc_scan ─► [web_targets] ─► dir_brute* ─► [interesting] ┐
 #   seed_hosts ──┼─► smb_scan ─► smb_audit ─► [unsigned] ─────────────────────┼─► report
 #                └─► dns_names ───────────────────────────────────────────────┘
 #
-# [brackets] are transform steps: computed on the server, no card. Try fail_at to watch a
+# [brackets] are transform steps: computed on the server, no card. dir_brute* runs once per
+# URL (for_each), each as its own card. Try fail_at to watch a
 # branch fail (its dependents become blocked), and empty_at to watch skip_if_empty.
 id: pipeline-demo
 name: Pipeline Demo
@@ -117,13 +118,15 @@ steps:
   - id: dir_brute
     name: Directory brute force
     command_ref: demo-dir-brute
-    description: Looks for interesting paths on every web service
-    skip_if_empty: true
+    description: Looks for interesting paths, one card per web service (two at a time)
+    for_each:
+      items: "{{ steps.web_targets.outputs.urls }}"
+      concurrency: 2
     args:
       <<: *demo
       step: dir_brute
-      delay: 5
-      urls: "{{ steps.web_targets.outputs.urls }}"
+      delay: 3
+      urls: "{{ item }}"
 
   - id: unsigned
     name: Signing disabled

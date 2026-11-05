@@ -159,6 +159,8 @@ export interface PlaybookStepSpec {
 	join?: 'all' | 'any' | 'always';
 	on_failure?: 'stop' | 'continue' | 'ask';
 	expect?: { outputs?: Record<string, Record<string, unknown>>; log?: Record<string, unknown> } | null;
+	/** One card and job per item; args use {{ item }} / {{ item.field }}. */
+	for_each?: { items: string; max_items?: number; concurrency?: number | null } | null;
 }
 
 /** A `when:` condition as written in the YAML. */
@@ -207,6 +209,8 @@ export interface PlaybookStepResult {
 	condition?: { met: boolean; checks: ConditionCheck[] };
 	expect?: ConditionCheck[];
 	resolution?: { action: ResolveAction; by: string; note: string; reason: string; at: string };
+	/** for_each steps: how many item cards were made. */
+	items?: number;
 }
 
 export interface AppNotification {
@@ -232,6 +236,15 @@ export interface PlaybookSpec {
 	tags: string[];
 	inputs: PlaybookInputSpec[];
 	steps: PlaybookStepSpec[];
+	/** Where the visual editor placed each step. */
+	layout?: Record<string, { x: number; y: number }>;
+}
+
+export interface PlaybookCheck {
+	ok: boolean;
+	errors: string[];
+	/** Normalised (kinds and implied depends_on filled in), when it parses. */
+	spec: PlaybookSpec | null;
 }
 
 export interface PlaybookDefinition {
@@ -447,6 +460,8 @@ export interface Task {
 	created_by: UUID | null;
 	playbook_run_id?: UUID | null;
 	playbook_step_id?: string | null;
+	/** Item cards of a for_each step: the item's position. */
+	playbook_item?: number | null;
 	depends_on?: string[];
 	/** Variable slot → set id. */
 	var_bindings?: Record<string, UUID>;
@@ -650,7 +665,10 @@ export function api(fetchFn: Fetch = fetch) {
 				request<PlaybookDefinition>(fetchFn, 'PUT', `/playbooks/${id}`, { yaml }),
 			remove: (id: string) => del(`/playbooks/${id}`),
 			run: (id: string, projectId: UUID, inputs: Record<string, unknown> = {}) =>
-				post<PlaybookRun>(`/playbooks/${id}/run`, { project_id: projectId, inputs })
+				post<PlaybookRun>(`/playbooks/${id}/run`, { project_id: projectId, inputs }),
+			validate: (yaml: string) => post<PlaybookCheck>('/playbooks/validate', { yaml }),
+			/** The editor's spec as YAML, validated (YAML is returned even when invalid). */
+			toYaml: (spec: PlaybookSpec) => post<PlaybookCheck & { yaml: string }>('/playbooks/to-yaml', { spec })
 		},
 		playbookRuns: {
 			list: (params?: { project_id?: string; playbook_id?: string; limit?: number }) => {

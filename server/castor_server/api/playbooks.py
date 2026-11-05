@@ -13,6 +13,7 @@ from ..deps import DB, CurrentUser, parse_uuid
 from ..orchestrator.dispatcher import dispatcher
 from ..playbook_library import check_against_library, definition_from_spec, load_playbook_spec
 from ..playbook_spec import parse_playbook_spec
+from ..playbook_yaml import to_yaml
 from ..schemas import (
     PlaybookDefinitionIn,
     PlaybookDefinitionOut,
@@ -78,6 +79,27 @@ async def validate_playbook(body: PlaybookDefinitionIn, db: DB, _: CurrentUser):
         return ValidateOut(ok=False, errors=str(exc).split("; "))
     problems = await check_against_library(db, spec)
     return ValidateOut(ok=not problems, errors=problems, spec=spec.model_dump(mode="json"))
+
+
+class SpecIn(BaseModel):
+    spec: dict[str, Any]
+
+
+class SpecYamlOut(ValidateOut):
+    yaml: str
+
+
+@router.post("/playbooks/to-yaml", response_model=SpecYamlOut)
+async def spec_to_yaml(body: SpecIn, db: DB, _: CurrentUser):
+    """The visual editor's spec as YAML (what would be saved), validated like `validate`.
+    The YAML is produced even when the spec has problems, so the editor can show both."""
+    text = to_yaml(body.spec)
+    try:
+        spec = parse_playbook_spec(body.spec)
+    except ValueError as exc:
+        return SpecYamlOut(ok=False, errors=str(exc).split("; "), yaml=text)
+    problems = await check_against_library(db, spec)
+    return SpecYamlOut(ok=not problems, errors=problems, spec=spec.model_dump(mode="json"), yaml=text)
 
 
 @router.post("/playbooks", response_model=PlaybookDefinitionOut, status_code=201)

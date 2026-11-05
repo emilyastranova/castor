@@ -10,7 +10,7 @@
 		OutputSpec
 	} from '$lib/api';
 	import { Icon, IconButton } from '$lib/m3';
-	import { SATISFIED, STEP_STATUS, conditionSteps, describeCondition, describeOp, stepBindings, stepFlags, stepRefs } from '$lib/playbook';
+	import { BLOCK_MIME, SATISFIED, STEP_STATUS, conditionSteps, describeCondition, describeOp, stepBindings, stepFlags, stepRefs } from '$lib/playbook';
 
 	interface Props {
 		spec: PlaybookSpec;
@@ -18,6 +18,20 @@
 		commands?: CommandDefinition[];
 		selectedStepId?: string | null;
 		onStepSelect?: (step: PlaybookStepSpec, task?: Task) => void;
+		/** Editing (the visual editor): connect, delete edges, drop blocks, save positions. */
+		editable?: boolean;
+		/** Fill the parent's height instead of the fixed canvas height. */
+		fill?: boolean;
+		/** Problems per step id, shown on the nodes. */
+		errors?: Record<string, string[]>;
+		/** A drag from `fromId`'s output port was dropped on `toId` (client coordinates). */
+		onconnect?: (fromId: string, toId: string, at: { x: number; y: number }) => void;
+		onedgedelete?: (fromId: string, toId: string) => void;
+		/** Every node's position after one was moved (or {} after resetting the layout). */
+		onlayout?: (positions: Record<string, { x: number; y: number }>) => void;
+		/** A palette block was dropped on the canvas, at canvas coordinates. */
+		ondropblock?: (data: string, at: { x: number; y: number }) => void;
+		oncanvasclick?: () => void;
 	}
 
 	let {
@@ -25,8 +39,19 @@
 		run = null,
 		commands = [],
 		selectedStepId = $bindable(null),
-		onStepSelect
+		onStepSelect,
+		editable = false,
+		fill = false,
+		errors = {},
+		onconnect,
+		onedgedelete,
+		onlayout,
+		ondropblock,
+		oncanvasclick
 	}: Props = $props();
+
+	// Connecting: a line follows the pointer from an output port until it's dropped on a node.
+	let connecting = $state<{ fromId: string; x1: number; y1: number; x2: number; y2: number } | null>(null);
 
 	// Column width fits the wider command card; transform cards are narrower and centred.
 	const NODE_WIDTH = 260;
@@ -53,6 +78,8 @@
 		cmdOutputs?: OutputSpec[];
 		/** Transform results: items in → items out. */
 		counts?: { input: number; output: number };
+		/** for_each steps: items finished / total. */
+		fan?: { done: number; failed: number; total: number };
 		note?: string;
 	}
 
@@ -88,6 +115,7 @@
 	let isPanning = $state(false);
 	let isFullscreen = $state(false);
 	let panStart = { x: 0, y: 0, initialPanX: 0, initialPanY: 0 };
+	let panMoved = false;
 
 	// Draggable Nodes State (custom overrides per step id)
 	let customPositions = $state<Map<string, { x: number; y: number }>>(new Map());
@@ -99,8 +127,18 @@
 	let tasksByStepId = $derived.by(() => {
 		const map = new Map<string, Task>();
 		for (const t of run?.tasks ?? []) {
-			if (t.playbook_step_id) map.set(t.playbook_step_id, t);
+			if (t.playbook_step_id && t.playbook_item == null) map.set(t.playbook_step_id, t);
 		}
+		return map;
+	});
+
+	/** for_each steps: their item cards, in item order. */
+	let itemsByStepId = $derived.by(() => {
+		const map = new Map<string, Task[]>();
+		for (const t of run?.tasks ?? []) {
+			if (t.playbook_step_id && t.playbook_item != null) map.set(t.playbook_step_id, [...(map.get(t.playbook_step_id) ?? []), t]);
+		}
+		for (const list of map.values()) list.sort((a, b) => (a.playbook_item ?? 0) - (b.playbook_item ?? 0));
 		return map;
 	});
 
@@ -183,7 +221,7 @@
 				const defaultX = PADDING_X + l * (NODE_WIDTH + HORIZONTAL_GAP) + (NODE_WIDTH - width) / 2;
 				const defaultY = cursorY;
 				cursorY += height + VERTICAL_GAP;
-				const custom = customPositions.get(step.id);
+				const custom = customPositions.get(step.id) ?? spec.layout?.[step.id];
 				const x = custom ? custom.x : defaultX;
 				const y = custom ? custom.y : defaultY;
 				boundMaxX = Math.max(boundMaxX, x + width + PADDING_X);
@@ -209,7 +247,17 @@
 						result?.count !== undefined
 							? { input: result.input_count ?? 0, output: result.count }
 							: undefined,
-					note: result?.error || result?.reason
+					note: result?.error || result?.reason,
+					fan: (() => {
+						const list = itemsByStepId.get(step.id);
+						if (!list?.length) return undefined;
+						const states = list.map((t) => t.latest_job?.status);
+						return {
+							done: states.filter((x) => x === 'succeeded').length,
+							failed: states.filter((x) => x === 'failed' || x === 'lost' || x === 'cancelled').length,
+							total: list.length
+						};
+					})()
 				};
 				nodes.push(layout);
 				nodesById.set(step.id, layout);
@@ -363,7 +411,64 @@
 
 	function resetLayout() {
 		customPositions = new Map();
+		onlayout?.({});
 		setTimeout(() => fitView(), 40);
+	}
+
+	/** Canvas coordinates of a point on the screen. */
+	function toCanvas(clientX: number, clientY: number) {
+		const rect = containerEl?.getBoundingClientRect();
+		return { x: (clientX - (rect?.left ?? 0) - panX) / zoom, y: (clientY - (rect?.top ?? 0) - panY) / zoom };
+	}
+
+	/** Where every node is drawn now, so adding a step doesn't reshuffle the others. */
+	export function positions(): Record<string, { x: number; y: number }> {
+		return Object.fromEntries(graph.nodes.map((n) => [n.step.id, { x: Math.round(n.x), y: Math.round(n.y) }]));
+	}
+
+	/** Canvas coordinates of the middle of the visible area (where new blocks go). */
+	export function visibleCenter() {
+		const rect = containerEl?.getBoundingClientRect();
+		return rect ? toCanvas(rect.left + rect.width / 2, rect.top + rect.height / 2) : { x: 80, y: 80 };
+	}
+
+	function startConnect(ev: PointerEvent, node: StepLayout) {
+		if (!editable || ev.button !== 0) return;
+		ev.stopPropagation();
+		ev.preventDefault();
+		const x1 = node.x + node.width;
+		const y1 = node.y + node.height / 2;
+		connecting = { fromId: node.step.id, x1, y1, x2: x1, y2: y1 };
+		const move = (e: PointerEvent) => {
+			if (!connecting) return;
+			const p = toCanvas(e.clientX, e.clientY);
+			connecting = { ...connecting, x2: p.x, y2: p.y };
+		};
+		const up = (e: PointerEvent) => {
+			window.removeEventListener('pointermove', move);
+			window.removeEventListener('pointerup', up);
+			const from = connecting?.fromId;
+			connecting = null;
+			const target = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-step-id]');
+			const toId = target?.dataset.stepId;
+			if (from && toId && toId !== from) onconnect?.(from, toId, { x: e.clientX, y: e.clientY });
+		};
+		window.addEventListener('pointermove', move);
+		window.addEventListener('pointerup', up);
+	}
+
+	function onDragOver(e: DragEvent) {
+		if (editable && e.dataTransfer?.types.includes(BLOCK_MIME)) {
+			e.preventDefault();
+			e.dataTransfer.dropEffect = 'copy';
+		}
+	}
+
+	function onDrop(e: DragEvent) {
+		const data = e.dataTransfer?.getData(BLOCK_MIME);
+		if (!editable || !data) return;
+		e.preventDefault();
+		ondropblock?.(data, toCanvas(e.clientX, e.clientY));
 	}
 
 	function toggleFullscreen() {
@@ -423,6 +528,7 @@
 		// Capturing the pointer retargets the click, so toolbar buttons would never fire.
 		if ((ev.target as HTMLElement).closest('button, a, input')) return;
 		isPanning = true;
+		panMoved = false;
 		panStart = {
 			x: ev.clientX,
 			y: ev.clientY,
@@ -436,6 +542,7 @@
 
 	function handleCanvasPointerMove(ev: PointerEvent) {
 		if (!isPanning) return;
+		if (Math.hypot(ev.clientX - panStart.x, ev.clientY - panStart.y) > 3) panMoved = true;
 		panX = panStart.initialPanX + (ev.clientX - panStart.x);
 		panY = panStart.initialPanY + (ev.clientY - panStart.y);
 	}
@@ -443,6 +550,7 @@
 	function handleCanvasPointerUp(ev: PointerEvent) {
 		if (isPanning) {
 			isPanning = false;
+			if (!panMoved) oncanvasclick?.();
 			try {
 				(ev.currentTarget as HTMLElement).releasePointerCapture(ev.pointerId);
 			} catch {}
@@ -493,6 +601,8 @@
 
 			if (!dragStart.hasMoved) {
 				handleNodeClick(node);
+			} else if (onlayout) {
+				onlayout(Object.fromEntries(graph.nodes.map((n) => [n.step.id, { x: Math.round(n.x), y: Math.round(n.y) }])));
 			}
 			draggingNodeId = null;
 		}
@@ -506,8 +616,10 @@
 	aria-label="Playbook execution graph canvas"
 	class="w-full overflow-hidden border border-outline-variant bg-surface-container-lowest shadow-xs select-none
 		{isPanning ? 'cursor-grabbing' : 'cursor-grab'}
-		{isFullscreen ? 'fixed inset-0 z-50 h-screen w-screen rounded-none' : 'relative h-[520px] rounded-xl'}"
+		{isFullscreen ? 'fixed inset-0 z-50 h-screen w-screen rounded-none' : fill ? 'relative h-full rounded-xl' : 'relative h-[520px] rounded-xl'}"
 	bind:this={containerEl}
+	ondragover={onDragOver}
+	ondrop={onDrop}
 	onpointerdown={handleCanvasPointerDown}
 	onpointermove={handleCanvasPointerMove}
 	onpointerup={handleCanvasPointerUp}
@@ -698,12 +810,21 @@
 						/>
 					{/if}
 				{/each}
+				{#if connecting}
+					{@const dx = Math.max(40, Math.abs(connecting.x2 - connecting.x1) * 0.45)}
+					<path
+						d="M {connecting.x1} {connecting.y1} C {connecting.x1 + dx} {connecting.y1}, {connecting.x2 - dx} {connecting.y2}, {connecting.x2} {connecting.y2}"
+						fill="none"
+						style="stroke: var(--md-sys-color-primary); stroke-width: 2.5px; stroke-dasharray: 6 4;"
+						marker-end="url(#arrow-active)"
+					/>
+				{/if}
 			</svg>
 
 			<!-- Edge badges: the output that flows, the parser that made it, and how many items -->
 			{#each graph.edges as edge (edge.id + '-badge')}
 				<div
-					class="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-auto flex flex-col items-center gap-0.5 rounded-lg border bg-surface-container-high px-2 py-1 shadow-sm transition-transform duration-150 hover:scale-105 hover:shadow-md z-10 {edge.gate ? 'max-w-[200px]' : 'max-w-[150px]'}
+					class="group/edge absolute -translate-x-1/2 -translate-y-1/2 pointer-events-auto flex flex-col items-center gap-0.5 rounded-lg border bg-surface-container-high px-2 py-1 shadow-sm transition-transform duration-150 hover:scale-105 hover:shadow-md z-10 {edge.gate ? 'max-w-[200px]' : 'max-w-[150px]'}
 						{edge.status === 'active'
 							? 'border-primary ring-2 ring-primary/25'
 							: edge.status === 'succeeded'
@@ -721,6 +842,18 @@
 								.join('\n')
 						: `${edge.toId} waits for ${edge.fromId}`)}
 				>
+					{#if editable}
+						<button
+							type="button"
+							class="absolute -top-2 -right-2 size-5 items-center justify-center rounded-full bg-error text-on-error shadow-e1 {selectedStepId === edge.toId || selectedStepId === edge.fromId ? 'flex' : 'hidden group-hover/edge:flex'}"
+							aria-label="Remove the connection from {edge.fromId} to {edge.toId}"
+							title="Remove this connection"
+							onpointerdown={(e) => e.stopPropagation()}
+							onclick={() => onedgedelete?.(edge.fromId, edge.toId)}
+						>
+							<Icon name="close" size={12} />
+						</button>
+					{/if}
 					{#if edge.gate}
 						<div class="flex max-w-full items-center gap-1 font-mono text-[10px] font-medium text-tertiary">
 							<Icon name="alt_route" size={12} class="shrink-0" />
@@ -763,10 +896,20 @@
 				{@const isTransform = node.step.kind === 'transform'}
 				{@const dimmed = node.status === 'skipped' || node.status === 'blocked' || node.status === 'cancelled' || node.status === 'not_taken'}
 				{@const flags = stepFlags(node.step)}
+				{#if node.step.for_each}
+					<!-- cards peeking out behind: this step runs once per item -->
+					{#each [8, 4] as offset (offset)}
+						<div
+							class="pointer-events-none absolute rounded-xl border border-outline-variant bg-surface-container-low {draggingNodeId === node.step.id ? 'z-30' : 'z-10'}"
+							style="left: {node.x + offset}px; top: {node.y + offset}px; width: {node.width}px; height: {node.height}px;"
+						></div>
+					{/each}
+				{/if}
 				<div
 					role="button"
 					tabindex="0"
 					aria-label="{isTransform ? 'Transform' : 'Step'} {node.step.name}: {meta.label}"
+					data-step-id={node.step.id}
 					class="group absolute flex flex-col border text-left transition-shadow duration-150 focus:outline-none select-none
 						{isTransform ? 'rounded-2xl border-dashed' : 'rounded-xl'}
 						{isDraggingThis ? 'cursor-grabbing z-30 shadow-xl ring-2 ring-primary/40' : 'cursor-grab hover:shadow-md z-10'}
@@ -776,6 +919,8 @@
 								? 'border-tertiary/70 bg-surface-container-low hover:bg-surface-container'
 								: 'border-outline-variant bg-surface-container-low hover:border-outline hover:bg-surface-container'}
 						{node.status === 'attention' && !isSelected ? 'border-tertiary ring-3 ring-tertiary/30' : ''}
+						{errors[node.step.id]?.length && !isSelected ? 'border-error ring-2 ring-error/30' : ''}
+						{connecting && connecting.fromId !== node.step.id ? 'ring-2 ring-primary/40' : ''}
 						{dimmed && !isSelected ? 'opacity-60' : ''}"
 					style="left: {node.x}px; top: {node.y}px; width: {node.width}px; height: {node.height}px;"
 					onpointerdown={(e) => handleNodePointerDown(e, node)}
@@ -871,7 +1016,11 @@
 							{run ? meta.label : isTransform ? 'Transform' : 'Command'}
 						</span>
 						<span class="truncate text-[11px] text-on-surface-variant">
-							{#if node.counts}
+							{#if node.fan}
+								<span class="font-mono" title="{node.fan.done} of {node.fan.total} items done{node.fan.failed ? `, ${node.fan.failed} failed` : ''}">
+									{node.fan.done}/{node.fan.total} items{node.fan.failed ? ` · ${node.fan.failed} ✗` : ''}
+								</span>
+							{:else if node.counts}
 								<span class="font-mono">{node.counts.input} → {node.counts.output}</span>
 							{:else if node.note}
 								<span class="italic">{node.note}</span>
@@ -890,10 +1039,32 @@
 							title="Waits for: {node.step.depends_on.join(', ')}"
 						></span>
 					{/if}
-					<span
-						class="absolute -right-1.5 top-1/2 size-3 -translate-y-1/2 rounded-full border-2 border-surface {isTransform ? 'bg-tertiary' : 'bg-primary'}"
-						title="Output"
-					></span>
+					{#if editable}
+						<!-- Drag from here onto another step to feed it this step's output. -->
+						<span
+							role="button"
+							tabindex="-1"
+							aria-label="Connect {node.step.name} to another step"
+							class="absolute -right-2.5 top-1/2 flex size-5 -translate-y-1/2 cursor-crosshair items-center justify-center rounded-full border-2 border-surface text-on-primary transition-transform hover:scale-125 {isTransform ? 'bg-tertiary' : 'bg-primary'}"
+							title="Drag onto another step to connect"
+							onpointerdown={(e) => startConnect(e, node)}
+						>
+							<Icon name="add" size={12} />
+						</span>
+					{:else}
+						<span
+							class="absolute -right-1.5 top-1/2 size-3 -translate-y-1/2 rounded-full border-2 border-surface {isTransform ? 'bg-tertiary' : 'bg-primary'}"
+							title="Output"
+						></span>
+					{/if}
+					{#if errors[node.step.id]?.length}
+						<span
+							class="absolute -top-2 -right-2 flex size-5 items-center justify-center rounded-full bg-error text-on-error shadow-e1"
+							title={errors[node.step.id].join('\n')}
+						>
+							<Icon name="priority_high" size={14} />
+						</span>
+					{/if}
 				</div>
 			{/each}
 		</div>

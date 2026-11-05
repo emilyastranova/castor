@@ -186,8 +186,9 @@ async def _drive(run_id: uuid.UUID) -> None:
 
     for _ in range(20):
         async with SessionLocal() as db:
-            run = await db.get(m.PlaybookRun, run_id)
-            task_ids = [uuid.UUID(t) for t in run.step_task_ids.values()]
+            task_ids = list(
+                (await db.execute(select(m.Task.id).where(m.Task.playbook_run_id == run_id))).scalars()
+            )
             queued = (
                 await db.execute(
                     select(m.Job).where(m.Job.task_id.in_(task_ids), m.Job.status == m.JobStatus.queued)
@@ -222,8 +223,9 @@ def _start(client, auth, **inputs) -> tuple[uuid.UUID, str]:
     )
     assert r.status_code == 201, r.text
     run = r.json()
-    # Only command steps get cards; only the root is queued straight away.
-    assert len(run["tasks"]) == 7
+    # Only command steps get cards (a for_each step gets one per item later); only the
+    # root is queued straight away.
+    assert len(run["tasks"]) == 6
     assert run["step_status"]["seed_hosts"] == "queued"
     assert run["step_status"]["web_targets"] == "pending"
     return uuid.UUID(run["id"]), project_id
@@ -247,6 +249,11 @@ async def test_demo_playbook_runs_to_completion(client, auth):
     assert results["web_targets"]["type"] == "list<string>"
     assert results["unsigned"]["outputs"]["hosts"] == ["10.20.0.11", "10.20.0.13"]
     assert results["interesting"]["count"] == 6
+    # dir_brute ran once per URL, as its own card, and its outputs were merged.
+    items = sorted((t for t in run["tasks"] if t["playbook_step_id"] == "dir_brute"), key=lambda t: t["playbook_item"])
+    assert [t["command_args"]["urls"] for t in items] == results["web_targets"]["outputs"]["urls"]
+    assert items[2]["title"] == "[Pipeline Demo] Directory brute force · http://10.20.0.13:8080/"
+    assert results["dir_brute"]["items"] == 4
 
     report = next(t for t in run["tasks"] if t["playbook_step_id"] == "report")
     assert report["command_args"]["unsigned"] == "10.20.0.11,10.20.0.13"

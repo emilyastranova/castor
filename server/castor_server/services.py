@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -17,11 +18,13 @@ from .command_render import ArgumentError
 from .events import bus
 from .playbook_conditions import MAX_LOG_BYTES, failed_checks
 from .playbook_spec import (
+    _NO_ITEM,
     PLACEHOLDER_RE,
     PlaybookSpec,
     PlaybookStepSpec,
     handled_steps,
     has_empty_upstream,
+    item_label,
     lookup_ref,
     readiness,
     resolve_step_args,
@@ -348,6 +351,23 @@ def _run_task_ids(run: m.PlaybookRun) -> dict[str, uuid.UUID]:
     return {step_id: uuid.UUID(tid) for step_id, tid in (run.step_task_ids or {}).items()}
 
 
+def _group_items(tasks: list[m.Task]) -> dict[str, list[m.Task]]:
+    """A run's for_each item cards by step, in item order."""
+    items: dict[str, list[m.Task]] = {}
+    for t in sorted((t for t in tasks if t.playbook_item is not None), key=lambda t: t.playbook_item or 0):
+        items.setdefault(t.playbook_step_id or "", []).append(t)
+    return items
+
+
+async def _item_tasks(db: AsyncSession, run: m.PlaybookRun) -> dict[str, list[m.Task]]:
+    rows = (
+        await db.execute(
+            select(m.Task).where(m.Task.playbook_run_id == run.id, m.Task.playbook_item.is_not(None))
+        )
+    ).scalars().all()
+    return _group_items(list(rows))
+
+
 async def playbook_run_out(db: AsyncSession, run: m.PlaybookRun) -> PlaybookRunOut:
     tasks = (
         await db.execute(
@@ -359,8 +379,9 @@ async def playbook_run_out(db: AsyncSession, run: m.PlaybookRun) -> PlaybookRunO
     ).scalars().all()
     tasks_o = await tasks_out(db, list(tasks))
     task_ids = _run_task_ids(run)
-    latest_jobs = await latest_jobs_for(db, list(task_ids.values()))
-    job_status, job_ids = _job_states(task_ids, latest_jobs, await _parsing_jobs(db, latest_jobs))
+    items = _group_items(list(tasks))
+    latest_jobs = await latest_jobs_for(db, [*task_ids.values(), *(t.id for ts in items.values() for t in ts)])
+    job_status, job_ids = _job_states(task_ids, latest_jobs, await _parsing_jobs(db, latest_jobs), items)
     status = run.status.value if hasattr(run.status, "value") else str(run.status)
     return PlaybookRunOut(
         id=run.id,
@@ -425,8 +446,8 @@ async def start_playbook_run(
 
     tasks: list[m.Task] = []
     for step in spec.steps:
-        if step.kind != "command":
-            continue
+        if step.kind != "command" or step.for_each is not None:
+            continue  # transforms have no card; for_each steps get one per item later
         task = m.Task(
             project_id=project_id,
             column_id=todo_col.id,
@@ -464,11 +485,53 @@ async def start_playbook_run(
     return run, jobs
 
 
+class FanOut:
+    """Where a for_each step's items stand, summed up as one job status."""
+
+    def __init__(self, items: list[m.Task], latest_jobs: dict[uuid.UUID, m.Job], parsing: set[uuid.UUID]):
+        self.items = items
+        self.states: list[str] = []  # per item: waiting (no job yet) or a job status
+        job_ids = []
+        for t in items:
+            job = latest_jobs.get(t.id)
+            if job is None:
+                self.states.append("waiting")
+                continue
+            job_ids.append(str(job.id))
+            self.states.append("running" if job.id in parsing else job.status.value)
+        # Changes whenever any item gets a new job, so a judgement on the whole set (an
+        # expect, a decision) is superseded by re-running an item.
+        self.id = "items:" + hashlib.sha1(",".join(job_ids).encode()).hexdigest()[:16]
+
+    @property
+    def active(self) -> int:
+        return sum(s in ("queued", "dispatched", "running") for s in self.states)
+
+    @property
+    def failed(self) -> int:
+        return sum(s in ("failed", "lost", "cancelled") for s in self.states)
+
+    @property
+    def status(self) -> str:
+        if any(s in ("waiting", "queued", "dispatched", "running") for s in self.states):
+            started = any(s not in ("waiting", "queued") for s in self.states)
+            return "running" if started else "queued"
+        if all(s == "succeeded" for s in self.states):
+            return "succeeded"
+        if all(s == "cancelled" for s in self.states):
+            return "cancelled"
+        return "failed"
+
+
 def _job_states(
-    task_ids: dict[str, uuid.UUID], latest_jobs: dict[uuid.UUID, m.Job], parsing: set[uuid.UUID]
+    task_ids: dict[str, uuid.UUID],
+    latest_jobs: dict[uuid.UUID, m.Job],
+    parsing: set[uuid.UUID],
+    items: dict[str, list[m.Task]] | None = None,
 ) -> tuple[dict[str, str], dict[str, str]]:
     """(step → job status, step → job id) for steps with a job. A finished job whose outputs
-    are still being parsed counts as running, so nothing downstream judges it too early."""
+    are still being parsed counts as running, so nothing downstream judges it too early.
+    A for_each step's items count as one job (FanOut)."""
     status: dict[str, str] = {}
     ids: dict[str, str] = {}
     for step_id, tid in task_ids.items():
@@ -476,6 +539,11 @@ def _job_states(
         if job is not None:
             status[step_id] = "running" if job.id in parsing else job.status.value
             ids[step_id] = str(job.id)
+    for step_id, tasks in (items or {}).items():
+        if tasks:
+            fan = FanOut(tasks, latest_jobs, parsing)
+            status[step_id] = fan.status
+            ids[step_id] = fan.id
     return status, ids
 
 
@@ -528,10 +596,28 @@ async def _step_outputs(
     task_ids: dict[str, uuid.UUID],
     latest_jobs: dict[uuid.UUID, m.Job],
     results: dict[str, Any],
+    items: dict[str, list[m.Task]] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Values available to bind: parsed outputs of succeeded jobs (and of failed ones a
-    person chose to continue with), results of transforms."""
+    person chose to continue with), results of transforms. A for_each step's output is its
+    succeeded items' outputs merged in item order (lists concatenated)."""
     outputs: dict[str, dict[str, Any]] = {}
+    item_jobs: dict[uuid.UUID, tuple[str, int]] = {}
+    for step_id, tasks in (items or {}).items():
+        for t in tasks:
+            job = latest_jobs.get(t.id)
+            if job is not None and job.status == m.JobStatus.succeeded:
+                item_jobs[job.id] = (step_id, t.playbook_item or 0)
+    if item_jobs:
+        rows = sorted(
+            (await db.execute(select(m.JobOutput).where(m.JobOutput.job_id.in_(list(item_jobs))))).scalars(),
+            key=lambda r: item_jobs[r.job_id][1],
+        )
+        for row in rows:
+            if row.error is not None:
+                continue
+            merged = outputs.setdefault(item_jobs[row.job_id][0], {}).setdefault(row.name, [])
+            merged.extend(row.value if isinstance(row.value, list) else [row.value])
     job_step: dict[uuid.UUID, str] = {}
     for step_id, tid in task_ids.items():
         job = latest_jobs.get(tid)
@@ -581,22 +667,25 @@ async def _advance(
             await db.execute(select(m.Task).where(m.Task.id.in_(list(task_ids.values()))))
         ).scalars()
     }
-    latest_jobs = await latest_jobs_for(db, list(task_ids.values()))
+    items = await _item_tasks(db, run)
+    item_ids = [t.id for ts in items.values() for t in ts]
+    latest_jobs = await latest_jobs_for(db, [*task_ids.values(), *item_ids])
     parsing = await _parsing_jobs(db, latest_jobs)
     results: dict[str, Any] = dict(run.step_results or {})
-    outputs = await _step_outputs(db, spec, task_ids, latest_jobs, results)
+    outputs = await _step_outputs(db, spec, task_ids, latest_jobs, results, items)
+    todo_col = await column_with_role(db, run.project_id, m.ColumnRole.todo)
     active_col = await column_with_role(db, run.project_id, m.ColumnRole.active)
     done_col = await column_with_role(db, run.project_id, m.ColumnRole.done)
     run_status = run.status.value
 
     def statuses() -> dict[str, str]:
-        job_status, job_ids = _job_states(task_ids, latest_jobs, parsing)
+        job_status, job_ids = _job_states(task_ids, latest_jobs, parsing, items)
         return step_statuses(spec, job_status, results, run_status, job_ids)
 
     def set_result(step_id: str, **fields: Any) -> None:
         """Record a step's result, keeping how its condition was evaluated."""
         prev = results.get(step_id) or {}
-        keep = {k: prev[k] for k in ("condition", "resolution") if k in prev}
+        keep = {k: prev[k] for k in ("condition", "resolution", "items") if k in prev}
         results[step_id] = {**keep, **fields, "finished_at": utcnow().isoformat()}
 
     jobs: list[m.Job] = []
@@ -638,10 +727,131 @@ async def _advance(
             payload={"run_id": str(run.id), "step_id": step.id},
         )
 
+    async def check_expect(step: PlaybookStepSpec, task: m.Task | None, job_id: str, log_job: m.Job | None) -> None:
+        expect = step.expectation()
+        assert expect is not None
+        try:
+            log_text = await _job_log_tail(db, log_job.id) if expect.log is not None and log_job else None
+            met, checks = expect.evaluate(outputs.get(step.id, {}), log_text)
+        except TransformError as exc:
+            met, checks = False, [{"text": f"expect: {exc}", "met": False}]
+        if met:
+            set_result(step.id, status="succeeded", job_id=job_id, expect=checks)
+        else:
+            await fail_step(step, task, f"unexpected output: {failed_checks(checks)}", job_id=job_id, expect=checks)
+
+    async def judge_fan_out(step: PlaybookStepSpec) -> bool:
+        """A for_each step whose items have all ended: check `expect` on the merged
+        outputs (logs aren't merged: the expectation's log test is checked per item), or
+        ask if any item failed."""
+        fan = FanOut(items[step.id], latest_jobs, parsing)
+        result = results.get(step.id) or {}
+        if fan.status not in ("succeeded", "failed", "cancelled") or (result.get("status") and result.get("job_id") == fan.id):
+            return False
+        if fan.status == "succeeded" and step.expect is not None:
+            expect = step.expectation()
+            assert expect is not None
+            if expect.log is not None:
+                for t in items[step.id]:
+                    job = latest_jobs[t.id]
+                    ok, checks = expect.model_copy(update={"outputs": {}}).evaluate({}, await _job_log_tail(db, job.id))
+                    if not ok:
+                        await fail_step(step, None, f"unexpected output from {t.title}: {failed_checks(checks)}", job_id=fan.id, expect=checks)
+                        return True
+            await check_expect(step, None, fan.id, None)
+            return True
+        if fan.status == "failed" and step.on_failure == "ask":
+            await fail_step(step, None, f"{fan.failed} of {len(fan.items)} items failed", job_id=fan.id)
+            return True
+        return False
+
+    async def feed_items() -> bool:
+        """Queue waiting items of running for_each steps, up to their concurrency."""
+        changed = False
+        current = statuses()
+        for step in spec.steps:
+            if step.for_each is None or step.id not in items or current.get(step.id) not in ("queued", "running"):
+                continue
+            fan = FanOut(items[step.id], latest_jobs, parsing)
+            room = (step.for_each.concurrency or len(fan.items)) - fan.active
+            for t, state in zip(fan.items, fan.states, strict=True):
+                if room <= 0:
+                    break
+                if state == "waiting":
+                    await move(t, active_col)
+                    job = await enqueue_job(db, t, user, reason=f"playbook item of {step.name}")
+                    latest_jobs[t.id] = job
+                    jobs.append(job)
+                    room -= 1
+                    changed = True
+        return changed
+
+    async def start_fan_out(step: PlaybookStepSpec) -> None:
+        """Create one card per item and queue them (up to the step's concurrency)."""
+        assert step.for_each is not None
+        ref = PLACEHOLDER_RE.match(step.for_each.items)
+        values = as_items(lookup_ref(ref.group(1), run.inputs, outputs)) if ref else []
+        if not values:
+            set_result(step.id, status="skipped", reason="for_each has no items")
+            return
+        if len(values) > step.for_each.max_items:
+            await fail_step(
+                step, None,
+                f"for_each has {len(values)} items, more than max_items ({step.for_each.max_items}); "
+                "narrow the list with a transform first",
+            )
+            return
+        column = todo_col or active_col
+        if column is None:
+            await fail_step(step, None, "the project has no To Do column for the item cards")
+            return
+        created: list[m.Task] = []
+        for index, value in enumerate(values):
+            label = item_label(value)
+            card = m.Task(
+                project_id=run.project_id,
+                column_id=column.id,
+                position=await next_position(db, column.id),
+                title=f"[{run.playbook_name}] {step.name} · {label}",
+                description=step.description,
+                kind=m.TaskKind.command,
+                playbook_run_id=run.id,
+                playbook_step_id=step.id,
+                playbook_item=index,
+                depends_on=list(step.depends_on),
+                command_ref=step.command_ref,
+                created_by=run.created_by,
+            )
+            db.add(card)
+            await db.flush()
+            error = await _prepare_command_step(db, card, step, run.inputs, outputs, item=value)
+            if error is not None:
+                for c in [*created, card]:
+                    await db.delete(c)
+                await db.flush()
+                await fail_step(step, None, f"item {index + 1} ({label}) could not start: {error}")
+                return
+            created.append(card)
+        items[step.id] = created
+        touched.extend(created)
+        keep = {k: v for k, v in (results.get(step.id) or {}).items() if k in ("condition", "resolution")}
+        results[step.id] = {**keep, "items": len(created)}
+        await record_activity(
+            db,
+            type="playbook_step.fan_out",
+            message=f"“{step.name}” runs once for each of {len(created)} item{'s' if len(created) != 1 else ''}",
+            project_id=run.project_id,
+            payload={"run_id": str(run.id), "step_id": step.id, "items": len(created)},
+        )
+        await feed_items()
+
     async def judge_finished_jobs() -> bool:
         """Check each newly finished job once: its `expect`, or `ask` on failure."""
         changed = False
         for step in spec.steps:
+            if step.id in items:
+                changed |= await judge_fan_out(step)
+                continue
             if step.kind != "command" or step.id not in task_ids:
                 continue
             job = latest_jobs.get(task_ids[step.id])
@@ -651,19 +861,8 @@ async def _advance(
             if result.get("status") and result.get("job_id") == str(job.id):
                 continue  # already judged
             task = tasks.get(task_ids[step.id])
-            expect = step.expectation()
-            if job.status == m.JobStatus.succeeded and expect is not None:
-                try:
-                    log_text = await _job_log_tail(db, job.id) if expect.log is not None else None
-                    met, checks = expect.evaluate(outputs.get(step.id, {}), log_text)
-                except TransformError as exc:
-                    met, checks = False, [{"text": f"expect: {exc}", "met": False}]
-                if met:
-                    set_result(step.id, status="succeeded", job_id=str(job.id), expect=checks)
-                else:
-                    await fail_step(
-                        step, task, f"unexpected output: {failed_checks(checks)}", job_id=str(job.id), expect=checks
-                    )
+            if job.status == m.JobStatus.succeeded and step.expect is not None:
+                await check_expect(step, task, str(job.id), job)
                 changed = True
             elif job.status in (m.JobStatus.failed, m.JobStatus.lost) and step.on_failure == "ask":
                 await fail_step(step, task, _job_failure(job), job_id=str(job.id))
@@ -673,6 +872,7 @@ async def _advance(
     progressed = run_status != "cancelled"
     while progressed:
         progressed = await judge_finished_jobs()
+        progressed |= await feed_items()
         current = statuses()
         for step in spec.steps:
             task = tasks.get(task_ids[step.id]) if step.id in task_ids else None
@@ -735,7 +935,7 @@ async def _advance(
                 values = [lookup_ref(ref, run.inputs, outputs) for ref in refs]
                 input_count = sum(len(as_items(v)) for v in values)
                 try:
-                    items = run_transform(step.transform, values)
+                    produced = run_transform(step.transform, values)
                 except TransformError as exc:
                     await fail_step(step, None, str(exc), input_count=input_count)
                     continue
@@ -743,14 +943,17 @@ async def _advance(
                 set_result(
                     step.id,
                     status="succeeded",
-                    outputs={step.transform.output.name: items},
+                    outputs={step.transform.output.name: produced},
                     type=step.transform.result_type(input_type),
                     input_count=input_count,
-                    count=len(items),
+                    count=len(produced),
                 )
-                outputs[step.id] = {step.transform.output.name: items}
+                outputs[step.id] = {step.transform.output.name: produced}
                 continue
 
+            if step.for_each is not None:
+                await start_fan_out(step)
+                continue
             if task is None:  # card deleted from the board
                 set_result(step.id, status="failed", error="the step's card was deleted")
                 continue
@@ -791,13 +994,15 @@ async def _prepare_command_step(
     step: PlaybookStepSpec,
     inputs: dict[str, Any],
     outputs: dict[str, dict[str, Any]],
+    item: Any = _NO_ITEM,
 ) -> str | None:
-    """Render the step's command onto its card. Returns an error message, or None."""
+    """Render the step's command onto its card (for one item of a for_each step, `item`).
+    Returns an error message, or None."""
     cmd_spec = await load_spec(db, step.command_ref)
     if cmd_spec is None:
         return f"command {step.command_ref} is not in the library"
     try:
-        await apply_library(db, task, cmd_spec, resolve_step_args(step.args, inputs, outputs))
+        await apply_library(db, task, cmd_spec, resolve_step_args(step.args, inputs, outputs, item))
     except ArgumentError as exc:
         return str(exc)
     bindings = {}
@@ -950,11 +1155,24 @@ async def resolve_step(
         "reason": result.get("reason", ""),
         "at": utcnow().isoformat(),
     }
-    keep = {"condition": result["condition"]} if "condition" in result else {}
+    keep = {k: result[k] for k in ("condition", "items") if k in result}
     jobs: list[m.Job] = []
     if action == "retry":
         results[step_id] = {**keep, "resolution": resolution}
-        if step.kind == "command" and task is not None and result.get("job_id"):
+        if step.for_each is not None and result.get("job_id"):
+            # Re-run only the items that didn't succeed.
+            item_cards = (await _item_tasks(db, run)).get(step_id, [])
+            results[step_id]["items"] = len(item_cards)
+            latest_items = await latest_jobs_for(db, [t.id for t in item_cards])
+            active_col = await column_with_role(db, run.project_id, m.ColumnRole.active)
+            for card in item_cards:
+                job = latest_items.get(card.id)
+                if job is not None and job.status in (m.JobStatus.failed, m.JobStatus.lost, m.JobStatus.cancelled):
+                    if active_col is not None and card.column_id != active_col.id:
+                        card.column_id = active_col.id
+                        card.position = await next_position(db, active_col.id)
+                    jobs.append(await enqueue_job(db, card, user, reason=f"retried by {who}"))
+        elif step.kind == "command" and task is not None and result.get("job_id"):
             active_col = await column_with_role(db, run.project_id, m.ColumnRole.active)
             if active_col is not None and task.column_id != active_col.id:
                 task.column_id = active_col.id
@@ -1036,8 +1254,7 @@ async def cancel_playbook_run(
     await publish_playbook_run(db, run)
 
     # Cancel active jobs for all steps
-    step_task_ids = run.step_task_ids or {}
-    task_uuids = [uuid.UUID(tid) for tid in step_task_ids.values()]
+    task_uuids = list((await db.execute(select(m.Task.id).where(m.Task.playbook_run_id == run.id))).scalars())
     latest_jobs = await latest_jobs_for(db, task_uuids)
 
     from .orchestrator.dispatcher import dispatcher

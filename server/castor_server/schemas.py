@@ -244,6 +244,7 @@ class TaskOut(ORM):
     updated_at: datetime
     playbook_run_id: uuid.UUID | None = None
     playbook_step_id: str | None = None
+    playbook_item: int | None = None
     depends_on: list[str] = Field(default_factory=list)
     var_bindings: dict[str, str] = Field(default_factory=dict)
     latest_job: JobOut | None = None

@@ -15,6 +15,10 @@ from .playbook_transforms import TransformSpec
 STEP_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
 PLACEHOLDER_RE = re.compile(r"^\{\{\s*(inputs\.[A-Za-z0-9_]+|steps\.[A-Za-z0-9_-]+\.outputs\.[A-Za-z0-9_]+)\s*\}\}$")
 INLINE_PLACEHOLDER_RE = re.compile(r"\{\{\s*(inputs\.[A-Za-z0-9_]+|steps\.[A-Za-z0-9_-]+\.outputs\.[A-Za-z0-9_]+)\s*\}\}")
+# {{ item }} / {{ item.field }} in the args of a for_each step: the current item.
+ITEM_RE = re.compile(r"\{\{\s*item(?:\.([A-Za-z_][A-Za-z0-9_]*))?\s*\}\}")
+MAX_FOR_EACH = 1000
+_NO_ITEM = object()
 
 
 def compact_errors(exc: ValidationError) -> str:
@@ -32,6 +36,51 @@ def references(value: Any) -> list[str]:
     if isinstance(value, list):
         return [ref for item in value for ref in references(item)]
     return []
+
+
+class ForEach(BaseModel):
+    """Run a command step once per item of a list: one card and one job per item."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Exactly one `{{ inputs.x }}` or `{{ steps.y.outputs.z }}` reference to a list.
+    items: str
+    # Refuse more items than this (filter or `limit` them in a transform first).
+    max_items: int = Field(100, ge=1, le=MAX_FOR_EACH)
+    # At most this many of the items' jobs queued or running at once (default: no limit).
+    concurrency: int | None = Field(None, ge=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def short_form(cls, data: Any) -> Any:
+        return {"items": data} if isinstance(data, str) else data
+
+    @field_validator("items")
+    @classmethod
+    def one_reference(cls, value: str) -> str:
+        if not PLACEHOLDER_RE.match(value.strip()):
+            raise ValueError("items must be one {{ inputs.<name> }} or {{ steps.<id>.outputs.<name> }} reference")
+        return value.strip()
+
+
+def uses_item(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(ITEM_RE.search(value))
+    if isinstance(value, list):
+        return any(uses_item(v) for v in value)
+    return False
+
+
+def item_value(item: Any, field: str | None) -> Any:
+    if field is None:
+        return item
+    return item.get(field) if isinstance(item, dict) else None
+
+
+def item_label(item: Any) -> str:
+    """A short name for an item, for its card title."""
+    text = resolve_output_value(item)
+    return text if len(text) <= 60 else text[:57] + "…"
 
 
 class PlaybookStepSpec(BaseModel):
@@ -68,6 +117,8 @@ class PlaybookStepSpec(BaseModel):
     on_failure: Literal["stop", "continue", "ask"] = "stop"
     # Command steps: what a successful result should look like (playbook_conditions.Expect).
     expect: dict[str, Any] | None = None
+    # Command steps: one card and job per item of a list; args use {{ item }} / {{ item.f }}.
+    for_each: ForEach | None = None
 
     @field_validator("when")
     @classmethod
@@ -108,10 +159,16 @@ class PlaybookStepSpec(BaseModel):
         if (self.command_ref is None) == (self.transform is None):
             raise ValueError(f"step {self.id}: give either command_ref or transform")
         self.kind = "transform" if self.transform is not None else "command"
+        if self.transform is not None and not self.transform.inputs:
+            raise ValueError(f"step {self.id}: the transform has no input (connect a step to it)")
         if self.transform is not None and self.args:
             raise ValueError(f"step {self.id}: transform steps take no args (use transform.input)")
         if self.transform is not None and self.vars:
             raise ValueError(f"step {self.id}: transform steps take no vars")
+        if self.transform is not None and self.for_each is not None:
+            raise ValueError(f"step {self.id}: for_each is for command steps (a transform already works on the whole list)")
+        if self.for_each is None and uses_item(list(self.args.values())):
+            raise ValueError(f"step {self.id}: {{{{ item }}}} can only be used in a step with for_each")
         if self.transform is not None and self.expect is not None:
             raise ValueError(f"step {self.id}: expect is for command steps (a transform's result is what you made it)")
         for slot, value in self.vars.items():
@@ -125,7 +182,10 @@ class PlaybookStepSpec(BaseModel):
     def refs(self) -> list[str]:
         if self.transform is not None:
             return references(self.transform.inputs)
-        return references(list(self.args.values()))
+        refs = references(list(self.args.values()))
+        if self.for_each is not None:
+            refs = [*references(self.for_each.items), *refs]
+        return refs
 
     def upstream_steps(self) -> list[str]:
         return [*dict.fromkeys(r.split(".")[1] for r in self.refs() if r.startswith("steps."))]
@@ -140,6 +200,12 @@ class PlaybookStepSpec(BaseModel):
         return value
 
 
+class NodePosition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    x: float
+    y: float
+
+
 class PlaybookSpec(BaseModel):
     # Unknown keys are errors, except `x-...` keys, which are free for YAML anchors/notes.
     model_config = ConfigDict(extra="forbid")
@@ -151,6 +217,8 @@ class PlaybookSpec(BaseModel):
     tags: list[str] = Field(default_factory=list)
     inputs: list[ArgSpec] = Field(default_factory=list)
     steps: list[PlaybookStepSpec] = Field(default_factory=list)
+    # Where the visual editor placed each step ({step_id: {x, y}}); only for drawing.
+    layout: dict[str, NodePosition] = Field(default_factory=dict)
 
     @model_validator(mode="before")
     @classmethod
@@ -248,6 +316,9 @@ class PlaybookSpec(BaseModel):
         if visited_count < len(self.steps):
             raise ValueError("playbook steps contain a cycle or circular dependency")
 
+        # Positions of steps that no longer exist are dropped rather than refused.
+        self.layout = {k: v for k, v in self.layout.items() if k in step_ids}
+
         return self
 
 
@@ -302,10 +373,14 @@ def resolve_step_args(
     arg_bindings: dict[str, Any],
     inputs: dict[str, Any],
     step_outputs: dict[str, dict[str, Any]],
+    item: Any = _NO_ITEM,
 ) -> dict[str, Any]:
-    """Resolve argument templates for a step from playbook inputs and upstream outputs."""
+    """Resolve argument templates for a step from playbook inputs and upstream outputs (and
+    the current item of a for_each step)."""
     resolved: dict[str, Any] = {}
     for arg_name, raw_val in arg_bindings.items():
+        if isinstance(raw_val, str) and item is not _NO_ITEM and ITEM_RE.search(raw_val):
+            raw_val = ITEM_RE.sub(lambda mt: resolve_output_value(item_value(item, mt.group(1))), raw_val)
         if isinstance(raw_val, str):
             # Check exact placeholder match: e.g. {{ inputs.targets }}
             exact = PLACEHOLDER_RE.match(raw_val.strip())

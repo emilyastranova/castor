@@ -74,6 +74,7 @@ steps:
 | `tags` | no | list of strings | For filtering in the library. |
 | `inputs` | no | list | Values asked for when the run starts (section 4). |
 | `steps` | yes | list | The graph (section 5). |
+| `layout` | no | mapping | `{step_id: {x, y}}`: where the visual editor placed each step. Only used for drawing; leave it out when writing by hand. |
 | `x-...` | no | anything | Ignored. Use for YAML anchors and notes (section 12). |
 
 **Any other key is an error** (`foo: unknown key`), at the top level and inside steps.
@@ -137,6 +138,7 @@ Every step has these fields:
 | `join` | no | `all` \| `any` \| `always` | Default `all`. When the step may start. See 8.2. |
 | `on_failure` | no | `stop` \| `continue` \| `ask` | Default `stop`. What a failure means. See 8.3. |
 | `expect` | no | mapping | Command steps only: what a good result looks like. See 8.4. |
+| `for_each` | no | reference or mapping | Command steps only: run once per item of a list. See 5.3. |
 
 A step is **either** a command step (`command_ref` + `args`) **or** a transform step
 (`transform`). Giving both, or neither, is an error. Don't write `kind:` yourself; it's
@@ -212,6 +214,38 @@ under `vars:`, either to a `varset` input or to the name of a fixed set:
 - A transform of an empty input succeeds with an empty list (it is **not** skipped unless
   it has `skip_if_empty: true`).
 - Results are capped at 10,000 items.
+
+### 5.3 `for_each`: once per item
+
+```yaml
+  - id: dir_brute
+    name: Directory brute force
+    command_ref: ffuf-dir
+    for_each:
+      items: "{{ steps.web_targets.outputs.urls }}"   # exactly one reference to a list
+      concurrency: 2                                  # optional: at most 2 running at once
+      max_items: 50                                   # optional, default 100, at most 1000
+    args:
+      url: "{{ item }}"
+```
+
+When the step is ready, it gets **one card and one job per item**, titled
+`[<playbook>] <step> · <item>`. Short form: `for_each: "{{ steps.x.outputs.y }}"`.
+
+- In `args`, `{{ item }}` is the current item, turned into text like a single upstream value
+  (section 6: a host record gives its `ip`, a service its `host`, a URL record its `url`).
+  `{{ item.<field> }}` is one field of a record item, e.g.
+  `"http://{{ item.host }}:{{ item.port }}/"`. `{{ item }}` anywhere else is an error.
+- The list is the referenced value as is; text is split on commas. No items: the step is
+  `skipped`. More than `max_items`: the step fails (narrow the list with a transform's
+  `filter` or `limit` first).
+- The step is `running` until every item has ended, then `succeeded` if they all succeeded,
+  otherwise `failed`, and `on_failure` applies to the step as a whole. With `ask`, **Retry**
+  re-runs only the items that didn't succeed.
+- Its outputs are the succeeded items' outputs merged in item order (lists concatenated), so
+  downstream steps see one list, even when some items failed and the step continues.
+- `expect` checks the merged outputs, and its `log` test is checked on every item's log.
+- Re-running a single item's card from the board updates the step like any re-run.
 
 ## 6. References and how values are passed
 
@@ -492,7 +526,7 @@ built-ins as of this writing:
   network, so they're for exercising playbooks, not real work.
 - `nmap.hosts` keeps hosts reported as down by default. After `nmap-ping-sweep`, filter
   `status: up` (as in section 2) before scanning further.
-- `ffuf-dir` takes a single base `url`. It cannot fan out over a list of URLs.
+- `ffuf-dir` takes a single base `url`; use `for_each` to run it once per URL (5.3).
 - Built-in variable kinds: `target-list` (entries: hosts/IPs/ranges/domains/URLs),
   `credential` (username, password\*, nt_hash\*, domain; all
   optional), `ssh-key` (username, private_key\* file, passphrase\*), `listener` (host),
@@ -632,6 +666,9 @@ they meet.
 
 **Sanity check before going on**: `expect` + `on_failure: ask` on a step whose result feeds
 everything after it (section 8.4).
+
+**One job per item**: `for_each` (5.3), for tools that take one target at a time, or to
+spread a long list over several agents.
 
 **Ordering without data**: `depends_on: [other_step]`.
 

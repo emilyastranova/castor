@@ -26,6 +26,9 @@ export const STEP_STATUS: Record<PlaybookStepStatus, StatusMeta> = {
 /** Statuses after which a step never moves again (attention is waiting, not ended). */
 export const FINAL: ReadonlySet<PlaybookStepStatus> = new Set(['succeeded', 'failed', 'cancelled', 'skipped', 'not_taken', 'blocked']);
 
+/** The MIME type the editor's palette blocks use for drag and drop onto the canvas. */
+export const BLOCK_MIME = 'application/x-castor-block';
+
 /** Statuses that let dependent steps go ahead. */
 export const SATISFIED: ReadonlySet<PlaybookStepStatus> = new Set(['succeeded', 'skipped']);
 
@@ -190,6 +193,12 @@ export function conditionSteps(c: PlaybookCondition | null | undefined): Set<str
 export function stepFlags(step: PlaybookStepSpec): { label: string; title: string; tone: 'gate' | 'warn' | 'plain' }[] {
 	const flags: { label: string; title: string; tone: 'gate' | 'warn' | 'plain' }[] = [];
 	if (step.when) flags.push({ label: 'if', title: `Runs only if ${describeCondition(step.when)}`, tone: 'gate' });
+	if (step.for_each)
+		flags.push({
+			label: 'for each',
+			title: `Runs once per item of ${shortRef(step.for_each.items)}${step.for_each.concurrency ? `, ${step.for_each.concurrency} at a time` : ''}`,
+			tone: 'plain'
+		});
 	if (step.join && step.join !== 'all')
 		flags.push({
 			label: `join ${step.join}`,

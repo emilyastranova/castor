@@ -193,5 +193,12 @@ agent stays trivially installable on target boxes.
   neutralises spreadsheet formulas via `lib/csv.ts`); the card's Output tab toggles it
   against `JobConsole`. Both it and `routes/parsers` (live parser playground) render values
   with `OutputCard.svelte`.
+- Playbook editor: `routes/playbooks/edit/[id]` reuses `PlaybookVisualizer.svelte` with
+  `editable` (connect from a node's handle, delete edges, palette drops, `onlayout`), and
+  `lib/playbookEditor.ts` holds the pure spec operations (connect options, disconnect,
+  rename, delete, implied dependencies). Copy state with JSON, not `structuredClone`
+  (it can't clone Svelte state proxies). The server renders and checks YAML in
+  `POST /api/playbooks/to-yaml` (`playbook_yaml.py`); keep its round trip exact
+  (`test_playbook_yaml.py` runs every built-in playbook through it).
 - `JobConsole.svelte` loads `/api/jobs/{id}` then appends `job.log` events, buffering any
   that arrive during the initial load and de-duplicating by `seq`.

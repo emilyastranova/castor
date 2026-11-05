@@ -1,8 +1,8 @@
 # Phase 2 design: command library, structured outputs, playbooks
 
 Status (2026-10-27): 2a, 2b and 2c are built, along with several things the original plan
-didn't have (see [Built beyond the plan](#built-beyond-the-plan)). Still to do: the
-graph editor (2d), `for_each` fan-out, per-agent tokens (2e) and users and roles (2f).
+didn't have (see [Built beyond the plan](#built-beyond-the-plan)). Still to do:
+per-agent tokens (2e) and users and roles (2f).
 Roadmap item **M2** in [ARCHITECTURE.md](ARCHITECTURE.md). The sections below keep the
 original design (decided 2026-10-15), with notes on how each part was actually built.
 
@@ -14,8 +14,8 @@ parts. They are listed in build order; each one is usable on its own.
 | --- | --- | --- | --- |
 | 2a. Command library + per-job artifacts | Pick "Nmap ping sweep" from a library, fill in typed fields, files the tool writes come back to the card | nothing | Built |
 | 2b. Parsers + structured outputs | nmap XML becomes a hosts/services table on the card | 2a | Built |
-| 2c. Playbooks (runs as cards) | A chain of blocks becomes linked cards that dispatch as their inputs become ready | 2b | Built, except `for_each` |
-| 2d. Playbook graph editor | Drag blocks and wire outputs to inputs | 2c | Not started (read-only graph view exists) |
+| 2c. Playbooks (runs as cards) | A chain of blocks becomes linked cards that dispatch as their inputs become ready | 2b | Built |
+| 2d. Playbook graph editor | Drag blocks and wire outputs to inputs | 2c | Built |
 | 2e. Per-agent tokens | Enroll and revoke agents individually | nothing | Not started |
 | 2f. Users and roles | Real accounts, project membership, viewer/operator/admin | nothing | Not started |
 
@@ -111,8 +111,10 @@ As built:
   inspector instead.
 - The server advances runs (`services._advance`) when a job finishes and its outputs are
   parsed; the dispatcher itself doesn't look at dependencies.
-- **`for_each` is not built.** A step receives a whole list (comma-joined, or one word per
-  item for list arguments), so per-item fan-out (e.g. ffuf per URL) isn't possible yet.
+- `for_each` creates the item cards when the step becomes ready (the count isn't known
+  before), tagged with `tasks.playbook_item`. The items count as one job for the step's
+  status (`services.FanOut`), with an optional `concurrency` limit and a `max_items` cap
+  (refuse, don't truncate) instead of the planned silent max.
 
 ## 2d. Graph editor
 
@@ -121,10 +123,27 @@ typed input/output ports, edges only allowed between compatible types (`list<hos
 an arg that accepts a host list, with an optional "join as comma list" adapter). Saves to the
 same playbook model as 2c, so a YAML/list editor can come first and the canvas later.
 
-Current state: playbooks are edited as YAML (with validation against the command library).
-`PlaybookVisualizer.svelte` is a hand-rolled canvas (no `@xyflow/svelte`) that renders the
-graph, data on each edge, conditions and live run status. It's read-only apart from moving
-nodes around.
+As built: `/playbooks/edit/<id>` (or `new`, or a built-in, which saves as a copy). It reuses
+the run graph (`PlaybookVisualizer.svelte`, hand-rolled, no `@xyflow/svelte`) in an
+editable mode, so the editor and runs look the same:
+
+- A palette of library commands plus a Transform block; drag onto the canvas or click.
+- Connect by dragging from a step's handle onto another step. A menu offers what the
+  connection can mean: bind an output to an argument (required ones first), add it to a
+  transform's input, run once per item (`for_each`), run after it, or run only if it fails.
+  Types aren't enforced on the connection; the server's validation is.
+- A properties panel per step: arguments (value, playbook input, step output, current
+  item), variable slots, `for_each`, a simple condition builder (one value test or one
+  status test), `join`, `on_failure`, `skip_if_empty`, a simple `expect` (outputs that
+  mustn't be empty, a log regex), and transform ops as form rows. Anything more complex
+  (nested conditions, other expectations) shows as text and is edited in the YAML tab.
+- With no step selected: name, description, tags and inputs.
+- A YAML tab shows exactly what saving writes; editing it and applying updates the graph.
+- Every change is checked by `POST /api/playbooks/to-yaml` (debounced): it renders the
+  spec as minimal YAML (`playbook_yaml.py`) and validates it, and problems show on the
+  nodes. Positions are saved in the spec's `layout`, which run graphs also use.
+- Saving rewrites the YAML, so comments in a hand-written playbook are lost (the editor
+  warns about this).
 
 ## 2e. Per-agent tokens
 
@@ -159,7 +178,7 @@ users, agents and tokens). Comment/attachment author checks reuse this.
 
 ## Next
 
-- 2d graph editor, `for_each` fan-out, 2e per-agent tokens, 2f users and roles (above).
+- 2e per-agent tokens, 2f users and roles (above).
 - An automated resolver for paused steps: an AI model (Gemini) that reads an unexpected
   result and picks retry (possibly with a corrected command), continue or skip, falling
   back to asking a person. `services.resolve_step` already takes an `actor` for this.

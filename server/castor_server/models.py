@@ -14,6 +14,7 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -203,6 +204,8 @@ class Task(Base, TimestampMixin):
         ForeignKey("playbook_runs.id", ondelete="CASCADE"), nullable=True, index=True
     )
     playbook_step_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # A for_each step's item cards: position of the item in its list (None otherwise).
+    playbook_item: Mapped[int | None] = mapped_column(Integer, nullable=True)
     depends_on: Mapped[list[str]] = mapped_column(JSONType, default=list)
     # Library command variable slots → variable set ids: {"creds": "<uuid>"}
     var_bindings: Mapped[dict[str, str]] = mapped_column(JSONType, default=dict)
@@ -307,6 +310,8 @@ class PlaybookDefinition(Base, TimestampMixin):
 
 class PlaybookRun(Base, TimestampMixin):
     __tablename__ = "playbook_runs"
+    # Runs are listed newest first.
+    __table_args__ = (Index("ix_playbook_runs_created_at", "created_at"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
     playbook_id: Mapped[str] = mapped_column(String(64), index=True)
