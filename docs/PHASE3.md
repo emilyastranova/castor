@@ -15,9 +15,13 @@ playbook step goes wrong.
 | 3d. Pinned project notes | A few titled notes (status, objectives…) at the top of a project's dashboard | nothing | Built |
 | 3e. AI resolver for paused steps | Gemini reads an unexpected result and retries (maybe with a fixed command), continues or skips | nothing | Idea |
 | 3f. Discovered artifacts | Typed objects Castor finds (IPs, hosts, services, credentials…) merged across tools, with triggers that act on new ones | parsers (2b) | Idea |
+| 3g. Search everywhere | Type-to-filter in every long picker; Ctrl+K searches everything you can see | nothing | Idea |
+| 3h. Playbook runs as one card | A run is a single card on the board that opens into its graph and steps, instead of a card per step | nothing | Idea |
 
 Suggested order: 3a (it unblocks the NetExec commands on the compose agent), 3d (small),
 3b, 3c, then 3e. 3f is the largest; it can start any time after 3a (it builds on parsers).
+3g's pickers are small and can go any time; 3h changes how runs look everywhere, so it's
+best done before 3e (whose decisions show up on the run card).
 
 ## 3a. Tool environments
 
@@ -226,3 +230,99 @@ else (findings, entities, loot); decide before building.
   across projects (same client network); how much of the type system is user-defined
   (like variable kinds) versus built in; and whether triggers ask before running against
   new targets (scope safety) or only inside a project's declared scope.
+
+## 3g. Search everywhere
+
+Two parts: long pickers you can type into, and one search box for everything.
+
+### Searchable pickers
+
+Several pickers are plain dropdowns that get unwieldy as libraries grow: choosing a
+library command for a card, a playbook to run, a project, an agent, a variable set or
+list, a tool, a parser, a person. Replace them with one **searchable select** (a combobox):
+
+- Type to filter, matching name, id, tags and description (commands also by their tool and
+  arguments), ranked by how well they match; arrow keys and Enter to pick; the current value
+  stays visible.
+- Grouped where it helps (built-in vs yours, by tag), with each option's one-line description
+  and icon, so the right command is recognisable without opening it.
+- Used wherever a list can exceed about seven options; short fixed lists (priority, role)
+  stay as they are.
+- The command picker in the New card dialog and the card's command field come first.
+
+### Global search (Ctrl+K)
+
+A command palette on **Ctrl+K** (Cmd+K on macOS) and a search icon in the navigation rail
+that searches **everything the user can see**:
+
+- Cards (title, description, tags, custom fields, the command line), comments, attachment
+  and screenshot names, card assignees.
+- Runs: job command lines, parsed outputs (the values in hosts, services, URLs…), and job
+  logs (matched lines, with the line shown).
+- Projects, clients, pinned notes, playbooks and their runs and inputs, the command and tool
+  libraries, parsers, variable sets and kinds (names and non-secret fields only: never a
+  secret's value), people, agents.
+
+How it should feel:
+
+- Results grouped by type, with the matching words highlighted and a snippet (the comment
+  text, the log line, the output row), and where each one lives (project, card).
+- Keyboard first: type, arrow, Enter opens it (a card opens on the right tab: the comment,
+  the run's console at the matching line, the output row). Filters as prefixes or chips:
+  `in:NWL26-001`, `type:comment`, `by:sam`, `tag:smb`, `is:mine`, `status:failed`.
+- With nothing typed: recent items and quick actions (new card, run a playbook, go to a page).
+- Permissions apply: results only come from projects the user can see; admin-only things
+  (users, agent tokens) only for admins.
+
+How it might work:
+
+- A server endpoint (`GET /api/search?q=&types=&project=`) backed by a search index: SQLite
+  FTS5 for the dev database, Postgres full-text search (`tsvector`, plus `pg_trgm` for
+  partial words) in production, behind one interface.
+- An index table (`search_documents`: type, ref, project, title, body, updated) kept current
+  from the same events the UI already gets (`task.updated`, `comment.created`, `job.outputs`…),
+  with a rebuild command (`castor-admin reindex`) and a startup check.
+- Logs are the big one: index them per job in chunks, cap what's indexed per job, and let
+  search say "and more in this log" rather than indexing everything.
+- **Open questions:** how far back logs are searchable (all, or the last N days)? Should the
+  palette also run actions (move a card, assign someone), or only find things at first?
+
+## 3h. Playbook runs as one card
+
+Today every step of a run is its own card (Phase 2c decided this), so one pipeline puts
+ten or more cards on the board and buries the hand-made ones. Instead, a run becomes
+**one card** that stands for the whole run.
+
+On the board:
+
+- The run card shows the playbook's name and inputs (e.g. the subnet), a progress bar
+  (done/total), the current step(s), and the run's state: running, needs a decision, failed,
+  done. It moves through the columns by itself (queued → In Progress → Review/Done, or a
+  "needs you" state when a step pauses), and can still be dragged like any card.
+- Step cards no longer appear on the board. Existing runs are migrated: their step cards are
+  folded into the run card (kept as steps, with their comments and files), not deleted.
+
+Opening it (the UX to design):
+
+- **Graph** (default while running): the run's DAG, as on the Playbooks page, live. Clicking
+  a step selects it below instead of navigating away.
+- **Steps**: a list (or the graph's selection) where each step shows what a card shows today:
+  its command, runs and console, parsed results, files, and its own comments; for_each steps
+  show their items. Decisions (`on_failure: ask`) are answered right there.
+- **Overview**: inputs, who started it and when, duration, outputs of the final step (the
+  report), and the run's comments (discussion about the run as a whole).
+- Deep links keep working: `?task=<run card>&step=<id>` opens a step, `&comment=` a comment;
+  notifications and the dashboard link there.
+- Re-run a failed step, cancel the run, or start it again with the same inputs from the card's
+  menu.
+
+Elsewhere:
+
+- The dashboard timeline groups a run's step events under the run ("Pipeline Demo: 6 of 10
+  steps done") instead of one line per step; Needs attention links decisions to the run card.
+- Assignees, mentions and the "Mine" filter apply to the run card (and step comments notify
+  as they do now).
+- **Open questions:** do steps stay tasks in the database (simplest migration: they just stop
+  showing on the board) or become their own table? Should a user be able to "pop out" a step
+  as a separate card when it needs its own follow-up work? Where do run cards land: a
+  playbook-chosen column, or always To Do / In Progress?
