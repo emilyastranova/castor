@@ -30,6 +30,10 @@ class Settings(BaseSettings):
 
     # Agents
     agent_secret: str = "change-me-agent-secret"
+    # Let agents connect with the shared secret above as well as with their own tokens.
+    # Turn off once every agent has a token (Agents → Enroll agent). Agents that have a
+    # token can never connect with the shared secret.
+    allow_shared_agent_secret: bool = True
     agent_heartbeat_interval: int = 15
     agent_offline_after: int = 45  # seconds without heartbeat → offline
     dispatch_interval: float = 5.0

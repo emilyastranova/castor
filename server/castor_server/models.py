@@ -533,3 +533,31 @@ class Notification(Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     read_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+
+
+class AgentToken(Base):
+    """A credential for one agent. Created unbound (an enrollment token); the first agent
+    to connect with it is bound to it. Only the SHA-256 of the token is stored."""
+
+    __tablename__ = "agent_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    # What it's for, e.g. the name the agent will have; shown in the UI.
+    label: Mapped[str] = mapped_column(String(128), default="")
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    # The first characters of the token, to recognise it ("castor_ab12…").
+    prefix: Mapped[str] = mapped_column(String(16))
+    # Applied to the agent when it enrolls.
+    tags: Mapped[list[str]] = mapped_column(JSONType, default=list)
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    rotated_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+    agent: Mapped[Agent | None] = relationship()

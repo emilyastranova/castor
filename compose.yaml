@@ -38,6 +38,7 @@ services:
       CASTOR_DATA_DIR: /data
       CASTOR_COMMANDS_DIR: /commands
       CASTOR_PLAYBOOKS_DIR: /playbooks
+      CASTOR_ALLOW_SHARED_AGENT_SECRET: ${CASTOR_ALLOW_SHARED_AGENT_SECRET:-true}
       CASTOR_VAULT_KEY: ${CASTOR_VAULT_KEY:-}
       CASTOR_NOTIFY_WEBHOOKS: ${CASTOR_NOTIFY_WEBHOOKS:-}
       CASTOR_PUBLIC_URL: ${CASTOR_PUBLIC_URL:-http://localhost:8080}
@@ -70,7 +71,7 @@ services:
 
   # A sample agent running inside the stack. It runs jobs in sibling containers through
   # the host's container socket. Production workflows usually run agents on dedicated boxes:
-  #   castor-agent --server ws://<castor-host>:8080/ws/agent --secret ...
+  #   castor-agent --server wss://<castor-host>/ws/agent --token <token from Agents → Enroll agent>
   agent:
     build:
       context: ./agent
@@ -81,6 +82,8 @@ services:
     profiles: ["agent"]
     environment:
       CASTOR_SERVER_URL: ws://server:8000/ws/agent
+      # Its own token (Agents → Enroll agent) is used when set; otherwise the shared secret.
+      CASTOR_AGENT_TOKEN: ${CASTOR_AGENT_TOKEN:-}
       CASTOR_AGENT_SECRET: ${CASTOR_AGENT_SECRET}
       CASTOR_AGENT_NAME: ${CASTOR_AGENT_NAME:-compose-agent}
       CASTOR_AGENT_TAGS: ${CASTOR_AGENT_TAGS:-lab}

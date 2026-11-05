@@ -33,8 +33,8 @@ transform steps reshape one tool's results into the next tool's input, and every
 step appears on the board as its own card.
 
 > **■ Status: Phase 2 in progress.** The board, agents, command library, parsers,
-> playbooks and the visual playbook editor work. Per-agent tokens and multiple users
-> are next. Refer to [docs/PHASE2.md](docs/PHASE2.md).
+> playbooks, the visual playbook editor and per-agent tokens work. Multiple users
+> and roles are next. Refer to [docs/PHASE2.md](docs/PHASE2.md).
 
 ---
 
@@ -179,12 +179,19 @@ Agent flags are listed by `castor-agent --help`.
 
 ## Run an agent on a real host
 
+Create a token for it on the **Agents** page (**Enroll agent**). It's shown once, and the
+dialog gives you the command:
+
 ```bash
 pip install ./agent
-castor-agent --server ws://castor.example.internal:8080/ws/agent \
-             --secret <CASTOR_AGENT_SECRET> --name jumpbox-1 --tags internal,linux \
+castor-agent --server wss://castor.example.internal/ws/agent \
+             --token <token> --name jumpbox-1 --tags internal,linux \
              --workdir /opt/castor-work
 ```
+
+Each agent's token can be rotated or revoked on its own, which disconnects that agent at
+once. The shared `--secret <CASTOR_AGENT_SECRET>` still works for quick setups until you set
+`CASTOR_ALLOW_SHARED_AGENT_SECRET=false`.
 
 The agent's only dependency is `websockets`, so it installs on almost any host
 with Python 3.10 or later.

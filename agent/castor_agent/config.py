@@ -25,6 +25,8 @@ class AgentConfig:
     network: str = "host"
     extra_run_args: list[str] = field(default_factory=list)
     log_level: str = "INFO"
+    # Its own token from the server (Agents → Enroll agent); preferred over the secret.
+    token: str = ""
 
     @classmethod
     def from_args(cls, argv: list[str] | None = None) -> AgentConfig:
@@ -32,8 +34,10 @@ class AgentConfig:
         p = argparse.ArgumentParser(prog="castor-agent", description="Castor execution agent")
         p.add_argument("--server", default=env("CASTOR_SERVER_URL", "ws://localhost:8000/ws/agent"),
                        help="Server WebSocket URL (CASTOR_SERVER_URL)")
+        p.add_argument("--token", default=env("CASTOR_AGENT_TOKEN", ""),
+                       help="This agent's token, from Agents → Enroll agent (CASTOR_AGENT_TOKEN)")
         p.add_argument("--secret", default=env("CASTOR_AGENT_SECRET", ""),
-                       help="Shared agent secret (CASTOR_AGENT_SECRET)")
+                       help="Shared agent secret, if the server still allows it (CASTOR_AGENT_SECRET)")
         p.add_argument("--name", default=env("CASTOR_AGENT_NAME") or socket.gethostname(),
                        help="Agent name shown in the UI (CASTOR_AGENT_NAME)")
         p.add_argument("--runtime", default=env("CASTOR_AGENT_RUNTIME", "auto"),
@@ -57,11 +61,12 @@ class AgentConfig:
                        help="Extra argument passed to `<runtime> run` (repeatable)")
         p.add_argument("--log-level", default=env("CASTOR_AGENT_LOG_LEVEL", "INFO"))
         a = p.parse_args(argv)
-        if not a.secret:
-            p.error("--secret or CASTOR_AGENT_SECRET is required")
+        if not a.token and not a.secret:
+            p.error("--token (CASTOR_AGENT_TOKEN) or --secret (CASTOR_AGENT_SECRET) is required")
         return cls(
             server_url=a.server,
             secret=a.secret,
+            token=a.token,
             name=a.name,
             runtime=a.runtime,
             allow_host=a.allow_host,

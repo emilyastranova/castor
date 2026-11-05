@@ -351,6 +351,35 @@ class AgentPatch(BaseModel):
     max_concurrency: int | None = None
 
 
+class AgentTokenIn(BaseModel):
+    label: str = Field("", max_length=128)
+    tags: list[str] = Field(default_factory=list)
+
+
+class AgentTokenOut(ORM):
+    id: uuid.UUID
+    label: str
+    prefix: str
+    tags: list[str]
+    agent_id: uuid.UUID | None
+    agent_name: str | None = None
+    created_at: datetime
+    last_used_at: datetime | None
+    rotated_at: datetime | None
+    revoked_at: datetime | None
+
+
+class AgentTokenCreated(AgentTokenOut):
+    # The token itself: returned only here, when it's created or rotated.
+    token: str
+
+
+class AgentTokenList(BaseModel):
+    tokens: list[AgentTokenOut]
+    # Whether agents may still connect with the shared CASTOR_AGENT_SECRET.
+    shared_secret_allowed: bool
+
+
 # ---------- playbooks ----------
 
 

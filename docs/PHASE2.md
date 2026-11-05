@@ -2,7 +2,7 @@
 
 Status (2026-10-27): 2a, 2b and 2c are built, along with several things the original plan
 didn't have (see [Built beyond the plan](#built-beyond-the-plan)). Still to do:
-per-agent tokens (2e) and users and roles (2f).
+users and roles (2f).
 Roadmap item **M2** in [ARCHITECTURE.md](ARCHITECTURE.md). The sections below keep the
 original design (decided 2026-10-15), with notes on how each part was actually built.
 
@@ -16,7 +16,7 @@ parts. They are listed in build order; each one is usable on its own.
 | 2b. Parsers + structured outputs | nmap XML becomes a hosts/services table on the card | 2a | Built |
 | 2c. Playbooks (runs as cards) | A chain of blocks becomes linked cards that dispatch as their inputs become ready | 2b | Built |
 | 2d. Playbook graph editor | Drag blocks and wire outputs to inputs | 2c | Built |
-| 2e. Per-agent tokens | Enroll and revoke agents individually | nothing | Not started |
+| 2e. Per-agent tokens | Enroll and revoke agents individually | nothing | Built |
 | 2f. Users and roles | Real accounts, project membership, viewer/operator/admin | nothing | Not started |
 
 2e and 2f are independent of the playbook track and can be slotted in anywhere.
@@ -25,7 +25,7 @@ parts. They are listed in build order; each one is usable on its own.
 
 - ~~**Shared agent workdir.**~~ Fixed in 2a: each job gets `<workdir>/<job_id>/`.
 - ~~**No dependencies between cards.**~~ Fixed in 2c: `tasks.depends_on`.
-- **One shared agent secret** for every agent (`CASTOR_AGENT_SECRET`). Still open (2e).
+- ~~**One shared agent secret** for every agent.~~ Fixed in 2e: per-agent tokens.
 - ~~**Command templates are unquoted.**~~ Fixed in 2a: every value goes through
   `shlex.quote` (`command_render.py`).
 
@@ -152,6 +152,18 @@ server stores only a hash, binds it to the agent record on first use, and the ag
 gets Revoke (disconnects immediately) and Rotate. The shared secret stays as an optional
 dev fallback behind a setting.
 
+As built: as designed (`agent_tokens.py`, `api/agent_tokens.py`; the Agents page has
+"Enroll agent", and each agent shows its token prefix with Rotate and Revoke). Decisions
+made on the way:
+
+- The shared secret (`CASTOR_ALLOW_SHARED_AGENT_SECRET`, default on so existing agents
+  keep working) can't connect as an agent that has or had a token, so it can't impersonate
+  one or undo a revoke. Forgetting the agent clears this.
+- A token, once bound, decides which agent connects; `--name` only renames it.
+- Rotating keeps the token record and its agent; the old value stops working at once.
+- An agent refused at hello exits (code 2) rather than retrying forever.
+- There's no expiry for unused tokens; revoke or delete them on the Agents page.
+
 ## 2f. Users and roles
 
 User CRUD for admins, roles `admin` / `operator` / `viewer`, per-project membership, and
@@ -178,7 +190,7 @@ users, agents and tokens). Comment/attachment author checks reuse this.
 
 ## Next
 
-- 2e per-agent tokens, 2f users and roles (above).
+- 2f users and roles (above).
 - An automated resolver for paused steps: an AI model (Gemini) that reads an unexpected
   result and picks retry (possibly with a corrected command), continue or skip, falling
   back to asking a person. `services.resolve_step` already takes an `actor` for this.

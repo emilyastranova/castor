@@ -517,6 +517,21 @@ export interface Activity {
 
 export type AgentStatus = 'idle' | 'busy' | 'offline';
 
+/** A per-agent credential; unbound (agent_id null) until an agent enrolls with it. */
+export interface AgentToken {
+	id: UUID;
+	label: string;
+	/** The token's first characters, to recognise it. */
+	prefix: string;
+	tags: string[];
+	agent_id: UUID | null;
+	agent_name: string | null;
+	created_at: string;
+	last_used_at: string | null;
+	rotated_at: string | null;
+	revoked_at: string | null;
+}
+
 export interface Agent {
 	id: UUID;
 	name: string;
@@ -746,6 +761,14 @@ export function api(fetchFn: Fetch = fetch) {
 			update: (id: UUID, body: { tags?: string[]; max_concurrency?: number }) =>
 				patch<Agent>(`/agents/${id}`, body),
 			remove: (id: UUID) => del(`/agents/${id}`)
+		},
+		agentTokens: {
+			list: () => get<{ tokens: AgentToken[]; shared_secret_allowed: boolean }>('/agent-tokens'),
+			/** The token is in the reply only this once. */
+			create: (body: { label?: string; tags?: string[] }) => post<AgentToken & { token: string }>('/agent-tokens', body),
+			rotate: (id: UUID) => post<AgentToken & { token: string }>(`/agent-tokens/${id}/rotate`),
+			revoke: (id: UUID) => post<AgentToken>(`/agent-tokens/${id}/revoke`),
+			remove: (id: UUID) => del(`/agent-tokens/${id}`)
 		},
 		activity: {
 			recent: (limit = 50) => get<Activity[]>(`/activity?limit=${limit}`)

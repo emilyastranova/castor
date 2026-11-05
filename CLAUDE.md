@@ -142,7 +142,11 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   library commands through `command_library.apply_library` (not `apply_to_task`) so these
   are expanded.
 - Auth: `POST /api/auth/login` sets an httpOnly cookie; the same JWT works as
-  `Authorization: Bearer`. Agents authenticate with the shared `CASTOR_AGENT_SECRET`.
+  `Authorization: Bearer`. Agents authenticate with their own token (`agent_tokens.py`:
+  only the SHA-256 is stored; the first agent to use an unused token is bound to it) or,
+  while `CASTOR_ALLOW_SHARED_AGENT_SECRET` is on, the shared `CASTOR_AGENT_SECRET`, which
+  is never accepted for an agent that has or had a token. Revoke/rotate call
+  `gateway.disconnect`.
 - Config is `pydantic-settings` with the `CASTOR_` prefix (`config.py`).
 - SQLite uses `NullPool` (aiosqlite connections are bound to the event loop that opened
   them; the test client runs WebSocket sessions on another loop).

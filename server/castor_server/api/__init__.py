@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from . import (
     activity,
+    agent_tokens,
     agents,
     attachments,
     auth,
@@ -17,5 +18,5 @@ from . import (
 )
 
 api_router = APIRouter(prefix="/api")
-for module in (auth, clients, projects, tasks, jobs, agents, attachments, activity, commands, parsers, playbooks, variables, notifications):
+for module in (auth, clients, projects, tasks, jobs, agents, attachments, activity, commands, parsers, playbooks, variables, notifications, agent_tokens):
     api_router.include_router(module.router)

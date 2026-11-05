@@ -9,6 +9,7 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import websockets
 from websockets.asyncio.client import ClientConnection
@@ -22,6 +23,15 @@ log = logging.getLogger("castor.agent")
 
 def now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+class AuthRejected(Exception):
+    """The server refused this agent's token or secret; retrying won't help."""
+
+
+def credentials(config: AgentConfig) -> dict[str, str]:
+    """What the hello authenticates with: the token if there is one, else the secret."""
+    return {"token": config.token} if config.token else {"secret": config.secret}
 
 
 class Agent:
@@ -60,6 +70,11 @@ class Agent:
             try:
                 await self._session()
                 backoff = 2
+            except AuthRejected as exc:
+                log.error("the server refused this agent: %s", exc)
+                if self.config.token:
+                    log.error("get a new token from Agents in the Castor UI and restart with --token")
+                raise SystemExit(2) from exc
             except (OSError, websockets.exceptions.WebSocketException) as exc:
                 log.warning("connection to %s failed: %s", self.config.server_url, exc)
             except asyncio.CancelledError:
@@ -72,6 +87,9 @@ class Agent:
 
     async def _session(self) -> None:
         log.info("connecting to %s as %r", self.config.server_url, self.config.name)
+        host = urlparse(self.config.server_url).hostname or ""
+        if self.config.server_url.startswith("ws://") and host not in ("localhost", "127.0.0.1", "::1", "server"):
+            log.warning("connecting without TLS: the token or secret crosses the network unencrypted (use wss://)")
         async with websockets.connect(
             self.config.server_url, ping_interval=20, ping_timeout=20, max_size=8 * 1024 * 1024
         ) as ws:
@@ -80,7 +98,7 @@ class Agent:
             await self.send(
                 {
                     "type": "hello",
-                    "secret": self.config.secret,
+                    **credentials(self.config),
                     "name": self.config.name,
                     "capabilities": self.capabilities(),
                     "tags": self.config.tags,
@@ -89,8 +107,10 @@ class Agent:
                 }
             )
             reply = json.loads(await ws.recv())
+            if reply.get("type") == "hello.error":
+                raise AuthRejected(reply.get("reason", "rejected"))
             if reply.get("type") != "hello.ok":
-                raise RuntimeError(f"server rejected agent: {reply.get('reason', reply)}")
+                raise RuntimeError(f"unexpected reply to hello: {reply}")
             self.heartbeat_interval = int(reply.get("heartbeat_interval", 15))
             log.info(
                 "connected (agent id %s); runtimes=%s",
@@ -122,6 +142,8 @@ class Agent:
             if job_id in self.runners:
                 return
             self.tasks[job_id] = asyncio.create_task(self._run_job(job))
+        elif kind == "auth.revoked":
+            log.error("the server revoked this agent's credentials: %s", msg.get("reason", ""))
         elif kind == "job.cancel":
             runner = self.runners.get(str(msg.get("job_id")))
             if runner:

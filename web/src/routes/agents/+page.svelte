@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
-	import type { Agent, Job } from '$lib/api';
+	import type { Agent, AgentToken, Job } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { TopAppBar, Card, Icon, IconButton, Chip, Dialog, Button, TextField } from '$lib/m3';
 	import StatusChip from '$lib/components/StatusChip.svelte';
@@ -9,6 +9,7 @@
 	import { relativeTime, absoluteTime, duration } from '$lib/format';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { confirmAction } from '$lib/confirm.svelte';
+	import AgentTokenDialog from '$lib/components/AgentTokenDialog.svelte';
 
 	let { data } = $props();
 	// svelte-ignore state_referenced_locally
@@ -16,22 +17,89 @@
 	// svelte-ignore state_referenced_locally
 	let jobs = $state<Job[]>(data.jobs);
 	// svelte-ignore state_referenced_locally
+	let tokens = $state<AgentToken[]>(data.tokens);
+	// svelte-ignore state_referenced_locally
+	let sharedSecretAllowed = $state(data.sharedSecretAllowed);
+	// svelte-ignore state_referenced_locally
 	let loaded = data.agents;
 	$effect(() => {
 		if (data.agents !== loaded) {
 			loaded = data.agents;
 			agents = data.agents;
 			jobs = data.jobs;
+			tokens = data.tokens;
+			sharedSecretAllowed = data.sharedSecretAllowed;
 		}
 	});
 
+	async function reloadTokens() {
+		try {
+			const res = await api().agentTokens.list();
+			tokens = res.tokens;
+			sharedSecretAllowed = res.shared_secret_allowed;
+		} catch {
+			/* keep what we have */
+		}
+	}
+	/** The agent's token: its active one, else its latest revoked one. */
+	const tokenOf = (a: Agent) =>
+		tokens.filter((t) => t.agent_id === a.id).sort((x, y) => Number(!!x.revoked_at) - Number(!!y.revoked_at))[0];
+	let waiting = $derived(tokens.filter((t) => !t.agent_id));
+
+	let revealed = $state<(AgentToken & { token: string }) | null>(null);
+	async function rotate(t: AgentToken, agentName: string) {
+		const ok = await confirmAction({
+			title: `Rotate ${agentName}'s token?`,
+			message: 'A new token is made and the current one stops working at once: the agent is disconnected until you restart it with the new token.',
+			confirmLabel: 'Rotate token',
+			icon: 'autorenew'
+		});
+		if (!ok) return;
+		try {
+			revealed = await api().agentTokens.rotate(t.id);
+			enrollOpen = true;
+			void reloadTokens();
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not rotate the token');
+		}
+	}
+	async function revoke(t: AgentToken, what: string) {
+		const ok = await confirmAction({
+			title: `Revoke ${what}?`,
+			message: t.agent_id
+				? 'The agent is disconnected now and can’t reconnect, with this token or the shared secret. Give it a new token by forgetting it and enrolling it again.'
+				: 'Nobody will be able to enroll with this token.',
+			confirmLabel: 'Revoke',
+			icon: 'key_off'
+		});
+		if (!ok) return;
+		try {
+			await api().agentTokens.revoke(t.id);
+			void reloadTokens();
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not revoke the token');
+		}
+	}
+	async function removeToken(t: AgentToken) {
+		try {
+			await api().agentTokens.remove(t.id);
+			tokens = tokens.filter((x) => x.id !== t.id);
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not delete the token');
+		}
+	}
+
 	$effect(() =>
 		realtime.subscribe((e) => {
-			if (e.name === 'agent.updated') {
+			if (e.name === 'agent_tokens.changed') {
+				void reloadTokens();
+			} else if (e.name === 'agent.updated') {
 				const a = e.data as Agent;
 				agents = [...agents.filter((x) => x.id !== a.id), a].sort((x, y) => x.name.localeCompare(y.name));
 			} else if (e.name === 'agent.deleted') {
-				agents = agents.filter((x) => x.id !== (e.data as { id: string }).id);
+				const id = (e.data as { id: string }).id;
+				agents = agents.filter((x) => x.id !== id);
+				tokens = tokens.filter((t) => t.agent_id !== id);
 			} else if (e.name === 'job.updated') {
 				const j = e.data as Job;
 				jobs = [j, ...jobs.filter((x) => x.id !== j.id)].sort((a, b) => b.queued_at.localeCompare(a.queued_at)).slice(0, 100);
@@ -65,7 +133,9 @@
 	async function removeAgent(a: Agent) {
 		const ok = await confirmAction({
 			title: `Forget agent ${a.name}?`,
-			message: 'It will be removed from the agent list, and its tags and settings will be lost. It reappears if it connects again.',
+			message: tokenOf(a)
+				? 'It will be removed from the agent list with its tags, settings and token. To use it again, enroll it with a new token.'
+				: 'It will be removed from the agent list, and its tags and settings will be lost. It reappears if it connects again.',
 			confirmLabel: 'Forget agent'
 		});
 		if (!ok) return;
@@ -92,7 +162,7 @@
 <TopAppBar title="Agents" subtitle="{online} of {agents.length} online">
 	{#snippet actions()}
 		<IconButton icon="refresh" label="Refresh" onclick={() => invalidateAll()} />
-		<Button variant="tonal" icon="add" onclick={() => (enrollOpen = true)}>Enroll agent</Button>
+		<Button variant="tonal" icon="add" onclick={() => { revealed = null; enrollOpen = true; }}>Enroll agent</Button>
 	{/snippet}
 </TopAppBar>
 
@@ -102,7 +172,7 @@
 			<span class="flex size-20 items-center justify-center rounded-xl bg-primary-container text-on-primary-container"><Icon name="dns" size={40} /></span>
 			<h2 class="headline-small text-on-surface">No agents yet</h2>
 			<p class="body-medium text-on-surface-variant">Start an agent on a machine that can reach this server and it will appear here. Command cards are dispatched to idle agents.</p>
-			<Button icon="add" onclick={() => (enrollOpen = true)}>Show enrollment command</Button>
+			<Button icon="add" onclick={() => { revealed = null; enrollOpen = true; }}>Enroll an agent</Button>
 		</div>
 	{:else}
 		<div class="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4 pt-2">
@@ -123,6 +193,23 @@
 						<dt>Runtimes</dt><dd class="text-on-surface">{(a.capabilities.runtimes ?? []).join(', ') || '—'}</dd>
 						<dt>Slots</dt><dd class="text-on-surface">{a.running_jobs}/{a.max_concurrency}</dd>
 						<dt>Seen</dt><dd class="text-on-surface" title={absoluteTime(a.last_seen_at)}>{a.connected ? 'now' : relativeTime(a.last_seen_at) || 'never'}</dd>
+						<dt>Auth</dt>
+						<dd class="flex min-w-0 items-center gap-1.5">
+							{#if tokenOf(a)}
+								{@const t = tokenOf(a)!}
+								{#if t.revoked_at}
+									<span class="flex items-center gap-1 text-error"><Icon name="key_off" size={14} />token revoked</span>
+								{:else}
+									<span class="flex min-w-0 items-center gap-1 text-on-surface" title="Last used {absoluteTime(t.last_used_at)}"><Icon name="key" size={14} /><span class="truncate font-mono">{t.prefix}…</span></span>
+									<button type="button" class="label-small text-primary hover:underline" onclick={() => rotate(t, a.name)}>Rotate</button>
+									<button type="button" class="label-small text-error hover:underline" onclick={() => revoke(t, `${a.name}'s token`)}>Revoke</button>
+								{/if}
+							{:else}
+								<span class="flex items-center gap-1 {sharedSecretAllowed ? 'text-on-surface' : 'text-error'}" title="Connects with the shared CASTOR_AGENT_SECRET. Enroll it with a token: forget it, create a token, restart it with --token.">
+									<Icon name="group" size={14} />shared secret{sharedSecretAllowed ? '' : ' (no longer accepted)'}
+								</span>
+							{/if}
+						</dd>
 					</dl>
 					<div class="flex flex-wrap items-center gap-1">
 						{#each a.tags as t (t)}<Chip variant="suggestion">{t}</Chip>{/each}
@@ -132,6 +219,31 @@
 					</div>
 				</Card>
 			{/each}
+		</div>
+	{/if}
+
+	{#if waiting.length}
+		<h2 class="mt-8 mb-2 title-medium text-on-surface">Tokens not used yet</h2>
+		<div class="overflow-hidden rounded-md bg-surface-container-low">
+			<table class="w-full body-medium">
+				<tbody>
+					{#each waiting as t (t.id)}
+						<tr class="border-b border-outline-variant/50 last:border-0">
+							<td class="px-4 py-2"><span class="flex items-center gap-2"><Icon name={t.revoked_at ? 'key_off' : 'key'} size={18} class={t.revoked_at ? 'text-error' : 'text-on-surface-variant'} /><span class="font-mono text-[12.5px] text-on-surface">{t.prefix}…</span></span></td>
+							<td class="px-4 py-2 text-on-surface">{t.label || '—'}</td>
+							<td class="px-4 py-2">{#each t.tags as tag (tag)}<Chip variant="suggestion">{tag}</Chip>{/each}</td>
+							<td class="px-4 py-2 text-on-surface-variant" title={absoluteTime(t.created_at)}>{t.revoked_at ? 'revoked' : `created ${relativeTime(t.created_at)}`}</td>
+							<td class="px-4 py-2 text-right">
+								{#if !t.revoked_at}
+									<Button variant="text" onclick={() => revoke(t, `token ${t.prefix}…`)}>Revoke</Button>
+								{:else}
+									<IconButton icon="delete" label="Delete token" size="sm" onclick={() => removeToken(t)} />
+								{/if}
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
 		</div>
 	{/if}
 
@@ -171,15 +283,4 @@
 	{/snippet}
 </Dialog>
 
-<Dialog bind:open={enrollOpen} title="Enroll an agent" icon="dns" size="md">
-	<div class="flex flex-col gap-4 pb-2">
-		<p>Install the agent on a machine that can reach this server and run it with the shared agent secret from the server's environment.</p>
-		<pre class="overflow-auto rounded-sm bg-surface-container-highest p-4 font-mono text-[12.5px] text-on-surface">pip install ./agent
-castor-agent --server {wsUrl} \
-             --secret &lt;CASTOR_AGENT_SECRET&gt; --name {'<'}agent-name{'>'} --tags lab</pre>
-		<p>With podman or docker installed, command cards that name a container image run inside that image with <code class="font-mono">--network host</code>. Cards without an image run in the agent's shell.</p>
-	</div>
-	{#snippet actions()}
-		<Button variant="text" onclick={() => (enrollOpen = false)}>Close</Button>
-	{/snippet}
-</Dialog>
+<AgentTokenDialog bind:open={enrollOpen} {wsUrl} {revealed} {sharedSecretAllowed} oncreated={() => void reloadTokens()} />

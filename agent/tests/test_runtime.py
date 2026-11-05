@@ -128,3 +128,13 @@ def test_variable_values_reach_the_command_literally(tmp_path):
     assert asyncio.run(_runner(job, tmp_path).run(sink)).exit_code == 0
     assert "".join(out) == f"[o'brien \"x\"]\n[{nasty}]\n"
     assert not (tmp_path / "PWNED").exists()
+
+
+def test_token_is_preferred_over_the_secret():
+    from castor_agent.agent import credentials
+    from castor_agent.config import AgentConfig
+
+    cfg = AgentConfig.from_args(["--secret", "s", "--token", "castor_t", "--name", "a"])
+    assert credentials(cfg) == {"token": "castor_t"}
+    cfg = AgentConfig.from_args(["--secret", "s", "--name", "a"])
+    assert credentials(cfg) == {"secret": "s"}

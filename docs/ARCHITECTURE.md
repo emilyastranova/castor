@@ -28,6 +28,7 @@ Client 1──* Project 1──* BoardColumn 1──* Task 1──* Job 1──*
                         ├──* Attachment ◄──┘ (optional task_id / job_id)
                         └──* ActivityEvent
 Agent 1──* Job
+      1──* AgentToken (an unused token has no agent yet)
 User   (single admin in M1; multi-user in M2)
 ```
 
@@ -49,14 +50,27 @@ IDs are UUIDs. Timestamps are UTC.
 
 ## Agent protocol (`/ws/agent`)
 
-JSON text frames. Agent authenticates with the shared `CASTOR_AGENT_SECRET` (per-agent
-tokens are milestone 2).
+JSON text frames. The agent authenticates in `hello` with its own **token** (preferred) or
+the shared `CASTOR_AGENT_SECRET` (`agent_tokens.authenticate`):
+
+* Tokens (`castor_` + 32 random bytes) are created on the Agents page (`POST
+  /api/agent-tokens`) and shown once; `agent_tokens` stores only their SHA-256 and a short
+  prefix. The first agent to connect with an unused token is bound to it (and gets the
+  token's tags). From then on the token decides which agent this is: a different `--name`
+  renames that agent.
+* Rotating (`POST /api/agent-tokens/{id}/rotate`) replaces the token and revoking (`…/revoke`)
+  disables it; either way the connected agent gets `auth.revoked` and the socket closes
+  with 4401. A refused agent exits instead of retrying.
+* The shared secret works while `CASTOR_ALLOW_SHARED_AGENT_SECRET` is true (the default),
+  but never as an agent that has, or had, a token: that would let anyone with the secret
+  impersonate it, or undo a revoke. Forgetting the agent deletes its tokens.
+* `agent_tokens.changed` is published whenever tokens change (including an enrollment).
 
 Agent → server
 
 | type | fields |
 | --- | --- |
-| `hello` | `secret, name, hostname, os, username, version, capabilities{runtimes[], default_image}, tags[], max_concurrency` |
+| `hello` | `token` or `secret`, `name, hostname, os, username, version, capabilities{runtimes[], default_image}, tags[], max_concurrency` |
 | `heartbeat` | `running[]` (job ids) |
 | `job.started` | `job_id, started_at` |
 | `job.log` | `job_id, seq, stream ("stdout"\|"stderr"\|"system"), data` |
@@ -67,7 +81,8 @@ Server → agent
 | type | fields |
 | --- | --- |
 | `hello.ok` | `agent_id, heartbeat_interval` |
-| `hello.error` | `reason` |
+| `hello.error` | `reason` (then close 4401; the agent exits) |
+| `auth.revoked` | `reason` (token rotated or revoked; then close 4401) |
 | `job.run` | `job{id, command, display_command?, image?, runtime ("container"\|"host"), env{}, files[], timeout_s, artifacts{token, collect[]}}` |
 | `job.cancel` | `job_id` |
 
@@ -268,7 +283,7 @@ Authenticated by the session cookie. The server broadcasts every domain event as
 `{"type":"event","name":"task.moved","project_id":"…","data":{…}}`. Event names:
 `project.updated`, `column.*`, `task.created|updated|moved|deleted`, `job.updated`,
 `job.log`, `job.outputs`, `comment.created`, `attachment.created`, `agent.updated`,
-`playbook_run.updated`, `notification.created|read` (every browser receives them; the
+`playbook_run.updated`, `agent_tokens.changed`, `notification.created|read` (every browser receives them; the
 client keeps its own user's).
 The client keeps page state in sync by applying these to its stores.
 
@@ -285,5 +300,5 @@ first start.
   comments, attachments/screenshots, custom fields, activity feed.
 * **M2** (in progress, see [PHASE2.md](PHASE2.md)) — built: command library, parsers (nmap
   XML → hosts/ports, etc.), playbooks with transforms, conditions and decisions, variables,
-  notifications, visual playbook editor. To do: per-agent tokens, multi-user + roles.
+  notifications, visual playbook editor, per-agent tokens. To do: multi-user + roles.
 * **M3** — reporting, run summaries, artifact export, agent auto-scaling.

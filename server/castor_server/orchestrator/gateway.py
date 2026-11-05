@@ -13,8 +13,8 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
+from .. import agent_tokens, variables
 from .. import models as m
-from .. import variables
 from ..command_library import load_spec
 from ..config import settings
 from ..db import SessionLocal
@@ -33,6 +33,8 @@ class AgentConnection:
     capabilities: dict[str, Any]
     tags: list[str]
     max_concurrency: int
+    # The token it authenticated with (None: the shared secret).
+    token_id: uuid.UUID | None = None
     running: set[uuid.UUID] = field(default_factory=set)
     last_seen: datetime = field(default_factory=utcnow)
     send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -48,6 +50,10 @@ class AgentConnection:
     async def send(self, message: dict[str, Any]) -> None:
         async with self.send_lock:
             await self.ws.send_text(dumps(message))
+
+
+class RegisterError(Exception):
+    """A valid credential that can't be used as this agent."""
 
 
 class AgentGateway:
@@ -92,11 +98,20 @@ class AgentGateway:
                 await ws.send_text(dumps({"type": "hello.error", "reason": "expected hello"}))
                 await ws.close(code=4400)
                 return
-            if hello.get("secret") != settings.agent_secret:
-                await ws.send_text(dumps({"type": "hello.error", "reason": "bad secret"}))
+            async with SessionLocal() as db:
+                auth = await agent_tokens.authenticate(db, hello)
+            if not auth.ok:
+                log.warning("agent %r refused: %s", hello.get("name"), auth.reason)
+                await ws.send_text(dumps({"type": "hello.error", "reason": auth.reason}))
                 await ws.close(code=4401)
                 return
-            conn = await self._register(ws, hello)
+            try:
+                conn = await self._register(ws, hello, auth.token.id if auth.token else None)
+            except RegisterError as exc:
+                log.warning("agent %r refused: %s", hello.get("name"), exc)
+                await ws.send_text(dumps({"type": "hello.error", "reason": str(exc)}))
+                await ws.close(code=4401)
+                return
             await conn.send(
                 {
                     "type": "hello.ok",
@@ -120,15 +135,42 @@ class AgentGateway:
                 # test harness teardown); otherwise a half-done DB transaction is left behind.
                 await asyncio.shield(self._unregister(conn))
 
-    async def _register(self, ws: WebSocket, hello: dict[str, Any]) -> AgentConnection:
+    async def _register(
+        self, ws: WebSocket, hello: dict[str, Any], token_id: uuid.UUID | None = None
+    ) -> AgentConnection:
+        """Find or create the agent record. With a token, the token decides which agent
+        this is (binding it on first use); with the shared secret, the name does, unless
+        that agent has a token of its own."""
         name = str(hello.get("name") or hello.get("hostname") or uuid.uuid4().hex[:8])
         async with SessionLocal() as db:
-            agent = (
+            by_name = (
                 await db.execute(select(m.Agent).where(m.Agent.name == name))
             ).scalar_one_or_none()
-            if agent is None:
-                agent = m.Agent(name=name)
-                db.add(agent)
+            token = await db.get(m.AgentToken, token_id) if token_id else None
+            enrolled = False
+            if token is not None and token.agent_id is not None:
+                agent = await db.get(m.Agent, token.agent_id)
+                if agent is None:  # pragma: no cover - the FK cascades
+                    raise RegisterError("the token's agent no longer exists")
+                if agent.name != name and by_name is None:
+                    agent.name = name  # renamed with --name; the token says who it is
+            else:
+                agent = by_name
+                if agent is not None and await agent_tokens.has_token(db, agent.id):
+                    raise RegisterError(
+                        f"agent {name} has its own token (or had one that was revoked); connect with "
+                        "its token, or forget the agent first"
+                    )
+                if agent is None:
+                    agent = m.Agent(name=name)
+                    db.add(agent)
+                    await db.flush()
+                if token is not None:
+                    token.agent_id = agent.id
+                    agent.tags = sorted(set(agent.tags or []) | set(token.tags or []))
+                    enrolled = True
+            if token is not None:
+                agent_tokens.touch(token)
             agent.hostname = str(hello.get("hostname", ""))
             agent.os = str(hello.get("os", ""))
             agent.username = str(hello.get("username", ""))
@@ -154,8 +196,20 @@ class AgentGateway:
                 capabilities=agent.capabilities,
                 tags=agent.tags,
                 max_concurrency=agent.max_concurrency,
+                token_id=token.id if token else None,
             )
             self.connections[agent.id] = conn
+            if enrolled:
+                await record_activity(
+                    db,
+                    type="agent.enrolled",
+                    message=f"Agent {agent.name} enrolled with token {token.prefix}…",
+                    project_id=None,
+                    actor_type="agent",
+                    actor_id=str(agent.id),
+                    actor_name=agent.name,
+                    payload={"token_id": str(token.id)},
+                )
             await record_activity(
                 db,
                 type="agent.connected",
@@ -167,8 +221,22 @@ class AgentGateway:
             )
             await db.commit()
             await self._publish_agent(agent)
+            if enrolled:
+                bus.publish("agent_tokens.changed", None, {"id": token.id})
         log.info("agent %s connected (%s)", conn.name, conn.agent_id)
         return conn
+
+    async def disconnect(self, agent_id: uuid.UUID, reason: str) -> bool:
+        """Drop an agent's connection now (its token was revoked or rotated)."""
+        conn = self.connections.get(agent_id)
+        if conn is None:
+            return False
+        try:
+            await conn.send({"type": "auth.revoked", "reason": reason})
+            await conn.ws.close(code=4401)
+        except Exception:  # the socket may already be gone
+            log.debug("closing agent %s", conn.name, exc_info=True)
+        return True
 
     async def _unregister(self, conn: AgentConnection) -> None:
         if self.connections.get(conn.agent_id) is not conn:
