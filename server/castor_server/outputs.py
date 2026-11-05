@@ -144,6 +144,14 @@ async def parse_job(db: AsyncSession, job: m.Job) -> list[m.JobOutput]:
                 "outputs": [JobOutputOut.model_validate(r) for r in results],
             },
         )
+        # What the outputs found becomes the project's assets (3f); never fails the parse.
+        try:
+            from .assets import ingest_outputs
+
+            await ingest_outputs(db, job, task, results)
+        except Exception:
+            log.exception("recording assets from job %s failed", job.id)
+            await db.rollback()
         if task.playbook_run_id is not None:
             from .orchestrator.dispatcher import dispatcher
             from .services import advance_playbook_run

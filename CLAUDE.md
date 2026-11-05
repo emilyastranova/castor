@@ -146,6 +146,11 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   Person pages (3c): `api/people.py` (`/api/people`, `/api/people/{username}`, scoped to the
   viewer's projects), web `routes/people/`. Admin pages live under `routes/settings/` (its
   `+layout.ts` refuses non-admins; add sections to `SECTIONS` in its `+layout.svelte`).
+- Assets (Phase 3f): `assets.py` (types and identity keys, `observe` to record and merge,
+  parser mappings in `_map`/`MAPPED_PARSERS`, `parse_where` filters, scope, triggers and
+  `run_fire`), `api/assets.py`; ingest is called from `outputs.parse_job`. Credential secrets go
+  through `vault`, never into `fields`. Web: `routes/projects/[id]/assets`, `AssetDialog`,
+  `TriggerDialog`, `AssetRefDialog` (assets as list arguments via `ListArgInput`).
 - Search (Phase 3g): `search.py` (one permission-scoped query per kind of thing over the live
   tables; add new kinds to `TYPES` and a `Searcher` method) behind `GET /api/search`; web
   `CommandPalette.svelte` (Ctrl/Cmd+K, `lib/palette.svelte.ts`). `m3/Select` searches its

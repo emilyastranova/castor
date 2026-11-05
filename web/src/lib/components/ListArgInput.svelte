@@ -3,6 +3,10 @@
 	import { isListRef, lists, type ListRef } from '$lib/lists.svelte';
 	import ListPickerDialog from './ListPickerDialog.svelte';
 	import ListIngestDialog from './ListIngestDialog.svelte';
+	import AssetRefDialog from './AssetRefDialog.svelte';
+	import type { AssetRef } from '$lib/api';
+	import { api } from '$lib/api';
+	import { assetTypes } from '$lib/assetTypes.svelte';
 	import { MAX_IMPORT_BYTES } from '$lib/targets';
 	import { snackbar } from '$lib/snackbar.svelte';
 
@@ -46,6 +50,21 @@
 	}
 
 	let ref = $derived(isListRef(value) ? (value as ListRef) : null);
+	// Filled from the project's assets (3f): {assets: {type, where, field}}.
+	let assetRef = $derived(
+		value && typeof value === 'object' && 'assets' in (value as object) ? (value as AssetRef) : null
+	);
+	let assetsOpen = $state(false);
+	let assetCount = $state<number | null>(null);
+	$effect(() => {
+		const r = assetRef;
+		if (!r || !projectId) return;
+		void assetTypes.load();
+		api()
+			.assets.list(projectId, { type: r.assets.type, where: r.assets.where, limit: 0 })
+			.then((res) => (assetCount = res.total))
+			.catch(() => (assetCount = null));
+	});
 	let linked = $derived(ref ? lists.find(ref.list) : undefined);
 	$effect(() => {
 		if (ref && !lists.loaded) void lists.load();
@@ -70,7 +89,23 @@
 	ondragleave={() => (dragOver = false)}
 	ondrop={onDrop}
 >
-{#if ref}
+{#if assetRef}
+	<div class="flex flex-col gap-1 pt-2">
+		<div class="flex items-center gap-3 rounded-xs border border-primary/60 bg-primary-container/20 px-3 py-2">
+			<Icon name="radar" size={20} class="shrink-0 text-primary" />
+			<div class="min-w-0 flex-1">
+				<p class="label-medium text-on-surface-variant">{label}{required ? ' *' : ''}</p>
+				<p class="truncate body-medium text-on-surface">
+					{assetTypes.get(assetRef.assets.type)?.plural ?? assetRef.assets.type}{assetRef.assets.where ? ` where ${assetRef.assets.where}` : ''}
+					<span class="text-on-surface-variant">→ {assetRef.assets.field}{assetCount !== null ? ` · ${assetCount} now` : ''}</span>
+				</p>
+			</div>
+			<IconButton icon="tune" label="Change" size="sm" onclick={() => (assetsOpen = true)} />
+			<IconButton icon="link_off" label="Unlink (type values instead)" size="sm" onclick={() => onchange('')} />
+		</div>
+		<p class="px-4 body-small {error ? 'text-error' : 'text-on-surface-variant'}">{error ?? 'From the project’s assets as they are when the card runs'}</p>
+	</div>
+{:else if ref}
 	<div class="flex flex-col gap-1 pt-2">
 		<div class="flex items-center gap-3 rounded-xs border border-primary/60 bg-primary-container/20 px-3 py-2">
 			<Icon name="link" size={20} class="shrink-0 text-primary" />
@@ -118,6 +153,7 @@
 		{projectId}
 		onpick={(l) => onchange({ list: l.set.id })}
 		onimport={() => (ingestOpen = true)}
+		onassets={projectId ? () => (assetsOpen = true) : undefined}
 	/>
 {/if}
 {#if ingestOpen}
@@ -132,4 +168,7 @@
 			droppedText = null;
 		}}
 	/>
+{/if}
+{#if assetsOpen && projectId}
+	<AssetRefDialog bind:open={assetsOpen} {projectId} initial={assetRef} onuse={(r) => onchange(r)} />
 {/if}

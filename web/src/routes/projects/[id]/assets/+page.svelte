@@ -1,0 +1,433 @@
+<script lang="ts">
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import type { Asset, AssetTrigger, AssetTriggerFire, UUID } from '$lib/api';
+	import { api, ApiError } from '$lib/api';
+	import { Button, Dialog, Icon, IconButton, Select, Switch, Tabs, TextField, TopAppBar } from '$lib/m3';
+	import ProjectViewSwitch from '$lib/components/ProjectViewSwitch.svelte';
+	import AssetDialog from '$lib/components/AssetDialog.svelte';
+	import TriggerDialog from '$lib/components/TriggerDialog.svelte';
+	import { assetTypes, show } from '$lib/assetTypes.svelte';
+	import { realtime } from '$lib/realtime.svelte';
+	import { snackbar } from '$lib/snackbar.svelte';
+	import { confirmAction } from '$lib/confirm.svelte';
+	import { relativeTime, absoluteTime } from '$lib/format';
+	import { canEdit } from '$lib/session';
+	import { enter, leave } from '$lib/motion';
+
+	let { data } = $props();
+	let project = $derived(data.project);
+	$effect(() => void assetTypes.load());
+
+	let tab = $state<'inventory' | 'triggers'>(page.url.searchParams.get('tab') === 'triggers' ? 'triggers' : 'inventory');
+
+	// ---- inventory ----
+	let type = $state('');
+	let where = $state('');
+	let items = $state<Asset[]>([]);
+	let total = $state(0);
+	let counts = $state<Record<string, number>>({});
+	let loaded = $state(false);
+	let live = $state(false);
+	let seq = 0;
+	async function load(liveChange = false) {
+		const mine = ++seq;
+		try {
+			const res = await api().assets.list(project.id, { type: type || undefined, where, limit: 500 });
+			if (mine !== seq) return;
+			live = liveChange;
+			items = res.items;
+			total = res.total;
+			counts = res.counts;
+			loaded = true;
+		} catch (err) {
+			if (mine === seq) snackbar.error(err instanceof ApiError ? err.message : 'Could not load the assets');
+		}
+	}
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	$effect(() => {
+		void type;
+		void where;
+		clearTimeout(timer);
+		timer = setTimeout(() => void load(), 200);
+	});
+
+	// ---- scope ----
+	let scope = $state<{ include: string[]; exclude: string[] }>({ include: [], exclude: [] });
+	let scopeOpen = $state(false);
+	let scopeInclude = $state('');
+	let scopeExclude = $state('');
+	$effect(() => {
+		void project.id;
+		api().assets.scope(project.id).then((s) => (scope = s));
+	});
+	function editScope() {
+		scopeInclude = scope.include.join('\n');
+		scopeExclude = scope.exclude.join('\n');
+		scopeOpen = true;
+	}
+	async function saveScope() {
+		const lines = (t: string) => t.split(/[\n,]+/).map((x) => x.trim()).filter(Boolean);
+		try {
+			scope = await api().assets.setScope(project.id, { include: lines(scopeInclude), exclude: lines(scopeExclude) });
+			scopeOpen = false;
+			void load();
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not save the scope');
+		}
+	}
+
+	// ---- triggers ----
+	let triggers = $state<AssetTrigger[]>([]);
+	let fires = $state<AssetTriggerFire[]>([]);
+	async function loadTriggers() {
+		[triggers, fires] = await Promise.all([api().assets.triggers(project.id), api().assets.fires(project.id)]);
+	}
+	$effect(() => {
+		void project.id;
+		void loadTriggers();
+	});
+	let waiting = $derived(fires.filter((f) => f.status === 'waiting'));
+	let triggerOpen = $state(false);
+	let editingTrigger = $state<AssetTrigger | null>(null);
+	async function toggle(t: AssetTrigger, on: boolean) {
+		const { id, project_id, fires: _f, created_at, ...body } = t;
+		void id; void project_id; void _f; void created_at;
+		await api().assets.updateTrigger(t.id, { ...body, enabled: on });
+		void loadTriggers();
+	}
+	async function removeTrigger(t: AssetTrigger) {
+		if (!(await confirmAction({ title: `Delete “${t.name}”?`, message: 'It stops running; runs it already started keep going.', confirmLabel: 'Delete' }))) return;
+		await api().assets.removeTrigger(t.id);
+		void loadTriggers();
+	}
+	async function decide(f: AssetTriggerFire, run: boolean) {
+		try {
+			const res = run ? await api().assets.approve(f.id) : await api().assets.skip(f.id);
+			if (run && res.status === 'failed') snackbar.error(`Couldn't start it: ${(res as { reason?: string }).reason ?? ''}`);
+			else snackbar.show(run ? `Started “${f.trigger.name}” for ${f.asset.label}` : 'Skipped');
+			void loadTriggers();
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not do that');
+		}
+	}
+
+	// Live: new assets, trigger runs.
+	let liveTimer: ReturnType<typeof setTimeout> | undefined;
+	$effect(() =>
+		realtime.subscribe((e) => {
+			if (e.project_id !== project.id) return;
+			if (e.name === 'assets.changed') {
+				clearTimeout(liveTimer);
+				liveTimer = setTimeout(() => void load(true), 400);
+			}
+			if (e.name === 'asset_triggers.changed') void loadTriggers();
+		})
+	);
+
+	// ---- the asset dialog (also opened by ?asset=<id>, e.g. from search) ----
+	let openId = $state<UUID | null>(page.url.searchParams.get('asset'));
+	let assetOpen = $state(page.url.searchParams.has('asset'));
+	function openAsset(id: UUID) {
+		openId = id;
+		assetOpen = true;
+	}
+	$effect(() => {
+		if (!assetOpen && page.url.searchParams.has('asset')) {
+			const url = new URL(page.url);
+			url.searchParams.delete('asset');
+			void goto(url, { replaceState: true, noScroll: true, keepFocus: true });
+		}
+	});
+
+	// ---- adding ----
+	let addOpen = $state(false);
+	let addType = $state('host');
+	let addFields = $state<Record<string, string>>({});
+	let addSecret = $state('');
+	let importOpen = $state(false);
+	let importType = $state('ip');
+	let importText = $state('');
+	async function add() {
+		try {
+			await api().assets.add(project.id, { type: addType, fields: addFields, secret: addType === 'credential' && addSecret ? addSecret : undefined });
+			addOpen = false;
+			addFields = {};
+			addSecret = '';
+			void load(true);
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not add it');
+		}
+	}
+	async function collect() {
+		try {
+			const r = await api().assets.collect(project.id);
+			snackbar.show(r.added ? `Found ${r.added} asset${r.added === 1 ? '' : 's'} in past results` : 'No assets in past results');
+			void load(true);
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not collect');
+		}
+	}
+	async function doImport() {
+		try {
+			const r = await api().assets.import(project.id, importType, importText);
+			importOpen = false;
+			importText = '';
+			snackbar.show(`Added ${r.added}, updated ${r.updated}${r.skipped.length ? `, skipped ${r.skipped.length}` : ''}`);
+			void load(true);
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not import');
+		}
+	}
+
+	// ---- columns per type ----
+	let current = $derived(type ? assetTypes.get(type) : undefined);
+	let columns = $derived.by(() => {
+		if (!current) return [];
+		const skip = new Set(current.name === 'host' ? ['ip', 'hostname'] : current.identity);
+		return current.fields.filter((f) => !skip.has(f.name)).slice(0, 4);
+	});
+	const summary = (a: Asset) =>
+		Object.entries(a.fields)
+			.filter(([k]) => !['ip', 'hostname', 'name', 'url', 'host', 'port', 'username'].includes(k))
+			.slice(0, 4)
+			.map(([k, v]) => `${k}: ${show(v)}`)
+			.join(' · ');
+	const describeTrigger = (t: AssetTrigger) => {
+		const tt = assetTypes.get(t.asset_type);
+		const when = `${t.on_event === 'updated' ? 'When a' : 'When a new'} ${(tt?.label ?? t.asset_type).toLowerCase()} ${t.on_event === 'updated' ? 'changes' : t.on_event === 'any' ? 'is found or changes' : 'is found'}`;
+		const ifs = t.conditions.map((c) => `${c.field} ${({ equals: 'is', not_equals: 'is not', contains: 'contains', exists: 'is set', missing: 'is empty', gt: '>', lt: '<', gte: '≥', lte: '≤' })[c.op]}${c.value != null && c.value !== '' ? ` ${c.value}` : ''}`);
+		return `${when}${ifs.length ? `, if ${ifs.join(' and ')}` : ''}`;
+	};
+	const FIRE: Record<string, string> = { started: 'text-primary', waiting: 'text-tertiary', failed: 'text-error', limited: 'text-on-surface-variant', skipped: 'text-on-surface-variant' };
+</script>
+
+<svelte:head><title>{project.codename} · Assets · Castor</title></svelte:head>
+
+<TopAppBar>
+	<div class="flex items-center gap-3">
+		<IconButton icon="arrow_back" label="All projects" href="/projects" />
+		<div class="min-w-0">
+			<p class="label-medium text-primary">{project.codename}</p>
+			<h1 class="truncate title-large text-on-surface">{project.name}</h1>
+		</div>
+	</div>
+	{#snippet actions()}
+		<ProjectViewSwitch projectId={project.id} current="assets" />
+	{/snippet}
+</TopAppBar>
+
+<div class="flex-1 overflow-auto">
+	<div class="mx-auto flex w-full max-w-7xl flex-col gap-4 px-6 pt-2 pb-10">
+		<Tabs
+			tabs={[
+				{ id: 'inventory', label: 'Inventory', icon: 'radar', badge: Object.values(counts).reduce((a, b) => a + b, 0) },
+				{ id: 'triggers', label: 'Triggers', icon: 'bolt', badge: waiting.length || undefined }
+			]}
+			bind:value={tab}
+		/>
+
+		{#if tab === 'inventory'}
+			<!-- scope -->
+			<div class="flex flex-wrap items-center gap-2 rounded-md bg-surface-container-low px-4 py-2.5 body-medium">
+				<span class="flex items-center gap-1.5 text-on-surface-variant"><Icon name="verified" size={18} />Scope</span>
+				{#if scope.include.length}
+					{#each scope.include as s (s)}<span class="rounded-xs bg-primary-container px-2 py-0.5 font-mono text-[12px] text-on-primary-container">{s}</span>{/each}
+					{#each scope.exclude as s (s)}<span class="rounded-xs border border-outline-variant px-2 py-0.5 font-mono text-[12px] text-on-surface-variant line-through" title="Excluded">{s}</span>{/each}
+				{:else}
+					<span class="text-on-surface-variant">None set: triggered runs wait for approval.</span>
+				{/if}
+				{#if canEdit()}<Button variant="text" icon="edit" class="ml-auto" onclick={editScope}>Edit scope</Button>{/if}
+			</div>
+
+			<div class="flex flex-wrap items-center gap-2">
+				<button type="button" class="rounded-full border px-3 py-1 label-large {type === '' ? 'border-transparent bg-secondary-container text-on-secondary-container' : 'border-outline-variant text-on-surface-variant'}" onclick={() => (type = '')}>All</button>
+				{#each assetTypes.list as t (t.name)}
+					<button
+						type="button"
+						class="flex items-center gap-1.5 rounded-full border px-3 py-1 label-large {type === t.name ? 'border-transparent bg-secondary-container text-on-secondary-container' : 'border-outline-variant text-on-surface-variant'} {counts[t.name] ? '' : 'opacity-60'}"
+						onclick={() => (type = t.name)}
+					>
+						<Icon name={t.icon} size={16} />{t.plural}<span class="label-small opacity-80">{counts[t.name] ?? 0}</span>
+					</button>
+				{/each}
+				<span class="flex-1"></span>
+				{#if canEdit()}
+					<Button variant="tonal" icon="upload" onclick={() => (importOpen = true)}>Import</Button>
+					<Button icon="add" onclick={() => { addType = type || 'host'; addOpen = true; }}>Add</Button>
+				{/if}
+			</div>
+			<label class="flex items-center gap-2 rounded-full bg-surface-container-high px-4">
+				<Icon name="filter_list" size={20} class="text-on-surface-variant" />
+				<input class="h-11 min-w-0 flex-1 bg-transparent body-medium text-on-surface outline-none placeholder:text-on-surface-variant" placeholder="Filter: words, or field:value (smb_signing:false, port:445, port>1000, os:windows)" bind:value={where} autocomplete="off" spellcheck="false" />
+				{#if where}<IconButton icon="close" label="Clear" size="sm" onclick={() => (where = '')} />{/if}
+			</label>
+
+			{#if !loaded}
+				<p class="body-medium text-on-surface-variant">Loading…</p>
+			{:else if !items.length}
+				<div class="flex flex-col items-center gap-2 py-16 text-center text-on-surface-variant">
+					<Icon name="radar" size={40} />
+					<p class="body-large">{where || type ? 'Nothing matches.' : 'Nothing found yet.'}</p>
+					{#if !where && !type}
+						<p class="max-w-md body-medium">Hosts, services and URLs appear here as scans finish (nmap, NetExec and ffuf results are recorded automatically), or add and import them yourself.</p>
+						{#if canEdit()}<Button variant="tonal" icon="history" onclick={collect}>Collect from past results</Button>{/if}
+					{/if}
+				</div>
+			{:else}
+				<div class="overflow-x-auto rounded-md border border-outline-variant/60">
+					<table class="w-full body-medium">
+						<thead class="bg-surface-container-low text-left body-small text-on-surface-variant">
+							<tr>
+								{#if !current}<th class="px-3 py-2 font-medium">Type</th>{/if}
+								<th class="px-3 py-2 font-medium">{current?.label ?? 'Asset'}</th>
+								{#if current}
+									{#each columns as c (c.name)}<th class="px-3 py-2 font-medium">{c.label}</th>{/each}
+								{:else}
+									<th class="px-3 py-2 font-medium">Details</th>
+								{/if}
+								<th class="px-3 py-2 font-medium">Links</th>
+								<th class="px-3 py-2 text-right font-medium">Last seen</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each items as a (a.id)}
+								<tr class="cursor-pointer border-t border-outline-variant/50 hover:bg-on-surface/5" onclick={() => openAsset(a.id)} in:enter={{ enabled: live }} out:leave={{ enabled: live }}>
+									{#if !current}<td class="px-3 py-2 whitespace-nowrap text-on-surface-variant"><span class="flex items-center gap-1.5"><Icon name={assetTypes.get(a.type)?.icon ?? 'radar'} size={16} />{assetTypes.get(a.type)?.label ?? a.type}</span></td>{/if}
+									<td class="px-3 py-2">
+										<span class="flex items-center gap-1.5 font-mono text-[13px] text-on-surface">
+											{a.label}
+											{#if a.in_scope}<Icon name="verified" size={14} class="text-primary" />{/if}
+											{#if a.has_secret}<Icon name="key" size={14} class="text-tertiary" />{/if}
+										</span>
+									</td>
+									{#if current}
+										{#each columns as c (c.name)}
+											<td class="px-3 py-2 {c.name === 'smb_signing' && a.fields[c.name] === false ? 'font-medium text-error' : 'text-on-surface'}">{show(a.fields[c.name])}</td>
+										{/each}
+									{:else}
+										<td class="max-w-md truncate px-3 py-2 text-on-surface-variant">{summary(a)}</td>
+									{/if}
+									<td class="px-3 py-2 text-on-surface-variant">{a.links || ''}</td>
+									<td class="px-3 py-2 text-right whitespace-nowrap text-on-surface-variant" title={absoluteTime(a.last_seen)}>{relativeTime(a.last_seen)}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+				{#if total > items.length}<p class="body-small text-on-surface-variant">Showing {items.length} of {total}; filter to narrow it down.</p>{/if}
+			{/if}
+		{:else}
+			{#if waiting.length}
+				<section class="rounded-lg border border-tertiary/50 bg-tertiary-container/30 p-4">
+					<h2 class="mb-2 flex items-center gap-2 title-medium text-on-surface"><Icon name="front_hand" class="text-tertiary" />Waiting for approval</h2>
+					<ul class="flex flex-col gap-1.5">
+						{#each waiting as f (f.id)}
+							<li class="flex flex-wrap items-center gap-2 rounded-md bg-surface-container px-3 py-2" in:enter out:leave>
+								<span class="body-medium text-on-surface">“{f.trigger.name}” on <button type="button" class="font-mono text-primary hover:underline" onclick={() => openAsset(f.asset.id)}>{f.asset.label}</button></span>
+								<span class="body-small text-on-surface-variant">{f.reason} · {relativeTime(f.at)}</span>
+								{#if canEdit()}
+									<span class="ml-auto flex gap-2">
+										<Button variant="text" onclick={() => decide(f, false)}>Skip</Button>
+										<Button icon="play_arrow" onclick={() => decide(f, true)}>Run</Button>
+									</span>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				</section>
+			{/if}
+
+			<div class="flex items-center gap-2">
+				<h2 class="flex-1 title-large text-on-surface">Triggers</h2>
+				{#if canEdit()}<Button icon="add" onclick={() => { editingTrigger = null; triggerOpen = true; }}>New trigger</Button>{/if}
+			</div>
+			{#if triggers.length}
+				<div class="grid gap-3 md:grid-cols-2">
+					{#each triggers as t (t.id)}
+						<article class="flex flex-col gap-2 rounded-lg bg-surface-container-low p-4 {t.enabled ? '' : 'opacity-70'}" in:enter out:leave>
+							<header class="flex items-center gap-2">
+								<Icon name="bolt" class={t.enabled ? 'text-primary' : 'text-on-surface-variant'} />
+								<h3 class="min-w-0 flex-1 truncate title-medium text-on-surface">{t.name}</h3>
+								{#if canEdit()}
+									<Switch checked={t.enabled} onchange={(on) => toggle(t, on)} />
+									<IconButton icon="edit" label="Edit" size="sm" onclick={() => { editingTrigger = t; triggerOpen = true; }} />
+									<IconButton icon="delete" label="Delete" size="sm" onclick={() => removeTrigger(t)} />
+								{/if}
+							</header>
+							<p class="body-medium text-on-surface">{describeTrigger(t)},</p>
+							<p class="body-medium text-on-surface">run the {t.action} <span class="font-mono">{t.target}</span>{#if Object.keys(t.args).length}<span class="text-on-surface-variant"> with {Object.entries(t.args).map(([k, v]) => `${k} = ${v}`).join(', ')}</span>{/if}.</p>
+							<p class="body-small text-on-surface-variant">
+								{t.once_per_asset ? 'Once per asset' : 'Every time'} · at most {t.max_per_hour}/hour ·
+								{Object.entries(t.fires).map(([s, n]) => `${n} ${s}`).join(', ') || 'not run yet'}
+							</p>
+						</article>
+					{/each}
+				</div>
+			{:else}
+				<p class="rounded-md border border-dashed border-outline-variant p-6 text-center body-medium text-on-surface-variant">
+					No triggers yet. A trigger runs a command or playbook when an asset is found or changes, e.g. “every new host → ping it” or “SMB signing is off → queue the relay check”.
+				</p>
+			{/if}
+
+			{#if fires.length}
+				<h2 class="mt-2 title-medium text-on-surface">Recent runs</h2>
+				<ul class="divide-y divide-outline-variant/50 rounded-md bg-surface-container-low">
+					{#each fires.slice(0, 30) as f (f.id)}
+						<li class="flex items-center gap-3 px-3 py-2 body-small">
+							<span class="w-16 shrink-0 font-medium {FIRE[f.status] ?? ''}">{f.status}</span>
+							<span class="min-w-0 flex-1 truncate text-on-surface">“{f.trigger.name}” on <button type="button" class="font-mono text-primary hover:underline" onclick={() => openAsset(f.asset.id)}>{f.asset.label}</button>{f.reason ? ` · ${f.reason}` : ''}</span>
+							{#if f.task_id}<a href="/projects/{project.id}?task={f.task_id}" class="shrink-0 text-primary hover:underline">Open card</a>{/if}
+							{#if f.run_id}<a href="/playbooks?run={f.run_id}" class="shrink-0 text-primary hover:underline">Open run</a>{/if}
+							<span class="shrink-0 text-on-surface-variant">{relativeTime(f.at)}</span>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		{/if}
+	</div>
+</div>
+
+<AssetDialog bind:open={assetOpen} assetId={openId} onopenasset={openAsset} onchanged={() => void load(true)} />
+<TriggerDialog bind:open={triggerOpen} projectId={project.id} trigger={editingTrigger} onsaved={() => void loadTriggers()} />
+
+<Dialog bind:open={scopeOpen} title="Project scope" icon="verified" size="sm">
+	<div class="flex flex-col gap-3 pt-2 pb-2">
+		<p class="body-small text-on-surface-variant">Addresses, CIDR ranges and domains (a domain covers its subdomains). Triggers run by themselves only for assets inside the scope; exclusions win.</p>
+		<TextField label="In scope" bind:value={scopeInclude} multiline rows={5} mono placeholder={'10.20.0.0/16\ncorp.local'} />
+		<TextField label="Excluded" bind:value={scopeExclude} multiline rows={3} mono placeholder="10.20.99.0/24" />
+	</div>
+	{#snippet actions()}
+		<Button variant="text" onclick={() => (scopeOpen = false)}>Cancel</Button>
+		<Button icon="check" onclick={saveScope}>Save scope</Button>
+	{/snippet}
+</Dialog>
+
+<Dialog bind:open={addOpen} title="Add an asset" icon="add" size="sm">
+	<div class="flex flex-col gap-3 pt-2 pb-2">
+		<Select label="Type" bind:value={addType} options={assetTypes.list.map((t) => ({ value: t.name, label: t.label }))} />
+		{#each assetTypes.get(addType)?.fields ?? [] as f (f.name)}
+			{#if f.name !== 'fingerprint'}
+				<TextField label="{f.label}{assetTypes.get(addType)?.identity.includes(f.name) ? ' *' : ''}" value={addFields[f.name] ?? ''} oninput={(e) => (addFields = { ...addFields, [f.name]: (e.currentTarget as HTMLInputElement).value })} mono={f.type !== 'text'} />
+			{/if}
+		{/each}
+		{#if addType === 'credential'}
+			<TextField label="Secret (password, hash or key)" type="password" bind:value={addSecret} supporting="Encrypted with the vault; shown only when someone reveals it." />
+		{/if}
+	</div>
+	{#snippet actions()}
+		<Button variant="text" onclick={() => (addOpen = false)}>Cancel</Button>
+		<Button icon="check" onclick={add}>Add</Button>
+	{/snippet}
+</Dialog>
+
+<Dialog bind:open={importOpen} title="Import assets" icon="upload" size="sm">
+	<div class="flex flex-col gap-3 pt-2 pb-2">
+		<Select label="As" value={importType} onchange={(v) => (importType = v)} options={[{ value: 'ip', label: 'Hosts (addresses)' }, { value: 'host', label: 'Hosts (addresses or hostnames)' }, { value: 'domain', label: 'Domains' }, { value: 'url', label: 'URLs' }, { value: 'user', label: 'Users' }]} />
+		<TextField label="One per line (or comma separated)" bind:value={importText} multiline rows={8} mono />
+	</div>
+	{#snippet actions()}
+		<Button variant="text" onclick={() => (importOpen = false)}>Cancel</Button>
+		<Button icon="upload" disabled={!importText.trim()} onclick={doImport}>Import</Button>
+	{/snippet}
+</Dialog>

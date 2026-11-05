@@ -300,6 +300,17 @@ Agents report cached tags in `hello` and heartbeats; the dispatcher prefers an a
 the tool ready. `POST /api/tools/{id}/prepare` sends `tool.prepare` ahead of time; state is
 published as `tool.status`, library edits as `tools.changed`.
 
+## Assets
+
+A project's inventory of what it found (`assets.py`, `api/assets.py`): hosts, services, URLs,
+domains, users, credentials and shares, one record per identity key with merged `fields`,
+`asset_observations` for provenance and `asset_links` between them. Parsed outputs from
+`nmap.hosts`, `nmap.services`, `netexec.smb` and `ffuf.results` are recorded after each job
+(`ingest_outputs`); events `assets.changed` and `asset_triggers.changed`; activity
+`assets.found`. Triggers run a command or playbook for new or changed assets: automatically
+inside the project's scope (`projects.settings.scope`), otherwise after approval; once per
+asset and rate-limited. Command arguments can take `{"assets": {type, where, field}}`.
+
 ## People
 
 `GET /api/people` lists everyone active with their open assigned cards and last activity;

@@ -1,6 +1,6 @@
 # Phase 3 plan
 
-Status: in progress (2026-11-05); 3a, 3b, 3c, 3d, 3g and 3h are built; 3e, 3f and 3i are left. Roadmap item **M3** in
+Status: in progress (2026-11-05); 3a, 3b, 3c, 3d, 3f, 3g and 3h are built; 3e and 3i are left. Roadmap item **M3** in
 [ARCHITECTURE.md](ARCHITECTURE.md); Phase 2 is done and recorded in [PHASE2.md](PHASE2.md).
 
 Phase 3 makes Castor easier to run day to day: tools prepared on demand instead of baked
@@ -14,7 +14,7 @@ playbook step goes wrong.
 | 3c. Per-person view | Click a name to see everything that person did and has on their plate | 3b helps | Built |
 | 3d. Pinned project notes | A few titled notes (status, objectives…) at the top of a project's dashboard | nothing | Built |
 | 3e. AI resolver for paused steps | Gemini reads an unexpected result and retries (maybe with a fixed command), continues or skips | nothing | Idea |
-| 3f. Discovered artifacts | Typed objects Castor finds (IPs, hosts, services, credentials…) merged across tools, with triggers that act on new ones | parsers (2b) | Idea |
+| 3f. Assets (discovered objects) | Typed objects Castor finds (hosts, services, URLs, credentials…) merged across tools, with triggers that act on new ones | parsers (2b) | Built |
 | 3g. Search everywhere | Type-to-filter in every long picker; Ctrl+K searches everything you can see | nothing | Built |
 | 3h. Playbook runs as one card | A run is a single card on the board that opens into its graph and steps, instead of a card per step | nothing | Built |
 | 3i. Import and export | Move projects, commands, tools, playbooks, variables (everything) between Castor instances as files | nothing | Idea |
@@ -195,7 +195,41 @@ person.
 - **Open questions:** which decisions may it take alone (only retry and skip, or continue
   too)? A limit on retries per step?
 
-## 3f. Discovered artifacts
+## 3f. Discovered artifacts → Assets
+
+**Built** as **Assets**. Decided: the name Assets (job uploads stay "artifacts"/files);
+one inventory per project; a built-in set of types with typed fields plus free extra fields;
+triggers built now, running by themselves only inside the project's declared scope.
+
+- Types (`assets.py`): host (an `ip` is a host keyed by its address), service, url, domain,
+  user, credential (the secret vault-encrypted in `assets.secret`, never in fields), share.
+  Each has an identity key, so reports merge into one record (`assets`, unique per project,
+  type and key); every report is an `asset_observations` row (source, parser, job, card,
+  person), and `fields` holds the merged values, newest first. Conflicting values are kept and
+  shown ("also seen"). Links (`asset_links`): a service/URL *on* a host, a domain that
+  *resolves to* a host.
+- Ingest: after a job's outputs are parsed (`outputs.parse_job` → `ingest_outputs`):
+  `nmap.hosts` (up hosts and their names), `nmap.services` (open ports), `netexec.smb`
+  (OS, domain, SMB signing, SMBv1, port 445), `ffuf.results` (URLs, linked to a known host).
+  "Collect from past results" ingests a project's existing results once. One feed entry per
+  batch ("Found 3 hosts and 5 services", feed kind `asset`), event `assets.changed`.
+- The project's **Assets** view (`/projects/<id>/assets`): type filters with counts, a filter
+  box (`smb_signing:false`, `port>1000`, `os:windows`, words), columns per type, add by hand,
+  import a list, the scope; an asset dialog with each value's source (and other values seen),
+  links, triggered runs and history; credentials reveal their secret on request (logged).
+- Assets as inputs: an argument value `{"assets": {"type", "where", "field"}}` (the list
+  picker's "From assets…") is expanded at render like target lists and kept on the card.
+- Scope (`projects.settings.scope`: include/exclude CIDRs, addresses, domains with their
+  subdomains). Triggers (`asset_triggers`): asset type, event (found/changes), conditions,
+  a command (with argument templates `{{ asset.ip }}`) or playbook, once per asset, at most N
+  per hour. Matches inside the scope start at once (a command card in In Progress, or a
+  playbook run); outside it they wait (`asset_trigger_fires.status = waiting`), notify the
+  project and show in Needs attention until someone runs or skips them.
+- The headline's "found" line ("Found 12 hosts and 3 services today") and search over assets.
+- Not done: cross-project (per-client) inventories, user-defined types, mapping rules for the
+  generic `lines`/`regex` parsers.
+
+The plan, as written before building:
 
 Castor keeps what it finds as objects it understands, not just files and tables. When a
 run turns up an IP address it stores an **IP address**; when a scan shows a host without

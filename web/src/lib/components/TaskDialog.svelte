@@ -42,7 +42,13 @@
 
 	let open = $state(true);
 	const argText = (v: unknown) =>
-		isListRef(v) ? `saved list: ${lists.find(v.list)?.set.name ?? '…'}` : Array.isArray(v) ? v.join(', ') : String(v ?? '');
+		isListRef(v)
+			? `saved list: ${lists.find(v.list)?.set.name ?? '…'}`
+			: v && typeof v === 'object' && 'assets' in v
+				? `assets: ${(v as { assets: { type: string; where: string; field: string } }).assets.type}${(v as { assets: { where: string } }).assets.where ? ` where ${(v as { assets: { where: string } }).assets.where}` : ''} → ${(v as { assets: { field: string } }).assets.field}`
+				: Array.isArray(v)
+					? v.join(', ')
+					: String(v ?? '');
 	/** Viewers see the card read-only: no edit controls (the API refuses edits anyway). */
 	const editable = $derived(roleCanEdit());
 	$effect(() => {

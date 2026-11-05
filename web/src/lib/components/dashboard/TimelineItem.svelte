@@ -23,6 +23,7 @@
 		playbook: { icon: 'account_tree', tone: 'bg-primary-container text-on-primary-container' },
 		agent: { icon: 'dns', tone: 'bg-surface-container-highest text-on-surface-variant' },
 		note: { icon: 'push_pin', tone: 'bg-tertiary-container text-on-tertiary-container' },
+		asset: { icon: 'radar', tone: 'bg-primary-container text-on-primary-container' },
 		admin: { icon: 'shield_person', tone: 'bg-surface-container-highest text-on-surface-variant' }
 	};
 	const JOB: Record<string, { icon: string; text: string; label: string }> = {
@@ -42,7 +43,7 @@
 			: item.task && item.project
 				? `/projects/${item.project.id}?task=${item.task.id}`
 				: item.project
-					? `/projects/${item.project.id}${item.kind === 'note' ? '/dashboard' : ''}`
+					? `/projects/${item.project.id}${item.kind === 'note' ? '/dashboard' : item.kind === 'asset' ? '/assets' : ''}`
 					: null
 	);
 	// The job outcome is the event itself ("job.failed"), not the job's state now.

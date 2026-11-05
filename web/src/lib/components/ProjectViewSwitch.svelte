@@ -1,16 +1,17 @@
 <script lang="ts">
 	import { Icon } from '$lib/m3';
 
-	/** Board | Dashboard for a project. */
+	/** Board | Dashboard | Assets for a project. */
 	interface Props {
 		projectId: string;
-		current: 'board' | 'dashboard';
+		current: 'board' | 'dashboard' | 'assets';
 	}
 	let { projectId, current }: Props = $props();
 
 	const views = [
 		{ id: 'board', label: 'Board', icon: 'view_kanban', href: (id: string) => `/projects/${id}` },
-		{ id: 'dashboard', label: 'Dashboard', icon: 'space_dashboard', href: (id: string) => `/projects/${id}/dashboard` }
+		{ id: 'dashboard', label: 'Dashboard', icon: 'space_dashboard', href: (id: string) => `/projects/${id}/dashboard` },
+		{ id: 'assets', label: 'Assets', icon: 'radar', href: (id: string) => `/projects/${id}/assets` }
 	] as const;
 </script>
 

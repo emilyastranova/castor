@@ -238,7 +238,7 @@ export interface PlaybookStepResult {
 	items?: number;
 }
 
-export type FeedKind = 'comment' | 'job' | 'card' | 'move' | 'file' | 'playbook' | 'note' | 'agent' | 'admin';
+export type FeedKind = 'comment' | 'job' | 'card' | 'move' | 'file' | 'playbook' | 'note' | 'asset' | 'agent' | 'admin';
 
 export interface ProjectRef {
 	id: UUID;
@@ -264,13 +264,93 @@ export interface FeedItem {
 
 export interface DashboardSummary {
 	counts: { open_cards: number; comments_24h: number; cards_24h: number; jobs_succeeded_24h: number; jobs_failed_24h: number };
-	attention: { kind: 'mention' | 'decision' | 'failed'; title: string; detail: string; since: string | null; project: ProjectRef | null; link: string; for_you: boolean; notification_id?: string }[];
+	attention: { kind: 'mention' | 'decision' | 'failed' | 'approval'; title: string; detail: string; since: string | null; project: ProjectRef | null; link: string; for_you: boolean; notification_id?: string }[];
 	live_jobs: { job_id: UUID; status: string; task: { id: UUID; name: string }; project: ProjectRef | null; agent: string | null; queued_at: string; started_at: string | null }[];
 	live_runs: { run_id: UUID; name: string; project: ProjectRef | null; done: number; total: number; running: number; waiting: number; started_at: string }[];
 	agents: { online: number; slots: number; busy: number };
 	mine: { assigned: number; opened: number; mentions: number };
 	facts: string[];
 	pinned: { project: ProjectRef | null; note_id: UUID; title: string; color: string; line: string; updated_at: string }[];
+	found: Record<string, number>;
+}
+
+/** Something a project found (Phase 3f): a host, service, URL, domain, user, credential, share. */
+export interface AssetType {
+	name: string;
+	label: string;
+	plural: string;
+	icon: string;
+	identity: string[];
+	default_field: string;
+	fields: { name: string; label: string; type: 'text' | 'number' | 'bool' | 'list' }[];
+}
+
+export interface Asset {
+	id: UUID;
+	type: string;
+	key: string;
+	label: string;
+	fields: Record<string, unknown>;
+	has_secret: boolean;
+	in_scope: boolean;
+	first_seen: string;
+	last_seen: string;
+	links: number;
+}
+
+export interface AssetSource {
+	kind: 'parser' | 'manual' | 'import';
+	parser: string | null;
+	at: string;
+	job_id: UUID | null;
+	task: { id: UUID; title: string; link: string } | null;
+	by: string | null;
+}
+
+export interface AssetDetail extends Omit<Asset, 'links'> {
+	provenance: Record<string, { value: unknown; source: AssetSource }[]>;
+	links: { kind: string; label: string; asset: { id: UUID; type: string; label: string } }[];
+	history: { fields: Record<string, unknown>; source: AssetSource }[];
+	triggers: { id: UUID; trigger: string; status: string; reason: string; at: string; task_id: UUID | null; run_id: UUID | null }[];
+}
+
+export interface AssetCondition {
+	field: string;
+	op: 'equals' | 'not_equals' | 'contains' | 'exists' | 'missing' | 'gt' | 'lt' | 'gte' | 'lte';
+	value?: unknown;
+}
+
+export interface AssetTrigger {
+	id: UUID;
+	project_id: UUID;
+	name: string;
+	enabled: boolean;
+	asset_type: string;
+	on_event: 'created' | 'updated' | 'any';
+	conditions: AssetCondition[];
+	action: 'command' | 'playbook';
+	target: string;
+	args: Record<string, unknown>;
+	once_per_asset: boolean;
+	max_per_hour: number;
+	fires: Record<string, number>;
+	created_at: string;
+}
+
+export interface AssetTriggerFire {
+	id: UUID;
+	status: 'started' | 'waiting' | 'skipped' | 'limited' | 'failed';
+	reason: string;
+	at: string;
+	trigger: { id: UUID; name: string; action: string; target: string };
+	asset: { id: UUID; type: string; label: string };
+	task_id: UUID | null;
+	run_id: UUID | null;
+}
+
+/** A command argument filled from the project's assets. */
+export interface AssetRef {
+	assets: { type: string; where: string; field: string };
 }
 
 /** Someone on the team, with what's on their plate (counted in projects you can see). */
@@ -981,6 +1061,36 @@ export function api(fetchFn: Fetch = fetch) {
 				post<{ ok: boolean; errors: string[]; recipe_tag?: string | null; dockerfile?: string | null }>('/tools/validate', { yaml }),
 			prepare: (id: string, agentIds: string[] = []) =>
 				post<{ started: string[]; skipped: Record<string, string> }>(`/tools/${id}/prepare`, { agent_ids: agentIds })
+		},
+		assets: {
+			types: () => get<AssetType[]>('/assets/types'),
+			list: (projectId: UUID, params: { type?: string; where?: string; limit?: number } = {}) => {
+				const q = new URLSearchParams();
+				if (params.type) q.set('type', params.type);
+				if (params.where) q.set('where', params.where);
+				if (params.limit !== undefined) q.set('limit', String(params.limit));
+				return get<{ items: Asset[]; total: number; counts: Record<string, number> }>(`/projects/${projectId}/assets?${q}`);
+			},
+			get: (id: UUID) => get<AssetDetail>(`/assets/${id}`),
+			add: (projectId: UUID, body: { type: string; fields: Record<string, unknown>; secret?: string }) => post<Asset>(`/projects/${projectId}/assets`, body),
+			import: (projectId: UUID, type: string, text: string) =>
+				post<{ added: number; updated: number; skipped: string[] }>(`/projects/${projectId}/assets/import`, { type, text }),
+			update: (id: UUID, fields: Record<string, unknown>) => patch<Asset>(`/assets/${id}`, { fields }),
+			remove: (id: UUID) => del(`/assets/${id}`),
+			reveal: (id: UUID) => post<{ secret: string }>(`/assets/${id}/reveal`),
+			collect: (projectId: UUID) => post<{ added: number; updated: number }>(`/projects/${projectId}/assets/collect`),
+			scope: (projectId: UUID) => get<{ include: string[]; exclude: string[] }>(`/projects/${projectId}/scope`),
+			setScope: (projectId: UUID, body: { include: string[]; exclude: string[] }) =>
+				request<{ include: string[]; exclude: string[] }>(fetchFn, 'PUT', `/projects/${projectId}/scope`, body),
+			triggers: (projectId: UUID) => get<AssetTrigger[]>(`/projects/${projectId}/asset-triggers`),
+			createTrigger: (projectId: UUID, body: Omit<AssetTrigger, 'id' | 'project_id' | 'fires' | 'created_at'>) =>
+				post<AssetTrigger>(`/projects/${projectId}/asset-triggers`, body),
+			updateTrigger: (id: UUID, body: Omit<AssetTrigger, 'id' | 'project_id' | 'fires' | 'created_at'>) =>
+				request<AssetTrigger>(fetchFn, 'PUT', `/asset-triggers/${id}`, body),
+			removeTrigger: (id: UUID) => del(`/asset-triggers/${id}`),
+			fires: (projectId: UUID, status?: string) => get<AssetTriggerFire[]>(`/projects/${projectId}/asset-trigger-fires${status ? `?status=${status}` : ''}`),
+			approve: (id: UUID) => post<{ status: string; reason: string }>(`/asset-trigger-fires/${id}/approve`),
+			skip: (id: UUID) => post<{ status: string }>(`/asset-trigger-fires/${id}/skip`)
 		},
 		people: {
 			team: () => get<PersonBrief[]>('/people'),

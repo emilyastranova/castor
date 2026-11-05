@@ -540,6 +540,95 @@ class Comment(Base, TimestampMixin):
     author: Mapped[User | None] = relationship()
 
 
+class Asset(Base, TimestampMixin):
+    """Something a project found (Phase 3f): a host, service, URL, domain, user, credential
+    or share. One record per thing (project + type + identity key); every tool that reports
+    on it adds an observation, and `fields` holds the merged current values (assets.py)."""
+
+    __tablename__ = "assets"
+    __table_args__ = (UniqueConstraint("project_id", "type", "key", name="uq_asset_identity"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    type: Mapped[str] = mapped_column(String(16), index=True)
+    key: Mapped[str] = mapped_column(String(400))
+    label: Mapped[str] = mapped_column(String(400))
+    fields: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    # A credential's secret, encrypted with the vault (never in `fields`).
+    secret: Mapped[str | None] = mapped_column(Text, nullable=True)
+    first_seen: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    last_seen: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+
+
+class AssetObservation(Base):
+    """What one source said about an asset, and when: provenance for every field value."""
+
+    __tablename__ = "asset_observations"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), index=True)
+    source: Mapped[str] = mapped_column(String(16))  # parser | manual | import
+    parser: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True)
+    task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    fields: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    observed_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class AssetLink(Base):
+    """A relation between two assets: a service *on* a host, a domain that *resolves to* one."""
+
+    __tablename__ = "asset_links"
+    __table_args__ = (UniqueConstraint("from_id", "to_id", "kind", name="uq_asset_link"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    from_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), index=True)
+    to_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class AssetTrigger(Base, TimestampMixin):
+    """Run a command or playbook when an asset appears or changes (with guards)."""
+
+    __tablename__ = "asset_triggers"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    asset_type: Mapped[str] = mapped_column(String(16))
+    on_event: Mapped[str] = mapped_column(String(16), default="created")  # created | updated | any
+    # [{field, op, value}], all must hold (assets.conditions_met)
+    conditions: Mapped[list[dict[str, Any]]] = mapped_column(JSONType, default=list)
+    action: Mapped[str] = mapped_column(String(16))  # command | playbook
+    target: Mapped[str] = mapped_column(String(64))  # command or playbook id
+    # argument / input name -> template ("{{ asset.ip }}")
+    args: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    once_per_asset: Mapped[bool] = mapped_column(Boolean, default=True)
+    max_per_hour: Mapped[int] = mapped_column(Integer, default=20)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+
+class AssetTriggerFire(Base):
+    """One time a trigger matched an asset: started, waiting for approval (out of scope),
+    skipped, limited (rate) or failed."""
+
+    __tablename__ = "asset_trigger_fires"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    trigger_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("asset_triggers.id", ondelete="CASCADE"), index=True)
+    asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), index=True)
+    status: Mapped[str] = mapped_column(String(16), index=True)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("playbook_runs.id", ondelete="SET NULL"), nullable=True)
+    decided_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+
+
 class ProjectNote(Base, TimestampMixin):
     """A pinned markdown note on a project's dashboard (status, objectives, contacts…)."""
 

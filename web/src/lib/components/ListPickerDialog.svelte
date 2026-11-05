@@ -9,8 +9,10 @@
 		projectId?: string | null;
 		onpick: (list: SavedList) => void;
 		onimport: () => void;
+		/** Fill it from the project's assets instead (3f). */
+		onassets?: () => void;
 	}
-	let { open = $bindable(false), projectId = null, onpick, onimport }: Props = $props();
+	let { open = $bindable(false), projectId = null, onpick, onimport, onassets }: Props = $props();
 
 	let query = $state('');
 	$effect(() => {
@@ -69,6 +71,16 @@
 	</div>
 	{#snippet actions()}
 		<a href="/variables" class="mr-auto self-center body-small text-primary hover:underline">Manage lists</a>
+		{#if onassets && projectId}
+			<Button
+				variant="text"
+				icon="radar"
+				onclick={() => {
+					open = false;
+					onassets();
+				}}>From assets…</Button
+			>
+		{/if}
 		<Button variant="text" onclick={() => (open = false)}>Cancel</Button>
 		<Button
 			variant="tonal"

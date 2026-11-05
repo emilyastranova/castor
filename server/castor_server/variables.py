@@ -659,9 +659,23 @@ async def expand_list_refs(
 ) -> dict[str, Any]:
     """Replace {"list": ...} argument values with the list's entries: a list argument gets
     the items, a text argument the items joined with commas. Raises VariableError."""
+    from .assets import is_asset_ref, ref_values
+
     by_name = {a.name: a for a in spec.args}
     out = dict(args or {})
     for name, value in (args or {}).items():
+        if is_asset_ref(value):
+            # Values from the project's assets (3f): "hosts where smb_signing:false" -> their ips.
+            arg = by_name.get(name)
+            if arg is None:
+                continue
+            if arg.type not in ("string", "list"):
+                raise VariableError(f"{name}: only text and list arguments can take assets")
+            if project_id is None:
+                raise VariableError(f"{name}: assets need a project")
+            entries = await ref_values(db, project_id, value)
+            out[name] = entries if arg.type == "list" else ",".join(entries)
+            continue
         if not is_list_ref(value):
             continue
         arg = by_name.get(name)

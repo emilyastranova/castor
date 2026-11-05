@@ -44,6 +44,8 @@ def kind_of(event_type: str) -> str:
         return "agent"
     if head == "note":
         return "note"
+    if head in ("assets", "trigger"):
+        return "asset"
     return "admin"  # users, projects, variables
 
 
@@ -377,6 +379,8 @@ class Summary(BaseModel):
     facts: list[str]
     # Pinned notes in scope as one line each, grouped by project (the home dashboard lists them).
     pinned: list[dict[str, Any]]
+    # Assets first seen in the last 24 hours, by type (the headline's "found" line).
+    found: dict[str, int]
 
 
 @router.get("/summary", response_model=Summary)
@@ -555,6 +559,35 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
         for n in mention_rows
     ]
 
+    # Triggered runs waiting for someone to approve them (their asset is outside the scope).
+    waiting = (
+        await db.execute(
+            select(m.AssetTriggerFire, m.AssetTrigger, m.Asset)
+            .join(m.AssetTrigger, m.AssetTrigger.id == m.AssetTriggerFire.trigger_id)
+            .join(m.Asset, m.Asset.id == m.AssetTriggerFire.asset_id)
+            .where(m.AssetTriggerFire.status == "waiting", in_scope(m.AssetTrigger.project_id))
+            .order_by(m.AssetTriggerFire.created_at.desc())
+            .limit(10)
+        )
+    ).all()
+    attention += [
+        {
+            "kind": "approval",
+            "title": f"“{trig.name}” wants to run on {asset.label}",
+            "detail": fire.reason,
+            "since": fire.created_at,
+            "project": project_ref(trig.project_id),
+            "link": f"/projects/{trig.project_id}/assets?tab=triggers",
+            "for_you": True,
+        }
+        for fire, trig, asset in waiting
+    ]
+    found = dict(
+        (await db.execute(
+            select(m.Asset.type, func.count()).where(in_scope(m.Asset.project_id), m.Asset.first_seen >= since).group_by(m.Asset.type)
+        )).all()
+    )
+
     online = [c for c in gateway.connections.values()]
     open_rows = (
         await db.execute(
@@ -580,6 +613,7 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
         mine=mine,
         facts=await _facts(db, in_scope),
         pinned=await _pinned(db, in_scope, project_ref),
+        found=found,
         counts=counts,
         attention=attention[:20],
         live_jobs=live_jobs,

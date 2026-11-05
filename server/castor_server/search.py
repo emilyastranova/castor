@@ -39,6 +39,7 @@ TYPES: list[tuple[str, str]] = [
     ("file", "Files and screenshots"),
     ("run", "Playbook runs"),
     ("note", "Pinned notes"),
+    ("asset", "Assets"),
     ("project", "Projects"),
     ("playbook", "Playbooks"),
     ("command", "Commands"),
@@ -53,7 +54,8 @@ ALIASES = {"cards": "card", "task": "card", "tasks": "card", "comments": "commen
            "outputs": "output", "logs": "log", "console": "log", "files": "file", "screenshot": "file",
            "screenshots": "file", "attachment": "file", "runs": "run", "notes": "note", "projects": "project",
            "playbooks": "playbook", "commands": "command", "tools": "tool", "parsers": "parser",
-           "variables": "variable", "vars": "variable", "people": "person", "user": "person",
+           "variables": "variable", "vars": "variable", "people": "person", "user": "person", "assets": "asset",
+           "host": "asset", "hosts": "asset", "service": "asset", "services": "asset", "domain": "asset", "domains": "asset",
            "users": "person", "agents": "agent"}
 BY_TYPES = {"card", "comment", "run", "note"}
 TAG_TYPES = {"card", "command", "playbook", "agent"}
@@ -303,6 +305,23 @@ class Searcher:
             "project": self.project_ref(note.project_id), "at": note.updated_at, "icon": "push_pin",
             "link": f"/projects/{note.project_id}/dashboard",
         } for (note,) in rows]
+
+    async def asset(self) -> list[dict[str, Any]]:
+        from . import assets as A
+
+        q, a = self.q, m.Asset
+        if not q.terms:
+            return []
+        rows = await self.rows(select(a).where(self.in_scope(a.project_id), _match([a.label, a.key, _text(a.fields)], q.terms))
+                               .order_by(a.last_seen.desc()))
+        out = []
+        for (asset,) in rows:
+            t = A.TYPES.get(asset.type)
+            extra = ", ".join(f"{k}={v}" for k, v in (asset.fields or {}).items() if any(x in f"{k} {v}".lower() for x in q.terms))
+            out.append({"id": str(asset.id), "title": asset.label, "snippet": f"{t.label if t else asset.type}" + (f" · {extra}" if extra else ""),
+                        "project": self.project_ref(asset.project_id), "at": asset.last_seen, "icon": t.icon if t else "radar",
+                        "link": f"/projects/{asset.project_id}/assets?asset={asset.id}"})
+        return out
 
     async def project(self) -> list[dict[str, Any]]:
         q, p = self.q, m.Project

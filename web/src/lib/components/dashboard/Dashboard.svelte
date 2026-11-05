@@ -39,12 +39,13 @@
 		{ kind: 'playbook', label: 'Playbooks', icon: 'account_tree' },
 		{ kind: 'file', label: 'Files', icon: 'attach_file' },
 		{ kind: 'note', label: 'Notes', icon: 'push_pin' },
+		{ kind: 'asset', label: 'Assets', icon: 'radar' },
 		{ kind: 'agent', label: 'Agents', icon: 'dns' },
 		{ kind: 'admin', label: 'Admin', icon: 'shield_person' }
 	];
 	let kindOptions = $derived(ALL_KINDS.filter((k) => k.kind !== 'admin' || isAdmin()));
 	/** What the timeline shows by default: the work, not agent connections or admin. */
-	const WORK: FeedKind[] = ['comment', 'job', 'card', 'playbook', 'file', 'note'];
+	const WORK: FeedKind[] = ['comment', 'job', 'card', 'playbook', 'file', 'note', 'asset'];
 	let kinds = $state<Set<FeedKind>>(new Set(WORK));
 	/** "Mine": only what's about you (your cards, mentions, replies). */
 	let mine = $state(false);
@@ -146,7 +147,7 @@
 				clearTimeout(headTimer);
 				headTimer = setTimeout(refreshHead, 400);
 			}
-			if (['activity.created', 'job.updated', 'playbook_run.updated', 'agent.updated', 'task.moved', 'project.notes', 'notification.created', 'notification.read'].includes(e.name)) {
+			if (['activity.created', 'job.updated', 'playbook_run.updated', 'agent.updated', 'task.moved', 'project.notes', 'notification.created', 'notification.read', 'assets.changed', 'asset_triggers.changed'].includes(e.name)) {
 				clearTimeout(summaryTimer);
 				summaryTimer = setTimeout(loadSummary, 800);
 			}
@@ -199,6 +200,19 @@
 		if (notifications.unread) parts.push(plural(notifications.unread, 'unread notification'));
 		return parts.length ? parts.join(' · ') : 'Nothing on your plate right now';
 	});
+	/** What scans found in the last 24 hours ("Found 12 hosts and 3 services today"). */
+	const TYPE_WORDS: Record<string, [string, string]> = {
+		host: ['host', 'hosts'], service: ['service', 'services'], url: ['URL', 'URLs'], domain: ['domain', 'domains'],
+		user: ['user', 'users'], credential: ['credential', 'credentials'], share: ['share', 'shares']
+	};
+	let found = $derived.by(() => {
+		const parts = Object.entries(summary?.found ?? {})
+			.filter(([, n]) => n)
+			.sort((a, b) => b[1] - a[1])
+			.slice(0, 3)
+			.map(([t, n]) => `${n} ${(TYPE_WORDS[t] ?? [t, t])[n === 1 ? 0 : 1]}`);
+		return parts.length ? `Found ${parts.slice(0, -1).join(', ')}${parts.length > 1 ? ' and ' : ''}${parts.at(-1)} today` : '';
+	});
 	let fact = $state('');
 	function pickFact() {
 		// Facts about this workspace come up as often as general trivia.
@@ -213,6 +227,7 @@
 			? [
 					{ key: 'moving', icon: 'play_circle', text: moving },
 					{ key: 'yours', icon: 'person', text: yours },
+					{ key: 'found', icon: 'radar', text: found },
 					{ key: 'fact', icon: 'lightbulb', text: fact }
 				].filter((s) => s.text)
 			: []
@@ -459,7 +474,7 @@
 						{#each attention as a (a.link)}
 							<li in:enter out:leave>
 								<a href={a.link} class="state-layer flex items-start gap-2.5 rounded-md px-2 py-2" onclick={() => a.notification_id && void api().notifications.read(a.notification_id).catch(() => {})}>
-									<Icon name={a.kind === 'mention' ? 'alternate_email' : a.kind === 'decision' ? 'front_hand' : 'error'} size={18} class="mt-0.5 shrink-0 {a.kind === 'mention' ? 'text-primary' : a.kind === 'decision' ? 'text-tertiary' : 'text-error'}" />
+									<Icon name={a.kind === 'mention' ? 'alternate_email' : a.kind === 'decision' ? 'front_hand' : a.kind === 'approval' ? 'bolt' : 'error'} size={18} class="mt-0.5 shrink-0 {a.kind === 'mention' ? 'text-primary' : a.kind === 'decision' || a.kind === 'approval' ? 'text-tertiary' : 'text-error'}" />
 									<span class="min-w-0 flex-1">
 										<span class="block body-medium text-on-surface">{a.title}{#if a.for_you && a.kind === 'failed'}<span class="ml-1.5 rounded-full bg-primary-container px-1.5 py-0.5 align-middle label-small text-on-primary-container">for you</span>{/if}</span>
 										<span class="block truncate body-small text-on-surface-variant" title={a.detail}>

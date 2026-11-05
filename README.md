@@ -26,7 +26,8 @@ either **manual tasks** for people or **command tasks** for agents. Drag a comma
 card into *In Progress* and Castor dispatches it to an agent, which runs it in a
 container and streams the output straight back into the card. Parsers turn the
 tool's output into typed results (hosts, services, URLs), so the board doubles as
-the workflow's execution log.
+the workflow's execution log, and what they find becomes the project's **assets**: one
+record per host, service or URL that every tool adds to, with triggers that act on new ones.
 
 **Playbooks** chain commands into a graph. Steps run in parallel where they can,
 transform steps reshape one tool's results into the next tool's input, and a run shows
