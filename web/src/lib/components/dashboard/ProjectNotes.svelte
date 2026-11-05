@@ -128,6 +128,32 @@
 		}
 	}
 
+	// ---- fixed height: every note is the same size so content (or a pasted image arriving
+	// over realtime) never shifts the dashboard; longer notes scroll, or expand for this viewer ----
+	let expanded = $state<Record<string, boolean>>({});
+	let overflow = $state<Record<string, { more: boolean; atEnd: boolean }>>({});
+	/** Watches a note's scroll box: does its content overflow, and is it scrolled to the end? */
+	function measure(node: HTMLElement, id: string) {
+		const check = () => {
+			const more = node.scrollHeight > node.clientHeight + 1;
+			const atEnd = node.scrollTop + node.clientHeight >= node.scrollHeight - 2;
+			const was = overflow[id];
+			if (!was || was.more !== more || was.atEnd !== atEnd) overflow[id] = { more, atEnd };
+		};
+		// The box's own size and its content's (images load later, notes change over realtime).
+		const ro = new ResizeObserver(check);
+		ro.observe(node);
+		if (node.firstElementChild) ro.observe(node.firstElementChild);
+		node.addEventListener('scroll', check, { passive: true });
+		check();
+		return {
+			destroy() {
+				ro.disconnect();
+				node.removeEventListener('scroll', check);
+			}
+		};
+	}
+
 	// ---- history ----
 	let historyNote = $state<ProjectNote | null>(null);
 	let historyOpen = $state(false);
@@ -162,7 +188,7 @@
 </script>
 
 {#snippet editor()}
-	<div bind:this={editorEl} class="flex flex-col gap-3 rounded-lg border border-primary bg-surface-container-low p-4">
+	<div bind:this={editorEl} class="flex min-h-60 flex-col gap-3 rounded-lg border border-primary bg-surface-container-low p-4">
 		<TextField label="Title" bind:value={draftTitle} onkeydown={editorKeys} />
 		<TextField label="Note (markdown)" bind:value={draftBody} multiline rows={7} onkeydown={editorKeys} onpaste={images.pasteInto(bodyTarget)} {error} supporting="Markdown · paste an image to add it · Ctrl+Enter to save · Esc to cancel" />
 		<div class="flex items-center justify-end gap-2">
@@ -179,7 +205,7 @@
 			{#if editingId === note.id}
 				{@render editor()}
 			{:else}
-				<article class="group flex min-w-0 flex-col gap-2 rounded-lg bg-surface-container-low p-4">
+				<article class="group flex min-w-0 flex-col gap-2 rounded-lg bg-surface-container-low p-4 {expanded[note.id] ? '' : 'h-60'}">
 					<header class="flex items-start gap-2">
 						<Icon name="push_pin" size={18} class="mt-0.5 shrink-0 text-tertiary" />
 						<h2 class="min-w-0 flex-1 truncate title-medium text-on-surface" title={note.title}>{note.title}</h2>
@@ -198,14 +224,27 @@
 						</Menu>
 					</header>
 					{#if note.body.trim()}
-						<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-						<div class="prose-m3 max-h-64 overflow-y-auto body-medium text-on-surface" onclick={openImagesIn}>{@html renderMarkdown(note.body)}</div>
+						{@const fade = !expanded[note.id] && overflow[note.id]?.more && !overflow[note.id]?.atEnd}
+						<div use:measure={note.id} class="note-scroll min-h-0 flex-1 {expanded[note.id] ? '' : 'overflow-y-auto'}" class:faded={fade}>
+							<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+							<div class="prose-m3 body-medium text-on-surface" onclick={openImagesIn}>{@html renderMarkdown(note.body)}</div>
+						</div>
 					{:else}
-						<p class="body-medium text-on-surface-variant italic">Empty</p>
+						<p class="flex-1 body-medium text-on-surface-variant italic">Empty</p>
 					{/if}
-					<footer class="mt-auto flex items-center gap-1.5 pt-1 body-small text-on-surface-variant">
+					<footer class="flex shrink-0 items-center gap-1.5 pt-1 body-small text-on-surface-variant">
 						{#if note.updated_by}<Avatar name={note.updated_by.name} src={note.updated_by.avatar_url} size={20} /><span class="truncate">{note.updated_by.name}</span> ·{/if}
-						<span title={absoluteTime(note.updated_at)}>{relativeTime(note.updated_at)}</span>
+						<span class="shrink-0" title={absoluteTime(note.updated_at)}>{relativeTime(note.updated_at)}</span>
+						{#if expanded[note.id] || overflow[note.id]?.more}
+							<button
+								type="button"
+								class="state-layer ml-auto flex shrink-0 items-center gap-0.5 rounded-full py-0.5 pr-2 pl-1.5 label-medium text-primary"
+								aria-expanded={!!expanded[note.id]}
+								onclick={() => (expanded[note.id] = !expanded[note.id])}
+							>
+								<Icon name={expanded[note.id] ? 'unfold_less' : 'unfold_more'} size={16} />{expanded[note.id] ? 'Collapse' : 'Expand'}
+							</button>
+						{/if}
 					</footer>
 				</article>
 			{/if}
@@ -214,7 +253,7 @@
 		{#if editingId === 'new'}
 			{@render editor()}
 		{:else if canEdit() && notes.length < 12}
-			<div class="flex min-h-24 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-outline-variant p-4 text-on-surface-variant {notes.length ? '' : 'col-span-full sm:flex-row sm:justify-start'}">
+			<div class="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-outline-variant p-4 text-on-surface-variant {notes.length ? 'h-60' : 'min-h-24 col-span-full sm:flex-row sm:justify-start'}">
 				<Button variant="text" icon="push_pin" onclick={() => startEdit(null)}>{notes.length ? 'Add note' : 'Pin a note'}</Button>
 				{#if !notes.length}
 					<span class="body-small">for the team: the project's status, objectives, scope or contacts.</span>
@@ -263,3 +302,14 @@
 		<NameImageDialog file={images.pending[0].file} remaining={images.pending.length - 1} onconfirm={(name) => images.confirm(name)} oncancel={() => images.cancel()} />
 	{/key}
 {/if}
+
+<style>
+	/* A longer note fades out at the bottom until it's scrolled to the end. */
+	.note-scroll.faded {
+		mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5rem), transparent);
+	}
+	.note-scroll {
+		scrollbar-width: thin;
+		overscroll-behavior: contain;
+	}
+</style>

@@ -136,7 +136,9 @@ Turns the dashboard into a personal inbox.
 **Built.** Decided: a few notes per project rather than one.
 
 - Up to 12 titled markdown notes per project (`project_notes`: title, body, position, who
-  edited it last), shown as cards at the top of the project dashboard. Suggested titles
+  edited it last), shown as cards at the top of the project dashboard. Every card is the
+  same fixed height so new content never shifts the page; longer notes scroll inside (with a
+  fade at the bottom) and Expand uncaps one for the viewer who clicked it. Suggested titles
   for the first one: Status, Objectives, Scope, Contacts.
 - Everyone who sees the project reads them; operators edit them in place (Ctrl+Enter
   saves), reorder them (Move left/right) and remove them. Pasted images work as in
