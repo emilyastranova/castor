@@ -274,6 +274,21 @@ class JobOut(ORM):
     output_specs: list[dict[str, Any]] | None = None
 
 
+class RunSummary(BaseModel):
+    """A playbook run, as its card on the board shows it (Phase 3h)."""
+
+    run_id: uuid.UUID
+    playbook_id: str
+    status: str  # the run's: running, succeeded, failed, cancelled
+    done: int
+    total: int
+    running: int
+    attention: int
+    failed: int
+    # step id -> its (hidden) card's id
+    step_task_ids: dict[str, str] = Field(default_factory=dict)
+
+
 class TaskOut(ORM):
     id: uuid.UUID
     project_id: uuid.UUID
@@ -305,6 +320,8 @@ class TaskOut(ORM):
     depends_on: list[str] = Field(default_factory=list)
     var_bindings: dict[str, str] = Field(default_factory=dict)
     latest_job: JobOut | None = None
+    # Set on a playbook run's card: where the run is.
+    run: RunSummary | None = None
     comment_count: int = 0
     attachment_count: int = 0
 
@@ -481,6 +498,8 @@ class PlaybookRunOut(ORM):
     spec_snapshot: dict[str, Any]
     finished_at: datetime | None = None
     created_at: datetime
+    # The run's card on the board.
+    card_id: uuid.UUID | None = None
     tasks: list[TaskOut] = Field(default_factory=list)
 
 

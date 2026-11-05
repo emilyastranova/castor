@@ -34,7 +34,7 @@ from .playbook_spec import (
     step_statuses,
 )
 from .playbook_transforms import TransformError, as_items, run_transform
-from .schemas import ColumnOut, JobOut, PlaybookRunOut, ProjectOut, TaskOut
+from .schemas import ColumnOut, JobOut, PlaybookRunOut, ProjectOut, RunSummary, TaskOut
 
 DEFAULT_COLUMNS: list[tuple[str, m.ColumnRole | None]] = [
     ("Backlog", m.ColumnRole.backlog),
@@ -142,20 +142,15 @@ async def counts_for(
 
 
 async def task_out(db: AsyncSession, task: m.Task) -> TaskOut:
-    latest = await latest_jobs_for(db, [task.id])
-    comments, attachments = await counts_for(db, [task.id])
-    out = TaskOut.model_validate(task)
-    job = latest.get(task.id)
-    out.latest_job = JobOut.model_validate(job) if job else None
-    out.comment_count = comments.get(task.id, 0)
-    out.attachment_count = attachments.get(task.id, 0)
-    return out
+    return (await tasks_out(db, [task]))[0]
 
 
 async def tasks_out(db: AsyncSession, tasks: list[m.Task]) -> list[TaskOut]:
     ids = [t.id for t in tasks]
     latest = await latest_jobs_for(db, ids)
     comments, attachments = await counts_for(db, ids)
+    # Only cards that don't belong to a step can be a run's card.
+    runs = await run_summaries(db, [t.id for t in tasks if t.playbook_step_id is None and t.kind == m.TaskKind.manual])
     result = []
     for task in tasks:
         out = TaskOut.model_validate(task)
@@ -163,8 +158,32 @@ async def tasks_out(db: AsyncSession, tasks: list[m.Task]) -> list[TaskOut]:
         out.latest_job = JobOut.model_validate(job) if job else None
         out.comment_count = comments.get(task.id, 0)
         out.attachment_count = attachments.get(task.id, 0)
+        out.run = runs.get(task.id)
         result.append(out)
     return result
+
+
+async def run_summaries(db: AsyncSession, card_ids: list[uuid.UUID]) -> dict[uuid.UUID, RunSummary]:
+    """The runs whose cards these are, summarised for the board."""
+    if not card_ids:
+        return {}
+    rows = (await db.execute(select(m.PlaybookRun).where(m.PlaybookRun.card_id.in_(card_ids)))).scalars().all()
+    out = {}
+    for run in rows:
+        statuses = await _run_statuses(db, run)
+        values = list(statuses.values())
+        out[run.card_id] = RunSummary(
+            run_id=run.id,
+            playbook_id=run.playbook_id,
+            status=run.status.value,
+            done=sum(s in ("succeeded", "skipped", "not_taken") for s in values),
+            total=len(values),
+            running=sum(s in ("running", "queued") for s in values),
+            attention=sum(s == "attention" for s in values),
+            failed=sum(s in ("failed", "blocked") for s in values),
+            step_task_ids=run.step_task_ids or {},
+        )
+    return out
 
 
 async def publish_task(db: AsyncSession, task: m.Task, name: str = "task.updated") -> TaskOut:
@@ -373,20 +392,33 @@ async def _item_tasks(db: AsyncSession, run: m.PlaybookRun) -> dict[str, list[m.
     return _group_items(list(rows))
 
 
-async def playbook_run_out(db: AsyncSession, run: m.PlaybookRun) -> PlaybookRunOut:
-    tasks = (
-        await db.execute(
-            select(m.Task)
-            .options(selectinload(m.Task.column))
-            .where(m.Task.playbook_run_id == run.id)
-            .order_by(m.Task.created_at)
-        )
-    ).scalars().all()
-    tasks_o = await tasks_out(db, list(tasks))
+async def _run_tasks(db: AsyncSession, run: m.PlaybookRun) -> list[m.Task]:
+    return list(
+        (
+            await db.execute(
+                select(m.Task)
+                .options(selectinload(m.Task.column))
+                .where(m.Task.playbook_run_id == run.id)
+                .order_by(m.Task.created_at)
+            )
+        ).scalars()
+    )
+
+
+async def _run_statuses(db: AsyncSession, run: m.PlaybookRun, tasks: list[m.Task] | None = None) -> dict[str, str]:
+    """Every step's status, from its cards' latest jobs and the run's stored results."""
+    tasks = tasks if tasks is not None else await _run_tasks(db, run)
     task_ids = _run_task_ids(run)
-    items = _group_items(list(tasks))
+    items = _group_items(tasks)
     latest_jobs = await latest_jobs_for(db, [*task_ids.values(), *(t.id for ts in items.values() for t in ts)])
     job_status, job_ids = _job_states(task_ids, latest_jobs, await _parsing_jobs(db, latest_jobs), items)
+    status = run.status.value if hasattr(run.status, "value") else str(run.status)
+    return step_statuses(_run_spec(run), job_status, run.step_results or {}, status, job_ids)
+
+
+async def playbook_run_out(db: AsyncSession, run: m.PlaybookRun) -> PlaybookRunOut:
+    tasks = await _run_tasks(db, run)
+    tasks_o = await tasks_out(db, tasks)
     status = run.status.value if hasattr(run.status, "value") else str(run.status)
     return PlaybookRunOut(
         id=run.id,
@@ -397,10 +429,11 @@ async def playbook_run_out(db: AsyncSession, run: m.PlaybookRun) -> PlaybookRunO
         inputs=run.inputs,
         step_task_ids=run.step_task_ids,
         step_results=run.step_results or {},
-        step_status=step_statuses(_run_spec(run), job_status, run.step_results or {}, status, job_ids),
+        step_status=await _run_statuses(db, run, tasks),
         spec_snapshot=run.spec_snapshot,
         finished_at=run.finished_at,
         created_at=run.created_at,
+        card_id=run.card_id,
         tasks=tasks_o,
     )
 
@@ -410,6 +443,10 @@ async def publish_playbook_run(
 ) -> PlaybookRunOut:
     out = await playbook_run_out(db, run)
     bus.publish(name, run.project_id, out)
+    # The run's card shows its progress, so the board needs it too.
+    card = await db.get(m.Task, run.card_id) if run.card_id else None
+    if card is not None:
+        await publish_task(db, card)
     return out
 
 
@@ -449,6 +486,22 @@ async def start_playbook_run(
     if todo_col is None:
         raise ValueError("project has no columns")
 
+    # The run's one card on the board, in In Progress while it runs (its steps are hidden).
+    run_col = await column_with_role(db, project_id, m.ColumnRole.active) or todo_col
+    card = m.Task(
+        project_id=project_id,
+        column_id=run_col.id,
+        position=await next_position(db, run_col.id),
+        title=spec.name,
+        description=spec.description,
+        kind=m.TaskKind.manual,
+        created_by=user.id if user else None,
+        tags=list(spec.tags or [])[:5],
+    )
+    db.add(card)
+    await db.flush()
+    run.card_id = card.id
+
     tasks: list[m.Task] = []
     for step in spec.steps:
         if step.kind != "command" or step.for_each is not None:
@@ -481,6 +534,7 @@ async def start_playbook_run(
         **actor_of(user),
     )
     jobs, touched = await _advance(db, run, user)
+    await publish_task(db, card, "task.created")
     for task in tasks:
         await publish_task(db, task, "task.created")
     for task in touched:
@@ -646,8 +700,12 @@ async def _step_outputs(
     return outputs
 
 
-def step_link(run_id: uuid.UUID, step_id: str | None = None) -> str:
-    return f"/playbooks?run={run_id}" + (f"&step={step_id}" if step_id else "")
+def step_link(run: m.PlaybookRun, step_id: str | None = None) -> str:
+    """Where to look at a run (and answer its decisions): its card on the board, or the
+    Playbooks page for a run without one."""
+    if run.card_id:
+        return f"/projects/{run.project_id}?task={run.card_id}"
+    return f"/playbooks?run={run.id}" + (f"&step={step_id}" if step_id else "")
 
 
 async def _advance(
@@ -730,7 +788,7 @@ async def _advance(
             severity="warning",
             title=f"{run.playbook_name}: “{step.name}” needs you",
             body=error,
-            link=step_link(run.id, step.id),
+            link=step_link(run, step.id),
             project_id=run.project_id,
             subject=f"run:{run.id}:step:{step.id}",
             payload={"run_id": str(run.id), "step_id": step.id},
@@ -1062,6 +1120,51 @@ async def _ref_type(
     ).scalar_one_or_none()
 
 
+async def _card_to_review(db: AsyncSession, run: m.PlaybookRun) -> None:
+    """A run ended: its card moves from In Progress to Review, once. A card someone has
+    already moved is left where they put it."""
+    card = await db.get(m.Task, run.card_id) if run.card_id else None
+    active = await column_with_role(db, run.project_id, m.ColumnRole.active)
+    review = await column_with_role(db, run.project_id, m.ColumnRole.review) or await column_with_role(db, run.project_id, m.ColumnRole.done)
+    if card is None or active is None or review is None or card.column_id != active.id:
+        return
+    card.column_id = review.id
+    card.position = await next_position(db, review.id)
+    await db.flush()
+
+
+async def ensure_run_cards(db: AsyncSession) -> int:
+    """Give every run from before run cards (Phase 3h) its card: in In Progress if it's still
+    running, else in Review. Idempotent; commits."""
+    runs = (await db.execute(select(m.PlaybookRun).where(m.PlaybookRun.card_id.is_(None)).order_by(m.PlaybookRun.created_at))).scalars().all()
+    for run in runs:
+        running = run.status == m.PlaybookRunStatus.running
+        role = m.ColumnRole.active if running else m.ColumnRole.review
+        column = (
+            await column_with_role(db, run.project_id, role)
+            or await column_with_role(db, run.project_id, m.ColumnRole.todo)
+            or (await db.execute(select(m.BoardColumn).where(m.BoardColumn.project_id == run.project_id).order_by(m.BoardColumn.position).limit(1))).scalar_one_or_none()
+        )
+        if column is None:
+            continue
+        spec = run.spec_snapshot or {}
+        card = m.Task(
+            project_id=run.project_id,
+            column_id=column.id,
+            position=await next_position(db, column.id),
+            title=run.playbook_name,
+            description=spec.get("description", "") or "",
+            kind=m.TaskKind.manual,
+            created_by=run.created_by,
+            created_at=run.created_at,
+        )
+        db.add(card)
+        await db.flush()
+        run.card_id = card.id
+    await db.commit()
+    return len(runs)
+
+
 async def _settle_run(db: AsyncSession, run: m.PlaybookRun, spec: PlaybookSpec, current: dict[str, str]) -> None:
     """Finish the run when no step can move any more; reopen it when a step was re-run."""
     if run.status == m.PlaybookRunStatus.cancelled:
@@ -1073,6 +1176,7 @@ async def _settle_run(db: AsyncSession, run: m.PlaybookRun, spec: PlaybookSpec, 
     run.finished_at = None if new == m.PlaybookRunStatus.running else utcnow()
     if new == m.PlaybookRunStatus.running:
         return
+    await _card_to_review(db, run)
     ok = new == m.PlaybookRunStatus.succeeded
     message = f"Playbook “{run.playbook_name}” " + ("completed successfully" if ok else "failed")
     await record_activity(
@@ -1089,7 +1193,7 @@ async def _settle_run(db: AsyncSession, run: m.PlaybookRun, spec: PlaybookSpec, 
         severity="success" if ok else "error",
         title=message,
         body="" if ok else "Didn't finish: " + ", ".join(failed[:6]) + ("…" if len(failed) > 6 else ""),
-        link=step_link(run.id),
+        link=step_link(run),
         project_id=run.project_id,
         subject=f"run:{run.id}",
         payload={"run_id": str(run.id)},
@@ -1299,6 +1403,7 @@ async def cancel_playbook_run(
 
     run.status = m.PlaybookRunStatus.cancelled
     run.finished_at = utcnow()
+    await _card_to_review(db, run)
 
     await record_activity(
         db,

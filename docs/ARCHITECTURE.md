@@ -200,7 +200,13 @@ The authoring format is specified in [PLAYBOOK_SPEC.md](PLAYBOOK_SPEC.md) (self-
 meant to be handed to whoever or whatever writes playbooks). A playbook (`playbooks/*.yaml` built-ins, user definitions edited as YAML) is a DAG of
 steps (`playbook_spec.py`). A **command step** names a library command and binds its args
 to literals, `{{ inputs.x }}`, or `{{ steps.<id>.outputs.<name> }}`; each one becomes a
-card when the run starts. A **transform step** runs no command and has no card: it takes
+(hidden) card when the run starts. The run itself gets **one card on the board**
+(`playbook_runs.card_id`; `TaskOut.run` carries its summary): created in In Progress, moved
+to Review once when the run ends (unless someone moved it), and opened on a **Run** tab
+(`RunPanel.svelte`: graph, decisions, steps). Step cards (`playbook_step_id` set) never show
+on the board; one opens on top of its run card (`?task=<card>&step=<step card>`), and a link
+straight to a step card redirects there. Runs from before run cards get one at startup
+(`services.ensure_run_cards`). A **transform step** runs no command and has no card: it takes
 `transform.input` (one or more step-output references, concatenated), applies a fixed list
 of ops (`filter`, `pluck`, `format`, `unique`, `sort`, `limit`; `playbook_transforms.py`,
 data only, regexes with a timeout) and publishes `transform.output.name`. Every reference

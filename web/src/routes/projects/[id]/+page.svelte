@@ -48,6 +48,8 @@
 	$effect(() =>
 		realtime.subscribe((e) => {
 			store.apply(e);
+			// The board ignores step cards; the one open on top still follows its changes.
+			if ((e.name === 'task.updated' || e.name === 'task.moved') && stepTask && (e.data as Task).id === stepTask.id) stepTask = e.data as Task;
 			// The open card was deleted (here or elsewhere): drop ?task= from the address. The
 			// event can beat the delete request's own response, which unmounts the card first.
 			if (e.name === 'task.deleted' && (e.data as { id: UUID }).id === selectedTaskId) closeTask();
@@ -72,15 +74,60 @@
 	function openTask(task: Task) {
 		const url = new URL(page.url);
 		url.searchParams.set('task', task.id);
-		for (const k of ['comment', 'tab', 'job', 'view']) url.searchParams.delete(k);
+		for (const k of ['comment', 'tab', 'job', 'view', 'step']) url.searchParams.delete(k);
 		void goto(url, { replaceState: false, noScroll: true, keepFocus: true });
 	}
 	function closeTask() {
 		const url = new URL(page.url);
 		url.searchParams.delete('task');
-		for (const k of ['comment', 'tab', 'job', 'view']) url.searchParams.delete(k);
+		for (const k of ['comment', 'tab', 'job', 'view', 'step']) url.searchParams.delete(k);
 		void goto(url, { replaceState: true, noScroll: true });
 	}
+
+	// ---- a playbook run's steps (3h): hidden from the board, opened on top of the run card ----
+	let stepTaskId = $derived(page.url.searchParams.get('step'));
+	let stepTask = $state<Task | null>(null);
+	$effect(() => {
+		const id = stepTaskId;
+		if (!id || !selectedTask) {
+			stepTask = null;
+			return;
+		}
+		if (stepTask?.id === id) return;
+		api()
+			.tasks.get(id)
+			.then((t) => {
+				if (page.url.searchParams.get('step') === id) stepTask = t;
+			})
+			.catch(() => closeStep());
+	});
+	function closeStep() {
+		const url = new URL(page.url);
+		for (const k of ['step', 'comment', 'tab', 'job', 'view']) url.searchParams.delete(k);
+		void goto(url, { replaceState: true, noScroll: true, keepFocus: true });
+	}
+	// A link to a step's card (old links, search, notifications) opens its run card with the
+	// step on top, keeping where it pointed (?comment=, ?tab=…).
+	let redirecting: string | null = null;
+	$effect(() => {
+		const id = selectedTaskId;
+		if (!id || store.tasks.has(id) || redirecting === id) return;
+		redirecting = id;
+		void (async () => {
+			try {
+				const t = await api().tasks.get(id);
+				if (!t.playbook_step_id || !t.playbook_run_id) return;
+				const run = await api().playbookRuns.get(t.playbook_run_id);
+				if (!run.card_id) return;
+				const url = new URL(page.url);
+				url.searchParams.set('task', run.card_id);
+				url.searchParams.set('step', t.id);
+				void goto(url, { replaceState: true, noScroll: true, keepFocus: true });
+			} catch {
+				/* not a card we can show */
+			}
+		})();
+	});
 
 	async function move(taskId: UUID, columnId: UUID, position: number) {
 		const before = store.tasks.get(taskId);
@@ -208,5 +255,12 @@
 	<!-- Keyed so each card gets a fresh dialog: no field state can carry over between cards. -->
 	{#key selectedTask.id}
 		<TaskDialog task={selectedTask} columns={store.columns} {agents} onclose={closeTask} onupdated={(t) => store.upsertTask(t)} ondeleted={(id) => { store.tasks.delete(id); closeTask(); }} />
+	{/key}
+{/if}
+
+{#if selectedTask && stepTask}
+	<!-- The step's own card, on top of its run's card. -->
+	{#key stepTask.id}
+		<TaskDialog task={stepTask} columns={store.columns} {agents} onclose={closeStep} onupdated={(t) => (stepTask = t)} ondeleted={() => closeStep()} />
 	{/key}
 {/if}

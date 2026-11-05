@@ -140,7 +140,9 @@ def main() -> None:
 
     # People talking on the cards, with mentions.
     tasks = {t["title"]: t for t in call("GET", f"/projects/{nwl['id']}/board", admin)["tasks"]}
-    smb = next(t for title, t in tasks.items() if "SMB" in title and t["kind"] == "command")
+    # Steps are cards hidden inside their run's card; find the SMB audit through its run.
+    branching = call("GET", f"/playbook-runs/{runs[1]['id']}", admin)
+    smb = next(t for t in branching["tasks"] if t["title"].endswith("SMB signing audit"))
     call("POST", f"/tasks/{smb['id']}/comments", sam, {"body": "@admin three hosts don't require SMB signing. Relay looks viable from the user VLAN; want me to queue the relay check?"})
     call("POST", f"/tasks/{smb['id']}/comments", admin, {"body": "Yes, go ahead @sam. Keep it to the HQ range for now."})
     scope = tasks["Confirm scope exclusions with client"]

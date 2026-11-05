@@ -229,7 +229,8 @@ async def test_unexpected_output_asks_and_retry(client, auth):
     notes = client.get("/api/notifications?unread_only=true", headers=auth).json()
     mine = [n for n in notes["items"] if n["payload"].get("run_id") == str(run_id)]
     assert mine and mine[0]["kind"] == "playbook_step.attention"
-    assert mine[0]["link"] == f"/playbooks?run={run_id}&step=seed_hosts"
+    # It opens the run's card, where the decision is answered (3h).
+    assert mine[0]["link"] == f"/projects/{run.project_id}?task={run.card_id}"
 
     r = client.post(f"/api/playbook-runs/{run_id}/steps/smb_scan/resolve", json={"action": "continue"}, headers=auth)
     assert r.status_code == 409  # not waiting for a decision

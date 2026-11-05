@@ -150,7 +150,8 @@ async def get_board(project_id: str, db: DB, user: CurrentUser):
     ).scalars().all()
     tasks = (
         await db.execute(
-            select(m.Task).where(m.Task.project_id == project.id).order_by(m.Task.position)
+            # A playbook run shows as its one card; its step cards stay off the board (3h).
+            select(m.Task).where(m.Task.project_id == project.id, m.Task.playbook_step_id.is_(None)).order_by(m.Task.position)
         )
     ).scalars().all()
     return board_payload(project, list(columns), await tasks_out(db, list(tasks)))

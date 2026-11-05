@@ -17,7 +17,7 @@ from ..access import can_see, visible_project_ids
 from ..deps import DB, CurrentUser, parse_uuid
 from ..models import utcnow
 from ..orchestrator.gateway import gateway
-from ..services import playbook_run_out
+from ..services import playbook_run_out, step_link
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -393,7 +393,11 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
             select(func.count())
             .select_from(m.Task)
             .join(m.BoardColumn, m.BoardColumn.id == m.Task.column_id)
-            .where(in_scope(m.Task.project_id), m.BoardColumn.role.is_(None) | m.BoardColumn.role.not_in(done_roles))
+            .where(
+                in_scope(m.Task.project_id),
+                m.Task.playbook_step_id.is_(None),  # a run counts once, as its card
+                m.BoardColumn.role.is_(None) | m.BoardColumn.role.not_in(done_roles),
+            )
         )
     ).scalar_one()
 
@@ -480,7 +484,7 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
                     "detail": result.get("reason", ""),
                     "since": result.get("finished_at"),
                     "project": project_ref(run.project_id),
-                    "link": f"/playbooks?run={run.id}&step={step_id}",
+                    "link": step_link(run, step_id),
                     "for_you": True,  # everyone who can see the run is asked
                 })
 

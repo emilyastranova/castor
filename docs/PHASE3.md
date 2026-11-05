@@ -1,6 +1,6 @@
 # Phase 3 plan
 
-Status: in progress (2026-11-05); 3a, 3b, 3c, 3d and 3g are built. Roadmap item **M3** in
+Status: in progress (2026-11-05); 3a, 3b, 3c, 3d, 3g and 3h are built; 3e, 3f and 3i are left. Roadmap item **M3** in
 [ARCHITECTURE.md](ARCHITECTURE.md); Phase 2 is done and recorded in [PHASE2.md](PHASE2.md).
 
 Phase 3 makes Castor easier to run day to day: tools prepared on demand instead of baked
@@ -16,7 +16,8 @@ playbook step goes wrong.
 | 3e. AI resolver for paused steps | Gemini reads an unexpected result and retries (maybe with a fixed command), continues or skips | nothing | Idea |
 | 3f. Discovered artifacts | Typed objects Castor finds (IPs, hosts, services, credentials…) merged across tools, with triggers that act on new ones | parsers (2b) | Idea |
 | 3g. Search everywhere | Type-to-filter in every long picker; Ctrl+K searches everything you can see | nothing | Built |
-| 3h. Playbook runs as one card | A run is a single card on the board that opens into its graph and steps, instead of a card per step | nothing | Idea |
+| 3h. Playbook runs as one card | A run is a single card on the board that opens into its graph and steps, instead of a card per step | nothing | Built |
+| 3i. Import and export | Move projects, commands, tools, playbooks, variables (everything) between Castor instances as files | nothing | Idea |
 
 Suggested order: 3a (it unblocks the NetExec commands on the compose agent), 3d (small),
 3b, 3c, then 3e. 3f is the largest; it can start any time after 3a (it builds on parsers).
@@ -309,6 +310,22 @@ How it might work:
 
 ## 3h. Playbook runs as one card
 
+**Built.** Decided: steps stay cards in the database but never show on the board; the run
+card is created in In Progress and moves to Review once when the run ends (a card someone
+moved stays put); no "pop out a step" for now.
+
+- The run card (`playbook_runs.card_id`) shows a progress bar and the run's state (running ·
+  done/total, needs you, done, failed, cancelled). It opens on a **Run** tab: state, inputs,
+  decisions to answer, the live graph and the steps; a step (or a for_each item) opens as its
+  own card on top (`?step=`), with its console, results, files and comments as before.
+  Comments, attachments and history on the run card are about the run as a whole.
+- Old links to step cards (search, notifications, the feed) redirect to the run card with the
+  step on top. Decisions in Needs attention and their notifications open the run card.
+- Existing runs got their card at startup (`ensure_run_cards`, idempotent).
+- Not done yet: grouping a run's step events under the run in the dashboard timeline.
+
+The plan, as written before building:
+
 Today every step of a run is its own card (Phase 2c decided this), so one pipeline puts
 ten or more cards on the board and buries the hand-made ones. Instead, a run becomes
 **one card** that stands for the whole run.
@@ -346,3 +363,64 @@ Elsewhere:
   showing on the board) or become their own table? Should a user be able to "pop out" a step
   as a separate card when it needs its own follow-up work? Where do run cards land: a
   playbook-chosen column, or always To Do / In Progress?
+
+## 3i. Import and export
+
+Get things out of one Castor and into another (a second install, a fresh host, a teammate's
+lab), or keep a copy: one item, a project, or everything.
+
+### What can be exported
+
+- **Library items**, one at a time or many: commands, tools, playbooks (already YAML, so the
+  export is the same YAML they're edited as), variable kinds, and parsers' saved options if
+  that ever exists. A bundle of several is one file.
+- **Variable sets**: names, kinds, non-secret values and list fields. **Secrets are left out
+  by default**; including them asks for a passphrase and encrypts them in the file (never the
+  instance's vault key, never plain text). Importing without the passphrase brings the set
+  in with its secrets empty, flagged as missing.
+- **A project**: settings, columns, cards (fields, tags, priorities, assignees, custom fields,
+  command and argument bindings), comments with mentions, attachments and screenshots (the
+  files themselves), pinned notes, playbook runs with their step cards, and optionally job
+  history (runs, logs, parsed outputs) and the activity timeline, which can be large.
+- **Everything** (admins): every project plus the libraries, variable kinds and sets, users
+  (usernames, names, roles, pictures; never password hashes or tokens), project members,
+  clients. A migration path between hosts that doesn't depend on copying the database.
+
+### Format
+
+- One archive (`.castor.zip`): a `manifest.json` (format version, Castor version, what's in
+  it, when, by whom), JSON per kind of thing, YAML for library items, and the attachment files
+  under `files/`. Single library items also export as plain `.yaml`.
+- Every id in the archive is the source's; importing maps them to new ids, so the same
+  archive can be imported twice (two copies) and references inside it stay intact.
+- People are matched by **username**: assignees, mentions, authors and members point at the
+  user with the same username on the target, or are kept as a name only (or create the users,
+  for an admin importing everything).
+- The format is versioned; an importer reads older versions and refuses newer ones clearly.
+
+### Importing
+
+- **Preview first**: what's in the file, what's new, what already exists (same id for library
+  items, same codename for projects), what would be renamed, and anything that won't come
+  across (a command naming a tool that isn't there, a variable set without its secrets, a
+  person who doesn't exist).
+- Conflicts per item: **skip**, **replace** (library items you own; built-ins are never
+  replaced), or **keep both** (renamed id/codename, e.g. `nmap-scan-2`, `NWL26-001-copy`).
+- Runs in one transaction: a failed import leaves nothing behind. Imported items are recorded
+  in the activity feed (who imported what, from which file).
+- Imported projects come in with their history read-only as it was; nothing is re-run.
+
+### Where
+
+- Each library page (Commands, Tools, Playbooks, Variables) gets **Export** (selected or all)
+  and **Import** buttons; a card's menu in the library offers "Export as YAML".
+- A project's menu gets **Export project…** (with checkboxes for job history and activity)
+  and the Projects page **Import project…**.
+- **Settings → Import and export** (admins): export everything, import an archive, and a
+  history of past imports/exports.
+- API: `GET /api/export?...` (streams the archive), `POST /api/import/preview` (upload, returns
+  the plan), `POST /api/import` (the file plus the chosen resolutions).
+
+- **Open questions:** should exports be scheduled (a nightly "everything" archive to a folder
+  or bucket as a backup)? Should an import be able to merge into an existing project (add the
+  archive's cards to it) rather than always creating a new one?

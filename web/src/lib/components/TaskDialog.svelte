@@ -15,6 +15,7 @@
 	import ColumnGlyph from './ColumnGlyph.svelte';
 	import PriorityGlyph, { priorityOptions } from './PriorityGlyph.svelte';
 	import NameImageDialog from './NameImageDialog.svelte';
+	import RunPanel from './RunPanel.svelte';
 	import AssigneePicker from './AssigneePicker.svelte';
 	import MentionMenu from './MentionMenu.svelte';
 	import RichText from './RichText.svelte';
@@ -25,6 +26,7 @@
 	import VarBindings from './VarBindings.svelte';
 	import { tick } from 'svelte';
 	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import { canEdit as roleCanEdit } from '$lib/session';
 	import { isListRef, lists } from '$lib/lists.svelte';
 
@@ -46,7 +48,7 @@
 	$effect(() => {
 		if (!editable && Object.values(task.command_args ?? {}).some(isListRef) && !lists.loaded) void lists.load();
 	});
-	let tab = $state<'output' | 'comments' | 'attachments' | 'fields' | 'history'>('output');
+	let tab = $state<'run' | 'output' | 'comments' | 'attachments' | 'fields' | 'history'>('output');
 
 	// ---- editable fields (debounced save) ----
 	let title = $state('');
@@ -81,15 +83,19 @@
 		tagsText = task.tags.join(', ');
 		editingDescription = false;
 		// A notification about a comment (?comment=<id>) opens the card on it.
-		const linked = page.url.searchParams.get('comment');
-		// Search results link straight to a tab, a run and its results (?tab=&job=&view=).
-		const params = page.url.searchParams;
+		// Search results link straight to a tab, a run and its results (?tab=&job=&view=). With
+		// ?step= those are for the step's card on top of this run card, not for this one.
+		const params = new URLSearchParams(page.url.searchParams);
+		if (params.get('step') && task.run) for (const k of ['comment', 'tab', 'job', 'view']) params.delete(k);
+		const linked = params.get('comment');
 		const wantedTab = params.get('tab');
 		tab = linked
 			? 'comments'
-			: wantedTab && ['output', 'comments', 'attachments', 'fields', 'history'].includes(wantedTab)
+			: wantedTab && ['run', 'output', 'comments', 'attachments', 'fields', 'history'].includes(wantedTab)
 				? (wantedTab as typeof tab)
-				: task.kind === 'command'
+				: task.run
+					? 'run'
+					: task.kind === 'command'
 					? 'output'
 					: 'comments';
 		selectedJobId = params.get('job') ?? task.latest_job?.id ?? null;
@@ -231,7 +237,7 @@
 	let shownLink: string | null = null;
 	$effect(() => {
 		const linked = page.url.searchParams.get('comment');
-		if (!linked || linked === shownLink) return;
+		if (!linked || linked === shownLink || (page.url.searchParams.get('step') && task.run)) return;
 		shownLink = linked;
 		tab = 'comments';
 		void showComment(linked);
@@ -466,6 +472,13 @@
 		}
 	}
 
+	/** A run card's step opens as its own card on top (?step=<its card>). */
+	function openStep(taskId: UUID) {
+		const url = new URL(page.url);
+		url.searchParams.set('step', taskId);
+		void goto(url, { noScroll: true, keepFocus: true });
+	}
+
 	async function remove() {
 		const ok = await confirmAction({
 			title: 'Delete card?',
@@ -492,6 +505,7 @@
 	let screenshots = $derived(attachments.filter((a) => a.content_type.startsWith('image/')));
 	let files = $derived(attachments.filter((a) => !a.content_type.startsWith('image/')));
 	let tabs = $derived([
+		...(task.run ? [{ id: 'run', label: 'Run', icon: 'account_tree', badge: undefined }] : []),
 		...(task.kind === 'command' ? [{ id: 'output', label: 'Output', icon: 'terminal', badge: jobs.length }] : []),
 		{ id: 'comments', label: 'Comments', icon: 'chat_bubble', badge: comments.length },
 		{ id: 'attachments', label: 'Attachments', icon: 'attach_file', badge: attachments.length },
@@ -503,7 +517,7 @@
 <Dialog bind:open size="lg" initialFocus="dialog" onclose={onclose}>
 	{#snippet header()}
 		<div class="flex items-start gap-3 px-6 pt-5 pb-3">
-			<Icon name={task.kind === 'command' ? 'terminal' : 'person'} class="mt-2 {task.kind === 'command' ? 'text-primary' : 'text-on-surface-variant'}" />
+			<Icon name={task.run ? 'account_tree' : task.kind === 'command' ? 'terminal' : 'person'} class="mt-2 {task.run || task.kind === 'command' ? 'text-primary' : 'text-on-surface-variant'}" />
 			<div class="min-w-0 flex-1">
 				<input
 					class="w-full bg-transparent headline-small text-on-surface outline-none focus:underline decoration-primary/40 underline-offset-4"
@@ -529,7 +543,7 @@
 			{/if}
 			<Menu>
 				{#snippet anchor()}<IconButton icon="more_vert" label="Card menu" />{/snippet}
-				{#if editable}
+				{#if editable && !task.run && !task.playbook_step_id}
 					<MenuItem icon={task.kind === 'command' ? 'person' : 'terminal'} onclick={() => save({ kind: task.kind === 'command' ? 'manual' : 'command' })}>
 						Convert to {task.kind === 'command' ? 'human task' : 'command'}
 					</MenuItem>
@@ -661,7 +675,9 @@
 
 			<Tabs {tabs} bind:value={tab} />
 
-			{#if tab === 'output'}
+			{#if tab === 'run' && task.run}
+				<RunPanel runId={task.run.run_id} {editable} onopenstep={openStep} />
+			{:else if tab === 'output'}
 				<div class="flex min-h-[320px] flex-1 flex-col gap-2">
 					{#if jobs.length > 1}
 						<div class="flex flex-wrap gap-1">
@@ -867,9 +883,14 @@
 
 		<!-- side column -->
 		<aside class="flex flex-col gap-4">
-			<Select label="Column" value={task.column_id} disabled={!editable} options={columns.map((c) => ({ value: c.id, label: c.name }))} onchange={moveTo}>
-				{#snippet leading(id)}<ColumnGlyph role={columns.find((c) => c.id === id)?.role} />{/snippet}
-			</Select>
+			{#if task.playbook_step_id}
+				<!-- A step lives in its run's card, not in a column. -->
+				<p class="flex items-center gap-2 rounded-md bg-surface-container px-3 py-2 body-small text-on-surface-variant"><Icon name="account_tree" size={18} />A step of a playbook run</p>
+			{:else}
+				<Select label="Column" value={task.column_id} disabled={!editable} options={columns.map((c) => ({ value: c.id, label: c.name }))} onchange={moveTo}>
+					{#snippet leading(id)}<ColumnGlyph role={columns.find((c) => c.id === id)?.role} />{/snippet}
+				</Select>
+			{/if}
 			<Select label="Priority" bind:value={priority} disabled={!editable} options={priorityOptions} onchange={(v) => save({ priority: Number(v) })}>
 				{#snippet leading(level)}<PriorityGlyph {level} />{/snippet}
 			</Select>
@@ -878,7 +899,7 @@
 			<div class="rounded-md bg-surface-container p-4 body-small text-on-surface-variant">
 				<p class="mb-2 title-small text-on-surface">Details</p>
 				<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-					<dt>Kind</dt><dd class="text-on-surface">{task.kind}</dd>
+					<dt>Kind</dt><dd class="text-on-surface">{task.run ? 'playbook run' : task.playbook_step_id ? 'playbook step' : task.kind}</dd>
 					{#if task.latest_job}
 						<dt>Last run</dt><dd class="text-on-surface">{task.latest_job.status}{task.latest_job.started_at ? ` · ${duration(task.latest_job.started_at, task.latest_job.finished_at)}` : ''}</dd>
 						<dt>Agent</dt><dd class="text-on-surface">{agentName(task.latest_job.agent_id)}</dd>

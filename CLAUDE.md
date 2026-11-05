@@ -129,6 +129,10 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   a newer job supersedes it. `on_failure: ask` pauses a step (`attention`) and calls
   `notifications.notify`; `services.resolve_step` applies retry/continue/skip/fail and takes
   an `actor` for non-human resolvers. `branching-demo` exercises all of it.
+- Run cards (3h): a run is one board card (`playbook_runs.card_id`, `TaskOut.run` summary,
+  `services._card_to_review`, `ensure_run_cards`); step cards have `playbook_step_id` and are
+  filtered out of the board (server `get_board`, client `BoardStore`). Web: `RunPanel.svelte`
+  in TaskDialog's Run tab; the board page opens `?step=` on top and redirects step links.
 - Tools (Phase 3a): `tool_spec.py` (YAML → `ToolSpec`: `image`, `build` recipe, `host`;
   `way_for` picks one per agent; recipe tags hash the recipe), `tool_library.py` (built-ins
   from `CASTOR_TOOLS_DIR` = `tools/`), `api/tools.py`. Commands say `tool: <id>`; the

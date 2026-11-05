@@ -29,8 +29,8 @@ tool's output into typed results (hosts, services, URLs), so the board doubles a
 the workflow's execution log.
 
 **Playbooks** chain commands into a graph. Steps run in parallel where they can,
-transform steps reshape one tool's results into the next tool's input, and every
-step appears on the board as its own card.
+transform steps reshape one tool's results into the next tool's input, and a run shows
+on the board as one card that opens into its live graph, decisions and steps.
 
 > **■ Status: Phase 3 in progress.** Phase 2 (the board, agents with their own tokens,
 > command library, parsers, playbooks with a visual editor, users with roles) is done; see
@@ -48,14 +48,14 @@ running, and what's waiting on you (mentions, playbook decisions, failed runs).
 
 <table>
   <tr>
-    <td width="50%"><img src=".github/assets/screenshots/board.png" alt="A project board with Backlog, To Do, In Progress and Review columns; command cards show their command line and run status, and assignees show as avatars."></td>
-    <td width="50%"><img src=".github/assets/screenshots/card.png" alt="A card's detail dialog: its command, agent and run settings, and a comment thread where a comment mentioning you is highlighted and @mentions show as name chips."></td>
+    <td width="50%"><img src=".github/assets/screenshots/board.png" alt="A project board with Backlog, To Do, In Progress and Review columns; command cards show their command line and run status, playbook runs show as single cards with a progress bar, and assignees show as avatars."></td>
+    <td width="50%"><img src=".github/assets/screenshots/card.png" alt="A playbook run's card opened on its Run tab: the run's state and progress, its inputs, a step waiting for a decision with retry, continue, skip and fail buttons, and the live graph of steps."></td>
   </tr>
   <tr>
     <td><b>The board.</b> Manual and command cards; dragging a command card into In
     Progress runs it on an agent.</td>
-    <td><b>A card.</b> Its command and runs, files, history, and a comment thread with
-    @mentions that notify people.</td>
+    <td><b>A playbook run</b> is one card: its progress, decisions to answer and the live
+    graph; each step opens as its own card with its console and results.</td>
   </tr>
   <tr>
     <td colspan="2"><img src=".github/assets/screenshots/playbook.png" alt="A finished playbook run drawn as a graph: a seed step fans out to a service scan, an SMB scan and DNS names; transform steps reshape results between commands; a report collects the branches."></td>

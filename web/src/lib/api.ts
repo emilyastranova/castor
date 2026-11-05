@@ -419,6 +419,18 @@ export interface PlaybookDefinition {
 
 export type PlaybookRunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
 
+export interface RunSummary {
+	run_id: UUID;
+	playbook_id: string;
+	status: PlaybookRunStatus;
+	done: number;
+	total: number;
+	running: number;
+	attention: number;
+	failed: number;
+	step_task_ids: Record<string, string>;
+}
+
 export interface PlaybookRun {
 	id: UUID;
 	playbook_id: string;
@@ -432,6 +444,8 @@ export interface PlaybookRun {
 	spec_snapshot: PlaybookSpec;
 	finished_at: string | null;
 	created_at: string;
+	/** The run's card on the board. */
+	card_id: UUID | null;
 	tasks: Task[];
 }
 
@@ -628,6 +642,8 @@ export interface Task {
 	created_at: string;
 	updated_at: string;
 	latest_job: Job | null;
+	/** Set on a playbook run's card: where the run is (its steps are hidden cards). */
+	run?: RunSummary | null;
 	comment_count: number;
 	attachment_count: number;
 }

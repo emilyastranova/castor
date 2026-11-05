@@ -279,7 +279,7 @@ class Task(Base, TimestampMixin):
 
     project: Mapped[Project] = relationship(back_populates="tasks")
     column: Mapped[BoardColumn] = relationship(back_populates="tasks")
-    playbook_run: Mapped[PlaybookRun | None] = relationship(back_populates="tasks")
+    playbook_run: Mapped[PlaybookRun | None] = relationship(back_populates="tasks", foreign_keys=[playbook_run_id])
     jobs: Mapped[list[Job]] = relationship(
         back_populates="task", cascade="all, delete-orphan", order_by="Job.queued_at"
     )
@@ -401,10 +401,16 @@ class PlaybookRun(Base, TimestampMixin):
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # The run's one card on the board (Phase 3h). Its steps are cards too, but hidden.
+    card_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("tasks.id", ondelete="SET NULL", use_alter=True, name="fk_playbook_runs_card_id"),
+        nullable=True,
+        index=True,
+    )
 
     project: Mapped[Project] = relationship()
     tasks: Mapped[list[Task]] = relationship(
-        back_populates="playbook_run", cascade="all, delete-orphan"
+        back_populates="playbook_run", cascade="all, delete-orphan", foreign_keys="Task.playbook_run_id"
     )
 
 

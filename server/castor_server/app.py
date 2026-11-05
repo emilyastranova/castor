@@ -19,6 +19,7 @@ from .orchestrator.dispatcher import dispatcher
 from .orchestrator.gateway import gateway
 from .playbook_library import sync_builtin_playbooks
 from .security import hash_password
+from .services import ensure_run_cards
 from .tool_library import sync_builtin_tools
 from .variables import drop_unclaimed, sync_builtin_kinds
 from .ws.ui import router as ui_ws_router
@@ -71,6 +72,9 @@ async def lifespan(app: FastAPI):
         loaded_tools = await sync_builtin_tools(db)  # before commands, which name tools
         loaded = await sync_builtin_definitions(db)
         loaded_playbooks = await sync_builtin_playbooks(db)
+        carded = await ensure_run_cards(db)  # runs from before run cards (3h)
+    if carded:
+        log.info("gave %d earlier playbook runs their card", carded)
     log.info("tool library: %d built-in tools", loaded_tools)
     log.info("command library: %d built-in definitions", loaded)
     log.info("playbook library: %d built-in playbooks", loaded_playbooks)

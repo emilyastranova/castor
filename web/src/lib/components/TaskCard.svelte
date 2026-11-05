@@ -11,7 +11,17 @@
 	}
 	let { task, onopen }: Props = $props();
 	let assignees = $derived(task.assignees.map((id) => people.user(task.project_id, id)).filter((u) => !!u));
-	let running = $derived(task.latest_job?.status === 'running' || task.latest_job?.status === 'dispatched');
+	let running = $derived(task.latest_job?.status === 'running' || task.latest_job?.status === 'dispatched' || task.run?.status === 'running');
+	/** A playbook run's card: its state in a word, and how far along it is. */
+	let runState = $derived.by(() => {
+		const r = task.run;
+		if (!r) return null;
+		if (r.attention) return { label: 'Needs you', icon: 'front_hand', tone: 'bg-tertiary-container text-on-tertiary-container' };
+		if (r.status === 'running') return { label: `Running · ${r.done}/${r.total}`, icon: 'progress_activity', tone: 'bg-primary-container text-on-primary-container' };
+		if (r.status === 'succeeded') return { label: 'Done', icon: 'check_circle', tone: 'bg-primary-container text-on-primary-container' };
+		if (r.status === 'failed') return { label: `Failed · ${r.failed} step${r.failed === 1 ? '' : 's'}`, icon: 'error', tone: 'bg-error-container text-on-error-container' };
+		return { label: 'Cancelled', icon: 'cancel', tone: 'bg-surface-container-highest text-on-surface-variant' };
+	});
 </script>
 
 <div
@@ -23,15 +33,28 @@
 >
 	<div class="flex items-start gap-2">
 		<Icon
-			name={task.kind === 'command' ? 'terminal' : 'person'}
+			name={task.run ? 'account_tree' : task.kind === 'command' ? 'terminal' : 'person'}
 			size={18}
-			class="mt-0.5 {task.kind === 'command' ? 'text-primary' : 'text-on-surface-variant'}"
+			class="mt-0.5 {task.run || task.kind === 'command' ? 'text-primary' : 'text-on-surface-variant'}"
 		/>
 		<p class="min-w-0 flex-1 body-medium text-on-surface">{task.title}</p>
 		{#if task.priority > 0}
 			<span class="mt-0.5" title="{priorityLabels[task.priority] ?? ''} priority"><PriorityGlyph level={task.priority} /></span>
 		{/if}
 	</div>
+	{#if task.run && runState}
+		<div class="flex flex-col gap-1.5">
+			<span class="h-1.5 overflow-hidden rounded-full bg-surface-container-highest" title="{task.run.done} of {task.run.total} steps done">
+				<span class="block h-full rounded-full transition-all {task.run.failed ? 'bg-error' : 'bg-primary'}" style:width="{task.run.total ? (100 * task.run.done) / task.run.total : 0}%"></span>
+			</span>
+			<span class="flex items-center gap-1.5">
+				<span class="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 label-small {runState.tone}">
+					<Icon name={runState.icon} size={14} class={task.run.status === 'running' && !task.run.attention ? 'motion-safe:animate-spin' : ''} />{runState.label}
+				</span>
+				<span class="label-small text-on-surface-variant">Playbook</span>
+			</span>
+		</div>
+	{/if}
 	{#if task.kind === 'command' && task.command}
 		<code class="truncate rounded-xs bg-surface-container px-2 py-1 font-mono text-[12px] text-on-surface-variant">{task.command}</code>
 	{/if}

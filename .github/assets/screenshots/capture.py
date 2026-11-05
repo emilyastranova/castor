@@ -59,12 +59,11 @@ def main() -> None:
                 settle(page)
                 shot(page, "board")
 
+                # A playbook run's card, open on its Run tab (progress, decision, graph, steps).
                 board = page.request.get(f"{WEB}/api/projects/{pid}/board").json()
-                audit = next(t for t in board["tasks"] if t["title"].endswith("SMB signing audit"))
-                page.goto(f"{WEB}/projects/{pid}?task={audit['id']}")
-                settle(page)
-                page.locator("dialog[open]").get_by_text("Comments", exact=False).first.click()
-                settle(page, 600)
+                run_card = next(t for t in board["tasks"] if t.get("run") and t["run"]["playbook_id"] == "branching-demo")
+                page.goto(f"{WEB}/projects/{pid}?task={run_card['id']}")
+                settle(page, 1500)
                 shot(page, "card")
 
                 runs = page.request.get(f"{WEB}/api/playbook-runs").json()
