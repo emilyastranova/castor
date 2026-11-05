@@ -256,7 +256,7 @@ export interface FeedItem {
 	project: ProjectRef | null;
 	task: { id: UUID; name: string } | null;
 	actor: { type: 'user' | 'agent' | 'system'; name: string; avatar_url: string | null };
-	comment: { id: UUID; body: string; edited: boolean } | null;
+	comment: { id: UUID; body: string; edited: boolean; mentions: string[] } | null;
 	job: { id: UUID; status: string; exit_code: number | null; seconds: number | null; agent: string | null; command: string } | null;
 	run_id: string | null;
 	step_id: string | null;
@@ -264,11 +264,11 @@ export interface FeedItem {
 
 export interface DashboardSummary {
 	counts: { open_cards: number; comments_24h: number; cards_24h: number; jobs_succeeded_24h: number; jobs_failed_24h: number };
-	attention: { kind: 'decision' | 'failed'; title: string; detail: string; since: string | null; project: ProjectRef | null; link: string }[];
+	attention: { kind: 'decision' | 'failed'; title: string; detail: string; since: string | null; project: ProjectRef | null; link: string; for_you: boolean }[];
 	live_jobs: { job_id: UUID; status: string; task: { id: UUID; name: string }; project: ProjectRef | null; agent: string | null; queued_at: string; started_at: string | null }[];
 	live_runs: { run_id: UUID; name: string; project: ProjectRef | null; done: number; total: number; running: number; waiting: number; started_at: string }[];
 	agents: { online: number; slots: number; busy: number };
-	mine: { assigned: number; opened: number };
+	mine: { assigned: number; opened: number; mentions: number };
 	facts: string[];
 	pinned: { project: ProjectRef | null; note_id: UUID; title: string; color: string; line: string; updated_at: string }[];
 }
@@ -605,6 +605,8 @@ export interface Comment {
 	author_name: string;
 	author_avatar?: string | null;
 	body: string;
+	/** Ids of the people it @mentions. */
+	mentions: string[];
 	created_at: string;
 	updated_at: string;
 	/** Set when the body was changed after posting. */
@@ -757,6 +759,8 @@ export function api(fetchFn: Fetch = fetch) {
 		},
 		projects: {
 			members: (id: UUID) => get<UserBrief[]>(`/projects/${id}/members`),
+			/** Everyone who can see the project (members and admins): assignees, @mentions. */
+			people: (id: UUID) => get<UserBrief[]>(`/projects/${id}/people`),
 			setMembers: (id: UUID, userIds: UUID[]) => request<UserBrief[]>(fetchFn, 'PUT', `/projects/${id}/members`, userIds),
 			list: () => get<ProjectSummary[]>('/projects'),
 			get: (id: UUID) => get<Project>(`/projects/${id}`),
@@ -939,9 +943,10 @@ export function api(fetchFn: Fetch = fetch) {
 		},
 		dashboard: {
 			summary: (projectId?: string | null) => get<DashboardSummary>(`/dashboard/summary${projectId ? `?project_id=${projectId}` : ''}`),
-			feed: (params: { project_id?: string | null; kinds?: FeedKind[]; before?: number | null; limit?: number } = {}) => {
+			feed: (params: { project_id?: string | null; kinds?: FeedKind[]; mine?: boolean; before?: number | null; limit?: number } = {}) => {
 				const q = new URLSearchParams();
 				if (params.project_id) q.set('project_id', params.project_id);
+				if (params.mine) q.set('mine', 'true');
 				if (params.kinds?.length) q.set('kinds', params.kinds.join(','));
 				if (params.before) q.set('before', String(params.before));
 				if (params.limit) q.set('limit', String(params.limit));

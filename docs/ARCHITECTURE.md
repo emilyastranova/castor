@@ -316,7 +316,8 @@ moving, what's yours and a random fact (those, or general trivia from
 `dashboard/trivia.ts`). `GET /api/dashboard/feed` is the timeline: activity events with what
 they're about attached (the comment's text, the job's outcome, duration and agent, the
 card, the author's picture), filtered by kind (`comment, job, card, move, file, playbook, note,
-agent, admin`; admin events only for admins; job queue/dispatch steps never), paged with
+agent, admin`) and optionally to what's about the user (`mine=true`: their assigned, opened or
+commented cards and comments mentioning them, done by someone else); admin events only for admins; job queue/dispatch steps never), paged with
 `before=<id>`. A project's dashboard starts with its pinned notes (`GET/POST
 /api/projects/{id}/notes`, `PATCH/DELETE /api/notes/{id}`, `GET /api/notes/{id}/history`,
 `POST /api/notes/{id}/restore/{index}`, `POST /api/projects/{id}/notes/order`); every edit

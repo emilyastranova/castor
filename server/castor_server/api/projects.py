@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from .. import models as m
+from .. import people
 from ..access import add_member, project_or_404, visible_project_ids
 from ..deps import DB, Admin, CurrentUser, Operator, parse_uuid
 from ..events import bus
@@ -228,6 +229,13 @@ async def delete_column(project_id: str, column_id: str, db: DB, user: CurrentUs
 
 
 # ----- members -----
+
+
+@router.get("/{project_id}/people", response_model=list[UserBrief])
+async def list_people(project_id: str, db: DB, user: CurrentUser):
+    """Everyone who can see the project (members and admins): for assignees and @mentions."""
+    project = await _project_or_404(db, user, project_id)
+    return [UserBrief.model_validate(u) for u in await people.project_people(db, project.id)]
 
 
 @router.get("/{project_id}/members", response_model=list[UserBrief])

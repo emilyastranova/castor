@@ -133,6 +133,10 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   dispatcher resolves it into `job.tool` and the agent's `tools.py` pulls/builds/checks it.
   A recipe's `check` must exit 0 (it is the last build step). Never add tools to the agent
   image.
+- People (Phase 3b): `people.py` (who can see a project, `@mention` parsing, assignee checks).
+  `tasks.assignees` and `comments.mentions` hold user ids as strings. Personal notifications
+  (`task.assigned`, `comment.mention`) use `notify(user_ids=..., webhooks=False)`. Web:
+  `lib/people.svelte.ts` (per-project people + mention chips), `mentionSuggest.svelte.ts`.
 - Notifications: `notifications.py` (one row per user, `subject` to clear related ones,
   webhooks via `CASTOR_NOTIFY_WEBHOOKS` posted from a thread so a dead webhook never blocks
   a run). Web: `lib/notifications.svelte.ts` + `NotificationBell.svelte` in the rail.

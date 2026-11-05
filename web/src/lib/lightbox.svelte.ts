@@ -64,10 +64,10 @@ function nameOf(img: HTMLImageElement): string {
 export function openImagesIn(e: MouseEvent): void {
 	const img = (e.target as HTMLElement).closest('img');
 	const root = e.currentTarget as HTMLElement | null;
-	if (!img?.src || !root) return;
+	if (!img?.src || !root || img.closest('.mention')) return; // a mention's picture isn't content
 	e.preventDefault();
 	e.stopPropagation();
-	const all = Array.from(root.querySelectorAll('img')).filter((i) => i.src);
+	const all = Array.from(root.querySelectorAll('img')).filter((i) => i.src && !i.closest('.mention'));
 	lightbox.open(
 		all.map((i) => ({ src: i.src, name: nameOf(i) })),
 		Math.max(all.indexOf(img), 0)

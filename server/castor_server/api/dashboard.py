@@ -90,10 +90,12 @@ async def feed(
     project_id: str | None = None,
     kinds: str | None = None,
     actor: str | None = None,
+    mine: bool = False,
     before: int | None = None,
     limit: int = 40,
 ):
     scope = await _scope(db, user, project_id)
+    my_tasks, mentioning = await _mine(db, user, scope) if mine else (set(), set())
     wanted = {k for k in (kinds or "").split(",") if k} or None
     query = select(m.ActivityEvent).where(m.ActivityEvent.type.not_in(HIDDEN_TYPES)).order_by(m.ActivityEvent.id.desc())
     if project_id:
@@ -120,10 +122,39 @@ async def feed(
                 continue
             if wanted and kind not in wanted:
                 continue
+            if mine and not _is_mine(e, user, my_tasks, mentioning):
+                continue
             events.append(e)
             if len(events) == limit:
                 break
     return FeedOut(items=await _enrich(db, events), next_before=events[-1].id if len(events) == limit else None)
+
+
+async def _mine(db: DB, user: m.User, scope: set[uuid.UUID] | None) -> tuple[set[uuid.UUID], set[str]]:
+    """For the "Mine" timeline: the cards that are yours (assigned to you, opened by you, or
+    commented on by you) and the comments that mention you."""
+    def in_scope(column):
+        return column.in_(scope) if scope is not None else true()
+
+    me = str(user.id)
+    rows = (await db.execute(select(m.Task.id, m.Task.assignees, m.Task.created_by).where(in_scope(m.Task.project_id)))).all()
+    tasks = {tid for tid, assignees, creator in rows if me in (assignees or []) or creator == user.id}
+    commented = await db.execute(
+        select(m.Comment.task_id).join(m.Task, m.Task.id == m.Comment.task_id)
+        .where(in_scope(m.Task.project_id), m.Comment.author_id == user.id).distinct()
+    )
+    tasks |= set(commented.scalars())
+    mentions = await db.execute(
+        select(m.Comment.id, m.Comment.mentions).join(m.Task, m.Task.id == m.Comment.task_id).where(in_scope(m.Task.project_id))
+    )
+    return tasks, {str(cid) for cid, who in mentions.all() if me in (who or [])}
+
+
+def _is_mine(e: m.ActivityEvent, user: m.User, tasks: set[uuid.UUID], mentioning: set[str]) -> bool:
+    """Something about you that someone (or something) else did."""
+    if e.actor_type == "user" and e.actor_id == str(user.id):
+        return False
+    return e.task_id in tasks or (e.payload or {}).get("comment_id") in mentioning
 
 
 async def _enrich(db: DB, events: list[m.ActivityEvent]) -> list[FeedItem]:
@@ -181,7 +212,12 @@ async def _enrich(db: DB, events: list[m.ActivityEvent]) -> list[FeedItem]:
         comment = comments.get(uuid.UUID(payload["comment_id"])) if _is_uuid(payload.get("comment_id")) else None
         if comment is not None:
             body = comment.body
-            item.comment = {"id": str(comment.id), "body": body[:800] + ("…" if len(body) > 800 else ""), "edited": comment.edited_at is not None}
+            item.comment = {
+                "id": str(comment.id),
+                "body": body[:800] + ("…" if len(body) > 800 else ""),
+                "edited": comment.edited_at is not None,
+                "mentions": list(comment.mentions or []),
+            }
         job = jobs.get(uuid.UUID(payload["job_id"])) if _is_uuid(payload.get("job_id")) else None
         if job is not None:
             agent = agents.get(job.agent_id) if job.agent_id else None
@@ -444,6 +480,7 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
                     "since": result.get("finished_at"),
                     "project": project_ref(run.project_id),
                     "link": f"/playbooks?run={run.id}&step={step_id}",
+                    "for_you": True,  # everyone who can see the run is asked
                 })
 
     # Cards whose latest run failed in the last week and that aren't done yet.
@@ -482,6 +519,7 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
             "project": project_ref(task.project_id),
             "task_id": str(task.id),
             "link": f"/projects/{task.project_id}?task={task.id}",
+            "for_you": str(user.id) in (task.assignees or []) or task.created_by == user.id,
         })
 
     online = [c for c in gateway.connections.values()]
@@ -492,10 +530,18 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
             .where(in_scope(m.Task.project_id), m.BoardColumn.role.is_(None) | m.BoardColumn.role.not_in(done_roles))
         )
     ).all()
-    me = {user.username, str(user.id)}  # assignees hold usernames (ids accepted too)
+    me = str(user.id)
+    unread_mentions = (
+        await db.execute(
+            select(func.count()).where(
+                m.Notification.user_id == user.id, m.Notification.kind == "comment.mention", m.Notification.read_at.is_(None)
+            )
+        )
+    ).scalar_one()
     mine = {
-        "assigned": sum(bool(me & set(a or [])) for a, _ in open_rows),
+        "assigned": sum(me in (a or []) for a, _ in open_rows),
         "opened": sum(c == user.id for _, c in open_rows),
+        "mentions": unread_mentions,
     }
     return Summary(
         mine=mine,

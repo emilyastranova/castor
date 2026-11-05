@@ -1,6 +1,6 @@
 # Phase 3 plan
 
-Status: in progress (2026-11-05); 3a and 3d are built. Roadmap item **M3** in
+Status: in progress (2026-11-05); 3a, 3b and 3d are built. Roadmap item **M3** in
 [ARCHITECTURE.md](ARCHITECTURE.md); Phase 2 is done and recorded in [PHASE2.md](PHASE2.md).
 
 Phase 3 makes Castor easier to run day to day: tools prepared on demand instead of baked
@@ -10,7 +10,7 @@ playbook step goes wrong.
 | Slice | What you get | Depends on | Status |
 | --- | --- | --- | --- |
 | 3a. Tool environments | Commands name a tool; agents pull or build it on demand and cache it; the agent image stays bare | nothing | Built |
-| 3b. "Mine" and @mentions | Mention people in comments (and get notified); a dashboard filter for your cards and mentions | nothing | Idea |
+| 3b. "Mine", @mentions, assignees | Assign cards to people; mention people in comments (they get notified); a "Mine" filter on the dashboard and board | nothing | Built |
 | 3c. Per-person view | Click a name to see everything that person did and has on their plate | 3b helps | Idea |
 | 3d. Pinned project notes | A few titled notes (status, objectives…) at the top of a project's dashboard | nothing | Built |
 | 3e. AI resolver for paused steps | Gemini reads an unexpected result and retries (maybe with a fixed command), continues or skips | nothing | Idea |
@@ -102,25 +102,31 @@ re-applied.
 - A published image (Parrot): <https://hub.docker.com/r/parrotsec/netexec>
 - Hash-tagged images to skip rebuilds: <https://github.com/dpc/docker-source-checksum>
 
-## 3b. "Mine" and @mentions
+## 3b. "Mine", @mentions and assignees
 
-Turns the dashboard into a personal inbox.
+**Built.** Decided: assignees are real users, and mention/assignment notifications are
+in-app only (the team webhooks stay for run events).
 
-- **Mentions.** Typing `@` in a comment box suggests people who can see the project
-  (members and admins). `@username` in a comment is stored with the comment (a
-  `comment_mentions` table, or a `mentions` list on the comment) and rendered as a chip.
-  Mentioned users get a notification (`comment.mention`, linking to the card), and only if
-  they can see the project. Editing a comment notifies only newly added mentions.
-- **"Mine" filter.** A dashboard toggle (home and project) that narrows the timeline to:
-  cards assigned to you (`tasks.assignees`, which today holds free text and would hold
-  usernames), comments that mention you, replies on cards you commented on, and steps you
-  were asked to decide. Needs attention gets a "for you" section the same way.
-- **Headline.** The dashboard's rotating "what's yours" line already counts cards assigned
-  to you (matched by username) and cards you opened; it gains mentions, and assigned cards
-  start showing once there's an assignee picker (nothing in the UI sets them yet).
-- **Open questions:** should assignees become real user references (a picker, with a
-  migration for existing free-text values)? Mention notifications by webhook too, or in-app
-  only?
+- **Assignees.** `tasks.assignees` holds user ids, chosen from the people who can see the
+  project (`GET /api/projects/{id}/people`: members and admins; `people.check_assignees`
+  also accepts usernames). The card dialog has an Assignees picker with "Assign to me";
+  cards show assignee avatars; the board has an **Assigned to me** filter. Newly assigned
+  people get a `task.assigned` notification (not when you assign yourself), and changes go
+  to the feed (`task.assigned`). The migration turned old free-text values that named a
+  user into that user's id and dropped the rest.
+- **Mentions.** Typing `@` in a comment box suggests the people on the project (Enter/Tab
+  or click inserts `@username`). The server reads `@username` outside code
+  (`people.mention_names`), stores the ids on the comment (`comments.mentions`) and
+  notifies the people mentioned who can see the project (`comment.mention`); an edit
+  notifies only people it adds. Mentions render as chips (yours highlighted).
+- **"Mine".** A dashboard toggle (home and project, remembered per browser) that narrows
+  the timeline to what's about you that someone else did: events on cards assigned to you,
+  opened by you or commented on by you, and comments that mention you (`feed?mine=true`).
+  Needs attention keeps decisions and your failed cards (tagged "for you"). The headline's
+  "what's yours" line counts assigned cards, unread mentions and cards you opened.
+- Code: `people.py`, `api/tasks.py` (`_assignees_changed`, `_mention`),
+  `dashboard._mine`, web `lib/people.svelte.ts`, `lib/mentionSuggest.svelte.ts`,
+  `MentionMenu`, `RichText`, `AssigneePicker`.
 
 ## 3c. Per-person view
 

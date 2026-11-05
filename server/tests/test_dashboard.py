@@ -60,7 +60,7 @@ def test_summary(client, auth):
     assert s["counts"]["open_cards"] == 1 and s["counts"]["comments_24h"] == 1 and s["counts"]["cards_24h"] == 1
     assert [j["task"]["name"] for j in s["live_jobs"]] == ["Scan"]
     assert set(s["agents"]) == {"online", "slots", "busy"}
-    assert s["mine"] == {"assigned": 0, "opened": 1}
+    assert s["mine"] == {"assigned": 0, "opened": 1, "mentions": 0}
     client.patch(f"/api/tasks/{task['id']}", json={"assignees": ["admin"]}, headers=auth)
     s = client.get(f"/api/dashboard/summary?project_id={project['id']}", headers=auth).json()
     assert s["mine"]["assigned"] == 1

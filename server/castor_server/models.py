@@ -260,6 +260,7 @@ class Task(Base, TimestampMixin):
     timeout_s: Mapped[int | None] = mapped_column(Integer, nullable=True)
     priority: Mapped[int] = mapped_column(Integer, default=0)  # 0 none … 3 high
     tags: Mapped[list[str]] = mapped_column(JSONType, default=list)
+    # User ids (strings) of the people the card is assigned to (people.check_assignees).
     assignees: Mapped[list[str]] = mapped_column(JSONType, default=list)
     custom_fields: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     due_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
@@ -524,6 +525,8 @@ class Comment(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     body: Mapped[str] = mapped_column(Text)
+    # Ids (strings) of the people the comment @mentions (people.mentioned).
+    mentions: Mapped[list[str]] = mapped_column(JSONType, default=list)
     # Set only when the body is changed after posting (shown as "edited" in the UI).
     edited_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 

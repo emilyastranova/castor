@@ -1,9 +1,9 @@
 <script lang="ts">
 	import type { FeedItem } from '$lib/api';
 	import { Avatar, Icon } from '$lib/m3';
-	import { renderMarkdown } from '$lib/markdown';
-	import { openImagesIn } from '$lib/lightbox.svelte';
+	import RichText from '../RichText.svelte';
 	import { absoluteTime } from '$lib/format';
+	import { me } from '$lib/session';
 
 	/** One timeline entry; how it looks depends on its kind. */
 	interface Props {
@@ -12,6 +12,7 @@
 		showProject?: boolean;
 	}
 	let { item, showProject = true }: Props = $props();
+	let myId = $derived(me()?.id);
 
 	const KIND: Record<string, { icon: string; tone: string }> = {
 		comment: { icon: 'chat_bubble', tone: 'bg-secondary-container text-on-secondary-container' },
@@ -76,10 +77,8 @@
 		</div>
 
 		{#if item.kind === 'comment' && item.comment}
-			<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-			<div class="prose-m3 mt-1.5 line-clamp-6 rounded-md bg-surface-container px-3.5 py-2.5 body-medium text-on-surface" onclick={openImagesIn}>
-				{@html renderMarkdown(item.comment.body)}
-			</div>
+			{@const forMe = !!myId && item.comment.mentions?.includes(myId)}
+			<RichText text={item.comment.body} projectId={item.project?.id} class="mt-1.5 line-clamp-6 rounded-md bg-surface-container px-3.5 py-2.5 body-medium text-on-surface {forMe ? 'mentions-me quiet' : ''}" />
 		{:else if item.kind === 'job' && item.job}
 			<div class="mt-1.5 flex flex-col gap-1.5 rounded-md border border-outline-variant/70 px-3.5 py-2.5">
 				<div class="flex flex-wrap items-center gap-x-3 gap-y-1 body-small">

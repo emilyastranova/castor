@@ -8,6 +8,7 @@ import json
 import logging
 import urllib.request
 import uuid
+from collections.abc import Iterable
 from typing import Any
 from urllib.parse import urlparse
 
@@ -36,10 +37,19 @@ async def notify(
     project_id: uuid.UUID | None = None,
     subject: str = "",
     payload: dict[str, Any] | None = None,
+    user_ids: Iterable[uuid.UUID] | None = None,
+    webhooks: bool = True,
 ) -> list[m.Notification]:
     """Notify the active users who can see the project (all of them for a notification
-    without one) and the configured webhooks. Flushes; the caller commits."""
+    without one), or only `user_ids` among them, and the configured webhooks (unless
+    `webhooks` is False: personal notifications such as mentions stay in-app). Flushes; the
+    caller commits."""
     query = select(m.User.id).where(m.User.disabled_at.is_(None))
+    if user_ids is not None:
+        wanted = list(user_ids)
+        if not wanted:
+            return []
+        query = query.where(m.User.id.in_(wanted))
     if project_id is not None:
         members = select(m.ProjectMember.user_id).where(m.ProjectMember.project_id == project_id)
         query = query.where((m.User.role == m.UserRole.admin) | m.User.id.in_(members))
@@ -62,7 +72,8 @@ async def notify(
     await db.flush()
     for row in rows:
         bus.publish("notification.created", project_id, NotificationOut.model_validate(row), user_id=row.user_id)
-    _send_webhooks(title=title, body=body, link=link, severity=severity, kind=kind, payload=payload or {})
+    if webhooks:
+        _send_webhooks(title=title, body=body, link=link, severity=severity, kind=kind, payload=payload or {})
     return rows
 
 

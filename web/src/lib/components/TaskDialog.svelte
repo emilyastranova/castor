@@ -15,6 +15,11 @@
 	import ColumnGlyph from './ColumnGlyph.svelte';
 	import PriorityGlyph, { priorityOptions } from './PriorityGlyph.svelte';
 	import NameImageDialog from './NameImageDialog.svelte';
+	import AssigneePicker from './AssigneePicker.svelte';
+	import MentionMenu from './MentionMenu.svelte';
+	import RichText from './RichText.svelte';
+	import { MentionSuggest } from '$lib/mentionSuggest.svelte';
+	import { people } from '$lib/people.svelte';
 	import CommandArgsForm from './CommandArgsForm.svelte';
 	import VarBindings from './VarBindings.svelte';
 	import { tick } from 'svelte';
@@ -74,9 +79,14 @@
 		priority = String(task.priority);
 		tagsText = task.tags.join(', ');
 		editingDescription = false;
-		tab = task.kind === 'command' ? 'output' : 'comments';
+		// A notification about a comment (?comment=<id>) opens the card on it.
+		const linked = page.url.searchParams.get('comment');
+		tab = linked ? 'comments' : task.kind === 'command' ? 'output' : 'comments';
 		selectedJobId = task.latest_job?.id ?? null;
-		void loadSide();
+		shownLink = linked;
+		void loadSide().then(() => {
+			if (linked) void showComment(linked);
+		});
 	});
 
 	// ---- library command ----
@@ -189,6 +199,27 @@
 		history = h;
 		if (!selectedJobId && j[0]) selectedJobId = j[0].id;
 	}
+
+	/** Scroll to a comment and flash it (opened from a notification). */
+	let flashing = $state<string | null>(null);
+	async function showComment(id: string) {
+		if (!comments.some((c) => c.id === id)) return;
+		flashing = id;
+		await tick();
+		document.getElementById(`comment-${id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+		setTimeout(() => flashing === id && (flashing = null), 3500);
+	}
+	// The card is already open when another notification links to one of its comments.
+	let shownLink: string | null = null;
+	$effect(() => {
+		const linked = page.url.searchParams.get('comment');
+		if (!linked || linked === shownLink) return;
+		shownLink = linked;
+		tab = 'comments';
+		void showComment(linked);
+	});
+	let myId = $derived(page.data.user?.id as string | undefined);
+	const mentionsMe = (c: Comment) => !!myId && (c.mentions ?? []).includes(myId) && c.author_id !== myId;
 
 	$effect(() =>
 		realtime.subscribe((e) => {
@@ -346,6 +377,9 @@
 	});
 	const newCommentTarget: DraftTarget = { get: () => newComment, set: (v) => (newComment = v) };
 	const editTarget: DraftTarget = { get: () => editDraft, set: (v) => (editDraft = v) };
+	// @mention suggestions: the people who can see this card's project.
+	const newSuggest = new MentionSuggest(() => people.list(task.project_id), newCommentTarget);
+	const editSuggest = new MentionSuggest(() => people.list(task.project_id), editTarget);
 
 	async function upload(files: FileList | File[] | null) {
 		if (!files || files.length === 0) return;
@@ -660,12 +694,13 @@
 			{:else if tab === 'comments'}
 				<div class="flex flex-col gap-4">
 					{#each comments as c (c.id)}
-						<div class="flex gap-3">
+						<div class="flex gap-3" id="comment-{c.id}">
 							<Avatar name={c.author_name} src={c.author_avatar} tone="secondary" />
-							<div class="min-w-0 flex-1 rounded-md bg-surface-container px-4 py-3">
+							<div class="min-w-0 flex-1 rounded-md bg-surface-container px-4 py-3" class:mentions-me={mentionsMe(c)} class:flash={flashing === c.id}>
 								<div class="flex items-center gap-2 body-small text-on-surface-variant">
 									<span class="label-large text-on-surface">{c.author_name}</span>
 									<span title={absoluteTime(c.created_at)}>{relativeTime(c.created_at)}</span>
+									{#if mentionsMe(c)}<span class="flex items-center gap-0.5 rounded-full bg-primary-container px-1.5 py-0.5 label-small text-on-primary-container"><Icon name="alternate_email" size={12} />Mentions you</span>{/if}
 									{#if c.edited_at}
 										<span class="italic" title="Edited {absoluteTime(c.edited_at)}">· edited</span>
 									{/if}
@@ -677,16 +712,21 @@
 								</div>
 								{#if editingId === c.id}
 									<div class="mt-2 flex flex-col gap-2">
-										<TextField
-											id="comment-edit-{c.id}"
-											label="Edit comment"
-											bind:value={editDraft}
-											multiline
-											rows={4}
-											supporting="Ctrl+Enter to save · Esc to cancel · paste an image to add it"
-											onkeydown={(e) => onEditKey(c, e)}
-											onpaste={images.pasteInto(editTarget)}
-										/>
+										<div class="relative">
+											<TextField
+												id="comment-edit-{c.id}"
+												label="Edit comment"
+												bind:value={editDraft}
+												multiline
+												rows={4}
+												supporting="Ctrl+Enter to save · Esc to cancel · @ to mention · paste an image to add it"
+												oninput={editSuggest.oninput}
+												onkeydown={(e) => editSuggest.onkeydown(e) || onEditKey(c, e)}
+												onblur={editSuggest.close}
+												onpaste={images.pasteInto(editTarget)}
+											/>
+											<MentionMenu suggest={editSuggest} />
+										</div>
 										<div class="flex items-center justify-end gap-2">
 											{#if images.uploading > 0}<span class="body-small text-on-surface-variant">Uploading image…</span>{/if}
 											<Button variant="text" onclick={cancelEdit}>Cancel</Button>
@@ -694,8 +734,7 @@
 										</div>
 									</div>
 								{:else}
-									<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-									<div class="prose-m3 mt-1 body-medium text-on-surface" onclick={openImagesIn}>{@html renderMarkdown(c.body)}</div>
+									<RichText text={c.body} projectId={task.project_id} class="mt-1 body-medium text-on-surface" />
 								{/if}
 							</div>
 						</div>
@@ -703,7 +742,10 @@
 						<p class="body-medium text-on-surface-variant">No comments yet.</p>
 					{/each}
 					{#if editable}<div class="flex flex-col gap-2">
-						<TextField label="Add a comment" bind:value={newComment} multiline rows={3} supporting="Markdown supported · Ctrl+Enter to post · paste an image to add it to the comment" onkeydown={(e) => (e.ctrlKey || e.metaKey) && e.key === 'Enter' && postComment()} onpaste={images.pasteInto(newCommentTarget)} />
+						<div class="relative">
+							<TextField label="Add a comment" bind:value={newComment} multiline rows={3} supporting="Markdown supported · Ctrl+Enter to post · @ to mention someone · paste an image to add it" oninput={newSuggest.oninput} onkeydown={(e) => newSuggest.onkeydown(e) || ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && postComment())} onblur={newSuggest.close} onpaste={images.pasteInto(newCommentTarget)} />
+							<MentionMenu suggest={newSuggest} />
+						</div>
 						<div class="flex items-center justify-end gap-3">
 							{#if images.uploading > 0}<span class="body-small text-on-surface-variant">Uploading image…</span>{/if}
 							<Button icon="send" loading={posting} onclick={postComment} disabled={!newComment.trim() || images.uploading > 0}>Comment</Button>
@@ -800,6 +842,7 @@
 			<Select label="Priority" bind:value={priority} disabled={!editable} options={priorityOptions} onchange={(v) => save({ priority: Number(v) })}>
 				{#snippet leading(level)}<PriorityGlyph {level} />{/snippet}
 			</Select>
+			<AssigneePicker projectId={task.project_id} value={task.assignees} {editable} onchange={(ids) => save({ assignees: ids })} />
 			<TextField label="Tags" bind:value={tagsText} readonly={!editable} supporting={editable ? 'Comma separated' : ''} oninput={() => edited('tags')} onblur={() => { const tags = tagsText.split(',').map((t) => t.trim()).filter(Boolean); if (tags.join() !== task.tags.join()) commit('tags', { tags }); }} />
 			<div class="rounded-md bg-surface-container p-4 body-small text-on-surface-variant">
 				<p class="mb-2 title-small text-on-surface">Details</p>

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
 from .. import models as m
-from .. import variables
+from .. import notifications, people, variables
 from ..access import check_project, project_or_404
 from ..command_library import apply_library, load_spec
 from ..command_render import ArgumentError
@@ -92,6 +94,7 @@ async def create_task(project_id: str, body: TaskIn, db: DB, user: CurrentUser):
         if column is None:
             raise HTTPException(409, "Project has no columns")
     data = body.model_dump(exclude={"column_id", "command_ref", "command_args", "var_bindings"})
+    data["assignees"] = await people.check_assignees(db, project.id, body.assignees)
     task = m.Task(
         project_id=project.id,
         column_id=column.id,
@@ -113,6 +116,7 @@ async def create_task(project_id: str, body: TaskIn, db: DB, user: CurrentUser):
         task_id=task.id,
         **actor_of(user),
     )
+    await _assigned(db, task, user, task.assignees)
     # Creating a command card directly in the active column runs it immediately.
     if (
         column.role == m.ColumnRole.active
@@ -137,6 +141,12 @@ async def update_task(task_id: str, body: TaskPatch, db: DB, user: CurrentUser):
     task = await _task_or_404(db, user, task_id, write=True)
     changes = body.model_dump(exclude_unset=True)
     bindings = changes.pop("var_bindings", None)
+    if changes.get("assignees") is not None:
+        before = list(task.assignees or [])
+        changes["assignees"] = await people.check_assignees(db, task.project_id, changes["assignees"])
+        await _assignees_changed(db, task, user, before, changes["assignees"])
+    else:
+        changes.pop("assignees", None)
     library_ref = changes.pop("command_ref", task.command_ref)
     library_args = changes.pop("command_args", None)
     detaching = "command_ref" in body.model_fields_set and library_ref is None
@@ -232,7 +242,55 @@ async def task_activity(task_id: str, db: DB, user: CurrentUser):
     ).scalars().all()
 
 
+# ----- assignees -----
+
+
+async def _assigned(db, task: m.Task, actor: m.User, user_ids: list[str]) -> None:
+    """Tell newly assigned people (not the one assigning themselves). In-app only."""
+    others = [uuid.UUID(u) for u in user_ids if u != str(actor.id)]
+    if others:
+        await notifications.notify(
+            db, kind="task.assigned", title=f"{actor.display_name} assigned you “{task.title}”",
+            link=f"/projects/{task.project_id}?task={task.id}", project_id=task.project_id,
+            subject=f"task:{task.id}:assigned", user_ids=others, webhooks=False,
+        )
+
+
+async def _assignees_changed(db, task: m.Task, actor: m.User, before: list[str], after: list[str]) -> None:
+    added = [u for u in after if u not in before]
+    removed = [u for u in before if u not in after]
+    if not added and not removed:
+        return
+    parts = []
+    if added:
+        parts.append("assigned " + ", ".join(await people.names_of(db, added)))
+    if removed:
+        parts.append("unassigned " + ", ".join(await people.names_of(db, removed)))
+    message = " and ".join(parts)
+    await record_activity(
+        db, type="task.assigned", message=f"{message[0].upper()}{message[1:]} on “{task.title}”",
+        project_id=task.project_id, task_id=task.id, payload={"added": added, "removed": removed},
+        **actor_of(actor),
+    )
+    await _assigned(db, task, actor, added)
+
+
 # ----- comments -----
+
+
+async def _mention(db, task: m.Task, comment: m.Comment, author: m.User, already: list[str]) -> None:
+    """Store who the comment mentions and notify the newly mentioned (not the author)."""
+    users = await people.mentioned(db, task.project_id, comment.body)
+    comment.mentions = [str(u.id) for u in users]
+    new = [u.id for u in users if str(u.id) not in already and u.id != author.id]
+    if new:
+        excerpt = " ".join(comment.body.split())
+        await notifications.notify(
+            db, kind="comment.mention", title=f"{author.display_name} mentioned you on “{task.title}”",
+            body=excerpt[:200] + ("…" if len(excerpt) > 200 else ""),
+            link=f"/projects/{task.project_id}?task={task.id}&comment={comment.id}", project_id=task.project_id,
+            subject=f"comment:{comment.id}", user_ids=new, webhooks=False,
+        )
 
 
 def _comment_out(comment: m.Comment) -> CommentOut:
@@ -267,6 +325,7 @@ async def create_comment(task_id: str, body: CommentIn, db: DB, user: CurrentUse
     comment.author = user
     db.add(comment)
     await db.flush()
+    await _mention(db, task, comment, user, [])
     await record_activity(
         db,
         type="comment.created",
@@ -298,6 +357,9 @@ async def update_comment(
     if body.body != comment.body:
         comment.body = body.body
         comment.edited_at = utcnow()
+        # Only people added by this edit are notified; the comment's author is who mentions.
+        author = await db.get(m.User, comment.author_id) if comment.author_id else user
+        await _mention(db, task, comment, author or user, list(comment.mentions or []))
         await db.commit()
     await db.refresh(comment, ["author"])
     out = _comment_out(comment)

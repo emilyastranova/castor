@@ -45,6 +45,23 @@
 	/** What the timeline shows by default: the work, not agent connections or admin. */
 	const WORK: FeedKind[] = ['comment', 'job', 'card', 'playbook', 'file', 'note'];
 	let kinds = $state<Set<FeedKind>>(new Set(WORK));
+	/** "Mine": only what's about you (your cards, mentions, replies), remembered per browser. */
+	let mine = $state(false);
+	$effect(() => {
+		try {
+			mine = localStorage.getItem('castor.dashboard.mine') === '1';
+		} catch {
+			/* storage unavailable */
+		}
+	});
+	function toggleMine() {
+		mine = !mine;
+		try {
+			localStorage.setItem('castor.dashboard.mine', mine ? '1' : '0');
+		} catch {
+			/* storage unavailable */
+		}
+	}
 	let isDefault = $derived(kinds.size === WORK.length && WORK.every((k) => kinds.has(k)));
 
 	let summary = $state<DashboardSummary | null>(null);
@@ -61,14 +78,14 @@
 		}
 	}
 	async function loadFeed() {
-		const res = await api().dashboard.feed({ project_id: scope, kinds: [...kinds], limit: 40 });
+		const res = await api().dashboard.feed({ project_id: scope, kinds: [...kinds], mine, limit: 40 });
 		items = res.items;
 		nextBefore = res.next_before;
 		loaded = true;
 	}
 	/** New events: fetch the newest page and add what isn't shown yet. */
 	async function refreshHead() {
-		const res = await api().dashboard.feed({ project_id: scope, kinds: [...kinds], limit: 40 });
+		const res = await api().dashboard.feed({ project_id: scope, kinds: [...kinds], mine, limit: 40 });
 		const known = new Set(items.map((i) => i.id));
 		const fresh = res.items.filter((i) => !known.has(i.id));
 		if (fresh.length) items = [...fresh, ...items];
@@ -77,7 +94,7 @@
 		if (!nextBefore) return;
 		loadingMore = true;
 		try {
-			const res = await api().dashboard.feed({ project_id: scope, kinds: [...kinds], before: nextBefore, limit: 40 });
+			const res = await api().dashboard.feed({ project_id: scope, kinds: [...kinds], mine, before: nextBefore, limit: 40 });
 			items = [...items, ...res.items];
 			nextBefore = res.next_before;
 		} finally {
@@ -89,6 +106,7 @@
 	$effect(() => {
 		void scope;
 		void kinds;
+		void mine;
 		loaded = false;
 		void loadSummary();
 		void loadFeed();
@@ -152,6 +170,7 @@
 		if (!summary) return '';
 		const parts = [];
 		if (summary.mine.assigned) parts.push(`${plural(summary.mine.assigned, 'card')} assigned to you`);
+		if (summary.mine.mentions) parts.push(plural(summary.mine.mentions, 'unread mention'));
 		if (summary.mine.opened) parts.push(`${plural(summary.mine.opened, 'open card')} you created`);
 		if (notifications.unread) parts.push(plural(notifications.unread, 'unread notification'));
 		return parts.length ? parts.join(' · ') : 'Nothing on your plate right now';
@@ -254,6 +273,9 @@
 		}
 	}
 
+	// In Mine, Needs attention keeps only what's for you (your failed cards, and decisions).
+	let attention = $derived((summary?.attention ?? []).filter((a) => !mine || a.for_you));
+
 	// ---- timeline grouped by day ----
 	let days = $derived.by(() => {
 		const groups: { label: string; items: FeedItem[] }[] = [];
@@ -346,6 +368,18 @@
 		<section class="min-w-0">
 			<div class="mb-3 flex flex-wrap items-center gap-2">
 				<h2 class="mr-2 title-large text-on-surface">What's been happening</h2>
+				<button
+					type="button"
+					class="flex items-center gap-1 rounded-full border px-2.5 py-1 label-medium transition-colors {mine
+						? 'border-transparent bg-primary text-on-primary'
+						: 'border-outline-variant text-on-surface-variant hover:bg-surface-container-high'}"
+					aria-pressed={mine}
+					title="Only what's about you: your cards, mentions and replies"
+					onclick={toggleMine}
+				>
+					<Icon name={mine ? 'check' : 'person'} size={14} />Mine
+				</button>
+				<span class="h-5 w-px bg-outline-variant"></span>
 				{#each kindOptions as k (k.kind)}
 					<button
 						type="button"
@@ -394,14 +428,14 @@
 					<h2 class="flex-1 title-medium text-on-surface">Needs attention</h2>
 					{#if notifications.unread}<span class="body-small text-on-surface-variant">{notifications.unread} unread notification{notifications.unread === 1 ? '' : 's'}</span>{/if}
 				</div>
-				{#if summary?.attention.length}
+				{#if attention.length}
 					<ul class="flex flex-col gap-1.5">
-						{#each summary.attention as a (a.link)}
+						{#each attention as a (a.link)}
 							<li>
 								<a href={a.link} class="state-layer flex items-start gap-2.5 rounded-md px-2 py-2">
 									<Icon name={a.kind === 'decision' ? 'front_hand' : 'error'} size={18} class="mt-0.5 shrink-0 {a.kind === 'decision' ? 'text-tertiary' : 'text-error'}" />
 									<span class="min-w-0 flex-1">
-										<span class="block body-medium text-on-surface">{a.title}</span>
+										<span class="block body-medium text-on-surface">{a.title}{#if a.for_you && a.kind === 'failed'}<span class="ml-1.5 rounded-full bg-primary-container px-1.5 py-0.5 align-middle label-small text-on-primary-container">for you</span>{/if}</span>
 										<span class="block truncate body-small text-on-surface-variant" title={a.detail}>
 											{a.detail}{a.since ? ` · ${relativeTime(a.since)}` : ''}{!scope && a.project ? ` · ${a.project.codename}` : ''}
 										</span>

@@ -329,6 +329,7 @@ class CommentOut(ORM):
     author_name: str = ""
     author_avatar: str | None = None
     body: str
+    mentions: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
     edited_at: datetime | None = None

@@ -14,7 +14,8 @@
 	import ProjectDialog from '$lib/components/ProjectDialog.svelte';
 	import MembersDialog from '$lib/components/MembersDialog.svelte';
 	import ProjectViewSwitch from '$lib/components/ProjectViewSwitch.svelte';
-	import { canEdit, isAdmin } from '$lib/session';
+	import { canEdit, isAdmin, me } from '$lib/session';
+	import { people } from '$lib/people.svelte';
 	import ActivityFeed from '$lib/components/ActivityFeed.svelte';
 
 	let { data } = $props();
@@ -71,11 +72,13 @@
 	function openTask(task: Task) {
 		const url = new URL(page.url);
 		url.searchParams.set('task', task.id);
+		url.searchParams.delete('comment');
 		void goto(url, { replaceState: false, noScroll: true, keepFocus: true });
 	}
 	function closeTask() {
 		const url = new URL(page.url);
 		url.searchParams.delete('task');
+		url.searchParams.delete('comment');
 		void goto(url, { replaceState: true, noScroll: true });
 	}
 
@@ -95,8 +98,30 @@
 		}
 	}
 
+	// Only the cards assigned to you; remembered per browser.
+	let mineOnly = $state(false);
+	$effect(() => {
+		try {
+			mineOnly = localStorage.getItem('castor.board.mine') === '1';
+		} catch {
+			/* storage unavailable */
+		}
+	});
+	function toggleMine() {
+		mineOnly = !mineOnly;
+		try {
+			localStorage.setItem('castor.board.mine', mineOnly ? '1' : '0');
+		} catch {
+			/* storage unavailable */
+		}
+	}
+	// Load who's on the project (assignee avatars on the cards).
+	$effect(() => void people.list(store.project.id));
+
 	function filtered(column: Column): Task[] {
-		const list = store.tasksIn(column.id);
+		let list = store.tasksIn(column.id);
+		const myId = me()?.id;
+		if (mineOnly && myId) list = list.filter((t) => t.assignees.includes(myId));
 		if (!filter.trim()) return list;
 		const q = filter.toLowerCase();
 		return list.filter((t) => t.title.toLowerCase().includes(q) || t.command.toLowerCase().includes(q) || t.tags.some((x) => x.toLowerCase().includes(q)));
@@ -137,6 +162,7 @@
 				{online} agent{online === 1 ? '' : 's'} online
 			</Chip>
 		</div>
+		<Chip variant="filter" icon={mineOnly ? 'check' : 'person'} selected={mineOnly} class="mr-2 hidden md:inline-flex" onclick={toggleMine}>Assigned to me</Chip>
 		<label class="hidden items-center gap-2 rounded-full bg-surface-container-high px-4 md:flex">
 			<Icon name="search" size={20} class="text-on-surface-variant" />
 			<input class="h-10 w-44 bg-transparent body-medium text-on-surface outline-none placeholder:text-on-surface-variant" placeholder="Filter cards" bind:value={filter} />

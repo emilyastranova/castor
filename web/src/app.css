@@ -236,6 +236,104 @@ select optgroup {
 .prose-m3 h1, .prose-m3 h2, .prose-m3 h3 { font-weight: 500; margin: 1em 0 0.4em; }
 .prose-m3 blockquote { border-left: 3px solid var(--md-sys-color-outline-variant); margin: 0 0 0.75em; padding-left: 0.75em; color: var(--md-sys-color-on-surface-variant); }
 .prose-m3 table { border-collapse: collapse; }
+/* @mentions: picture + display name; the @username shows above on hover. */
+.prose-m3 .mention {
+	/* Plain inline (not flex), so the name sits on the text's baseline like any other word. */
+	position: relative;
+	display: inline;
+	border-radius: 999px;
+	padding: 0.1em 0.5em 0.1em 0.15em;
+	background: var(--md-sys-color-secondary-container);
+	color: var(--md-sys-color-on-secondary-container);
+	font-weight: 500;
+	line-height: 1.35;
+	white-space: nowrap;
+	cursor: default;
+}
+.prose-m3 .mention .mention-face {
+	display: inline-flex;
+	width: 1.25em;
+	height: 1.25em;
+	align-items: center;
+	justify-content: center;
+	/* Centre the picture on the text: its bottom sits a little below the baseline. */
+	vertical-align: -0.28em;
+	margin: 0 0.3em 0 0;
+	border: 0;
+	border-radius: 999px;
+	object-fit: cover;
+	background: var(--md-sys-color-primary);
+	color: var(--md-sys-color-on-primary);
+	font-size: 0.6em;
+	font-weight: 600;
+	letter-spacing: 0;
+	cursor: inherit;
+}
+.prose-m3 .mention::after {
+	content: attr(data-username);
+	position: absolute;
+	bottom: calc(100% + 4px);
+	left: 50%;
+	z-index: 10;
+	padding: 0.15em 0.5em;
+	border-radius: var(--md-sys-shape-corner-extra-small);
+	background: var(--md-sys-color-inverse-surface);
+	color: var(--md-sys-color-inverse-on-surface);
+	font-size: 0.8em;
+	font-weight: 500;
+	opacity: 0;
+	pointer-events: none;
+	transform: translate(-50%, 3px);
+	transition: opacity 120ms, transform 120ms;
+}
+.prose-m3 .mention:hover::after {
+	opacity: 1;
+	transform: translate(-50%, 0);
+}
+.prose-m3 .mention-me {
+	background: var(--md-sys-color-primary-container);
+	color: var(--md-sys-color-on-primary-container);
+	box-shadow: 0 0 0 1px var(--md-sys-color-primary);
+}
+
+/* A comment that mentions you: a soft primary glow, and a pulse when it appears (or when a
+   notification opens it: .flash restarts it). */
+.mentions-me {
+	/* A primary tint shows in light themes too, where a glow alone barely does. */
+	background-color: color-mix(in srgb, var(--md-sys-color-primary) 9%, var(--md-sys-color-surface-container));
+	box-shadow:
+		inset 3px 0 0 var(--md-sys-color-primary),
+		0 0 0 1px color-mix(in srgb, var(--md-sys-color-primary) 65%, transparent),
+		0 0 14px -4px color-mix(in srgb, var(--md-sys-color-primary) 55%, transparent);
+	animation: mention-pulse 1.6s ease-out 1;
+}
+.mentions-me.flash {
+	animation: mention-pulse 1.6s ease-out 2;
+}
+@keyframes mention-pulse {
+	0% {
+		box-shadow:
+			inset 3px 0 0 var(--md-sys-color-primary),
+			0 0 0 1px var(--md-sys-color-primary),
+			0 0 0 0 color-mix(in srgb, var(--md-sys-color-primary) 70%, transparent);
+	}
+	60% {
+		box-shadow:
+			inset 3px 0 0 var(--md-sys-color-primary),
+			0 0 0 1px var(--md-sys-color-primary),
+			0 0 0 10px color-mix(in srgb, var(--md-sys-color-primary) 0%, transparent);
+	}
+}
+/* In lists that reload (the dashboard feed) the glow stays but doesn't pulse every time. */
+.mentions-me.quiet {
+	animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+	.mentions-me,
+	.mentions-me.flash {
+		animation: none;
+	}
+}
 .prose-m3 img {
 	display: block;
 	max-width: 100%;
