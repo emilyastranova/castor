@@ -1,6 +1,52 @@
 @import 'tailwindcss';
 @import './lib/m3/tokens.css';
 
+/* ---------- Sticky-note colors (pinned notes) ----------
+   Pastels in light, muted shades in dark, so the themed text colors stay readable on both.
+   Names match api/notes.COLORS on the server. */
+:root, :root[data-theme='light'] {
+	--note-default: var(--md-sys-color-surface-container-low);
+	--note-red: #f8c4bf;
+	--note-orange: #f9d3a8;
+	--note-yellow: #fbeea4;
+	--note-green: #d4ecc4;
+	--note-teal: #bfe3dc;
+	--note-blue: #cfe2f3;
+	--note-navy: #bccae6;
+	--note-purple: #ddcdec;
+	--note-pink: #f6d0e0;
+	--note-brown: #e3d6c6;
+	--note-gray: #e2e2e6;
+}
+:root[data-theme='dark'] {
+	--note-red: #6b2a2a;
+	--note-orange: #6e3f1c;
+	--note-yellow: #5f531c;
+	--note-green: #2f4f2c;
+	--note-teal: #1e4d48;
+	--note-blue: #234866;
+	--note-navy: #2b3658;
+	--note-purple: #48355f;
+	--note-pink: #5e2f47;
+	--note-brown: #4a3d31;
+	--note-gray: #3a3b3f;
+}
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme='light']) {
+		--note-red: #6b2a2a;
+		--note-orange: #6e3f1c;
+		--note-yellow: #5f531c;
+		--note-green: #2f4f2c;
+		--note-teal: #1e4d48;
+		--note-blue: #234866;
+		--note-navy: #2b3658;
+		--note-purple: #48355f;
+		--note-pink: #5e2f47;
+		--note-brown: #4a3d31;
+		--note-gray: #3a3b3f;
+	}
+}
+
 /* ---------- Material 3 system tokens ---------- */
 :root {
 	--md-sys-typescale-font: 'Roboto Flex', system-ui, sans-serif;

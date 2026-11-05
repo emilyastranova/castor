@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -22,16 +23,21 @@ router = APIRouter(tags=["notes"])
 
 HISTORY_LIMIT = 20
 MAX_NOTES = 12
+# Sticky-note colors; the web app maps each to a light and a dark shade (app.css --note-*).
+COLORS = ("default", "red", "orange", "yellow", "green", "teal", "blue", "navy", "purple", "pink", "brown", "gray")
+Color = Literal[COLORS]  # type: ignore[valid-type]
 
 
 class NoteIn(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     body: str = Field("", max_length=20_000)
+    color: Color = "default"
 
 
 class NotePatch(BaseModel):
     title: str | None = Field(None, min_length=1, max_length=120)
     body: str | None = Field(None, max_length=20_000)
+    color: Color | None = None
 
 
 class NoteOrder(BaseModel):
@@ -50,6 +56,7 @@ class NoteOut(BaseModel):
     title: str
     body: str
     position: int
+    color: str
     created_at: datetime
     updated_at: datetime
     updated_by: Editor | None
@@ -72,6 +79,7 @@ def note_out(note: m.ProjectNote) -> NoteOut:
         title=note.title,
         body=note.body,
         position=note.position,
+        color=note.color or "default",
         created_at=note.created_at,
         updated_at=note.updated_at,
         updated_by=Editor(id=str(editor.id), name=editor.display_name, avatar_url=editor.avatar_url) if editor else None,
@@ -140,7 +148,8 @@ async def create_note(project_id: str, body: NoteIn, db: DB, user: CurrentUser):
     if count >= MAX_NOTES:
         raise HTTPException(409, f"A project can have up to {MAX_NOTES} pinned notes")
     note = m.ProjectNote(
-        id=m.new_id(), project_id=pid, title=body.title.strip(), body=body.body, position=(last or 0) + 1, updated_by=user.id
+        id=m.new_id(), project_id=pid, title=body.title.strip(), body=body.body, position=(last or 0) + 1, updated_by=user.id,
+        color=body.color,
     )
     db.add(note)
     await record_activity(
@@ -158,7 +167,13 @@ async def update_note(note_id: str, body: NotePatch, db: DB, user: CurrentUser):
     note = await _note_or_404(db, user, note_id, write=True)
     title = body.title.strip() if body.title is not None else note.title
     text = body.body if body.body is not None else note.body
+    recolored = body.color is not None and body.color != note.color
+    if recolored:
+        note.color = body.color  # cosmetic: no version, no feed entry, and not "edited by"
     if (title, text) == (note.title, note.body):
+        if recolored:
+            await db.commit()
+            await _changed(db, note.project_id)
         await db.refresh(note, ["editor"])
         return note_out(note)
     await db.refresh(note, ["editor"])

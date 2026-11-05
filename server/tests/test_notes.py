@@ -77,3 +77,15 @@ def test_note_images(client, auth):
     _, vh = _login(client, auth, "viewer")
     assert client.get(f"/api/attachments/{a['id']}/download", headers=vh).status_code == 404  # not a member
     assert client.post(f"/api/projects/{p['id']}/attachments", files={"file": ("x.png", b"x", "image/png")}, headers=vh).status_code == 404
+
+
+def test_note_colors(client, auth):
+    p = _project(client, auth)
+    note = client.post(f"/api/projects/{p['id']}/notes", json={"title": "Scope", "color": "yellow"}, headers=auth).json()
+    assert note["color"] == "yellow"
+    recolored = client.patch(f"/api/notes/{note['id']}", json={"color": "blue"}, headers=auth).json()
+    assert recolored["color"] == "blue" and recolored["versions"] == 0  # cosmetic: no version
+    assert client.patch(f"/api/notes/{note['id']}", json={"color": "chartreuse"}, headers=auth).status_code == 422
+    assert client.post(f"/api/projects/{p['id']}/notes", json={"title": "x", "color": "nope"}, headers=auth).status_code == 422
+    pinned = client.get(f"/api/dashboard/summary?project_id={p['id']}", headers=auth).json()["pinned"]
+    assert pinned[0]["color"] == "blue"

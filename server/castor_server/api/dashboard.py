@@ -231,6 +231,7 @@ async def _pinned(db: DB, in_scope, project_ref) -> list[dict[str, Any]]:
             "project": project_ref(note.project_id),
             "note_id": str(note.id),
             "title": note.title,
+            "color": note.color or "default",
             "line": first_line(note.body),
             "updated_at": note.updated_at,
         }

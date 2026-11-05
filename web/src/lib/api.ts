@@ -270,7 +270,7 @@ export interface DashboardSummary {
 	agents: { online: number; slots: number; busy: number };
 	mine: { assigned: number; opened: number };
 	facts: string[];
-	pinned: { project: ProjectRef | null; note_id: UUID; title: string; line: string; updated_at: string }[];
+	pinned: { project: ProjectRef | null; note_id: UUID; title: string; color: string; line: string; updated_at: string }[];
 }
 
 export interface ProjectNote {
@@ -279,6 +279,8 @@ export interface ProjectNote {
 	title: string;
 	body: string;
 	position: number;
+	/** A sticky-note color name (NoteColorPicker.NOTE_COLORS). */
+	color: string;
 	created_at: string;
 	updated_at: string;
 	updated_by: { id: string; name: string; avatar_url: string | null } | null;
@@ -922,8 +924,8 @@ export function api(fetchFn: Fetch = fetch) {
 		},
 		notes: {
 			list: (projectId: UUID) => get<ProjectNote[]>(`/projects/${projectId}/notes`),
-			create: (projectId: UUID, body: { title: string; body: string }) => post<ProjectNote>(`/projects/${projectId}/notes`, body),
-			update: (id: UUID, body: { title?: string; body?: string }) => patch<ProjectNote>(`/notes/${id}`, body),
+			create: (projectId: UUID, body: { title: string; body: string; color?: string }) => post<ProjectNote>(`/projects/${projectId}/notes`, body),
+			update: (id: UUID, body: { title?: string; body?: string; color?: string }) => patch<ProjectNote>(`/notes/${id}`, body),
 			remove: (id: UUID) => del(`/notes/${id}`),
 			history: (id: UUID) => get<NoteVersion[]>(`/notes/${id}/history`),
 			restore: (id: UUID, index: number) => post<ProjectNote>(`/notes/${id}/restore/${index}`),

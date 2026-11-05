@@ -14,6 +14,7 @@
 	import { TRIVIA } from './trivia';
 	import { PastedImages } from '$lib/pastedImages.svelte';
 	import NameImageDialog from '../NameImageDialog.svelte';
+	import NoteColorPicker, { noteBg } from './NoteColorPicker.svelte';
 
 	/** The cockpit: a greeting with the headline numbers, what needs attention, what's
 	 *  running now, and a timeline of everything that happened. Across every project the
@@ -208,6 +209,7 @@
 	let pinProject = $state('');
 	let pinTitle = $state('');
 	let pinBody = $state('');
+	let pinColor = $state('default');
 	let pinning = $state(false);
 	let pinError = $state<string | null>(null);
 	const pinImages = new PastedImages(async (file) => {
@@ -228,6 +230,7 @@
 		pinProject = filterProject || (projects.length === 1 ? projects[0].id : '');
 		pinTitle = '';
 		pinBody = '';
+		pinColor = 'default';
 		pinError = null;
 		pinOpen = true;
 	}
@@ -240,7 +243,7 @@
 		pinning = true;
 		pinError = null;
 		try {
-			const note = await api().notes.create(pinProject, { title: pinTitle.trim(), body: pinBody });
+			const note = await api().notes.create(pinProject, { title: pinTitle.trim(), body: pinBody, color: pinColor });
 			pinOpen = false;
 			void loadSummary();
 			snackbar.show(`Pinned “${note.title}”`, { action: { label: 'Open', run: () => goto(`/projects/${note.project_id}/dashboard`) } });
@@ -436,8 +439,11 @@
 									{#each g.notes.slice(0, PINNED_PER_PROJECT) as p (p.note_id)}
 										<li>
 											<a href="/projects/{g.project.id}/dashboard" class="state-layer block rounded-md px-2 py-1.5">
-												<span class="block truncate label-large text-on-surface">{p.title}</span>
-												{#if p.line}<span class="block truncate body-medium text-on-surface-variant">{p.line}</span>{/if}
+												<span class="flex items-center gap-2 truncate label-large text-on-surface">
+													<span class="size-2.5 shrink-0 rounded-full border border-outline-variant" style:background-color={noteBg(p.color)}></span>
+													<span class="truncate">{p.title}</span>
+												</span>
+												{#if p.line}<span class="block truncate pl-[18px] body-medium text-on-surface-variant">{p.line}</span>{/if}
 											</a>
 										</li>
 									{/each}
@@ -516,6 +522,7 @@
 		<Select label="Project" bind:value={pinProject} options={[{ value: '', label: 'Choose a project' }, ...projects.map((p) => ({ value: p.id, label: `${p.codename} · ${p.name}` }))]} />
 		<TextField label="Title" bind:value={pinTitle} placeholder="Status, Objectives, Scope…" />
 		<TextField label="Note (markdown)" bind:value={pinBody} multiline rows={6} error={pinError} onpaste={pastePin} supporting="Markdown · paste an image to add it · shows at the top of the project's dashboard, and here." />
+		<NoteColorPicker value={pinColor} onpick={(c) => (pinColor = c)} size={24} />
 	</div>
 	{#snippet actions()}
 		<Button variant="text" onclick={() => (pinOpen = false)}>Cancel</Button>

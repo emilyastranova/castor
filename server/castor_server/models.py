@@ -543,6 +543,8 @@ class ProjectNote(Base, TimestampMixin):
     title: Mapped[str] = mapped_column(String(120))
     body: Mapped[str] = mapped_column(Text, default="")
     position: Mapped[int] = mapped_column(Integer, default=0)
+    # A sticky-note color name (api/notes.COLORS); "default" is the plain surface.
+    color: Mapped[str] = mapped_column(String(16), default="default", server_default="default")
     updated_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

@@ -12,6 +12,7 @@
 	import { canEdit } from '$lib/session';
 	import { PastedImages } from '$lib/pastedImages.svelte';
 	import NameImageDialog from '../NameImageDialog.svelte';
+	import NoteColorPicker, { noteBg } from './NoteColorPicker.svelte';
 
 	/** Pinned notes at the top of a project's dashboard: status, objectives, scope, contacts… */
 	let { projectId }: { projectId: UUID } = $props();
@@ -44,6 +45,7 @@
 	let editingId = $state<UUID | 'new' | null>(null);
 	let draftTitle = $state('');
 	let draftBody = $state('');
+	let draftColor = $state('default');
 	let saving = $state(false);
 	let error = $state<string | null>(null);
 	let editorEl = $state<HTMLDivElement>();
@@ -55,6 +57,7 @@
 		editingId = note ? note.id : 'new';
 		draftTitle = note ? note.title : title;
 		draftBody = note ? note.body : '';
+		draftColor = note ? note.color : 'default';
 		error = null;
 		// The title when it's still to be chosen, else the text.
 		await tick();
@@ -76,8 +79,8 @@
 		try {
 			const saved =
 				editingId === 'new'
-					? await api().notes.create(projectId, { title: draftTitle.trim(), body: draftBody })
-					: await api().notes.update(editingId!, { title: draftTitle.trim(), body: draftBody });
+					? await api().notes.create(projectId, { title: draftTitle.trim(), body: draftBody, color: draftColor })
+					: await api().notes.update(editingId!, { title: draftTitle.trim(), body: draftBody, color: draftColor });
 			notes = [...notes.filter((n) => n.id !== saved.id), saved].sort((a, b) => a.position - b.position);
 			editingId = null;
 		} catch (err) {
@@ -109,6 +112,18 @@
 			notes = notes.filter((n) => n.id !== note.id);
 		} catch (err) {
 			snackbar.error(err instanceof ApiError ? err.message : 'Could not remove the note');
+		}
+	}
+
+	async function recolor(note: ProjectNote, color: string) {
+		if (note.color === color) return;
+		const before = note.color;
+		notes = notes.map((n) => (n.id === note.id ? { ...n, color } : n));
+		try {
+			await api().notes.update(note.id, { color });
+		} catch (err) {
+			notes = notes.map((n) => (n.id === note.id ? { ...n, color: before } : n));
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not change the color');
 		}
 	}
 
@@ -188,9 +203,10 @@
 </script>
 
 {#snippet editor()}
-	<div bind:this={editorEl} class="flex min-h-60 flex-col gap-3 rounded-lg border border-primary bg-surface-container-low p-4">
+	<div bind:this={editorEl} class="flex min-h-60 flex-col gap-3 rounded-lg border border-primary p-4" style:background-color={noteBg(draftColor)}>
 		<TextField label="Title" bind:value={draftTitle} onkeydown={editorKeys} />
 		<TextField label="Note (markdown)" bind:value={draftBody} multiline rows={7} onkeydown={editorKeys} onpaste={images.pasteInto(bodyTarget)} {error} supporting="Markdown · paste an image to add it · Ctrl+Enter to save · Esc to cancel" />
+		<NoteColorPicker value={draftColor} onpick={(c) => (draftColor = c)} size={24} />
 		<div class="flex items-center justify-end gap-2">
 			{#if images.uploading > 0}<span class="mr-auto body-small text-on-surface-variant">Uploading image…</span>{/if}
 			<Button variant="text" onclick={cancelEdit}>Cancel</Button>
@@ -205,12 +221,19 @@
 			{#if editingId === note.id}
 				{@render editor()}
 			{:else}
-				<article class="group flex min-w-0 flex-col gap-2 rounded-lg bg-surface-container-low p-4 {expanded[note.id] ? '' : 'h-60'}">
+				<article class="group flex min-w-0 flex-col gap-2 rounded-lg bg-surface-container-low p-4 {expanded[note.id] ? '' : 'h-60'}" style:background-color={noteBg(note.color)}>
 					<header class="flex items-start gap-2">
 						<Icon name="push_pin" size={18} class="mt-0.5 shrink-0 text-tertiary" />
 						<h2 class="min-w-0 flex-1 truncate title-medium text-on-surface" title={note.title}>{note.title}</h2>
 						{#if canEdit()}
 							<IconButton icon="edit" label="Edit note" size="sm" class="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100" onclick={() => startEdit(note)} />
+							<Menu class="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 has-[[role=menu]]:opacity-100">
+								{#snippet anchor()}<IconButton icon="palette" label="Note color" size="sm" />{/snippet}
+								<div class="w-max px-3 py-1.5" role="presentation">
+									<p class="mb-2 label-medium text-on-surface-variant">Color</p>
+									<div class="w-[12.5rem]"><NoteColorPicker value={note.color} onpick={(c) => recolor(note, c)} /></div>
+								</div>
+							</Menu>
 						{/if}
 						<Menu>
 							{#snippet anchor()}<IconButton icon="more_vert" label="Note menu" size="sm" />{/snippet}
