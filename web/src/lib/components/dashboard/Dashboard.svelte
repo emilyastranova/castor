@@ -1,0 +1,333 @@
+<script lang="ts">
+	import type { DashboardSummary, FeedItem, FeedKind, ProjectRef } from '$lib/api';
+	import { api } from '$lib/api';
+	import { Button, Icon, Select } from '$lib/m3';
+	import { realtime } from '$lib/realtime.svelte';
+	import { notifications } from '$lib/notifications.svelte';
+	import { relativeTime, absoluteTime } from '$lib/format';
+	import { me, isAdmin } from '$lib/session';
+	import TimelineItem from './TimelineItem.svelte';
+
+	/** The cockpit: a greeting with the headline numbers, what needs attention, what's
+	 *  running now, and a timeline of everything that happened. Across every project the
+	 *  user can see, or one project (`projectId`). */
+	interface Props {
+		projectId?: string | null;
+		/** For the project filter on the all-projects dashboard. */
+		projects?: ProjectRef[];
+	}
+	let { projectId = null, projects = [] }: Props = $props();
+
+	// svelte-ignore state_referenced_locally
+	let filterProject = $state<string>(projectId ?? '');
+	let scope = $derived(projectId ?? (filterProject || null));
+
+	const ALL_KINDS: { kind: FeedKind; label: string; icon: string }[] = [
+		{ kind: 'comment', label: 'Comments', icon: 'chat_bubble' },
+		{ kind: 'job', label: 'Jobs', icon: 'terminal' },
+		{ kind: 'card', label: 'Cards', icon: 'note_stack_add' },
+		{ kind: 'move', label: 'Moves', icon: 'move_item' },
+		{ kind: 'playbook', label: 'Playbooks', icon: 'account_tree' },
+		{ kind: 'file', label: 'Files', icon: 'attach_file' },
+		{ kind: 'agent', label: 'Agents', icon: 'dns' },
+		{ kind: 'admin', label: 'Admin', icon: 'shield_person' }
+	];
+	let kindOptions = $derived(ALL_KINDS.filter((k) => k.kind !== 'admin' || isAdmin()));
+	/** What the timeline shows by default: the work, not agent connections or admin. */
+	const WORK: FeedKind[] = ['comment', 'job', 'card', 'playbook', 'file'];
+	let kinds = $state<Set<FeedKind>>(new Set(WORK));
+	let isDefault = $derived(kinds.size === WORK.length && WORK.every((k) => kinds.has(k)));
+
+	let summary = $state<DashboardSummary | null>(null);
+	let items = $state<FeedItem[]>([]);
+	let nextBefore = $state<number | null>(null);
+	let loadingMore = $state(false);
+	let loaded = $state(false);
+
+	async function loadSummary() {
+		try {
+			summary = await api().dashboard.summary(scope);
+		} catch {
+			/* keep the last one */
+		}
+	}
+	async function loadFeed() {
+		const res = await api().dashboard.feed({ project_id: scope, kinds: [...kinds], limit: 40 });
+		items = res.items;
+		nextBefore = res.next_before;
+		loaded = true;
+	}
+	/** New events: fetch the newest page and add what isn't shown yet. */
+	async function refreshHead() {
+		const res = await api().dashboard.feed({ project_id: scope, kinds: [...kinds], limit: 40 });
+		const known = new Set(items.map((i) => i.id));
+		const fresh = res.items.filter((i) => !known.has(i.id));
+		if (fresh.length) items = [...fresh, ...items];
+	}
+	async function more() {
+		if (!nextBefore) return;
+		loadingMore = true;
+		try {
+			const res = await api().dashboard.feed({ project_id: scope, kinds: [...kinds], before: nextBefore, limit: 40 });
+			items = [...items, ...res.items];
+			nextBefore = res.next_before;
+		} finally {
+			loadingMore = false;
+		}
+	}
+
+	// (Re)load when the scope or the filters change.
+	$effect(() => {
+		void scope;
+		void kinds;
+		loaded = false;
+		void loadSummary();
+		void loadFeed();
+	});
+
+	// Live: new activity and changing jobs/runs/agents refresh, a little debounced.
+	let headTimer: ReturnType<typeof setTimeout> | undefined;
+	let summaryTimer: ReturnType<typeof setTimeout> | undefined;
+	$effect(() =>
+		realtime.subscribe((e) => {
+			if (projectId && e.project_id && e.project_id !== projectId) return;
+			if (e.name === 'activity.created') {
+				clearTimeout(headTimer);
+				headTimer = setTimeout(refreshHead, 400);
+			}
+			if (['activity.created', 'job.updated', 'playbook_run.updated', 'agent.updated', 'task.moved'].includes(e.name)) {
+				clearTimeout(summaryTimer);
+				summaryTimer = setTimeout(loadSummary, 800);
+			}
+		})
+	);
+	// Running times tick.
+	let now = $state(Date.now());
+	$effect(() => {
+		const t = setInterval(() => (now = Date.now()), 15000);
+		return () => clearInterval(t);
+	});
+
+	function toggleKind(kind: FeedKind) {
+		const next = new Set(kinds);
+		if (next.has(kind)) next.delete(kind);
+		else next.add(kind);
+		kinds = next;
+	}
+
+	// ---- greeting ----
+	let user = $derived(me());
+	let firstName = $derived((user?.display_name || user?.username || '').split(/\s+/)[0]);
+	let greeting = $derived.by(() => {
+		const h = new Date(now).getHours();
+		return h < 5 ? 'Working late' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+	});
+	let today = $derived(new Date(now).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }));
+	let headline = $derived.by(() => {
+		if (!summary) return '';
+		const parts: string[] = [];
+		const decisions = summary.attention.filter((a) => a.kind === 'decision').length;
+		if (decisions) parts.push(`${decisions} step${decisions === 1 ? '' : 's'} waiting for you`);
+		if (summary.live_jobs.length) parts.push(`${summary.live_jobs.length} job${summary.live_jobs.length === 1 ? '' : 's'} running or queued`);
+		if (summary.counts.jobs_failed_24h) parts.push(`${summary.counts.jobs_failed_24h} failed today`);
+		return parts.length ? parts.join(' · ') : 'All quiet: nothing needs you right now.';
+	});
+
+	// ---- timeline grouped by day ----
+	let days = $derived.by(() => {
+		const groups: { label: string; items: FeedItem[] }[] = [];
+		const todayKey = new Date().toDateString();
+		const yesterdayKey = new Date(Date.now() - 864e5).toDateString();
+		for (const item of items) {
+			const d = new Date(item.created_at);
+			const key = d.toDateString();
+			const label = key === todayKey ? 'Today' : key === yesterdayKey ? 'Yesterday' : d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+			if (groups.at(-1)?.label !== label) groups.push({ label, items: [] });
+			groups.at(-1)!.items.push(item);
+		}
+		return groups;
+	});
+
+	const elapsed = (iso: string | null) => {
+		if (!iso) return '';
+		const s = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
+		return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+	};
+	let stats = $derived(
+		summary
+			? [
+					{ label: 'Open cards', value: summary.counts.open_cards, icon: 'view_kanban' },
+					{ label: 'Comments today', value: summary.counts.comments_24h, icon: 'chat_bubble' },
+					{ label: 'New cards today', value: summary.counts.cards_24h, icon: 'note_stack_add' },
+					{ label: 'Jobs succeeded', value: summary.counts.jobs_succeeded_24h, icon: 'check_circle' },
+					{ label: 'Jobs failed', value: summary.counts.jobs_failed_24h, icon: 'error', bad: summary.counts.jobs_failed_24h > 0 }
+				]
+			: []
+	);
+</script>
+
+<div class="mx-auto flex w-full max-w-7xl flex-col gap-6 px-6 pt-6 pb-10">
+	<!-- greeting -->
+	<header class="flex flex-wrap items-end justify-between gap-4">
+		<div>
+			<p class="label-large text-on-surface-variant">{today}</p>
+			<h1 class="display-small text-on-surface">{greeting}{firstName ? `, ${firstName}` : ''}</h1>
+			<p class="mt-1 body-large text-on-surface-variant">{headline}</p>
+		</div>
+		{#if !projectId && projects.length > 1}
+			<div class="w-64">
+				<Select
+					label="Project"
+					bind:value={filterProject}
+					options={[{ value: '', label: 'All projects' }, ...projects.map((p) => ({ value: p.id, label: `${p.codename} · ${p.name}` }))]}
+				/>
+			</div>
+		{/if}
+	</header>
+
+	<!-- headline numbers (last 24 hours) -->
+	<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+		{#each stats as s (s.label)}
+			<div class="flex items-center gap-3 rounded-lg bg-surface-container-low px-4 py-3">
+				<Icon name={s.icon} class={s.bad ? 'text-error' : 'text-on-surface-variant'} />
+				<div class="min-w-0">
+					<p class="headline-small leading-none {s.bad ? 'text-error' : 'text-on-surface'}">{s.value}</p>
+					<p class="mt-1 truncate body-small text-on-surface-variant">{s.label}</p>
+				</div>
+			</div>
+		{/each}
+	</div>
+
+	<div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+		<!-- timeline -->
+		<section class="min-w-0">
+			<div class="mb-3 flex flex-wrap items-center gap-2">
+				<h2 class="mr-2 title-large text-on-surface">What's been happening</h2>
+				{#each kindOptions as k (k.kind)}
+					<button
+						type="button"
+						class="flex items-center gap-1 rounded-full border px-2.5 py-1 label-medium transition-colors {kinds.has(k.kind)
+							? 'border-transparent bg-secondary-container text-on-secondary-container'
+							: 'border-outline-variant text-on-surface-variant hover:bg-surface-container-high'}"
+						aria-pressed={kinds.has(k.kind)}
+						onclick={() => toggleKind(k.kind)}
+					>
+						<Icon name={kinds.has(k.kind) ? 'check' : k.icon} size={14} />{k.label}
+					</button>
+				{/each}
+				{#if isDefault}
+					<button type="button" class="label-medium text-primary hover:underline" onclick={() => (kinds = new Set(kindOptions.map((k) => k.kind)))}>Show everything</button>
+				{:else}
+					<button type="button" class="label-medium text-primary hover:underline" onclick={() => (kinds = new Set(WORK))}>Just the work</button>
+				{/if}
+			</div>
+			{#if !loaded}
+				<p class="py-10 text-center body-medium text-on-surface-variant">Loading…</p>
+			{:else if !items.length}
+				<div class="flex flex-col items-center gap-2 rounded-lg bg-surface-container-low py-12 text-center text-on-surface-variant">
+					<Icon name="history" size={36} />
+					<p class="body-medium">Nothing here yet{isDefault ? '' : ' for these filters'}.</p>
+				</div>
+			{:else}
+				{#each days as day (day.label)}
+					<h3 class="sticky top-0 z-10 -mx-1 mb-2 bg-surface px-1 py-1 title-small text-on-surface-variant">{day.label}</h3>
+					<ol>
+						{#each day.items as item (item.id)}
+							<TimelineItem {item} showProject={!scope} />
+						{/each}
+					</ol>
+				{/each}
+				{#if nextBefore}
+					<div class="flex justify-center"><Button variant="tonal" loading={loadingMore} onclick={more}>Show older</Button></div>
+				{/if}
+			{/if}
+		</section>
+
+		<!-- side panels -->
+		<aside class="flex flex-col gap-4">
+			<section class="rounded-lg bg-surface-container-low p-4">
+				<div class="mb-2 flex items-center gap-2">
+					<Icon name="priority_high" class="text-tertiary" />
+					<h2 class="flex-1 title-medium text-on-surface">Needs attention</h2>
+					{#if notifications.unread}<span class="body-small text-on-surface-variant">{notifications.unread} unread notification{notifications.unread === 1 ? '' : 's'}</span>{/if}
+				</div>
+				{#if summary?.attention.length}
+					<ul class="flex flex-col gap-1.5">
+						{#each summary.attention as a (a.link)}
+							<li>
+								<a href={a.link} class="state-layer flex items-start gap-2.5 rounded-md px-2 py-2">
+									<Icon name={a.kind === 'decision' ? 'front_hand' : 'error'} size={18} class="mt-0.5 shrink-0 {a.kind === 'decision' ? 'text-tertiary' : 'text-error'}" />
+									<span class="min-w-0 flex-1">
+										<span class="block body-medium text-on-surface">{a.title}</span>
+										<span class="block truncate body-small text-on-surface-variant" title={a.detail}>
+											{a.detail}{a.since ? ` · ${relativeTime(a.since)}` : ''}{!scope && a.project ? ` · ${a.project.codename}` : ''}
+										</span>
+									</span>
+								</a>
+							</li>
+						{/each}
+					</ul>
+				{:else}
+					<p class="flex items-center gap-2 px-2 py-2 body-medium text-on-surface-variant"><Icon name="check_circle" size={18} class="text-primary" />Nothing waiting on you.</p>
+				{/if}
+			</section>
+
+			<section class="rounded-lg bg-surface-container-low p-4">
+				<div class="mb-2 flex items-center gap-2">
+					<Icon name="bolt" class="text-primary" />
+					<h2 class="flex-1 title-medium text-on-surface">Live now</h2>
+					{#if summary}
+						<a href="/agents" class="flex items-center gap-1 body-small text-on-surface-variant hover:underline" title="{summary.agents.busy} of {summary.agents.slots} job slots busy">
+							<Icon name={summary.agents.online ? 'dns' : 'cloud_off'} size={14} />{summary.agents.online} agent{summary.agents.online === 1 ? '' : 's'} · {summary.agents.busy}/{summary.agents.slots} slots
+						</a>
+					{/if}
+				</div>
+				{#if summary?.live_runs.length}
+					<p class="mt-1 mb-1 px-2 label-medium text-on-surface-variant">Playbooks</p>
+					<ul class="flex flex-col gap-1">
+						{#each summary.live_runs as r (r.run_id)}
+							<li>
+								<a href="/playbooks?run={r.run_id}" class="state-layer block rounded-md px-2 py-2">
+									<span class="flex items-center gap-2">
+										<Icon name="account_tree" size={16} class="text-primary" />
+										<span class="min-w-0 flex-1 truncate body-medium text-on-surface">{r.name}</span>
+										<span class="shrink-0 body-small text-on-surface-variant">{r.done}/{r.total}</span>
+									</span>
+									<span class="mt-1.5 block h-1.5 overflow-hidden rounded-full bg-surface-container-highest">
+										<span class="block h-full rounded-full bg-primary transition-all" style:width="{r.total ? (100 * r.done) / r.total : 0}%"></span>
+									</span>
+									<span class="mt-1 block body-small text-on-surface-variant">
+										{r.running} running{r.waiting ? ` · ${r.waiting} waiting for you` : ''}{!scope && r.project ? ` · ${r.project.codename}` : ''} · started {relativeTime(r.started_at)}
+									</span>
+								</a>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+				{#if summary?.live_jobs.length}
+					<p class="mt-2 mb-1 px-2 label-medium text-on-surface-variant">Jobs</p>
+					<ul class="flex flex-col gap-0.5">
+						{#each summary.live_jobs as j (j.job_id)}
+							<li>
+								<a href={j.project ? `/projects/${j.project.id}?task=${j.task.id}` : '#'} class="state-layer flex items-center gap-2 rounded-md px-2 py-1.5">
+									{#if j.status === 'running'}
+										<span class="size-2 shrink-0 animate-pulse rounded-full bg-primary"></span>
+									{:else}
+										<Icon name="hourglass_empty" size={14} class="shrink-0 text-tertiary" />
+									{/if}
+									<span class="min-w-0 flex-1 truncate body-medium text-on-surface" title={j.task.name}>{j.task.name}</span>
+									<span class="shrink-0 body-small text-on-surface-variant" title={absoluteTime(j.started_at ?? j.queued_at)}>
+										{j.status === 'running' ? `${elapsed(j.started_at)}${j.agent ? ` · ${j.agent}` : ''}` : 'queued'}
+									</span>
+								</a>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+				{#if summary && !summary.live_runs.length && !summary.live_jobs.length}
+					<p class="px-2 py-2 body-medium text-on-surface-variant">Nothing running.</p>
+				{/if}
+			</section>
+		</aside>
+	</div>
+</div>

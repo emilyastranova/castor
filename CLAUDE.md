@@ -211,5 +211,9 @@ agent stays trivially installable on target boxes.
   (it can't clone Svelte state proxies). The server renders and checks YAML in
   `POST /api/playbooks/to-yaml` (`playbook_yaml.py`); keep its round trip exact
   (`test_playbook_yaml.py` runs every built-in playbook through it).
+- Home (`routes/+page.svelte`) and `routes/projects/[id]/dashboard` render
+  `lib/components/dashboard/Dashboard.svelte` (global, or one `projectId`), fed by
+  `api/dashboard.py` (`/summary`, `/feed`: activity events enriched with the comment, job,
+  card and author). New activity types map to feed kinds in `dashboard.kind_of`.
 - `JobConsole.svelte` loads `/api/jobs/{id}` then appends `job.log` events, buffering any
   that arrive during the initial load and de-duplicating by `seq`.

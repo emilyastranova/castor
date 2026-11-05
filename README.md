@@ -59,6 +59,10 @@ step appears on the board as its own card.
 Every argument value is shell-quoted when the command line is rendered, so a
 value is always one shell word and can never inject shell syntax.
 
+**Home** is the dashboard: what needs you (playbook steps waiting for a decision, failed
+runs), what's running now, and a live timeline of comments, jobs, cards and playbook runs
+across your projects. Each project has the same view next to its board.
+
 ## Playbooks
 
 <p align="center">

@@ -1,9 +1,10 @@
 # Phase 2 design: command library, structured outputs, playbooks
 
-Status (2026-11-04): every slice is built (2a–2f), along with several things the original
-plan didn't have (see [Built beyond the plan](#built-beyond-the-plan)).
-Roadmap item **M2** in [ARCHITECTURE.md](ARCHITECTURE.md). The sections below keep the
-original design (decided 2026-10-15), with notes on how each part was actually built.
+**Status: done (2026-11-04).** Every slice is built (2a–2f), along with several things the
+original plan didn't have (see [Built beyond the plan](#built-beyond-the-plan)). Roadmap
+item **M2** in [ARCHITECTURE.md](ARCHITECTURE.md). This document is kept as the record of
+the Phase 2 design (decided 2026-10-15), with notes on how each part was actually built;
+new work isn't tracked here.
 
 Phase 2 turns Castor from "run this shell command on an agent" into "run a known tool with
 typed inputs, get structured results, and feed them into the next tool". It has five
@@ -195,8 +196,16 @@ Postgres with `CASTOR_TEST_DATABASE_URL`.
   ([PLAYBOOK_SPEC.md](PLAYBOOK_SPEC.md) section 8).
 - **Notifications**: in-app (bell, desktop notifications) and webhooks (Slack, Discord, ntfy,
   JSON) for steps waiting on a decision and runs finishing.
+- **`for_each`**: a command step runs once per item of a list, one card per item, with a
+  concurrency limit.
+- **Accounts**: profile pictures (upload, image URL or Gravatar), self-service password and
+  name changes, and lockout protection (the last admin can't be demoted or disabled, startup
+  restores an admin if there's none, and `castor-admin` recovers accounts from the shell).
+- **Upgrades**: SQLite is backed up before migrations run; every migration is tested on
+  SQLite and Postgres (including an install with hand-made users), and the server test suite
+  runs against Postgres with `CASTOR_TEST_DATABASE_URL`.
 
-## Next
+## Carried forward
 
 - An automated resolver for paused steps: an AI model (Gemini) that reads an unexpected
   result and picks retry (possibly with a corrected command), continue or skip, falling

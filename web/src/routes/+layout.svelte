@@ -17,6 +17,7 @@
 	let dark = $state(false);
 
 	const baseNav = [
+		{ href: '/', icon: 'space_dashboard', label: 'Home' },
 		{ href: '/projects', icon: 'view_kanban', label: 'Projects' },
 		{ href: '/playbooks', icon: 'account_tree', label: 'Playbooks' },
 		{ href: '/commands', icon: 'menu_book', label: 'Commands' },
@@ -60,7 +61,7 @@
 	<div class="flex h-dvh w-full overflow-hidden bg-surface">
 		<NavigationRail items={nav} current={page.url.pathname}>
 			{#snippet top()}
-				<a href="/projects" class="flex size-12 items-center justify-center rounded-lg bg-primary-container text-on-primary-container" aria-label="Castor home">
+				<a href="/" class="flex size-12 items-center justify-center rounded-lg bg-primary-container text-on-primary-container" aria-label="Castor home">
 					<Icon name="radar" filled />
 				</a>
 			{/snippet}

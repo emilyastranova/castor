@@ -13,6 +13,7 @@
 	import TaskDialog from '$lib/components/TaskDialog.svelte';
 	import ProjectDialog from '$lib/components/ProjectDialog.svelte';
 	import MembersDialog from '$lib/components/MembersDialog.svelte';
+	import ProjectViewSwitch from '$lib/components/ProjectViewSwitch.svelte';
 	import { canEdit, isAdmin } from '$lib/session';
 	import ActivityFeed from '$lib/components/ActivityFeed.svelte';
 
@@ -127,6 +128,7 @@
 		</div>
 	</div>
 	{#snippet actions()}
+		<ProjectViewSwitch projectId={store.project.id} current="board" />
 		<div class="mr-2 hidden items-center gap-2 md:flex">
 			{#if running > 0}
 				<Chip variant="assist" icon="bolt">{running} running</Chip>

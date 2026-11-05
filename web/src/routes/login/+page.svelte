@@ -17,7 +17,7 @@
 			await api().auth.login(username, password);
 			await invalidateAll();
 			const next = page.url.searchParams.get('next');
-			await goto(next && next.startsWith('/') ? next : '/projects');
+			await goto(next && next.startsWith('/') ? next : '/');
 		} catch (err) {
 			error = err instanceof ApiError ? err.message : 'Could not reach the server';
 		} finally {

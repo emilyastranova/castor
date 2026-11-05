@@ -273,6 +273,7 @@ async def create_comment(task_id: str, body: CommentIn, db: DB, user: CurrentUse
         message=f"Commented on “{task.title}”",
         project_id=task.project_id,
         task_id=task.id,
+        payload={"comment_id": str(comment.id)},
         **actor_of(user),
     )
     await db.commit()

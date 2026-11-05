@@ -219,6 +219,12 @@ blocked, and it doesn't fail the run. `expect:` checks a finished command's pars
 outputs and log; a miss counts as a failure. `on_failure: stop|continue|ask` decides what
 a failure means; `ask` pauses the step (`attention`) and notifies people.
 
+Advancing a run (`advance_playbook_run`, `resolve_step`) is serialised per run: jobs that
+finish together have their outputs parsed in parallel, and without it each would queue the
+same ready step. A lock per run and event loop covers one process, and the run row is read
+`FOR UPDATE` (Postgres) for several; the engine re-reads jobs and cards rather than using a
+session's cached copies, and never queues a card that already has an active job.
+
 `services._advance` drives a run whenever one of its jobs finishes (after its outputs are
 parsed; a job whose outputs are still being parsed counts as running), repeating until
 nothing changes: judge each newly finished job once (`expect`, `ask`), record steps left
@@ -276,6 +282,20 @@ agent connects, a job finishes, or on a 5 s timer. For each queued job (FIFO) it
 first online agent that: matches the task's selector, has spare concurrency, and supports
 the required runtime (a job with an `image` needs a container runtime). It sends `job.run`
 and marks the job `dispatched`. Jobs with no eligible agent stay `queued`.
+
+## Dashboard
+
+The home page (`/`) and each project's Dashboard view (`/projects/<id>/dashboard`) are the
+same component (`web/src/lib/components/dashboard/`), across every visible project or one.
+`GET /api/dashboard/summary` gives the headline numbers (last 24 h), **needs attention**
+(playbook steps waiting for a decision; cards whose latest run failed in the last week and
+aren't done) and **live now** (queued/running jobs, running playbook runs with progress,
+agents and slots). `GET /api/dashboard/feed` is the timeline: activity events with what
+they're about attached (the comment's text, the job's outcome, duration and agent, the
+card, the author's picture), filtered by kind (`comment, job, card, move, file, playbook,
+agent, admin`; admin events only for admins; job queue/dispatch steps never), paged with
+`before=<id>`. The page refreshes from `activity.created`, `job.updated`,
+`playbook_run.updated` and `agent.updated` events.
 
 ## UI realtime (`/ws/ui`)
 

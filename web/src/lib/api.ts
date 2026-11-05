@@ -237,6 +237,38 @@ export interface PlaybookStepResult {
 	items?: number;
 }
 
+export type FeedKind = 'comment' | 'job' | 'card' | 'move' | 'file' | 'playbook' | 'agent' | 'admin';
+
+export interface ProjectRef {
+	id: UUID;
+	codename: string;
+	name: string;
+}
+
+/** One timeline entry on the dashboard (an activity event with what it's about). */
+export interface FeedItem {
+	id: number;
+	kind: FeedKind;
+	type: string;
+	created_at: string;
+	message: string;
+	project: ProjectRef | null;
+	task: { id: UUID; name: string } | null;
+	actor: { type: 'user' | 'agent' | 'system'; name: string; avatar_url: string | null };
+	comment: { id: UUID; body: string; edited: boolean } | null;
+	job: { id: UUID; status: string; exit_code: number | null; seconds: number | null; agent: string | null; command: string } | null;
+	run_id: string | null;
+	step_id: string | null;
+}
+
+export interface DashboardSummary {
+	counts: { open_cards: number; comments_24h: number; cards_24h: number; jobs_succeeded_24h: number; jobs_failed_24h: number };
+	attention: { kind: 'decision' | 'failed'; title: string; detail: string; since: string | null; project: ProjectRef | null; link: string }[];
+	live_jobs: { job_id: UUID; status: string; task: { id: UUID; name: string }; project: ProjectRef | null; agent: string | null; queued_at: string; started_at: string | null }[];
+	live_runs: { run_id: UUID; name: string; project: ProjectRef | null; done: number; total: number; running: number; waiting: number; started_at: string }[];
+	agents: { online: number; slots: number; busy: number };
+}
+
 export interface AppNotification {
 	id: UUID;
 	user_id: UUID;
@@ -814,6 +846,17 @@ export function api(fetchFn: Fetch = fetch) {
 			rotate: (id: UUID) => post<AgentToken & { token: string }>(`/agent-tokens/${id}/rotate`),
 			revoke: (id: UUID) => post<AgentToken>(`/agent-tokens/${id}/revoke`),
 			remove: (id: UUID) => del(`/agent-tokens/${id}`)
+		},
+		dashboard: {
+			summary: (projectId?: string | null) => get<DashboardSummary>(`/dashboard/summary${projectId ? `?project_id=${projectId}` : ''}`),
+			feed: (params: { project_id?: string | null; kinds?: FeedKind[]; before?: number | null; limit?: number } = {}) => {
+				const q = new URLSearchParams();
+				if (params.project_id) q.set('project_id', params.project_id);
+				if (params.kinds?.length) q.set('kinds', params.kinds.join(','));
+				if (params.before) q.set('before', String(params.before));
+				if (params.limit) q.set('limit', String(params.limit));
+				return get<{ items: FeedItem[]; next_before: number | null }>(`/dashboard/feed?${q}`);
+			}
 		},
 		activity: {
 			recent: (limit = 50) => get<Activity[]>(`/activity?limit=${limit}`)
