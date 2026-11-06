@@ -14,9 +14,12 @@
 	import NameImageDialog from '../NameImageDialog.svelte';
 	import NoteColorPicker, { noteBg } from './NoteColorPicker.svelte';
 	import { pop, glide } from '$lib/motion';
+	import { appSettings } from '$lib/appSettings.svelte';
 
 	/** Pinned notes at the top of a project's dashboard: status, objectives, scope, contacts… */
 	let { projectId }: { projectId: UUID } = $props();
+	// The board holds a set number of notes (Settings → General); at the limit, no add tile.
+	$effect(() => void appSettings.load());
 
 	let notes = $state<ProjectNote[]>([]);
 	let loaded = $state(false);
@@ -278,7 +281,7 @@
 
 		{#if editingId === 'new'}
 			{@render editor()}
-		{:else if canEdit() && notes.length < 12}
+		{:else if canEdit() && notes.length < appSettings.value.notes_per_project}
 			<div class="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-outline-variant p-4 text-on-surface-variant {notes.length ? 'h-60' : 'min-h-24 col-span-full sm:flex-row sm:justify-start'}">
 				<Button variant="text" icon="push_pin" onclick={() => startEdit(null)}>{notes.length ? 'Add note' : 'Pin a note'}</Button>
 				{#if !notes.length}

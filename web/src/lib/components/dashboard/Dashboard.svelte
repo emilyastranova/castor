@@ -44,8 +44,8 @@
 		{ kind: 'admin', label: 'Admin', icon: 'shield_person' }
 	];
 	let kindOptions = $derived(ALL_KINDS.filter((k) => k.kind !== 'admin' || isAdmin()));
-	/** What the timeline shows by default: the work, not agent connections or admin. */
-	const WORK: FeedKind[] = ['comment', 'job', 'card', 'playbook', 'file', 'note', 'asset'];
+	/** What the timeline shows by default: the work, not note edits, agent connections or admin. */
+	const WORK: FeedKind[] = ['comment', 'job', 'card', 'playbook', 'file', 'asset'];
 	let kinds = $state<Set<FeedKind>>(new Set(WORK));
 	/** "Mine": only what's about you (your cards, mentions, replies). */
 	let mine = $state(false);

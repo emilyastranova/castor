@@ -89,3 +89,30 @@ def test_note_colors(client, auth):
     assert client.post(f"/api/projects/{p['id']}/notes", json={"title": "x", "color": "nope"}, headers=auth).status_code == 422
     pinned = client.get(f"/api/dashboard/summary?project_id={p['id']}", headers=auth).json()["pinned"]
     assert pinned[0]["color"] == "blue"
+
+
+def test_note_limit_is_an_admin_setting(client, auth):
+    assert client.get("/api/settings", headers=auth).json()["notes_per_project"] == 4
+    p = _project(client, auth)
+    base = f"/api/projects/{p['id']}/notes"
+    for i in range(4):
+        assert client.post(base, json={"title": f"N{i}"}, headers=auth).status_code == 201
+    full = client.post(base, json={"title": "Fifth"}, headers=auth)
+    assert full.status_code == 409 and "Settings" in full.json()["detail"]
+
+    assert client.patch("/api/settings", json={"notes_per_project": 13}, headers=auth).status_code == 422
+    assert client.patch("/api/settings", json={"nope": 1}, headers=auth).status_code == 422
+    try:
+        r = client.patch("/api/settings", json={"notes_per_project": 6}, headers=auth)
+        assert r.status_code == 200 and r.json()["notes_per_project"] == 6
+        assert client.post(base, json={"title": "Fifth"}, headers=auth).status_code == 201
+
+        name = f"ns{uuid.uuid4().hex[:6]}"
+        client.post("/api/users", json={"username": name, "role": "operator", "password": "a password"}, headers=auth)
+        token = client.post("/api/auth/login", json={"username": name, "password": "a password"}).json()["token"]
+        client.cookies.clear()
+        other = {"Authorization": f"Bearer {token}"}
+        assert client.get("/api/settings", headers=other).json()["notes_per_project"] == 6
+        assert client.patch("/api/settings", json={"notes_per_project": 12}, headers=other).status_code == 403
+    finally:
+        client.patch("/api/settings", json={"notes_per_project": 4}, headers=auth)

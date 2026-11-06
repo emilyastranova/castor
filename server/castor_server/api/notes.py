@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
+from .. import app_settings
 from .. import models as m
 from ..access import check_project
 from ..deps import DB, CurrentUser, parse_uuid
@@ -22,7 +23,6 @@ from ..services import actor_of, record_activity
 router = APIRouter(tags=["notes"])
 
 HISTORY_LIMIT = 20
-MAX_NOTES = 12
 # Sticky-note colors; the web app maps each to a light and a dark shade (app.css --note-*).
 COLORS = ("default", "red", "orange", "yellow", "green", "teal", "blue", "navy", "purple", "pink", "brown", "gray")
 Color = Literal[COLORS]  # type: ignore[valid-type]
@@ -145,8 +145,9 @@ async def create_note(project_id: str, body: NoteIn, db: DB, user: CurrentUser):
             select(func.count(), func.max(m.ProjectNote.position)).where(m.ProjectNote.project_id == pid)
         )
     ).one()
-    if count >= MAX_NOTES:
-        raise HTTPException(409, f"A project can have up to {MAX_NOTES} pinned notes")
+    limit = (await app_settings.load(db)).notes_per_project
+    if count >= limit:
+        raise HTTPException(409, f"A project can have up to {limit} pinned notes (an admin can change this in Settings)")
     note = m.ProjectNote(
         id=m.new_id(), project_id=pid, title=body.title.strip(), body=body.body, position=(last or 0) + 1, updated_by=user.id,
         color=body.color,

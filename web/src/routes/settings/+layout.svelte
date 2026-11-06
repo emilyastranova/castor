@@ -7,6 +7,7 @@
 
 	/** Admin settings, one section per page; add new ones here. */
 	const SECTIONS = [
+		{ href: '/settings/general', icon: 'tune', label: 'General', detail: 'Limits and defaults' },
 		{ href: '/settings/users', icon: 'group', label: 'Users', detail: 'Accounts and roles' },
 		{ href: '/settings/transfer', icon: 'sync_alt', label: 'Import and export', detail: 'Archives of projects and libraries' }
 	];

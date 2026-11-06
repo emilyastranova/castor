@@ -186,6 +186,11 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   A new table that belongs to a project must be added to `PROJECT_TABLES` (in insert order)
   or it won't travel; vault-encrypted values go through `Secrets` (never plain text).
   Web: `ExportDialog`, `ImportDialog`, `LibraryTransfer`, `routes/settings/transfer`.
+  Duplicating a card (3m), `services.duplicate_task`, reuses `values_for`/`remap`; a new
+  table hanging off a card must decide whether a duplicate copies it.
+- Instance settings admins change in the UI: `app_settings.py` (`AppSettings` fields are the
+  keys and defaults), `api/app_settings.py`; web `lib/appSettings.svelte.ts`,
+  `routes/settings/general`. Env-level config stays in `config.py`.
 - Config is `pydantic-settings` with the `CASTOR_` prefix (`config.py`).
 - SQLite uses `NullPool` (aiosqlite connections are bound to the event loop that opened
   them; the test client runs WebSocket sessions on another loop).

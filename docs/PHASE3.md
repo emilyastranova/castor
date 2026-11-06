@@ -1,6 +1,6 @@
 # Phase 3 plan
 
-Status: in progress (2026-11-05); 3a, 3b, 3c, 3d, 3f, 3g, 3h and 3i are built; 3e, 3j, 3k, 3l and 3m are left. Roadmap item **M3** in
+Status: in progress (2026-11-05); 3a, 3b, 3c, 3d, 3f, 3g, 3h, 3i and 3m are built; 3e, 3j, 3k and 3l are left. Roadmap item **M3** in
 [ARCHITECTURE.md](ARCHITECTURE.md); Phase 2 is done and recorded in [PHASE2.md](PHASE2.md).
 
 Phase 3 makes Castor easier to run day to day: tools prepared on demand instead of baked
@@ -21,7 +21,7 @@ playbook step goes wrong.
 | 3j. Interactive jobs | Type into a running job's stdin; the console keeps following the output; an alert when an automated job stops to ask for input | nothing | Idea |
 | 3k. Chat alerts for long runs | Google Chat and Slack webhooks set up in Settings, switched on per card or per playbook run for when it finishes or runs long | nothing | Idea |
 | 3l. Your theme colour | Each person picks a Material You seed colour that recolours the whole UI | nothing | Idea |
-| 3m. Duplicate a card | Copy an existing card into To Do: just the blueprint, or with its comments and output | nothing | Idea |
+| 3m. Duplicate a card | Copy an existing card into To Do: just the blueprint, or with its comments and output | nothing | Built |
 
 Suggested order: 3a (it unblocks the NetExec commands on the compose agent), 3d (small),
 3b, 3c, then 3e. 3f is the largest; it can start any time after 3a (it builds on parsers).
@@ -549,6 +549,15 @@ role token) recolours from it, in light and dark.
   with people's own choice on top?
 
 ## 3m. Duplicate a card
+
+**Built.** `services.duplicate_task` behind `POST /api/tasks/{id}/duplicate` (`assignees`,
+`comments`, `attachments`, `output`); the card menu's "Duplicate…" (`DuplicateDialog`) and,
+on a run card, "Run again…" (Run Playbook pre-filled with the run's inputs). As built:
+artifacts travel with the runs they came from ("output"), uploads and screenshots with
+"attachments"; only finished runs are copied, keeping their agent; the source card's
+`task.duplicated` entry is in its timeline but hidden from the feed (the copy's
+`task.created` says it). Not built: the board card context menu, several cards at once,
+other projects.
 
 Run the same thing again, or reuse a card as a template, without retyping it.
 

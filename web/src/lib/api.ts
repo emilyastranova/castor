@@ -918,6 +918,9 @@ export function api(fetchFn: Fetch = fetch) {
 			get: (id: UUID) => get<Task>(`/tasks/${id}`),
 			update: (id: UUID, body: Partial<Task>) => patch<Task>(`/tasks/${id}`, body),
 			remove: (id: UUID) => del(`/tasks/${id}`),
+			/** A copy at the top of To Do; comments, files and finished runs only if asked. */
+			duplicate: (id: UUID, body: { assignees?: boolean; comments?: boolean; attachments?: boolean; output?: boolean }) =>
+				post<Task>(`/tasks/${id}/duplicate`, body),
 			move: (id: UUID, column_id: UUID, position: number) =>
 				post<Task>(`/tasks/${id}/move`, { column_id, position }),
 			run: (id: UUID) => post<Job>(`/tasks/${id}/run`),
@@ -1128,6 +1131,10 @@ export function api(fetchFn: Fetch = fetch) {
 		activity: {
 			recent: (limit = 50) => get<Activity[]>(`/activity?limit=${limit}`)
 		},
+		settings: {
+			get: () => get<AppSettings>('/settings'),
+			update: (changes: Partial<AppSettings>) => patch<AppSettings>('/settings', changes)
+		},
 		transfer: {
 			/** Upload an archive (or a library .yaml), or re-preview a staged one with a passphrase. */
 			preview: (source: { file: File } | { token: string; filename: string }, passphrase?: string) => {
@@ -1145,6 +1152,12 @@ export function api(fetchFn: Fetch = fetch) {
 			history: () => get<TransferEvent[]>('/transfer/history')
 		}
 	};
+}
+
+/** Instance-wide settings (Settings → General). */
+export interface AppSettings {
+	/** Pinned notes a project can have (1–12). */
+	notes_per_project: number;
 }
 
 export type ImportChoice = 'import' | 'skip' | 'replace' | 'copy';

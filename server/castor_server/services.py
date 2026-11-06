@@ -362,6 +362,107 @@ def board_payload(project: m.Project, columns: list[m.BoardColumn], tasks: list[
     }
 
 
+# Columns a duplicate never copies: identity, place, provenance, and playbook membership.
+_NOT_COPIED = {"id", "column_id", "position", "created_by", "created_at", "updated_at",
+               "playbook_run_id", "playbook_step_id", "playbook_item", "depends_on"}
+_FINISHED = (m.JobStatus.succeeded, m.JobStatus.failed, m.JobStatus.cancelled, m.JobStatus.lost)
+
+
+async def duplicate_task(
+    db: AsyncSession, src: m.Task, user: m.User, *, assignees: bool = True, comments: bool = False,
+    attachments: bool = False, output: bool = False,
+) -> m.Task:
+    """Copy a card to the top of its project's To Do column (Phase 3m). The blueprint always
+    comes; comments, files and finished runs (logs, parsed results, their artifacts) only when
+    asked. Everything copied gets new ids, and links to copied files in the description and
+    comments follow them. Nothing runs. The caller commits."""
+    import copy as _copy
+    import shutil
+
+    from .config import settings
+    from .transfer import insert_rows, remap, row_of, values_for
+
+    column = await column_with_role(db, src.project_id, m.ColumnRole.todo) or (
+        await db.execute(select(m.BoardColumn).where(m.BoardColumn.project_id == src.project_id).order_by(m.BoardColumn.position).limit(1))
+    ).scalar_one()
+    top = (await db.execute(select(func.min(m.Task.position)).where(m.Task.column_id == column.id))).scalar()
+    task = m.Task(
+        **{c.key: _copy.deepcopy(getattr(src, c.key)) for c in m.Task.__table__.columns if c.key not in _NOT_COPIED},
+        column_id=column.id, position=(top - 10.0) if top is not None else 0.0, created_by=user.id,
+    )
+    task.title = f"{src.title} (copy)"[:300]
+    if not assignees:
+        task.assignees = []
+    db.add(task)
+    await db.flush()
+    ids = {str(src.id): str(task.id)}
+
+    # One-off variable sets belong to one card: the copy gets its own.
+    for slot, set_id in list((task.var_bindings or {}).items()):
+        row = await variables.find_set(db, set_id)
+        if row is None or not row.ephemeral or row.task_id != src.id:
+            continue
+        clone = m.VariableSet(**{c.key: _copy.deepcopy(getattr(row, c.key)) for c in m.VariableSet.__table__.columns
+                                 if c.key not in ("id", "created_at", "updated_at", "name", "task_id")})
+        clone.name = f"{row.name} (copy {str(task.id)[:8]})"[:200]
+        clone.task_id = task.id
+        db.add(clone)
+        await db.flush()
+        task.var_bindings = {**task.var_bindings, slot: str(clone.id)}
+
+    jobs: list[m.Job] = []
+    if output:
+        jobs = list((await db.execute(select(m.Job).where(m.Job.task_id == src.id, m.Job.status.in_(_FINISHED)).order_by(m.Job.queued_at))).scalars())
+        for j in jobs:
+            ids[str(j.id)] = str(uuid.uuid4())
+            # Same instance: the agent and the person who ran it are still the same rows.
+            ids |= {str(x): str(x) for x in (j.agent_id, j.created_by) if x}
+    files = list((await db.execute(select(m.Attachment).where(m.Attachment.task_id == src.id))).scalars())
+    # Artifacts come with the runs they came from; uploads and screenshots with "attachments".
+    files = [a for a in files if (a.job_id is not None and str(a.job_id) in ids) or (a.job_id is None and attachments)]
+    for a in files:
+        ids[str(a.id)] = str(uuid.uuid4())
+
+    if jobs:
+        job_rows = [values_for(m.Job, row_of(j, skip=("artifact_token_hash",)), ids) for j in jobs]
+        await insert_rows(db, m.Job, [r for r in job_rows if r])
+        job_ids = [j.id for j in jobs]
+        outs = (await db.execute(select(m.JobOutput).where(m.JobOutput.job_id.in_(job_ids)))).scalars()
+        await insert_rows(db, m.JobOutput, [r for o in outs if (r := values_for(m.JobOutput, row_of(o, skip=("id",)), ids))])
+        chunks = (await db.execute(select(m.JobLogChunk).where(m.JobLogChunk.job_id.in_(job_ids)).order_by(m.JobLogChunk.id))).scalars()
+        await insert_rows(db, m.JobLogChunk, [r for c in chunks if (r := values_for(m.JobLogChunk, row_of(c, skip=("id",)), ids))])
+    for a in files:
+        source = settings.data_dir / a.storage_path
+        if not source.is_file():
+            continue
+        target = source.parent / f"{ids[str(a.id)]}-{source.name.split('-', 5)[-1]}"
+        shutil.copyfile(source, target)
+        db.add(m.Attachment(
+            id=uuid.UUID(ids[str(a.id)]), project_id=a.project_id, task_id=task.id,
+            job_id=uuid.UUID(ids[str(a.job_id)]) if a.job_id else None, uploader_id=a.uploader_id, kind=a.kind,
+            filename=a.filename, content_type=a.content_type, size=a.size,
+            storage_path=str(target.relative_to(settings.data_dir)), created_at=a.created_at,
+        ))
+    task.description = remap(task.description or "", ids)
+    if comments:
+        for c in (await db.execute(select(m.Comment).where(m.Comment.task_id == src.id).order_by(m.Comment.created_at))).scalars():
+            db.add(m.Comment(task_id=task.id, author_id=c.author_id, body=remap(c.body, ids), mentions=list(c.mentions or []),
+                             edited_at=c.edited_at, created_at=c.created_at, updated_at=c.updated_at))
+    await db.flush()
+
+    extras = [w for w, on in (("comments", comments), ("files", attachments), ("output", output)) if on]
+    await record_activity(
+        db, type="task.created", project_id=task.project_id, task_id=task.id,
+        message=f"Duplicated “{src.title}”" + (f" with its {', '.join(extras)}" if extras else ""),
+        payload={"duplicated_from": str(src.id)}, **actor_of(user),
+    )
+    await record_activity(
+        db, type="task.duplicated", project_id=src.project_id, task_id=src.id,
+        message=f"Duplicated “{src.title}” as a new card", payload={"copy": str(task.id)}, **actor_of(user),
+    )
+    return task
+
+
 # ---------- playbooks ----------
 
 

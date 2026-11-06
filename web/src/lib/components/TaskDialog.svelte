@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Agent, ArgErrors, Attachment, Column, Comment, CommandDefinition, Job, Task, UUID } from '$lib/api';
+	import type { Agent, ArgErrors, Attachment, Column, Comment, CommandDefinition, Job, PlaybookSpec, Project, Task, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { realtime } from '$lib/realtime.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
@@ -16,6 +16,8 @@
 	import PriorityGlyph, { priorityOptions } from './PriorityGlyph.svelte';
 	import NameImageDialog from './NameImageDialog.svelte';
 	import RunPanel from './RunPanel.svelte';
+	import DuplicateDialog from './DuplicateDialog.svelte';
+	import RunPlaybookDialog from './RunPlaybookDialog.svelte';
 	import AssigneePicker from './AssigneePicker.svelte';
 	import MentionMenu from './MentionMenu.svelte';
 	import RichText from './RichText.svelte';
@@ -487,6 +489,38 @@
 		void goto(url, { noScroll: true, keepFocus: true });
 	}
 
+	// ---- duplicate / run again (3m) ----
+	let duplicateOpen = $state(false);
+	const finished = ['succeeded', 'failed', 'cancelled', 'lost'];
+	let duplicateCounts = $derived({
+		comments: comments.length,
+		files: attachments.filter((a) => !a.job_id).length,
+		runs: jobs.filter((j) => finished.includes(j.status)).length
+	});
+	function openCard(id: UUID) {
+		const url = new URL(page.url);
+		for (const key of ['step', 'tab', 'comment']) url.searchParams.delete(key);
+		url.searchParams.set('task', id);
+		void goto(url, { noScroll: true, keepFocus: true });
+	}
+	/** A run card isn't copied: the playbook runs again with the same inputs, after a look. */
+	let rerun = $state<{ spec: PlaybookSpec; project: Project; inputs: Record<string, unknown> } | null>(null);
+	let rerunOpen = $state(false);
+	async function runAgain() {
+		if (!task.run) return;
+		try {
+			const [run, playbook, project] = await Promise.all([
+				api().playbookRuns.get(task.run.run_id),
+				api().playbooks.get(task.run.playbook_id),
+				api().projects.get(task.project_id)
+			]);
+			rerun = { spec: playbook.spec, project, inputs: run.inputs };
+			rerunOpen = true;
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not load the playbook');
+		}
+	}
+
 	async function remove() {
 		const ok = await confirmAction({
 			title: 'Delete card?',
@@ -557,6 +591,13 @@
 					</MenuItem>
 					{#if task.command_ref}
 						<MenuItem icon="link_off" onclick={detachFromLibrary}>Detach from library</MenuItem>
+					{/if}
+				{/if}
+				{#if editable && !task.playbook_step_id}
+					{#if task.run}
+						<MenuItem icon="replay" onclick={runAgain}>Run again…</MenuItem>
+					{:else}
+						<MenuItem icon="content_copy" onclick={() => (duplicateOpen = true)}>Duplicate…</MenuItem>
 					{/if}
 				{/if}
 				<MenuItem icon="link" onclick={() => { navigator.clipboard.writeText(location.href); snackbar.show('Link copied'); }}>Copy link</MenuItem>
@@ -928,4 +969,21 @@
 			oncancel={() => images.cancel()}
 		/>
 	{/key}
+{/if}
+
+<DuplicateDialog
+	bind:open={duplicateOpen}
+	{task}
+	counts={duplicateCounts}
+	onduplicated={(copy) => { onupdated(copy); openCard(copy.id); }}
+/>
+{#if rerun}
+	<RunPlaybookDialog
+		bind:open={rerunOpen}
+		spec={rerun.spec}
+		projects={[rerun.project]}
+		projectId={rerun.project.id}
+		initial={rerun.inputs}
+		onRun={(r) => r.card_id && openCard(r.card_id)}
+	/>
 {/if}

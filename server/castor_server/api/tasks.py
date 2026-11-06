@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select
 
 from .. import models as m
@@ -27,6 +28,7 @@ from ..services import (
     active_job_for,
     actor_of,
     column_with_role,
+    duplicate_task,
     enqueue_job,
     get_task,
     move_task,
@@ -189,6 +191,29 @@ async def delete_task(task_id: str, db: DB, user: CurrentUser):
     await db.delete(task)
     await db.commit()
     bus.publish("task.deleted", project_id, {"id": parse_uuid(task_id)})
+
+
+class TaskDuplicate(BaseModel):
+    assignees: bool = True
+    comments: bool = False
+    attachments: bool = False
+    output: bool = False
+
+
+@router.post("/tasks/{task_id}/duplicate", response_model=TaskOut, status_code=201)
+async def duplicate(task_id: str, body: TaskDuplicate, db: DB, user: CurrentUser):
+    """A copy of the card at the top of To Do: the blueprint, plus comments, files and
+    finished runs if asked. Playbook run and step cards aren't copied (run the playbook
+    again instead)."""
+    src = await _task_or_404(db, user, task_id, write=True)
+    if src.playbook_run_id is not None:
+        raise HTTPException(409, "Steps of a playbook run can't be duplicated")
+    if (await db.execute(select(m.PlaybookRun.id).where(m.PlaybookRun.card_id == src.id))).first():
+        raise HTTPException(409, "This is a playbook run; run the playbook again instead")
+    task = await duplicate_task(db, src, user, **body.model_dump())
+    await _assigned(db, task, user, task.assignees)
+    await db.commit()
+    return await publish_task(db, task, "task.created")
 
 
 @router.post("/tasks/{task_id}/move", response_model=TaskOut)

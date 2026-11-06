@@ -765,3 +765,15 @@ class ToolDefinition(Base, TimestampMixin):
     spec: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     source_yaml: Mapped[str] = mapped_column(Text, default="")
     version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class AppSetting(Base):
+    """Instance-wide settings admins change in Settings → General (app_settings.py holds the
+    keys, their defaults and limits)."""
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[Any] = mapped_column(JSONType, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

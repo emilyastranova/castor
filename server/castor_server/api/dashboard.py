@@ -22,7 +22,7 @@ from ..services import playbook_run_out, step_link
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 # Feed kinds, from activity types. Job queue/dispatch steps are noise and never shown.
-HIDDEN_TYPES = {"job.queued", "job.dispatched"}
+HIDDEN_TYPES = {"job.queued", "job.dispatched", "task.duplicated"}  # the copy's task.created says it
 ADMIN_KINDS = {"admin"}
 
 

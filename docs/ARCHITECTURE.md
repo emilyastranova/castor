@@ -311,6 +311,23 @@ domains, users, credentials and shares, one record per identity key with merged 
 inside the project's scope (`projects.settings.scope`), otherwise after approval; once per
 asset and rate-limited. Command arguments can take `{"assets": {type, where, field}}`.
 
+## Instance settings
+
+`app_settings` (key → JSON) holds settings admins change in Settings → General;
+`app_settings.AppSettings` declares each key with its default and limits (missing or
+out-of-range rows fall back to the default). `GET /api/settings` (anyone signed in),
+`PATCH /api/settings` (admins; publishes `settings.changed`, activity `settings.updated`).
+Today: `notes_per_project` (default 4, 1–12), enforced when a note is created.
+
+## Duplicating cards
+
+`POST /api/tasks/{id}/duplicate` (`services.duplicate_task`) copies a card to the top of the
+project's To Do column with new ids: always the blueprint, plus comments, uploads
+(`attachments`) and finished runs with logs, outputs and artifacts (`output`) when asked;
+links to copied files in the description and comments are rewritten, one-off variable sets
+are cloned. Playbook run and step cards are refused (409). Activity: `task.created` on the
+copy, `task.duplicated` on the source.
+
 ## Import and export
 
 `transfer.py`, `api/transfer.py`. `POST /api/export` (JSON: library ids, variable set ids,

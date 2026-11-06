@@ -11,9 +11,13 @@
 		spec: PlaybookSpec | null;
 		projects: Project[];
 		onRun?: (run: PlaybookRun) => void;
+		/** Inputs to start from (running a run again), over the playbook's defaults. */
+		initial?: Record<string, unknown>;
+		/** The project to pick first. */
+		projectId?: string;
 	}
 
-	let { open = $bindable(false), spec, projects, onRun }: Props = $props();
+	let { open = $bindable(false), spec, projects, onRun, initial: given = {}, projectId = '' }: Props = $props();
 
 	// Variable sets the chosen project may use, for varset inputs.
 	let varSets = $state<VariableSet[]>([]);
@@ -57,7 +61,8 @@
 	$effect(() => {
 		if (open && spec) {
 			error = null;
-			if (!selectedProjectId && projects.length > 0) {
+			if (projectId) selectedProjectId = projectId;
+			else if (!selectedProjectId && projects.length > 0) {
 				selectedProjectId = projects[0].id;
 			}
 			const initial: Record<string, unknown> = {};
@@ -70,6 +75,7 @@
 					initial[inp.name] = '';
 				}
 			}
+			for (const [name, value] of Object.entries(given)) if (name in initial) initial[name] = value;
 			inputValues = initial;
 		}
 	});
