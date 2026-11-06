@@ -474,7 +474,7 @@
 						{#each attention as a (`${a.kind}:${a.link}:${a.title}`)}
 							<li in:enter out:leave>
 								<a href={a.link} class="state-layer flex items-start gap-2.5 rounded-md px-2 py-2" onclick={() => a.notification_id && void api().notifications.read(a.notification_id).catch(() => {})}>
-									<Icon name={a.kind === 'mention' ? 'alternate_email' : a.kind === 'decision' ? 'front_hand' : a.kind === 'approval' ? 'bolt' : 'error'} size={18} class="mt-0.5 shrink-0 {a.kind === 'mention' ? 'text-primary' : a.kind === 'decision' || a.kind === 'approval' ? 'text-tertiary' : 'text-error'}" />
+									<Icon name={a.kind === 'mention' ? 'alternate_email' : a.kind === 'decision' ? 'front_hand' : a.kind === 'approval' ? 'bolt' : a.kind === 'input' ? 'keyboard' : 'error'} size={18} class="mt-0.5 shrink-0 {a.kind === 'mention' ? 'text-primary' : a.kind === 'decision' || a.kind === 'approval' || a.kind === 'input' ? 'text-tertiary' : 'text-error'}" />
 									<span class="min-w-0 flex-1">
 										<span class="block body-medium text-on-surface">{a.title}{#if a.for_you && a.kind === 'failed'}<span class="ml-1.5 rounded-full bg-primary-container px-1.5 py-0.5 align-middle label-small text-on-primary-container">for you</span>{/if}</span>
 										<span class="block truncate body-small text-on-surface-variant" title={a.detail}>

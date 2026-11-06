@@ -52,6 +52,11 @@ async def _log_tail(db: AsyncSession, job_id: uuid.UUID | None, limit: int = LOG
         if size >= limit:
             break
     out = "".join(reversed(text))
+    job = await db.get(m.Job, job_id)
+    if job is not None and job.tty:
+        from .interactive import plain
+
+        out = plain(out)  # a terminal's escapes mean nothing to a model
     return out[-limit:]
 
 

@@ -120,6 +120,8 @@
 
 	// ---- library command ----
 	let libraryDef = $state<CommandDefinition | null>(null);
+	/** The card's library command always runs in a terminal. */
+	let libTty = $derived(!!libraryDef?.spec.tty);
 	let libArgs = $state<Record<string, unknown>>({});
 	let libErrors = $state<Record<string, string>>({});
 	let libDirty = $state(false);
@@ -749,6 +751,9 @@
 					{/if}
 					<div class="flex flex-wrap items-center gap-4">
 						<Switch bind:checked={runOnMove} label="Run when moved to In Progress" onchange={(v) => save({ run_on_move: v })} />
+						<span title="A real terminal: you can type into it while it runs, full-screen programs (tmux, vim, htop) work, and a run that stops at a prompt tells people.">
+							<Switch checked={!!task.tty || libTty} disabled={libTty} label={libTty ? 'Interactive terminal (its command asks for one)' : 'Interactive terminal'} onchange={(v) => save({ tty: v })} />
+						</span>
 						<TextField label="Timeout (s)" bind:value={timeout} type="number" class="w-40 [&_div]:h-10" oninput={() => edited('timeout')} onblur={() => (timeout ? Number(timeout) : null) !== task.timeout_s && commit('timeout', { timeout_s: timeout ? Number(timeout) : null })} />
 					</div>
 				</div>
@@ -821,7 +826,7 @@
 							{#if hasResults && outputView === 'results'}
 								<JobResults job={selectedJob} onload={(o) => (resultCount = o.filter((x) => !x.error).length || null)} />
 							{:else}
-								<JobConsole job={selectedJob} oncancel={editable ? cancel : undefined} title={task.title} />
+								<JobConsole job={selectedJob} oncancel={editable ? cancel : undefined} title={task.title} canInteract={editable} />
 							{/if}
 						{/key}
 						{#if runFiles.length}

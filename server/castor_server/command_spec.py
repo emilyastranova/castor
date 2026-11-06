@@ -150,6 +150,9 @@ class CommandSpec(BaseModel):
     # A tool from the library (tools/*.yaml) to run with, instead of naming an image.
     tool: str | None = None
     container_flags: list[str] = Field(default_factory=list)
+    # Run in an interactive terminal (a pty): people can type into it, full-screen tools
+    # (tmux, vim, htop) work, and an automated run that stops at a prompt alerts people.
+    tty: bool = False
     args: list[ArgSpec] = Field(default_factory=list)
     vars: list[VarSlot] = Field(default_factory=list)
     command: str

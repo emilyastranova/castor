@@ -24,6 +24,7 @@ from .security import hash_password
 from .services import ensure_run_cards
 from .tool_library import sync_builtin_tools
 from .variables import drop_unclaimed, sync_builtin_kinds
+from .ws.terminal import router as terminal_ws_router
 from .ws.ui import router as ui_ws_router
 
 log = logging.getLogger("castor")
@@ -101,6 +102,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(api_router)
     app.include_router(ui_ws_router)
+    app.include_router(terminal_ws_router)
 
     @app.websocket("/ws/agent")
     async def agent_socket(ws: WebSocket) -> None:

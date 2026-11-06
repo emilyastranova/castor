@@ -76,6 +76,7 @@ Agent → server
 | `job.started` | `job_id, started_at` |
 | `job.log` | `job_id, seq, stream ("stdout"\|"stderr"\|"system"), data` |
 | `job.finished` | `job_id, exit_code, finished_at, error?` |
+| `job.prompt` | `job_id, text` (an interactive job is waiting at this prompt; `null`: no longer) |
 
 Server → agent
 
@@ -84,8 +85,11 @@ Server → agent
 | `hello.ok` | `agent_id, heartbeat_interval` |
 | `hello.error` | `reason` (then close 4401; the agent exits) |
 | `auth.revoked` | `reason` (token rotated or revoked; then close 4401) |
-| `job.run` | `job{id, command, display_command?, image?, runtime ("container"\|"host"), env{}, files[], timeout_s, artifacts{token, collect[]}, tool?}` |
+| `job.run` | `job{id, command, display_command?, image?, runtime ("container"\|"host"), env{}, files[], timeout_s, tty, tty_size?{cols, rows}, artifacts{token, collect[]}, tool?}` |
 | `job.cancel` | `job_id` |
+| `job.stdin` | `job_id, data` (keystrokes for an interactive job's terminal) |
+| `job.resize` | `job_id, cols, rows` |
+| `job.signal` | `job_id, name ("INT"\|"TERM"\|"QUIT")` (INT is sent as Ctrl+C through the terminal) |
 | `tool.prepare` | `tool` (same shape as `job.tool`; build or pull it now) |
 
 ### Job directories and artifacts
@@ -326,6 +330,22 @@ A paused step's suggestion is `step_results[step].ai`; every decision is appende
 `step_results[step].history` (`by`, `action`, `note`, `reason`, and for the AI `ai`, `model`,
 `confidence`, `suggested` when a person applied it, and `command_before`/`command_after`/`change`
 when it changed the command, which also writes a `task.ai_edit` activity on the step's card).
+
+## Interactive jobs
+
+A job with `tty` (the card's toggle, or its library command's `tty: true`) runs under a pty on
+the agent (`TERM=xterm-256color`, `COLORTERM=truecolor`; containers get `run -t -i`): one raw
+output stream, stored as `stdout` chunks and rendered by xterm.js. Other jobs get stdin from
+`/dev/null`. `/ws/jobs/{id}/terminal` (operators on the project) takes `{"t": "in", "d"}`,
+`{"t": "resize", "cols", "rows"}` and `{"t": "signal", "name"}` and forwards them to the agent;
+the first keystroke sets `jobs.input_by` (activity `job.taken_over`; keystrokes themselves are
+never stored). Resizes are stored in `jobs.tty_size` and published as `job.resize` so viewers
+match the size. The agent's prompt watch (a quiet line that asks for something) sends
+`job.prompt`; while nobody has taken over, `interactive.on_prompt` sets `jobs.waiting_input`,
+notifies the job's starter, the card's creator, assignees and Notify-me people, emits the
+`input` alert event, and lists it in Needs attention (`kind: input`). Text consumers (AI log
+tail, `expect.log`, `/api/jobs/{id}/output`) strip terminal escapes (`interactive.plain`);
+`?raw=1` returns the exact bytes.
 
 ## Alerts
 

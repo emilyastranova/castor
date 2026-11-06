@@ -225,8 +225,10 @@ tool itself; images therefore need `/bin/sh`),
 otherwise `/bin/sh -c cmd` on the host in the job dir (if `--allow-host`). After the job,
 `artifacts.py` collects declared outputs and `/work/artifacts/**` (skipping symlinks and
 anything outside the job dir) and uploads them with stdlib `urllib` before `job.finished`. Processes start in their own
-session so cancel can `killpg`. Only `websockets` is a dependency; keep it that way so the
-agent stays trivially installable on target boxes.
+session so cancel can `killpg`. Interactive jobs (`job.tty`, 3j) run under a stdlib `pty`
+(`JobRunner._run_tty`; containers add `-t -i`) with `job.stdin`/`job.resize`/`job.signal` in and
+`job.prompt` out (`PromptWatch`); other jobs get stdin from `/dev/null`. Only `websockets` is a
+dependency; keep it that way so the agent stays trivially installable on target boxes.
 
 ### Web (`web/src`)
 
@@ -275,5 +277,8 @@ agent stays trivially installable on target boxes.
   reorders). Use it for anything that appears or disappears live, and pass
   `{ enabled: false }` while a list (re)loads so page loads and filter changes don't cascade.
   It honours prefers-reduced-motion (fades only) and skips hidden tabs.
-- `JobConsole.svelte` loads `/api/jobs/{id}` then appends `job.log` events, buffering any
-  that arrive during the initial load and de-duplicating by `seq`.
+- `JobConsole.svelte` is xterm.js: it loads `/api/jobs/{id}` then writes `job.log` events,
+  buffering any that arrive during the initial load and de-duplicating by `seq`. Plain streams
+  get CRLF and colour (stderr red, system dim); a tty job's output is written raw. Its setup
+  effect must track `jobId` (a derived primitive), not `job`: the job object is replaced on
+  every update. Take control uses `/ws/jobs/{id}/terminal` (`ws/terminal.py`, `interactive.py`).

@@ -29,6 +29,9 @@
   "dependencies": {
     "@material/material-color-utilities": "^0.3.0",
     "@types/dompurify": "^3.0.5",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "@xterm/xterm": "^5.5.0",
     "dompurify": "^3.4.17",
     "marked": "^15.0.12",
     "svelte-dnd-action": "^0.9.60"

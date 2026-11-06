@@ -1,6 +1,6 @@
 # Phase 3 plan
 
-Status: in progress (2026-11-05); 3a–3i and 3k–3m are built; 3j is left. Roadmap item **M3** in
+Status: in progress (2026-11-05); 3a–3m are all built. Roadmap item **M3** in
 [ARCHITECTURE.md](ARCHITECTURE.md); Phase 2 is done and recorded in [PHASE2.md](PHASE2.md).
 
 Phase 3 makes Castor easier to run day to day: tools prepared on demand instead of baked
@@ -18,7 +18,7 @@ playbook step goes wrong.
 | 3g. Search everywhere | Type-to-filter in every long picker; Ctrl+K searches everything you can see | nothing | Built |
 | 3h. Playbook runs as one card | A run is a single card on the board that opens into its graph and steps, instead of a card per step | nothing | Built |
 | 3i. Import and export | Move projects, commands, tools, playbooks, variables (everything) between Castor instances as files | nothing | Built |
-| 3j. Interactive jobs | Type into a running job's stdin; the console keeps following the output; an alert when an automated job stops to ask for input | nothing | Idea |
+| 3j. Interactive jobs | A real terminal (xterm.js + a pty on the agent): take control of a running job, tmux/vim/htop work, and an automated run stopped at a prompt alerts people | nothing | Built |
 | 3k. Chat alerts for long runs | Google Chat, Slack, ntfy… or any webhook set up in Settings, switched on per card or per playbook run for when it finishes, fails or runs long | nothing | Built |
 | 3l. Your theme colour | Each person picks a Material You seed colour that recolours the whole UI | nothing | Built |
 | 3m. Duplicate a card | Copy an existing card into To Do: just the blueprint, or with its comments and output | nothing | Built |
@@ -500,6 +500,19 @@ lab), or keep a copy: one item, a project, or everything.
   archive's cards to it) rather than always creating a new one?
 
 ## 3j. Interactive jobs (stdin, console follow, input prompts)
+
+**Built.** Decided: interactive (a pty) is opt-in per card or per command (`tty: true`), not the
+default, because a terminal changes output (colours, merged stderr, CRLF) and some tools
+behave differently on one; other jobs now get stdin from `/dev/null` so nothing can hang on
+it. The console is xterm.js for every job (so following the bottom is the terminal's own,
+fixing the lost-follow bug), with truecolor and the full escape set: tmux, vim and htop run
+correctly. "Take control" opens `/ws/jobs/{id}/terminal`, expands the console, sends keys and
+the window size (the pty gets `SIGWINCH`), and keeps Escape for the program; viewers render
+at the controller's size. Prompt alerts come from the agent (`PromptWatch`: output quiet
+3 s at a line that asks for a password, y/n, confirmation…, or 10 s at a line ending like a
+prompt), stop once someone types, and go to the people on the card plus `input` alert
+channels. Keystrokes are never logged. Not built: answering known prompts from a playbook
+(`answers:`), several people typing at once (last one in wins).
 
 Some tools stop and ask (a passphrase, "continue? [y/N]", an interactive shell), and today a
 job has no way to answer: it just hangs until its timeout.

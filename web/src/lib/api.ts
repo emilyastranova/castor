@@ -104,6 +104,14 @@ export interface Job {
 	stderr_bytes: number;
 	/** Parsed outputs the command definition declared at dispatch (null for free-form commands). */
 	output_specs: OutputSpec[] | null;
+	/** Runs in an interactive terminal: raw terminal output; people can type into it. */
+	tty?: boolean;
+	/** The terminal's size as the person in control set it. */
+	tty_size?: { cols: number; rows: number } | null;
+	/** The prompt an automated run is waiting at (until someone types). */
+	waiting_input?: string | null;
+	/** Who took the terminal over. */
+	input_by?: UUID | null;
 }
 
 export interface LogChunk {
@@ -291,7 +299,7 @@ export interface FeedItem {
 
 export interface DashboardSummary {
 	counts: { open_cards: number; comments_24h: number; cards_24h: number; jobs_succeeded_24h: number; jobs_failed_24h: number };
-	attention: { kind: 'mention' | 'decision' | 'failed' | 'approval'; title: string; detail: string; since: string | null; project: ProjectRef | null; link: string; for_you: boolean; notification_id?: string }[];
+	attention: { kind: 'mention' | 'decision' | 'failed' | 'approval' | 'input'; title: string; detail: string; since: string | null; project: ProjectRef | null; link: string; for_you: boolean; notification_id?: string }[];
 	live_jobs: { job_id: UUID; status: string; task: { id: UUID; name: string }; project: ProjectRef | null; agent: string | null; queued_at: string; started_at: string | null }[];
 	live_runs: { run_id: UUID; name: string; project: ProjectRef | null; done: number; total: number; running: number; waiting: number; started_at: string }[];
 	agents: { online: number; slots: number; busy: number };
@@ -690,6 +698,8 @@ export interface CommandSpec {
 	/** A tool from the library (Tools) the command runs with, instead of an image. */
 	tool?: string | null;
 	container_flags?: string[];
+	/** Runs in an interactive terminal (a pty). */
+	tty?: boolean;
 	args: ArgSpec[];
 	vars?: VarSlot[];
 	command: string;
@@ -716,6 +726,8 @@ export interface ArgErrors {
 }
 
 export interface Task {
+	/** Run in an interactive terminal (or its library command says so). */
+	tty?: boolean;
 	/** Chat/webhook alerts for its runs (or, on a run card, the playbook run). */
 	alerts?: AlertRules | null;
 	id: UUID;

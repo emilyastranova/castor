@@ -242,6 +242,7 @@ class TaskIn(BaseModel):
     custom_fields: dict[str, Any] = Field(default_factory=dict)
     due_at: datetime | None = None
     var_bindings: dict[str, uuid.UUID | None] = Field(default_factory=dict)
+    tty: bool = False
 
 
 class TaskPatch(BaseModel):
@@ -265,6 +266,7 @@ class TaskPatch(BaseModel):
     var_bindings: dict[str, uuid.UUID | None] | None = None
     # Alerts for this card's runs; channels: [] turns them off.
     alerts: AlertRules | None = None
+    tty: bool | None = None
 
 
 class TaskMove(BaseModel):
@@ -291,6 +293,10 @@ class JobOut(ORM):
     stderr_bytes: int
     # Declared parsed outputs (from the command definition at dispatch), if any.
     output_specs: list[dict[str, Any]] | None = None
+    tty: bool = False
+    tty_size: dict[str, Any] | None = None
+    waiting_input: str | None = None
+    input_by: uuid.UUID | None = None
 
 
 class RunSummary(BaseModel):
@@ -339,6 +345,7 @@ class TaskOut(ORM):
     depends_on: list[str] = Field(default_factory=list)
     var_bindings: dict[str, str] = Field(default_factory=dict)
     alerts: dict[str, Any] | None = None
+    tty: bool = False
     latest_job: JobOut | None = None
     # Set on a playbook run's card: where the run is.
     run: RunSummary | None = None

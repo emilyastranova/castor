@@ -39,6 +39,7 @@ EVENTS: dict[str, str] = {
     "run.succeeded": "A playbook run succeeds",
     "decision": "A playbook step needs a decision",
     "approval": "A trigger waits for approval",
+    "input": "An interactive job waits for input",
     "long": "Something runs longer than…",
 }
 EMOJI = {"info": "ℹ️", "success": "✅", "warning": "✋", "error": "❌"}

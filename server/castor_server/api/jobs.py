@@ -73,13 +73,20 @@ async def reparse_outputs(job_id: str, db: DB, user: CurrentUser):
 
 
 @router.get("/{job_id}/output", response_class=PlainTextResponse)
-async def job_output(job_id: str, db: DB, user: CurrentUser, stream: str = "both"):
+async def job_output(job_id: str, db: DB, user: CurrentUser, stream: str = "both", raw: bool = False):
+    """The job's output as text. An interactive (terminal) job's escape sequences are
+    removed unless ?raw=1 (the exact bytes, e.g. to replay in a terminal)."""
     job = await job_or_404(db, user, parse_uuid(job_id))
     query = select(m.JobLogChunk).where(m.JobLogChunk.job_id == job.id)
     if stream in ("stdout", "stderr"):
         query = query.where(m.JobLogChunk.stream == stream)
     chunks = (await db.execute(query.order_by(m.JobLogChunk.seq))).scalars().all()
-    return "".join(c.data for c in chunks)
+    text = "".join(c.data for c in chunks)
+    if job.tty and not raw:
+        from ..interactive import plain
+
+        text = plain(text)
+    return text
 
 
 @router.post("/{job_id}/cancel", response_model=JobOut)

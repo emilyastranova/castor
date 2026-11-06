@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -60,6 +61,8 @@ class Agent:
             "default_image": self.config.default_image,
             "host_install": self.config.allow_host_install and self.config.allow_host,
             "tools": self.tools.cached,
+            # Interactive jobs run under a pty (POSIX only); older agents don't say this.
+            "tty": sys.platform != "win32",
         }
 
     # ----- wire helpers -----
@@ -175,6 +178,19 @@ class Agent:
             if runner:
                 log.info("cancelling job %s", runner.job_id)
                 await runner.cancel()
+        elif kind in ("job.stdin", "job.resize", "job.signal"):
+            runner = self.runners.get(str(msg.get("job_id")))
+            if runner is None or not runner.tty:
+                return
+            if kind == "job.stdin":
+                await runner.write_input(str(msg.get("data") or ""))
+            elif kind == "job.resize":
+                try:
+                    runner.resize(int(msg["cols"]), int(msg["rows"]))
+                except (KeyError, TypeError, ValueError):
+                    pass
+            else:
+                runner.send_signal(str(msg.get("name") or ""))
         else:
             log.debug("ignoring message %r", kind)
 
@@ -236,7 +252,10 @@ class Agent:
             elif runner.cancelled:
                 result = RunResult(exit_code=None, error="cancelled")
             else:
-                result = await runner.run(sink)
+                async def on_prompt(text: str | None) -> None:
+                    await self.send({"type": "job.prompt", "job_id": job_id, "text": text})
+
+                result = await runner.run(sink, on_prompt)
         except Exception as exc:
             log.exception("job %s crashed", job_id)
             result_payload = {"exit_code": None, "error": f"agent error: {exc}"}

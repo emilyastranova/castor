@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import codecs
 import logging
 import os
+import re
 import shutil
 import signal
+import struct
 import sys
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -22,6 +26,21 @@ log = logging.getLogger("castor.agent.runtime")
 VARS_DIR = ".castor"
 
 LogSink = Callable[[str, str], Awaitable[None]]  # (stream, data)
+PromptSink = Callable[[str | None], Awaitable[None]]  # the prompt it waits at, or None
+
+# Interactive jobs: what a terminal says it is, and its size until someone sets one.
+TERM_ENV = {"TERM": "xterm-256color", "COLORTERM": "truecolor"}
+DEFAULT_SIZE = {"cols": 120, "rows": 32}
+ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])")
+# A last line that asks for something: answered quickly. Anything ending like a prompt
+# (":", "?", ">", "$", "#") counts too, after a longer quiet spell.
+STRONG_PROMPT = re.compile(
+    r"(pass(word|phrase|code)|\bpin\b|token|user ?name|login|\[y/n\]|\(y/n\)|\(yes/no[^)]*\)|"
+    r"continue\?|proceed\?|are you sure|overwrite\?|press (enter|return|any key))",
+    re.IGNORECASE,
+)
+WEAK_PROMPT = re.compile(r"[:?>$#\]]\s*$")
+STRONG_QUIET, WEAK_QUIET = 3.0, 10.0
 
 
 def detect_container_runtime(preferred: str) -> str | None:
@@ -66,6 +85,8 @@ class JobRunner:
         self.process: asyncio.subprocess.Process | None = None
         self.container_name = f"castor-{self.job_id[:8]}-{uuid.uuid4().hex[:6]}"
         self._cancelled = False
+        self.tty = bool(job.get("tty")) and sys.platform != "win32"
+        self._master: int | None = None  # the pty's controlling side, while it runs
 
     # ----- variable files -----
 
@@ -121,6 +142,12 @@ class JobRunner:
                 "--name",
                 self.container_name,
             ]
+            if self.tty:
+                # A terminal inside the container too; the runtime passes keys and window
+                # size through from the pty this command runs under.
+                argv += ["-t", "-i"]
+            for key in TERM_ENV if self.tty else ():
+                argv += ["-e", key]
             if not has_network_flag and self.network:
                 argv += ["--network", self.network]
             # ":Z" relabels the directory for SELinux hosts (Fedora/RHEL); harmless elsewhere.
@@ -141,13 +168,13 @@ class JobRunner:
 
     # ----- execution -----
 
-    async def run(self, sink: LogSink) -> RunResult:
+    async def run(self, sink: LogSink, on_prompt: PromptSink | None = None) -> RunResult:
         try:
-            return await self._run(sink)
+            return await self._run(sink, on_prompt)
         finally:
             self.remove_files()
 
-    async def _run(self, sink: LogSink) -> RunResult:
+    async def _run(self, sink: LogSink, on_prompt: PromptSink | None = None) -> RunResult:
         is_container = self._wants_container()
         try:
             job_env = {**self.job_env(), **self.write_files(is_container)}
@@ -164,9 +191,14 @@ class JobRunner:
         shown = self.job.get("display_command") or self.job.get("command", "")
         await sink("system", f"$ {shown}\n[castor] running on {where}\n")
 
+        if self.tty:
+            return await self._run_tty(argv, env, is_container, sink, on_prompt)
         try:
             self.process = await asyncio.create_subprocess_exec(
                 *argv,
+                # Nothing to read: a tool that reads stdin when it isn't a terminal gets EOF at
+                # once instead of waiting forever. Interactive jobs get a terminal instead.
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=None if is_container else self.job_dir,
@@ -203,6 +235,142 @@ class JobRunner:
         await sink("system", f"[castor] exit code {exit_code}\n")
         return RunResult(exit_code=exit_code)
 
+    # ----- interactive (pty) -----
+
+    async def _run_tty(self, argv: list[str], env: dict[str, str], is_container: bool, sink: LogSink,
+                       on_prompt: PromptSink | None) -> RunResult:
+        """Run under a pseudo-terminal: one combined output stream (raw terminal output),
+        keystrokes in (write_input), window size changes (resize), prompt detection."""
+        import fcntl
+        import pty
+        import termios
+
+        master, slave = pty.openpty()
+        self._master = master
+        self._set_size(self.job.get("tty_size") or DEFAULT_SIZE)
+
+        def controlling_tty() -> None:  # in the child, after setsid: make the pty its terminal
+            fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+
+        try:
+            self.process = await asyncio.create_subprocess_exec(
+                *argv, stdin=slave, stdout=slave, stderr=slave,
+                cwd=None if is_container else self.job_dir,
+                env={**env, **TERM_ENV}, start_new_session=True, preexec_fn=controlling_tty,
+            )
+        except (FileNotFoundError, PermissionError) as exc:
+            os.close(slave)
+            os.close(master)
+            self._master = None
+            await sink("system", f"failed to start: {exc}\n")
+            return RunResult(exit_code=None, error=f"failed to start: {exc}")
+        os.close(slave)
+        os.set_blocking(master, False)
+
+        loop = asyncio.get_running_loop()
+        chunks: asyncio.Queue[bytes | None] = asyncio.Queue()
+
+        def readable() -> None:
+            try:
+                data = os.read(master, 65536)
+            except BlockingIOError:
+                return
+            except OSError:  # EIO: every process holding the terminal has exited
+                data = b""
+            if not data:
+                loop.remove_reader(master)
+                chunks.put_nowait(None)
+            else:
+                chunks.put_nowait(data)
+
+        loop.add_reader(master, readable)
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        watch = PromptWatch(on_prompt)
+
+        async def pump() -> None:
+            while True:
+                data = await chunks.get()
+                if data is None:
+                    break
+                # Coalesce what's already arrived (full-screen redraws come in bursts).
+                while not chunks.empty():
+                    more = chunks.get_nowait()
+                    if more is None:
+                        chunks.put_nowait(None)
+                        break
+                    data += more
+                text = decoder.decode(data)
+                if text:
+                    await watch.output(text)
+                    await sink("stdout", text)
+            tail = decoder.decode(b"", final=True)
+            if tail:
+                await sink("stdout", tail)
+
+        timeout = self.job.get("timeout_s")
+        watcher = asyncio.create_task(watch.run())
+        try:
+            await asyncio.wait_for(pump(), timeout=timeout if timeout else None)
+            exit_code = await self.process.wait()
+        except asyncio.TimeoutError:
+            await sink("system", f"\r\n[castor] timed out after {timeout}s\r\n")
+            await self.cancel()
+            return RunResult(exit_code=None, error=f"timed out after {timeout}s")
+        finally:
+            watcher.cancel()
+            loop.remove_reader(master)
+            os.close(master)
+            self._master = None
+            await watch.clear()
+        if self._cancelled:
+            await sink("system", "\r\n[castor] cancelled\r\n")
+            return RunResult(exit_code=exit_code, error="cancelled")
+        await sink("system", f"\r\n[castor] exit code {exit_code}\r\n")
+        return RunResult(exit_code=exit_code)
+
+    def _set_size(self, size: dict[str, Any]) -> None:
+        if self._master is None:
+            return
+        import fcntl
+        import termios
+
+        try:
+            cols, rows = int(size["cols"]), int(size["rows"])
+        except (KeyError, TypeError, ValueError):
+            return
+        # The kernel tells the terminal's foreground processes (SIGWINCH); a container
+        # runtime's CLI passes the new size on to the container.
+        fcntl.ioctl(self._master, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+
+    async def write_input(self, data: str) -> None:
+        """Keystrokes (or a paste) from the person at the terminal."""
+        if self._master is None:
+            return
+        raw = data.encode()
+        while raw:
+            try:
+                written = os.write(self._master, raw)
+                raw = raw[written:]
+            except BlockingIOError:
+                await asyncio.sleep(0.01)
+            except OSError:
+                return
+
+    def resize(self, cols: int, rows: int) -> None:
+        self._set_size({"cols": cols, "rows": rows})
+
+    def send_signal(self, name: str) -> None:
+        if name == "INT" and self._master is not None:
+            # Like pressing Ctrl+C: the terminal delivers it to whatever is in front.
+            asyncio.ensure_future(self.write_input("\x03"))
+            return
+        sig = {"TERM": signal.SIGTERM, "QUIT": signal.SIGQUIT, "INT": signal.SIGINT}.get(name)
+        if sig and self.process and self.process.returncode is None:
+            try:
+                os.killpg(os.getpgid(self.process.pid), sig)
+            except (ProcessLookupError, PermissionError):
+                pass
+
     @property
     def cancelled(self) -> bool:
         return self._cancelled
@@ -234,3 +402,51 @@ class JobRunner:
                     os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
                 except Exception:  # noqa: BLE001 - best effort, then hard kill
                     self.process.kill()
+
+
+class PromptWatch:
+    """Notices an interactive job sitting at a prompt: its output stopped mid-line, and that
+    line asks for something (quickly) or merely ends like a prompt (after longer). Reports it
+    once, and reports again (None) when output resumes."""
+
+    def __init__(self, on_prompt: PromptSink | None) -> None:
+        self.on_prompt = on_prompt
+        self.tail = ""
+        self.last = time.monotonic()
+        self.reported: str | None = None
+
+    async def output(self, text: str) -> None:
+        self.tail = (self.tail + text)[-2000:]
+        self.last = time.monotonic()
+        if self.reported is not None:
+            await self.clear()
+
+    def current_line(self) -> str:
+        plain = ANSI.sub("", self.tail)
+        if plain.endswith(("\n", "\r")):
+            return ""  # the cursor is at the start of a line: nothing is being asked
+        line = plain.replace("\r\n", "\n").split("\n")[-1]
+        return line.rsplit("\r", 1)[-1].strip()
+
+    def waiting(self) -> str | None:
+        line = self.current_line()
+        if not line:
+            return None
+        quiet = time.monotonic() - self.last
+        if STRONG_PROMPT.search(line) and quiet >= STRONG_QUIET:
+            return line
+        if WEAK_PROMPT.search(line) and quiet >= WEAK_QUIET:
+            return line
+        return None
+
+    async def run(self) -> None:
+        while True:
+            await asyncio.sleep(1.0)
+            if self.reported is None and self.on_prompt and (line := self.waiting()):
+                self.reported = line
+                await self.on_prompt(line)
+
+    async def clear(self) -> None:
+        if self.reported is not None and self.on_prompt:
+            self.reported = None
+            await self.on_prompt(None)

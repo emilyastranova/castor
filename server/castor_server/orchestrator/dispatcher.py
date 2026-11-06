@@ -39,6 +39,8 @@ def tool_ready(conn: AgentConnection, tool: ToolSpec | None) -> bool:
 def agent_matches(conn: AgentConnection, job: m.Job, selector: dict[str, Any], tool: ToolSpec | None = None) -> bool:
     if conn.free_slots <= 0:
         return False
+    if getattr(job, "tty", False) and not conn.capabilities.get("tty"):
+        return False  # an agent from before interactive jobs would run it without a terminal
     if tool is not None:
         if tool_way(conn, tool) is None:
             return False

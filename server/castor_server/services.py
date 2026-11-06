@@ -253,6 +253,13 @@ async def active_job_for(db: AsyncSession, task_id: uuid.UUID) -> m.Job | None:
     ).scalars().first()
 
 
+async def _spec_wants_tty(db: AsyncSession, task: m.Task) -> bool:
+    if not task.command_ref:
+        return False
+    spec = await load_spec(db, task.command_ref)
+    return bool(spec and spec.tty)
+
+
 async def enqueue_job(
     db: AsyncSession, task: m.Task, user: m.User | None, *, reason: str = "manual"
 ) -> m.Job:
@@ -273,6 +280,7 @@ async def enqueue_job(
         env={},
         var_bindings=dict(task.var_bindings or {}),
         created_by=user.id if user else None,
+        tty=task.tty or await _spec_wants_tty(db, task),
     )
     db.add(job)
     await db.flush()
@@ -909,6 +917,10 @@ async def _advance(
         assert expect is not None
         try:
             log_text = await _job_log_tail(db, log_job.id) if expect.log is not None and log_job else None
+            if log_text and log_job is not None and log_job.tty:
+                from .interactive import plain
+
+                log_text = plain(log_text)  # terminal output: match the text, not the escapes
             met, checks = expect.evaluate(outputs.get(step.id, {}), log_text)
         except TransformError as exc:
             met, checks = False, [{"text": f"expect: {exc}", "met": False}]

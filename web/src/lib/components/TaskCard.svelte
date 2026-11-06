@@ -61,6 +61,7 @@
 	{#if task.tags.length || task.latest_job || task.comment_count || task.attachment_count || assignees.length}
 		<div class="flex flex-wrap items-center gap-1.5">
 			<StatusChip job={task.latest_job} />
+			{#if task.latest_job?.waiting_input && running}<span class="flex items-center gap-1 rounded-full bg-tertiary-container px-1.5 py-0.5 label-small text-on-tertiary-container" title="Waiting for input: {task.latest_job.waiting_input}"><Icon name="keyboard" size={14} />input</span>{/if}
 			{#each task.tags.slice(0, 3) as tag (tag)}
 				<span class="rounded-xs border border-outline-variant px-1.5 py-0.5 label-small text-on-surface-variant">{tag}</span>
 			{/each}

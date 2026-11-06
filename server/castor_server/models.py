@@ -281,6 +281,8 @@ class Task(Base, TimestampMixin):
     # Chat/webhook alerts for this card's runs (or, on a run card, the playbook run):
     # {"channels": [ids], "on": "finish" | "failure" | "none", "long_minutes": n, "decisions": bool}
     alerts: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True, default=None)
+    # Run in an interactive terminal (also on when its library command says tty: true).
+    tty: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
     project: Mapped[Project] = relationship(back_populates="tasks")
     column: Mapped[BoardColumn] = relationship(back_populates="tasks")
@@ -476,6 +478,14 @@ class Job(Base):
     # The command definition's outputs at dispatch time, so later edits don't change how
     # this run is parsed. None for free-form commands and jobs from before Phase 2b.
     output_specs: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONType, nullable=True)
+    # Interactive terminal (pty): its output is raw terminal output, and people can type.
+    tty: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # The terminal's size as the person in control last set it: {"cols": n, "rows": n}.
+    tty_size: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
+    # The prompt it's waiting at (an automated run nobody has typed into yet), if any.
+    waiting_input: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Who first typed into it: from then on it's theirs, and prompts don't alert.
+    input_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     stdout_bytes: Mapped[int] = mapped_column(Integer, default=0)
     stderr_bytes: Mapped[int] = mapped_column(Integer, default=0)
     created_by: Mapped[uuid.UUID | None] = mapped_column(

@@ -492,6 +492,26 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
                     "for_you": True,  # everyone who can see the run is asked
                 })
 
+    # Interactive jobs waiting at a prompt that nobody has answered yet.
+    prompting = (
+        await db.execute(
+            select(m.Job, m.Task).join(m.Task, m.Task.id == m.Job.task_id)
+            .where(in_scope(m.Task.project_id), m.Job.status == m.JobStatus.running, m.Job.waiting_input.is_not(None))
+            .limit(10)
+        )
+    ).all()
+    for job, task in prompting:
+        attention.append({
+            "kind": "input",
+            "title": f"“{task.title}” is waiting for input",
+            "detail": job.waiting_input,
+            "since": job.started_at,
+            "project": project_ref(task.project_id),
+            "task_id": str(task.id),
+            "link": f"/projects/{task.project_id}?task={task.id}",
+            "for_you": str(user.id) in (task.assignees or []) or job.created_by == user.id,
+        })
+
     # Cards whose latest run failed in the last week and that aren't done yet.
     week = utcnow() - timedelta(days=7)
     failed = (

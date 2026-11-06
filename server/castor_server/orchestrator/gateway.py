@@ -262,6 +262,10 @@ class AgentGateway:
                 job.status = m.JobStatus.lost
                 job.finished_at = utcnow()
                 job.error = "agent disconnected"
+                if job.waiting_input is not None:
+                    from ..interactive import finished as interactive_finished
+
+                    await interactive_finished(db, job)
                 task = await db.get(m.Task, job.task_id)
                 if task is not None:
                     await record_activity(
@@ -309,6 +313,8 @@ class AgentGateway:
             await self._on_job_finished(conn, msg)
         elif kind == "tool.prepared":
             await self._on_tool_prepared(conn, msg)
+        elif kind == "job.prompt":
+            await self._on_job_prompt(conn, msg)
         else:
             log.warning("agent %s sent unknown message type %r", conn.name, kind)
 
@@ -431,6 +437,10 @@ class AgentGateway:
                     if job.exit_code == 0 and not job.error
                     else m.JobStatus.failed
                 )
+            if job.waiting_input is not None:
+                from ..interactive import finished as interactive_finished
+
+                await interactive_finished(db, job)
             task = await db.get(m.Task, job.task_id)
             agent = await db.get(m.Agent, conn.agent_id)
             if agent is not None:
@@ -545,6 +555,9 @@ class AgentGateway:
                     "env": {**(job.env or {}), **resolved.env},
                     "files": resolved.files,
                     "timeout_s": job.timeout_s,
+                    # An interactive terminal (pty), and its size if someone already set one.
+                    "tty": job.tty,
+                    "tty_size": job.tty_size,
                     # One-off upload token + files to collect from the job's /work afterwards.
                     "artifacts": artifacts or {},
                     # How to get the tool first: pull an image, build a recipe, or check
@@ -553,6 +566,29 @@ class AgentGateway:
                 },
             }
         )
+
+    async def _on_job_prompt(self, conn: AgentConnection, msg: dict[str, Any]) -> None:
+        """An interactive job is (or is no longer) waiting at a prompt."""
+        from ..interactive import on_prompt
+
+        job_id = await self._job_id(msg)
+        if job_id is None:
+            return
+        async with SessionLocal() as db:
+            job = await db.get(m.Job, job_id)
+            if job is None or job.agent_id != conn.agent_id or not job.tty:
+                return
+            await on_prompt(db, job, msg.get("text"))
+
+    async def to_job(self, job: m.Job, message: dict[str, Any]) -> bool:
+        """Send a message about a running job to its agent (keystrokes, resize, signals)."""
+        if job.agent_id is None or job.status not in (m.JobStatus.dispatched, m.JobStatus.running):
+            return False
+        conn = self.connections.get(job.agent_id)
+        if conn is None:
+            return False
+        await conn.send({**message, "job_id": job.id})
+        return True
 
     async def cancel_job(self, job: m.Job) -> bool:
         if job.agent_id is None:
