@@ -12,8 +12,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from . import alerts, notifications, variables
 from . import models as m
-from . import notifications, variables
 from .command_library import apply_library, load_spec, refresh_list_refs
 from .command_render import ArgumentError
 from .events import bus
@@ -323,6 +323,8 @@ async def move_task(
             payload={"from": str(previous_column_id), "to": str(column.id)},
             **actor_of(user),
         )
+        if column.role == m.ColumnRole.done:
+            await alerts.card_done(db, task, user)
     return job
 
 
@@ -894,6 +896,7 @@ async def _advance(
             subject=f"run:{run.id}:step:{step.id}",
             payload={"run_id": str(run.id), "step_id": step.id},
         )
+        await alerts.decision(db, run, step.name, error, step_link(run, step.id))
 
     async def check_expect(step: PlaybookStepSpec, task: m.Task | None, job_id: str, log_job: m.Job | None) -> None:
         expect = step.expectation()
@@ -1299,6 +1302,7 @@ async def _settle_run(db: AsyncSession, run: m.PlaybookRun, spec: PlaybookSpec, 
         subject=f"run:{run.id}",
         payload={"run_id": str(run.id)},
     )
+    await alerts.run_finished(db, run, ok, "" if ok else "Didn't finish: " + ", ".join(failed[:6]) + ("…" if len(failed) > 6 else ""), step_link(run))
 
 
 # Advancing a run is one at a time: several jobs finishing together have their outputs

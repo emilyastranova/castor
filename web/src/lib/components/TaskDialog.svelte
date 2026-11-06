@@ -17,6 +17,7 @@
 	import NameImageDialog from './NameImageDialog.svelte';
 	import RunPanel from './RunPanel.svelte';
 	import DuplicateDialog from './DuplicateDialog.svelte';
+	import AlertRulesDialog from './AlertRulesDialog.svelte';
 	import RunPlaybookDialog from './RunPlaybookDialog.svelte';
 	import AssigneePicker from './AssigneePicker.svelte';
 	import MentionMenu from './MentionMenu.svelte';
@@ -491,6 +492,18 @@
 
 	// ---- duplicate / run again (3m) ----
 	let duplicateOpen = $state(false);
+	let alertsOpen = $state(false);
+	/** "Notify me": an in-app (and desktop) notification when the card finishes: its run ends,
+	 *  its playbook run ends, or (a manual card) it's moved to Done. */
+	let notifyMe = $derived(!!myId && (task.alerts?.people ?? []).includes(myId));
+	let othersNotified = $derived((task.alerts?.people ?? []).filter((p) => p !== myId).length);
+	function toggleNotifyMe(on: boolean) {
+		if (!myId) return;
+		const current = task.alerts ?? { channels: [], on: 'failure' as const, long_minutes: null, decisions: true, people: [] };
+		const people = on ? [...new Set([...(current.people ?? []), myId])] : (current.people ?? []).filter((p) => p !== myId);
+		const next = { ...current, people };
+		void save({ alerts: next.channels.length || people.length ? next : null });
+	}
 	const finished = ['succeeded', 'failed', 'cancelled', 'lost'];
 	let duplicateCounts = $derived({
 		comments: comments.length,
@@ -594,6 +607,7 @@
 					{/if}
 				{/if}
 				{#if editable && !task.playbook_step_id}
+					<MenuItem icon={task.alerts?.channels?.length ? 'notifications_active' : 'campaign'} onclick={() => (alertsOpen = true)}>{task.alerts?.channels?.length ? 'Chat alerts (on)…' : 'Chat alerts…'}</MenuItem>
 					{#if task.run}
 						<MenuItem icon="replay" onclick={runAgain}>Run again…</MenuItem>
 					{:else}
@@ -944,6 +958,20 @@
 				{#snippet leading(level)}<PriorityGlyph {level} />{/snippet}
 			</Select>
 			<AssigneePicker projectId={task.project_id} value={task.assignees} {editable} onchange={(ids) => save({ assignees: ids })} />
+			{#if !task.playbook_step_id}
+				<div class="flex flex-col gap-1.5">
+					<p class="label-large text-on-surface-variant">When it finishes</p>
+					{#if editable && myId}
+						<Switch checked={notifyMe} onchange={toggleNotifyMe} label="Notify me" />
+					{/if}
+					{#if othersNotified}<p class="body-small text-on-surface-variant">{othersNotified} other{othersNotified === 1 ? '' : 's'} will be notified</p>{/if}
+					<p class="flex items-center gap-1.5 body-small text-on-surface-variant">
+						<Icon name={task.alerts?.channels?.length ? 'notifications_active' : 'campaign'} size={16} />
+						{task.alerts?.channels?.length ? `Chat alerts: ${task.alerts.channels.length} channel${task.alerts.channels.length === 1 ? '' : 's'}` : 'No chat alerts'}
+						{#if editable}<button type="button" class="text-primary hover:underline" onclick={() => (alertsOpen = true)}>{task.alerts?.channels?.length ? 'Change' : 'Add'}</button>{/if}
+					</p>
+				</div>
+			{/if}
 			<TextField label="Tags" bind:value={tagsText} readonly={!editable} supporting={editable ? 'Comma separated' : ''} oninput={() => edited('tags')} onblur={() => { const tags = tagsText.split(',').map((t) => t.trim()).filter(Boolean); if (tags.join() !== task.tags.join()) commit('tags', { tags }); }} />
 			<div class="rounded-md bg-surface-container p-4 body-small text-on-surface-variant">
 				<p class="mb-2 title-small text-on-surface">Details</p>
@@ -971,6 +999,7 @@
 	{/key}
 {/if}
 
+<AlertRulesDialog bind:open={alertsOpen} {task} onsaved={onupdated} />
 <DuplicateDialog
 	bind:open={duplicateOpen}
 	{task}

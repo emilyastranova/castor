@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -209,6 +209,20 @@ class RenderOut(BaseModel):
     container_flags: list[str] = Field(default_factory=list)
 
 
+class AlertRules(BaseModel):
+    """Chat/webhook alerts for one card's runs, or a playbook run on its card (Phase 3k)."""
+
+    channels: list[uuid.UUID] = Field(default_factory=list)
+    on: Literal["finish", "failure", "none"] = "failure"
+    long_minutes: int | None = Field(default=None, ge=1, le=7 * 24 * 60)
+    decisions: bool = True
+    # People told in Castor (and on their desktop) when it finishes, either way.
+    people: list[uuid.UUID] = Field(default_factory=list)
+
+    def stored(self) -> dict[str, Any] | None:
+        return self.model_dump(mode="json") if self.channels or self.people else None
+
+
 class TaskIn(BaseModel):
     title: str
     column_id: uuid.UUID | None = None
@@ -249,6 +263,8 @@ class TaskPatch(BaseModel):
     due_at: datetime | None = None
     # Variable slot → set id; null unbinds a slot. Replaces all bindings when given.
     var_bindings: dict[str, uuid.UUID | None] | None = None
+    # Alerts for this card's runs; channels: [] turns them off.
+    alerts: AlertRules | None = None
 
 
 class TaskMove(BaseModel):
@@ -322,6 +338,7 @@ class TaskOut(ORM):
     playbook_item: int | None = None
     depends_on: list[str] = Field(default_factory=list)
     var_bindings: dict[str, str] = Field(default_factory=dict)
+    alerts: dict[str, Any] | None = None
     latest_job: JobOut | None = None
     # Set on a playbook run's card: where the run is.
     run: RunSummary | None = None
@@ -483,6 +500,7 @@ class PlaybookRunIn(BaseModel):
     playbook_id: str
     project_id: uuid.UUID
     inputs: dict[str, Any] = Field(default_factory=dict)
+    alerts: AlertRules | None = None
 
 
 class PlaybookRunOut(ORM):

@@ -29,8 +29,8 @@ from urllib.parse import urlsplit
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from . import alerts, notifications, vault
 from . import models as m
-from . import notifications, vault
 from .events import bus
 from .models import utcnow
 
@@ -614,6 +614,8 @@ async def fire_triggers(db: AsyncSession, batch: Batch) -> None:
                     link=f"/projects/{batch.project_id}/assets?tab=triggers", project_id=batch.project_id,
                     subject=f"trigger-fire:{fire.id}", webhooks=False,
                 )
+                await alerts.approval(db, batch.project_id, f"“{trig.name}” wants to run on {asset.label}",
+                                      f"It's {fire.reason}; approve it to run it.", f"/projects/{batch.project_id}/assets?tab=triggers")
     await db.commit()
     bus.publish("asset_triggers.changed", batch.project_id, {"project_id": str(batch.project_id)})
     if started:

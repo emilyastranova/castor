@@ -278,6 +278,9 @@ class Task(Base, TimestampMixin):
     depends_on: Mapped[list[str]] = mapped_column(JSONType, default=list)
     # Library command variable slots → variable set ids: {"creds": "<uuid>"}
     var_bindings: Mapped[dict[str, str]] = mapped_column(JSONType, default=dict)
+    # Chat/webhook alerts for this card's runs (or, on a run card, the playbook run):
+    # {"channels": [ids], "on": "finish" | "failure" | "none", "long_minutes": n, "decisions": bool}
+    alerts: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True, default=None)
 
     project: Mapped[Project] = relationship(back_populates="tasks")
     column: Mapped[BoardColumn] = relationship(back_populates="tasks")
@@ -779,3 +782,38 @@ class AppSetting(Base):
     value: Mapped[Any] = mapped_column(JSONType, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
     updated_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+
+class AlertChannel(Base, TimestampMixin):
+    """Somewhere alerts go (Settings → Alerts): a preset (Slack, Google Chat, ntfy…) or a
+    custom webhook. `fields` are plain options; `secrets` are vault tokens per field (URLs
+    with keys in them, tokens, headers). `events` are what it gets for every card and run."""
+
+    __tablename__ = "alert_channels"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(32))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    fields: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    secrets: Mapped[dict[str, str]] = mapped_column(JSONType, default=dict)
+    events: Mapped[list[str]] = mapped_column(JSONType, default=list)
+    long_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+
+class AlertDelivery(Base):
+    """One alert sent (or not) to a channel: the history in Settings, and what stops a
+    long-running alert from repeating (`subject`)."""
+
+    __tablename__ = "alert_deliveries"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    channel_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("alert_channels.id", ondelete="CASCADE"), index=True)
+    event: Mapped[str] = mapped_column(String(32))
+    subject: Mapped[str] = mapped_column(String(200), default="", index=True)
+    title: Mapped[str] = mapped_column(String(300), default="")
+    ok: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)

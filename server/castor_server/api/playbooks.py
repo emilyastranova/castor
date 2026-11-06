@@ -16,6 +16,7 @@ from ..playbook_library import check_against_library, definition_from_spec, load
 from ..playbook_spec import parse_playbook_spec
 from ..playbook_yaml import to_yaml
 from ..schemas import (
+    AlertRules,
     PlaybookDefinitionIn,
     PlaybookDefinitionOut,
     PlaybookRunIn,
@@ -35,6 +36,7 @@ router = APIRouter(tags=["playbooks"])
 class RunRequest(BaseModel):
     project_id: uuid.UUID
     inputs: dict[str, Any] = Field(default_factory=dict)
+    alerts: AlertRules | None = None
 
 
 @router.get("/playbooks", response_model=list[PlaybookDefinitionOut])
@@ -147,16 +149,17 @@ async def delete_playbook(playbook_id: str, db: DB, _: Operator):
 
 @router.post("/playbooks/{playbook_id}/run", response_model=PlaybookRunOut, status_code=201)
 async def run_playbook(playbook_id: str, body: RunRequest, db: DB, user: CurrentUser):
-    return await _execute_playbook_run(db, playbook_id, body.project_id, body.inputs, user)
+    return await _execute_playbook_run(db, playbook_id, body.project_id, body.inputs, user, body.alerts)
 
 
 @router.post("/playbook-runs", response_model=PlaybookRunOut, status_code=201)
 async def create_playbook_run(body: PlaybookRunIn, db: DB, user: CurrentUser):
-    return await _execute_playbook_run(db, body.playbook_id, body.project_id, body.inputs, user)
+    return await _execute_playbook_run(db, body.playbook_id, body.project_id, body.inputs, user, body.alerts)
 
 
 async def _execute_playbook_run(
-    db: DB, playbook_id: str, project_id: uuid.UUID, inputs: dict[str, Any], user: CurrentUser
+    db: DB, playbook_id: str, project_id: uuid.UUID, inputs: dict[str, Any], user: CurrentUser,
+    alerts: AlertRules | None = None,
 ) -> PlaybookRunOut:
     spec = await load_playbook_spec(db, playbook_id)
     if spec is None:
@@ -188,6 +191,9 @@ async def _execute_playbook_run(
         run, jobs = await start_playbook_run(db, spec, project_id, inputs, user)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
+    if alerts is not None and run.card_id:
+        card = await db.get(m.Task, run.card_id)
+        card.alerts = alerts.stored()
     await db.commit()
     if jobs:
         dispatcher.wake()

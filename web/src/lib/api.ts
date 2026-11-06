@@ -691,6 +691,8 @@ export interface ArgErrors {
 }
 
 export interface Task {
+	/** Chat/webhook alerts for its runs (or, on a run card, the playbook run). */
+	alerts?: AlertRules | null;
 	id: UUID;
 	project_id: UUID;
 	column_id: UUID;
@@ -965,8 +967,8 @@ export function api(fetchFn: Fetch = fetch) {
 			update: (id: string, yaml: string) =>
 				request<PlaybookDefinition>(fetchFn, 'PUT', `/playbooks/${id}`, { yaml }),
 			remove: (id: string) => del(`/playbooks/${id}`),
-			run: (id: string, projectId: UUID, inputs: Record<string, unknown> = {}) =>
-				post<PlaybookRun>(`/playbooks/${id}/run`, { project_id: projectId, inputs }),
+			run: (id: string, projectId: UUID, inputs: Record<string, unknown> = {}, alerts: AlertRules | null = null) =>
+				post<PlaybookRun>(`/playbooks/${id}/run`, { project_id: projectId, inputs, ...(alerts ? { alerts } : {}) }),
 			validate: (yaml: string) => post<PlaybookCheck>('/playbooks/validate', { yaml }),
 			/** The editor's spec as YAML, validated (YAML is returned even when invalid). */
 			toYaml: (spec: PlaybookSpec) => post<PlaybookCheck & { yaml: string }>('/playbooks/to-yaml', { spec })
@@ -1133,6 +1135,19 @@ export function api(fetchFn: Fetch = fetch) {
 		activity: {
 			recent: (limit = 50) => get<Activity[]>(`/activity?limit=${limit}`)
 		},
+		alerts: {
+			presets: () => get<AlertPresets>('/alert-presets'),
+			channels: () => get<AlertChannel[]>('/alert-channels'),
+			/** Names to pick from on a card or run (anyone). */
+			brief: () => get<{ id: UUID; name: string; kind: string }[]>('/alert-channels/brief'),
+			create: (body: AlertChannelIn) => post<AlertChannel>('/alert-channels', body),
+			update: (id: UUID, body: AlertChannelIn) => request<AlertChannel>(fetchFn, 'PUT', `/alert-channels/${id}`, body),
+			remove: (id: UUID) => del(`/alert-channels/${id}`),
+			test: (id: UUID) => post<AlertTest>(`/alert-channels/${id}/test`),
+			/** Try settings before saving (id: an existing channel's stored secrets fill blanks). */
+			testDraft: (body: AlertChannelIn & { id?: UUID }) => post<AlertTest>('/alert-channels/test', body),
+			deliveries: (id: UUID) => get<AlertDelivery[]>(`/alert-channels/${id}/deliveries`)
+		},
 		settings: {
 			get: () => get<AppSettings>('/settings'),
 			update: (changes: Partial<AppSettings>) => patch<AppSettings>('/settings', changes)
@@ -1154,6 +1169,83 @@ export function api(fetchFn: Fetch = fetch) {
 			history: () => get<TransferEvent[]>('/transfer/history')
 		}
 	};
+}
+
+export interface AlertField {
+	name: string;
+	label: string;
+	type: 'text' | 'url' | 'password' | 'textarea' | 'select' | 'number';
+	secret: boolean;
+	required: boolean;
+	placeholder: string;
+	help: string;
+	options: string[];
+	default: string;
+}
+
+export interface AlertPreset {
+	kind: string;
+	label: string;
+	icon: string;
+	help: string;
+	fields: AlertField[];
+	/** The request it makes, to start a custom webhook from (null for the webhook itself). */
+	template: { method: string; content_type: string; body: string; headers: string } | null;
+}
+
+export interface AlertPresets {
+	presets: AlertPreset[];
+	events: Record<string, string>;
+	variables: Record<string, string>;
+}
+
+export interface AlertDelivery {
+	id: UUID;
+	event: string;
+	title: string;
+	ok: boolean;
+	status: number | null;
+	error: string;
+	created_at: string;
+}
+
+export interface AlertChannel {
+	id: UUID;
+	name: string;
+	kind: string;
+	enabled: boolean;
+	fields: Record<string, string>;
+	/** Which secret fields hold a value (values never come back). */
+	secrets: Record<string, boolean>;
+	events: string[];
+	long_minutes: number | null;
+	last: AlertDelivery | null;
+	failures_24h: number;
+}
+
+export interface AlertChannelIn {
+	name: string;
+	kind: string;
+	enabled?: boolean;
+	fields: Record<string, string>;
+	events: string[];
+	long_minutes: number | null;
+}
+
+export interface AlertTest {
+	ok: boolean;
+	status: number | null;
+	error: string;
+}
+
+/** A card's (or a run's) alert settings. */
+export interface AlertRules {
+	channels: UUID[];
+	on: 'finish' | 'failure' | 'none';
+	long_minutes: number | null;
+	decisions: boolean;
+	/** People told in Castor (and on their desktop) when it finishes. */
+	people?: UUID[];
 }
 
 /** Instance-wide settings (Settings → General). */

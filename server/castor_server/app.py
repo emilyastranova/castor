@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -9,6 +10,7 @@ from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
+from . import alerts
 from . import models as m
 from .accounts import ensure_active_admin
 from .api import api_router
@@ -79,10 +81,12 @@ async def lifespan(app: FastAPI):
     log.info("command library: %d built-in definitions", loaded)
     log.info("playbook library: %d built-in playbooks", loaded_playbooks)
     await dispatcher.start()
+    sweeper = asyncio.create_task(alerts.sweep_forever())  # alerts for runs going long
     log.info("castor server ready")
     try:
         yield
     finally:
+        sweeper.cancel()
         await dispatcher.stop()
 
 

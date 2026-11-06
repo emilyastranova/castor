@@ -155,6 +155,11 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   tables; add new kinds to `TYPES` and a `Searcher` method) behind `GET /api/search`; web
   `CommandPalette.svelte` (Ctrl/Cmd+K, `lib/palette.svelte.ts`). `m3/Select` searches its
   options automatically past 7 (options can have `description`, `group`, `keywords`).
+- Alerts (3k): `alerts.py` (`PRESETS` kinds, each building one request template; `render`
+  escapes `{{ var }}` per content type, never format values in yourself; hooks `job_finished`,
+  `run_finished`, `decision`, `approval`; `check_long_running` sweep started in `app.py`).
+  Channel secrets go through `vault`, per field. Web: `routes/settings/alerts`,
+  `AlertChannelDialog`, `AlertRulesForm` (card menu and Run Playbook).
 - Notifications: `notifications.py` (one row per user, `subject` to clear related ones,
   webhooks via `CASTOR_NOTIFY_WEBHOOKS` posted from a thread so a dead webhook never blocks
   a run). Web: `lib/notifications.svelte.ts` + `NotificationBell.svelte` in the rail.

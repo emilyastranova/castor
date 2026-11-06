@@ -143,6 +143,11 @@ async def update_task(task_id: str, body: TaskPatch, db: DB, user: CurrentUser):
     task = await _task_or_404(db, user, task_id, write=True)
     changes = body.model_dump(exclude_unset=True)
     bindings = changes.pop("var_bindings", None)
+    if "alerts" in changes:
+        changes.pop("alerts")
+        if body.alerts and body.alerts.people:
+            body.alerts.people = [uuid.UUID(u) for u in await people.check_assignees(db, task.project_id, [str(p) for p in body.alerts.people])]
+        task.alerts = body.alerts.stored() if body.alerts else None
     if changes.get("assignees") is not None:
         before = list(task.assignees or [])
         changes["assignees"] = await people.check_assignees(db, task.project_id, changes["assignees"])

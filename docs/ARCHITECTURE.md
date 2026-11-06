@@ -311,6 +311,23 @@ domains, users, credentials and shares, one record per identity key with merged 
 inside the project's scope (`projects.settings.scope`), otherwise after approval; once per
 asset and rate-limited. Command arguments can take `{"assets": {type, where, field}}`.
 
+## Alerts
+
+`alerts.py`, `api/alerts.py`. Tables `alert_channels` (kind, name, `fields`, vault-encrypted
+`secrets` per field, `events` for everything, `long_minutes`) and `alert_deliveries` (one per
+send: ok, HTTP status, error, `subject` for de-duplicating long-run alerts); `tasks.alerts`
+holds a card's (or run card's) own channels and rules, and `people` told in-app
+(`task.finished` notifications) when it finishes, including a manual card moved to Done
+(`card.done`). Events: `job.failed|succeeded` (from
+the gateway, not for playbook steps), `run.failed|succeeded` and `decision` (from
+`services`), `approval` (asset triggers), `long` (a 60 s sweep). Endpoints:
+`GET /api/alert-presets` (kinds with their form fields and request template, events,
+variables), `GET|POST /api/alert-channels`, `PUT|DELETE /api/alert-channels/{id}`,
+`POST /api/alert-channels/{id}/test`, `POST /api/alert-channels/test` (unsaved),
+`GET /api/alert-channels/{id}/deliveries` (admins); `GET /api/alert-channels/brief`
+(names, anyone). `PATCH /api/tasks/{id}` and the playbook run endpoints take `alerts`.
+Events `alert_channels.changed`.
+
 ## Theme colour
 
 Each user's Material You seed is `users.theme_seed` (`""` = the built-in palette from

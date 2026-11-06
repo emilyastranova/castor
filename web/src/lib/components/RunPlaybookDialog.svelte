@@ -1,10 +1,11 @@
 <script lang="ts">
-	import type { PlaybookInputSpec, PlaybookSpec, PlaybookRun, Project, VariableKind, VariableSet } from '$lib/api';
+	import type { AlertRules, PlaybookInputSpec, PlaybookSpec, PlaybookRun, Project, VariableKind, VariableSet } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, Select, Switch, TextField } from '$lib/m3';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import VariableSetDialog from './VariableSetDialog.svelte';
 	import ListArgInput from './ListArgInput.svelte';
+	import AlertRulesForm from './AlertRulesForm.svelte';
 
 	interface Props {
 		open: boolean;
@@ -56,6 +57,7 @@
 	let selectedProjectId = $state<string>('');
 	let inputValues = $state<Record<string, unknown>>({});
 	let running = $state(false);
+	let alertRules = $state<AlertRules>({ channels: [], on: 'failure', long_minutes: null, decisions: true });
 	let error = $state<string | null>(null);
 
 	$effect(() => {
@@ -93,7 +95,7 @@
 		running = true;
 		error = null;
 		try {
-			const run = await api().playbooks.run(spec.id, selectedProjectId, inputValues);
+			const run = await api().playbooks.run(spec.id, selectedProjectId, inputValues, alertRules.channels.length ? alertRules : null);
 			snackbar.show(`Started playbook “${spec.name}”`);
 			open = false;
 			onRun?.(run);
@@ -204,6 +206,10 @@
 					{/each}
 				</div>
 			{/if}
+			<details class="rounded-md border border-outline-variant px-3 py-2">
+				<summary class="cursor-pointer label-large text-on-surface-variant">Alerts{alertRules.channels.length ? ` · ${alertRules.channels.length} channel${alertRules.channels.length === 1 ? '' : 's'}` : ''}</summary>
+				<div class="pt-3 pb-1"><AlertRulesForm bind:rules={alertRules} run /></div>
+			</details>
 		</form>
 	{/if}
 

@@ -1,6 +1,6 @@
 # Phase 3 plan
 
-Status: in progress (2026-11-05); 3a, 3b, 3c, 3d, 3f, 3g, 3h, 3i, 3l and 3m are built; 3e, 3j and 3k are left. Roadmap item **M3** in
+Status: in progress (2026-11-05); 3a, 3b, 3c, 3d, 3f, 3g, 3h, 3i, 3k, 3l and 3m are built; 3e and 3j are left. Roadmap item **M3** in
 [ARCHITECTURE.md](ARCHITECTURE.md); Phase 2 is done and recorded in [PHASE2.md](PHASE2.md).
 
 Phase 3 makes Castor easier to run day to day: tools prepared on demand instead of baked
@@ -19,7 +19,7 @@ playbook step goes wrong.
 | 3h. Playbook runs as one card | A run is a single card on the board that opens into its graph and steps, instead of a card per step | nothing | Built |
 | 3i. Import and export | Move projects, commands, tools, playbooks, variables (everything) between Castor instances as files | nothing | Built |
 | 3j. Interactive jobs | Type into a running job's stdin; the console keeps following the output; an alert when an automated job stops to ask for input | nothing | Idea |
-| 3k. Chat alerts for long runs | Google Chat and Slack webhooks set up in Settings, switched on per card or per playbook run for when it finishes or runs long | nothing | Idea |
+| 3k. Chat alerts for long runs | Google Chat, Slack, ntfy… or any webhook set up in Settings, switched on per card or per playbook run for when it finishes, fails or runs long | nothing | Built |
 | 3l. Your theme colour | Each person picks a Material You seed colour that recolours the whole UI | nothing | Built |
 | 3m. Duplicate a card | Copy an existing card into To Do: just the blueprint, or with its comments and output | nothing | Built |
 
@@ -513,6 +513,19 @@ job has no way to answer: it just hangs until its timeout.
   known prompts itself (an `answers:` map, values from variable sets)?
 
 ## 3k. Google Chat and Slack alerts for long runs
+
+**Built**, modelled on Uptime Kuma's notification types. `alerts.py`:
+- **Kinds.** Presets for Slack, Google Chat, Discord, Microsoft Teams, Mattermost, ntfy, Gotify, Telegram and Pushover, plus a custom webhook (method, URL, headers, json/form/text body).
+- **One request template.** Every kind comes down to a template with `{{ var }}` placeholders, escaped for the content type, so a title can't break the JSON. The `VARIABLES` dict lists them; the webhook form can start its body from any preset, and any preset can be turned into an editable webhook ("Customise the request").
+- **Secret fields** are vault-encrypted per field and never returned (blank on save keeps them). Test sends a sample alert, saved or not.
+- **History.** Every send is an `alert_deliveries` row (the channel's history and last error), sent off the event loop with a 10 s timeout.
+- **Events:** `job.failed`/`job.succeeded` (a card's runs; steps go through their run), `run.failed`/`run.succeeded`, `decision`, `approval` and `long`.
+- **Who hears.** A channel can take events for everything (`events`, `long_minutes`). A card or run card picks channels for itself in `tasks.alerts` (`on`: finish/failure/none, `long_minutes`, `decisions` for runs). That's set from the card menu's "Alerts…" and the Run Playbook dialog.
+- **Long runs.** A 60 s sweep (`check_long_running`) alerts once per channel per run.
+
+"Notify me" in a card's side panel adds you to `tasks.alerts.people`: an in-app (and desktop)
+notification when the card finishes, either way (a run ending, its playbook run ending, or a
+manual card moved to Done, event `card.done`), never to whoever finished it. `CASTOR_NOTIFY_WEBHOOKS` still works as before, alongside. Not built: personal DMs, playbook YAML `alerts:` defaults, project-level defaults.
 
 `CASTOR_NOTIFY_WEBHOOKS` already posts run notifications to Slack, Discord and ntfy URLs
 from the environment, to every hook, for every run. Make it something you configure and aim:
