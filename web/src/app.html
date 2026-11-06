@@ -17,7 +17,13 @@
 				const t = localStorage.getItem('castor.theme');
 				if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
 				const seed = localStorage.getItem('castor.seed');
-				if (seed) document.documentElement.dataset.seed = seed;
+				const vars = JSON.parse(localStorage.getItem('castor.seed.vars') || 'null');
+				if (seed && vars && vars.seed === seed) {
+					const root = document.documentElement;
+					const dark = t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+					root.dataset.seed = seed;
+					for (const [name, value] of Object.entries(dark ? vars.dark : vars.light)) root.style.setProperty(name, value);
+				}
 			} catch {}
 		</script>
 		%sveltekit.head%

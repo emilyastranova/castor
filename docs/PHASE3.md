@@ -1,6 +1,6 @@
 # Phase 3 plan
 
-Status: in progress (2026-11-05); 3a, 3b, 3c, 3d, 3f, 3g, 3h, 3i and 3m are built; 3e, 3j, 3k and 3l are left. Roadmap item **M3** in
+Status: in progress (2026-11-05); 3a, 3b, 3c, 3d, 3f, 3g, 3h, 3i, 3l and 3m are built; 3e, 3j and 3k are left. Roadmap item **M3** in
 [ARCHITECTURE.md](ARCHITECTURE.md); Phase 2 is done and recorded in [PHASE2.md](PHASE2.md).
 
 Phase 3 makes Castor easier to run day to day: tools prepared on demand instead of baked
@@ -20,7 +20,7 @@ playbook step goes wrong.
 | 3i. Import and export | Move projects, commands, tools, playbooks, variables (everything) between Castor instances as files | nothing | Built |
 | 3j. Interactive jobs | Type into a running job's stdin; the console keeps following the output; an alert when an automated job stops to ask for input | nothing | Idea |
 | 3k. Chat alerts for long runs | Google Chat and Slack webhooks set up in Settings, switched on per card or per playbook run for when it finishes or runs long | nothing | Idea |
-| 3l. Your theme colour | Each person picks a Material You seed colour that recolours the whole UI | nothing | Idea |
+| 3l. Your theme colour | Each person picks a Material You seed colour that recolours the whole UI | nothing | Built |
 | 3m. Duplicate a card | Copy an existing card into To Do: just the blueprint, or with its comments and output | nothing | Built |
 
 Suggested order: 3a (it unblocks the NetExec commands on the compose agent), 3d (small),
@@ -532,6 +532,14 @@ from the environment, to every hook, for every run. Make it something you config
   webhook in their account and gets their mentions and assignments there)?
 
 ## 3l. Your theme colour
+
+**Built.** `users.theme_seed` (additive migration), set with `PATCH /api/auth/me`
+(`theme_seed: "#rrggbb"` or `""`); the account dialog's `ThemeColorPicker` (default, ten
+presets, any colour) applies it at once and saves it. `m3/theme.ts` generates the light and
+dark palettes together and caches them in localStorage (`castor.seed.vars`), so `app.html`
+paints the right one before any script loads and a light/dark switch needs no recomputing;
+the root layout makes the account's colour win over whatever the browser cached. No
+instance-wide default yet (it would be one `app_settings` key).
 
 Let each person choose the seed colour of their Material You palette; the whole UI (every
 role token) recolours from it, in light and dark.

@@ -100,7 +100,12 @@ async def update_user(user_id: str, body: UserPatch, db: DB, admin: Admin):
 
 @router.patch("/auth/me", response_model=UserOut)
 async def update_me(body: ProfilePatch, db: DB, user: CurrentUser):
-    user.display_name = body.display_name.strip()
+    if body.display_name is not None:
+        if not body.display_name.strip():
+            raise HTTPException(422, "display_name: enter a name")
+        user.display_name = body.display_name.strip()
+    if body.theme_seed is not None:
+        user.theme_seed = body.theme_seed.lower()
     await db.commit()
     return UserOut.model_validate(user)
 

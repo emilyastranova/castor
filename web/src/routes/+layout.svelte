@@ -5,7 +5,7 @@
 	import { goto, invalidateAll } from '$app/navigation';
 	import { NavigationRail, Snackbar, Icon, IconButton, Menu, MenuItem, Avatar } from '$lib/m3';
 	import { realtime } from '$lib/realtime.svelte';
-	import { initTheme, toggleMode, isDark } from '$lib/m3/theme';
+	import { applySeed, getSeed, initTheme, toggleMode, isDark } from '$lib/m3/theme';
 	import { api } from '$lib/api';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import ConfirmHost from '$lib/components/ConfirmHost.svelte';
@@ -37,6 +37,11 @@
 	onMount(() => {
 		initTheme();
 		dark = isDark();
+	});
+	// Your account's theme colour wins over whatever this browser last showed.
+	$effect(() => {
+		const seed = data.user?.theme_seed;
+		if (seed !== undefined && (seed || null) !== getSeed()) void applySeed(seed || null);
 	});
 
 	$effect(() => {

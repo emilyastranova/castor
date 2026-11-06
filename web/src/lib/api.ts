@@ -20,6 +20,8 @@ export interface User {
 	gravatar_email: string;
 	/** An uploaded picture exists (so it can be switched back to). */
 	has_upload: boolean;
+	/** Their theme colour (#rrggbb), or '' for the default palette. */
+	theme_seed: string;
 }
 
 export type AvatarKind = 'initials' | 'upload' | 'url' | 'gravatar';
@@ -870,7 +872,7 @@ export function api(fetchFn: Fetch = fetch) {
 				post<{ token: string; user: User }>('/auth/login', { username, password }),
 			logout: () => post<void>('/auth/logout'),
 			me: () => get<User>('/auth/me'),
-			updateMe: (display_name: string) => patch<User>('/auth/me', { display_name }),
+			updateMe: (body: { display_name?: string; theme_seed?: string }) => patch<User>('/auth/me', body),
 			changePassword: (current_password: string, new_password: string) =>
 				post<void>('/auth/password', { current_password, new_password })
 		},

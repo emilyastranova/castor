@@ -70,41 +70,76 @@ export function getSeed(): string | null {
 	}
 }
 
-/** Recolour the whole app from a seed. Pass null to return to the built-in palette. */
+const VARS_KEY = 'castor.seed.vars';
+type Palette = Record<string, string>;
+
+/** Every colour variable for a seed, light and dark, generated in the browser. */
+async function palettes(seed: string): Promise<{ light: Palette; dark: Palette }> {
+	const mcu = await import('@material/material-color-utilities');
+	const source = mcu.argbFromHex(seed);
+	const build = (dark: boolean): Palette => {
+		const out: Palette = {};
+		const scheme = new mcu.SchemeTonalSpot(mcu.Hct.fromInt(source), dark, 0);
+		for (const role of ROLES) {
+			const color = (mcu.MaterialDynamicColors as unknown as Record<string, { getArgb(s: unknown): number }>)[role];
+			if (color) out[`--md-sys-color-${kebab(role)}`] = mcu.hexFromArgb(color.getArgb(scheme));
+		}
+		for (const [name, hex] of Object.entries(customColors)) {
+			const group = mcu.customColor(source, { name, value: mcu.argbFromHex(hex), blend: false });
+			const g = dark ? group.dark : group.light;
+			const [c, on, container, onContainer] = customVarNames(name);
+			out[c] = mcu.hexFromArgb(g.color);
+			out[on] = mcu.hexFromArgb(g.onColor);
+			out[container] = mcu.hexFromArgb(g.colorContainer);
+			out[onContainer] = mcu.hexFromArgb(g.onColorContainer);
+		}
+		return out;
+	};
+	return { light: build(false), dark: build(true) };
+}
+
+function cached(seed: string): { light: Palette; dark: Palette } | null {
+	try {
+		const c = JSON.parse(localStorage.getItem(VARS_KEY) ?? 'null');
+		return c?.seed === seed ? c : null;
+	} catch {
+		return null;
+	}
+}
+
+function clearVars(root: HTMLElement) {
+	for (const role of ROLES) root.style.removeProperty(`--md-sys-color-${kebab(role)}`);
+	for (const name of Object.keys(customColors)) {
+		for (const v of customVarNames(name)) root.style.removeProperty(v);
+	}
+}
+
+/** Recolour the whole app from a seed. Pass null to return to the built-in palette. Both
+ *  palettes are cached so app.html can paint the right one before any script loads, and a
+ *  light/dark switch needs no recomputing. */
 export async function applySeed(seed: string | null): Promise<void> {
 	if (!browser) return;
 	const root = document.documentElement;
-	try {
-		if (seed) localStorage.setItem(SEED_KEY, seed);
-		else localStorage.removeItem(SEED_KEY);
-	} catch {
-		/* ignore */
-	}
 	if (!seed) {
-		delete root.dataset.seed;
-		for (const role of ROLES) root.style.removeProperty(`--md-sys-color-${kebab(role)}`);
-		for (const name of Object.keys(customColors)) {
-			for (const v of customVarNames(name)) root.style.removeProperty(v);
+		try {
+			localStorage.removeItem(SEED_KEY);
+			localStorage.removeItem(VARS_KEY);
+		} catch {
+			/* ignore */
 		}
+		delete root.dataset.seed;
+		clearVars(root);
 		return;
 	}
+	const both = cached(seed) ?? (await palettes(seed));
+	try {
+		localStorage.setItem(SEED_KEY, seed);
+		localStorage.setItem(VARS_KEY, JSON.stringify({ seed, ...both }));
+	} catch {
+		/* private mode: it still applies for this page */
+	}
 	root.dataset.seed = seed;
-	const mcu = await import('@material/material-color-utilities');
-	const scheme = new mcu.SchemeTonalSpot(mcu.Hct.fromInt(mcu.argbFromHex(seed)), isDark(), 0);
-	for (const role of ROLES) {
-		const color = (mcu.MaterialDynamicColors as unknown as Record<string, { getArgb(s: unknown): number }>)[role];
-		if (color) root.style.setProperty(`--md-sys-color-${kebab(role)}`, mcu.hexFromArgb(color.getArgb(scheme)));
-	}
-	const source = mcu.argbFromHex(seed);
-	for (const [name, hex] of Object.entries(customColors)) {
-		const group = mcu.customColor(source, { name, value: mcu.argbFromHex(hex), blend: false });
-		const g = isDark() ? group.dark : group.light;
-		const [c, on, container, onContainer] = customVarNames(name);
-		root.style.setProperty(c, mcu.hexFromArgb(g.color));
-		root.style.setProperty(on, mcu.hexFromArgb(g.onColor));
-		root.style.setProperty(container, mcu.hexFromArgb(g.colorContainer));
-		root.style.setProperty(onContainer, mcu.hexFromArgb(g.onColorContainer));
-	}
+	for (const [name, value] of Object.entries(isDark() ? both.dark : both.light)) root.style.setProperty(name, value);
 }
 
 /** Call once on app start: re-applies a custom seed and keeps it in sync with light/dark. */

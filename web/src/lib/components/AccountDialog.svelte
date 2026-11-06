@@ -6,6 +6,7 @@
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { ROLE_LABELS } from '$lib/session';
 	import AvatarEditor from './AvatarEditor.svelte';
+	import ThemeColorPicker from './ThemeColorPicker.svelte';
 
 	/** The signed-in user's own account: display name and password. */
 	interface Props {
@@ -37,7 +38,7 @@
 		saving = true;
 		error = null;
 		try {
-			if (name.trim() && name.trim() !== user.display_name) await api().auth.updateMe(name.trim());
+			if (name.trim() && name.trim() !== user.display_name) await api().auth.updateMe({ display_name: name.trim() });
 			if (next) await api().auth.changePassword(current, next);
 			snackbar.show(next ? 'Password changed' : 'Saved');
 			open = false;
@@ -58,6 +59,11 @@
 		<p class="label-large text-on-surface">Picture</p>
 		<AvatarEditor {user} onchange={() => invalidateAll()} />
 		<TextField label="Display name" bind:value={name} />
+		<div>
+			<p class="mb-2 label-large text-on-surface">Theme colour</p>
+			<ThemeColorPicker {user} />
+			<p class="mt-1.5 body-small text-on-surface-variant">The whole interface is coloured from it, in light and dark. Saved as you pick; only you see it.</p>
+		</div>
 		<p class="mt-2 label-large text-on-surface">Change password</p>
 		<TextField label="Current password" type="password" bind:value={current} autocomplete="current-password" />
 		<TextField label="New password" type="password" bind:value={next} autocomplete="new-password" supporting="At least 8 characters" />

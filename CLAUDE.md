@@ -226,6 +226,8 @@ agent stays trivially installable on target boxes.
   utilities (`title-medium`, `body-small`...) and the `state-layer` utility. Do not use
   raw Tailwind palette colors or Tailwind's `dark:` variant (theme is driven by
   `data-theme` on `<html>`, see `m3/theme.ts`); use the role tokens so light/dark both work.
+  Each user can recolour every role from a seed (`users.theme_seed`, `m3/theme.ts` `applySeed`,
+  `ThemeColorPicker`), so never hard-code a colour that should follow the theme.
 - `lib/api.ts` is the typed client; pass SvelteKit's `fetch` in load functions
   (`api(fetch)`). `hooks.server.ts` rewrites server-side `/api/*` fetches to
   `API_INTERNAL_URL` and forwards the session cookie.

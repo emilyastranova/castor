@@ -120,3 +120,15 @@ def test_libraries_need_operator(client, auth, role):
     _, h = _user(client, auth, role)
     r = client.post("/api/playbooks", json={"yaml": "id: x\nname: x\nsteps: []\n"}, headers=h)
     assert (r.status_code == 403) == (role == "viewer")
+
+
+def test_theme_colour_is_per_user(client, auth):
+    _, uh = _user(client, auth, "viewer")
+    assert client.get("/api/auth/me", headers=uh).json()["theme_seed"] == ""
+    r = client.patch("/api/auth/me", json={"theme_seed": "#0B8043"}, headers=uh)
+    assert r.status_code == 200 and r.json()["theme_seed"] == "#0b8043"
+    name = r.json()["display_name"]
+    assert client.patch("/api/auth/me", json={"theme_seed": "green"}, headers=uh).status_code == 422
+    assert client.get("/api/auth/me", headers=uh).json()["display_name"] == name  # untouched
+    assert client.get("/api/auth/me", headers=auth).json()["theme_seed"] == ""  # only theirs
+    assert client.patch("/api/auth/me", json={"theme_seed": ""}, headers=uh).json()["theme_seed"] == ""

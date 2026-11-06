@@ -311,6 +311,13 @@ domains, users, credentials and shares, one record per identity key with merged 
 inside the project's scope (`projects.settings.scope`), otherwise after approval; once per
 asset and rate-limited. Command arguments can take `{"assets": {type, where, field}}`.
 
+## Theme colour
+
+Each user's Material You seed is `users.theme_seed` (`""` = the built-in palette from
+`tokens.css`), changed through `PATCH /api/auth/me`. The browser generates every colour role
+from it (`m3/theme.ts`, `material-color-utilities`) and caches both palettes for `app.html`
+to apply before first paint.
+
 ## Instance settings
 
 `app_settings` (key → JSON) holds settings admins change in Settings → General;

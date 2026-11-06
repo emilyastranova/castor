@@ -136,6 +136,8 @@ class User(Base, TimestampMixin):
     # kind upload: the file under <data_dir>/avatars/; the version busts browser caches.
     avatar_file: Mapped[str] = mapped_column(String(200), default="", server_default="")
     avatar_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # Their Material You seed colour (#rrggbb); empty means the default palette.
+    theme_seed: Mapped[str] = mapped_column(String(9), default="", server_default="")
 
     @property
     def avatar_url(self) -> str | None:

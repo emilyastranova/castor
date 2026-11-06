@@ -37,6 +37,8 @@ class UserOut(ORM):
     gravatar_email: str = ""
     # Whether an uploaded picture exists (to switch back to it).
     has_upload: bool = False
+    # Their theme colour (#rrggbb), or "" for the default palette.
+    theme_seed: str = ""
 
 
 class UserBrief(ORM):
@@ -81,7 +83,8 @@ class PasswordChange(BaseModel):
 
 
 class ProfilePatch(BaseModel):
-    display_name: str = Field(min_length=1, max_length=128)
+    display_name: str | None = Field(None, min_length=1, max_length=128)
+    theme_seed: str | None = Field(None, pattern=r"^(#[0-9a-fA-F]{6})?$")
 
 
 class LoginResponse(BaseModel):
