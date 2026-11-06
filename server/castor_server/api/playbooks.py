@@ -265,3 +265,32 @@ async def resolve_run_step(run_id: str, step_id: str, body: ResolveIn, db: DB, u
     if jobs:
         dispatcher.wake()
     return await playbook_run_out(db, run)
+
+
+@router.post("/playbook-runs/{run_id}/steps/{step_id}/ai/suggest")
+async def ai_suggest(run_id: str, step_id: str, db: DB, user: CurrentUser):
+    """Ask the AI resolver what to do with a paused step (it doesn't act; see ai/apply)."""
+    from .. import ai, llm
+
+    run = await _run_or_404(db, user, run_id, write=True)
+    try:
+        return await ai.suggest_resolution(db, run, step_id, user)
+    except llm.NotConfigured as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except llm.AiError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@router.post("/playbook-runs/{run_id}/steps/{step_id}/ai/apply", response_model=PlaybookRunOut)
+async def ai_apply(run_id: str, step_id: str, db: DB, user: CurrentUser):
+    """Do what the AI suggested for a paused step, as the person clicking."""
+    from .. import ai, llm
+
+    run = await _run_or_404(db, user, run_id, write=True)
+    try:
+        jobs = await ai.apply_suggestion(db, run, step_id, user)
+    except (ResolveError, llm.AiError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if jobs:
+        dispatcher.wake()
+    return await playbook_run_out(db, run)

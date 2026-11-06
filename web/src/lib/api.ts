@@ -184,7 +184,9 @@ export interface PlaybookStepSpec {
 	/** Run only when this holds (see PlaybookCondition); otherwise the step is not_taken. */
 	when?: PlaybookCondition | null;
 	join?: 'all' | 'any' | 'always';
-	on_failure?: 'stop' | 'continue' | 'ask';
+	on_failure?: 'stop' | 'continue' | 'ask' | 'ai';
+	/** on_failure: ai — what the AI resolver may do on its own. */
+	ai?: { allow?: ResolveAction[]; edit_command?: boolean; confidence?: number; max_retries?: number; instructions?: string } | null;
 	expect?: { outputs?: Record<string, Record<string, unknown>>; log?: Record<string, unknown> } | null;
 	/** One card and job per item; args use {{ item }} / {{ item.field }}. */
 	for_each?: { items: string; max_items?: number; concurrency?: number | null } | null;
@@ -222,6 +224,25 @@ export type ResolveAction = 'retry' | 'continue' | 'skip' | 'fail';
 
 /** What the run stores per step: transform results, steps that never got a job, how a
  *  condition was evaluated, expectations, and decisions on paused steps. */
+/** A decision on a paused step: by a person, or the AI (with its model, confidence and any
+ *  command change). */
+export interface StepResolution {
+	action: ResolveAction;
+	by: string;
+	note: string;
+	reason: string;
+	at: string;
+	ai?: boolean;
+	/** A person applied the AI's suggestion (by is the person). */
+	suggested?: boolean;
+	model?: string;
+	confidence?: number | null;
+	command_before?: string;
+	command_after?: string;
+	/** The change in words, e.g. "replaced `--fast-mode` with `--quick`". */
+	change?: string;
+}
+
 export interface PlaybookStepResult {
 	status?: 'succeeded' | 'failed' | 'skipped' | 'not_taken' | 'attention';
 	outputs?: Record<string, unknown>;
@@ -235,7 +256,11 @@ export interface PlaybookStepResult {
 	job_id?: string;
 	condition?: { met: boolean; checks: ConditionCheck[] };
 	expect?: ConditionCheck[];
-	resolution?: { action: ResolveAction; by: string; note: string; reason: string; at: string };
+	resolution?: StepResolution;
+	/** Every decision on the step in this run, oldest first. */
+	history?: StepResolution[];
+	/** The AI resolver's suggestion while the step waits (and why it didn't act, if it didn't). */
+	ai?: AiSuggestion & { note?: string };
 	/** for_each steps: how many item cards were made. */
 	items?: number;
 }
@@ -985,7 +1010,11 @@ export function api(fetchFn: Fetch = fetch) {
 			get: (id: UUID) => get<PlaybookRun>(`/playbook-runs/${id}`),
 			cancel: (id: UUID) => post<PlaybookRun>(`/playbook-runs/${id}/cancel`),
 			resolve: (id: UUID, stepId: string, action: ResolveAction, note = '') =>
-				post<PlaybookRun>(`/playbook-runs/${id}/steps/${stepId}/resolve`, { action, note })
+				post<PlaybookRun>(`/playbook-runs/${id}/steps/${stepId}/resolve`, { action, note }),
+			/** Ask the AI resolver about a paused step (it only suggests). */
+			aiSuggest: (id: UUID, stepId: string) => post<AiSuggestion>(`/playbook-runs/${id}/steps/${stepId}/ai/suggest`),
+			/** Do what the AI suggested, as you. */
+			aiApply: (id: UUID, stepId: string) => post<PlaybookRun>(`/playbook-runs/${id}/steps/${stepId}/ai/apply`)
 		},
 		notifications: {
 			list: (unreadOnly = false, limit = 50) =>
@@ -1135,6 +1164,23 @@ export function api(fetchFn: Fetch = fetch) {
 		activity: {
 			recent: (limit = 50) => get<Activity[]>(`/activity?limit=${limit}`)
 		},
+		ai: {
+			status: () => get<{ enabled: boolean; resolver: boolean }>('/ai/status'),
+			kinds: () => get<AiKind[]>('/ai/kinds'),
+			providers: () => get<AiProvider[]>('/ai/providers'),
+			createProvider: (body: AiProviderIn) => post<AiProvider>('/ai/providers', body),
+			updateProvider: (id: UUID, body: AiProviderIn) => request<AiProvider>(fetchFn, 'PUT', `/ai/providers/${id}`, body),
+			removeProvider: (id: UUID) => del(`/ai/providers/${id}`),
+			/** One short request with these settings (id: a saved provider's secrets fill blanks). */
+			test: (body: AiProviderIn & { model: string; id?: UUID }) => post<{ ok: boolean; text?: string; ms?: number; error?: string }>('/ai/providers/test', body),
+			models: (body: AiProviderIn & { id?: UUID }) => post<{ models: string[]; error?: string }>('/ai/providers/models', body),
+			usage: () => get<{ calls: AiCall[]; calls_today: number; input_tokens_today: number; output_tokens_today: number }>('/ai/usage'),
+			generate: (kind: 'command' | 'tool' | 'playbook' | 'variable_kind', prompt: string, current = '') =>
+				post<AiDraft>('/ai/generate', { kind, prompt, current }),
+			regex: (sample: string, want: string) =>
+				post<{ options: Record<string, unknown>; preview: string[]; count: number; explanation: string; model: string }>('/ai/regex', { sample, want }),
+			explain: (jobId: UUID) => post<{ text: string; model: string }>(`/ai/explain/${jobId}`)
+		},
 		alerts: {
 			presets: () => get<AlertPresets>('/alert-presets'),
 			channels: () => get<AlertChannel[]>('/alert-channels'),
@@ -1252,6 +1298,78 @@ export interface AlertRules {
 export interface AppSettings {
 	/** Pinned notes a project can have (1–12). */
 	notes_per_project: number;
+	/** LLM models per purpose ("default", "resolver"), in order: later ones are fallbacks. */
+	ai_chains: Record<string, { provider: UUID; model: string }[]>;
+}
+
+export interface AiField {
+	name: string;
+	label: string;
+	type: 'text' | 'url' | 'password' | 'textarea';
+	secret: boolean;
+	required: boolean;
+	placeholder: string;
+	help: string;
+	default: string;
+}
+
+export interface AiKind {
+	kind: string;
+	label: string;
+	help: string;
+	/** Usual models (List models asks the provider). */
+	models: string[];
+	fields: AiField[];
+}
+
+export interface AiProvider {
+	id: UUID;
+	name: string;
+	kind: string;
+	enabled: boolean;
+	fields: Record<string, string>;
+	secrets: Record<string, boolean>;
+}
+
+export interface AiProviderIn {
+	name: string;
+	kind: string;
+	enabled?: boolean;
+	fields: Record<string, string>;
+}
+
+export interface AiCall {
+	id: UUID;
+	purpose: string;
+	provider_name: string;
+	model: string;
+	ok: boolean;
+	error: string;
+	input_tokens: number | null;
+	output_tokens: number | null;
+	ms: number;
+	created_at: string;
+}
+
+export interface AiSuggestion {
+	action: ResolveAction | 'ask';
+	/** A corrected command, if it would change it. */
+	command: string;
+	reason: string;
+	confidence: number;
+	model: string;
+	at: string;
+	/** Why the resolver didn't act on it by itself. */
+	note?: string;
+}
+
+export interface AiDraft {
+	yaml: string;
+	notes: string;
+	/** Validation problems left after repairs. */
+	problems: string[];
+	model: string;
+	spec: Record<string, unknown> | null;
 }
 
 export type ImportChoice = 'import' | 'skip' | 'replace' | 'copy';

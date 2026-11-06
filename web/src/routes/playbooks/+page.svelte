@@ -4,6 +4,8 @@
 	import type { PlaybookDefinition, PlaybookRun, PlaybookStepSpec, Project, Task, JobOutput, CommandDefinition } from '$lib/api';
 	import { api, ApiError, saveBlob } from '$lib/api';
 	import LibraryTransfer from '$lib/components/LibraryTransfer.svelte';
+	import AiGenerateDialog from '$lib/components/AiGenerateDialog.svelte';
+	import { aiStatus } from '$lib/ai.svelte';
 	import { Button, Card, Chip, Dialog, Icon, IconButton, Tabs, TextField, TopAppBar } from '$lib/m3';
 	import { confirmAction } from '$lib/confirm.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
@@ -24,6 +26,17 @@
 	// svelte-ignore state_referenced_locally
 	let playbooks = $state<PlaybookDefinition[]>(data.playbooks);
 	let mine = $derived(playbooks.filter((p) => p.origin === 'user').map((p) => p.id));
+	$effect(() => void aiStatus.load());
+	let aiOpen = $state(false);
+	let aiFromEditor = $state(false);
+	function useDraft(text: string) {
+		if (!aiFromEditor) {
+			editing = null;
+			editorError = null;
+			editorOpen = true;
+		}
+		editorYaml = text;
+	}
 	// svelte-ignore state_referenced_locally
 	let runs = $state<PlaybookRun[]>(data.runs);
 	// svelte-ignore state_referenced_locally
@@ -399,6 +412,7 @@ steps:
 	{#snippet actions()}
 		<LibraryTransfer noun="playbooks" request={{ playbooks: mine, label: 'castor-playbooks' }} count={mine.length} onimported={async () => (playbooks = await api().playbooks.list())} />
 		{#if canEdit()}
+			{#if aiStatus.enabled}<Button variant="text" icon="auto_awesome" onclick={() => { aiFromEditor = false; aiOpen = true; }}>Generate</Button>{/if}
 			<Button variant="text" icon="code" onclick={openNewEditor}>New from YAML</Button>
 			<Button variant="filled" icon="add" onclick={() => goto('/playbooks/edit/new')}>
 				New Playbook
@@ -1092,6 +1106,9 @@ steps:
 		{#if editing}
 			<Button variant="text" icon="download" onclick={() => editing && saveBlob(editing.source_yaml, `${editing.id}.yaml`)}>Export YAML</Button>
 		{/if}
+		{#if editing?.origin !== 'builtin' && aiStatus.enabled}
+			<Button variant="text" icon="auto_awesome" onclick={() => { aiFromEditor = true; aiOpen = true; }}>AI</Button>
+		{/if}
 		<Button variant="text" onclick={() => (editorOpen = false)} disabled={savingYaml}>
 			Close
 		</Button>
@@ -1102,3 +1119,5 @@ steps:
 		{/if}
 	{/snippet}
 </Dialog>
+
+<AiGenerateDialog bind:open={aiOpen} kind="playbook" current={aiFromEditor ? editorYaml : ''} onuse={(d) => useDraft(d.yaml)} />

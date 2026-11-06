@@ -12,9 +12,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from . import models as m
 
 
+class ModelChoice(BaseModel):
+    provider: str  # an ai_providers id
+    model: str = Field(min_length=1, max_length=200)
+
+
 class AppSettings(BaseModel):
     # Pinned notes a project can have. More than 4 wraps onto a second row of the dashboard.
     notes_per_project: int = Field(default=4, ge=1, le=12)
+    # LLM models per purpose, tried in order (later ones are fallbacks): "default" for
+    # generating things, "resolver" for deciding paused playbook steps (empty: use default).
+    ai_chains: dict[str, list[ModelChoice]] = Field(default_factory=dict)
 
 
 async def load(db: AsyncSession) -> AppSettings:
@@ -39,11 +47,12 @@ async def save(db: AsyncSession, changes: dict[str, Any], user_id) -> AppSetting
     """Validate and store the given keys (the caller commits)."""
     merged = (await load(db)).model_dump() | changes
     settings = AppSettings.model_validate(merged)
+    stored = settings.model_dump(mode="json")
     for key in changes:
         row = await db.get(m.AppSetting, key)
         if row is None:
-            db.add(m.AppSetting(key=key, value=getattr(settings, key), updated_by=user_id))
+            db.add(m.AppSetting(key=key, value=stored[key], updated_by=user_id))
         else:
-            row.value = getattr(settings, key)
+            row.value = stored[key]
             row.updated_by = user_id
     return settings

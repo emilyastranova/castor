@@ -1,6 +1,6 @@
 # Phase 3 plan
 
-Status: in progress (2026-11-05); 3a, 3b, 3c, 3d, 3f, 3g, 3h, 3i, 3k, 3l and 3m are built; 3e and 3j are left. Roadmap item **M3** in
+Status: in progress (2026-11-05); 3a–3i and 3k–3m are built; 3j is left. Roadmap item **M3** in
 [ARCHITECTURE.md](ARCHITECTURE.md); Phase 2 is done and recorded in [PHASE2.md](PHASE2.md).
 
 Phase 3 makes Castor easier to run day to day: tools prepared on demand instead of baked
@@ -13,7 +13,7 @@ playbook step goes wrong.
 | 3b. "Mine", @mentions, assignees | Assign cards to people; mention people in comments (they get notified); a "Mine" filter on the dashboard and board | nothing | Built |
 | 3c. Per-person view | Click a name to see everything that person did and has on their plate | 3b helps | Built |
 | 3d. Pinned project notes | A few titled notes (status, objectives…) at the top of a project's dashboard | nothing | Built |
-| 3e. AI resolver for paused steps | Gemini reads an unexpected result and retries (maybe with a fixed command), continues or skips | nothing | Idea |
+| 3e. AI (resolver and assistant) | Any LLM provider (hosted or self-hosted) with fallback chains: decides paused steps, and drafts commands, tools, playbooks, variable kinds and regexes | nothing | Built |
 | 3f. Assets (discovered objects) | Typed objects Castor finds (hosts, services, URLs, credentials…) merged across tools, with triggers that act on new ones | parsers (2b) | Built |
 | 3g. Search everywhere | Type-to-filter in every long picker; Ctrl+K searches everything you can see | nothing | Built |
 | 3h. Playbook runs as one card | A run is a single card on the board that opens into its graph and steps, instead of a card per step | nothing | Built |
@@ -183,6 +183,30 @@ in-app only (the team webhooks stay for run events).
   `web/src/lib/components/dashboard/ProjectNotes.svelte`.
 
 ## 3e. AI resolver for paused steps
+
+**Built**, wider than planned: any common LLM provider, and AI help across the library, not only the resolver.
+
+- **Providers.** `llm.py` has one HTTP adapter per API family (no SDKs, httpx only):
+  - OpenAI chat completions: OpenAI, Azure OpenAI and every OpenAI-compatible server, with presets for OpenRouter, Groq, Mistral, DeepSeek, xAI, Together, LM Studio and vLLM, plus a custom base URL.
+  - Anthropic messages.
+  - Gemini with an API key, or on Vertex AI with a service-account key (signed JWT exchanged for an access token).
+  - Ollama.
+- **Keys** are vault-encrypted per field (`ai_providers`), like alert secrets. Each provider has Test and List models.
+- **Model chains** live in `app_settings.ai_chains`:
+  - `default` for generating things; `resolver` for paused steps, which falls back to `default`.
+  - Each chain is an ordered list of provider/model pairs. A model that errors, times out or gives an answer that fails its check (bad JSON, unknown action) passes the question to the next.
+  - Every attempt is an `ai_calls` row, shown in Settings → AI with tokens and time.
+- **Resolver.**
+  - `on_failure: ai` pauses like `ask` and schedules `ai.auto_resolve`. It acts alone only within the step's `ai` settings: `allow` defaults to retry and skip, `confidence` 0.7, `max_retries` 2, `edit_command` off. Otherwise its suggestion waits on the step for one-click Apply.
+  - Decisions on a step are now kept in `step_results[step].history`, so retries can be counted.
+  - The prompt tells the model to treat output as data.
+- **Assistant.**
+  - "Generate" and "AI" on Commands, Tools and Playbooks and in the variable kind dialog. A draft gets the library summary and built-in examples (and PLAYBOOK_SPEC.md for playbooks), is validated with the real spec parsers and library checks, and gets up to two repair turns. It's never saved by itself.
+  - Regex parser options from a description, tried on the sample (Parsers page).
+  - "Explain this failure" on a failed run.
+- **Demo:** the built-in `ai-resolver-demo` playbook (with `demo-trouble`) has five branches that fail in realistic ways, each with what a good model should do: retry a timeout, continue past an exit 1 that means "no findings", hand a renamed-flag fix to a person, retry a 503 without obeying the prompt injection in its banner, and skip an optional step with no API key.
+- **Open questions settled:** the AI may retry and skip alone by default (continue and fail when a step allows them); 2 AI retries per step; corrected commands need a person unless `edit_command: true`.
+- **Not built:** AWS Bedrock (SigV4); streaming answers; generating whole projects or cards; per-user or per-project model choices.
 
 Carried over from Phase 2. When a step pauses (`on_failure: ask`), an AI model (Gemini)
 reads the step, its command, the unexpected output and the expectation that failed, and

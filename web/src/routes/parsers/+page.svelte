@@ -8,6 +8,7 @@
 	import { Button, Chip, Icon, IconButton, Progress, Switch, TextField, TopAppBar } from '$lib/m3';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { bytes } from '$lib/format';
+	import { aiStatus } from '$lib/ai.svelte';
 
 	let { data } = $props();
 	// svelte-ignore state_referenced_locally
@@ -66,6 +67,26 @@
 
 	function setOption(name: string, value: string | boolean) {
 		drafts[selectedName].options = { ...draft.options, [name]: value };
+	}
+
+	// ---- AI: regex options from a description of what to pull out of the sample ----
+	$effect(() => void aiStatus.load());
+	let want = $state('');
+	let suggesting = $state(false);
+	let suggestion = $state<{ explanation: string; count: number; model: string } | null>(null);
+	async function suggestRegex() {
+		suggesting = true;
+		try {
+			const r = await api().ai.regex(draft.input, want);
+			drafts[selectedName].options = Object.fromEntries(
+				Object.entries(r.options).map(([k, v]) => [k, typeof v === 'boolean' ? v : asText(v)])
+			);
+			suggestion = { explanation: r.explanation, count: r.count, model: r.model };
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'The AI could not answer');
+		} finally {
+			suggesting = false;
+		}
 	}
 
 	// ---- sample input ----
@@ -210,6 +231,13 @@
 			{#if selected.options.length}
 				<section class="flex flex-col gap-3 rounded-lg bg-surface-container-low p-4">
 					<h3 class="flex items-center gap-2 title-small text-on-surface"><Icon name="tune" size={20} />Options</h3>
+					{#if selected.name === 'regex' && aiStatus.enabled}
+						<form class="flex flex-wrap items-end gap-2" onsubmit={(e) => { e.preventDefault(); void suggestRegex(); }}>
+							<TextField label="Describe what to pull out" bind:value={want} class="min-w-64 flex-1" placeholder="e.g. every IPv4 address with an open port 445" supporting={draft.input.trim() ? 'The AI writes the pattern and it’s tried on the sample below' : 'Paste a sample below first'} />
+							<Button variant="tonal" type="submit" icon="auto_awesome" loading={suggesting} disabled={!draft.input.trim() || want.trim().length < 2}>Suggest</Button>
+						</form>
+						{#if suggestion}<p class="body-small text-on-surface-variant">{suggestion.explanation} {suggestion.count} match{suggestion.count === 1 ? '' : 'es'} in the sample · {suggestion.model}</p>{/if}
+					{/if}
 					<div class="grid gap-4 md:grid-cols-2">
 						{#each selected.options as opt (opt.name)}
 							{#if opt.kind === 'boolean'}

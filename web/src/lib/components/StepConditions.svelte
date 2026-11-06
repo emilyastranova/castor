@@ -1,4 +1,5 @@
 <script lang="ts">
+	import StepDecisions from './StepDecisions.svelte';
 	import type { ConditionCheck, PlaybookStepResult, PlaybookStepSpec, PlaybookStepStatus } from '$lib/api';
 	import { Icon } from '$lib/m3';
 	import { describeCondition, describeExpect } from '$lib/playbook';
@@ -17,7 +18,8 @@
 	const FAILURE = {
 		stop: 'the steps after it are blocked',
 		continue: 'the steps after it go ahead anyway',
-		ask: 'it pauses and notifies people to decide'
+		ask: 'it pauses and notifies people to decide',
+		ai: 'it pauses and the AI decides (or leaves it to people)'
 	};
 
 	let hasAnything = $derived(
@@ -82,22 +84,12 @@
 				{/if}
 				{#if (step.on_failure ?? 'stop') !== 'stop'}
 					<li class="flex gap-2">
-						<Icon name={step.on_failure === 'ask' ? 'front_hand' : 'fast_forward'} size={16} />If it fails{step.expect ? ' or its output is unexpected' : ''}, {FAILURE[step.on_failure ?? 'stop']}.
+						<Icon name={step.on_failure === 'ask' ? 'front_hand' : step.on_failure === 'ai' ? 'auto_awesome' : 'fast_forward'} size={16} />If it fails{step.expect ? ' or its output is unexpected' : ''}, {FAILURE[step.on_failure ?? 'stop']}.
 					</li>
 				{/if}
 			</ul>
 		{/if}
 
-		{#if result?.resolution}
-			{@const r = result.resolution}
-			<div class="flex items-start gap-2 rounded-lg bg-surface-container px-3 py-2 body-small text-on-surface">
-				<Icon name="how_to_reg" size={18} class="shrink-0 text-on-surface-variant" />
-				<div class="min-w-0">
-					<p><strong>{r.by}</strong> chose <strong>{ACTIONS[r.action]}</strong> {relativeTime(r.at)}</p>
-					{#if r.reason}<p class="text-on-surface-variant">Because: {r.reason}</p>{/if}
-					{#if r.note}<p class="italic text-on-surface-variant">“{r.note}”</p>{/if}
-				</div>
-			</div>
-		{/if}
+		<StepDecisions {result} />
 	</div>
 {/if}

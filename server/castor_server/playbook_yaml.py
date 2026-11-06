@@ -14,12 +14,12 @@ from .playbook_spec import PlaybookStepSpec
 TOP_ORDER = ["id", "name", "schema_version", "description", "tags", "inputs", "steps", "layout"]
 STEP_ORDER = [
     "id", "name", "description", "command_ref", "transform", "for_each", "when", "join",
-    "skip_if_empty", "on_failure", "expect", "vars", "args", "depends_on",
+    "skip_if_empty", "on_failure", "ai", "expect", "vars", "args", "depends_on",
 ]
 STEP_DEFAULTS: dict[str, Any] = {
     "description": "", "command_ref": None, "transform": None, "args": {}, "depends_on": [],
     "skip_if_empty": False, "vars": {}, "when": None, "join": "all", "on_failure": "stop",
-    "expect": None, "for_each": None,
+    "expect": None, "for_each": None, "ai": None,
 }
 INPUT_ORDER = ["name", "type", "kind", "description", "required", "default", "example", "choices", "regex"]
 
@@ -51,6 +51,13 @@ def _step(raw: dict[str, Any]) -> dict[str, Any]:
     if isinstance(fe, dict):
         fe = {k: v for k, v in fe.items() if not (k == "max_items" and v == 100) and v is not None}
         step["for_each"] = fe["items"] if set(fe) == {"items"} else fe
+    ai = step.get("ai")
+    if isinstance(ai, dict):
+        from .playbook_spec import AiStepConfig
+
+        defaults = AiStepConfig().model_dump()
+        # Defaults left out; an all-default block stays as `ai: {}` (it was given).
+        step["ai"] = {k: v for k, v in ai.items() if defaults.get(k, object()) != v}
     tr = step.get("transform")
     if isinstance(tr, dict):
         tr = dict(tr)

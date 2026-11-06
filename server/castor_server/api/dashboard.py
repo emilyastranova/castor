@@ -501,6 +501,8 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
             .join(m.BoardColumn, m.BoardColumn.id == m.Task.column_id)
             .where(
                 in_scope(m.Task.project_id),
+                # A playbook step's failure shows as its run's decision, not as a card.
+                m.Task.playbook_step_id.is_(None),
                 m.Job.status.in_([m.JobStatus.failed, m.JobStatus.lost]),
                 m.Job.finished_at >= week,
                 m.BoardColumn.role.is_(None) | m.BoardColumn.role.not_in(done_roles),

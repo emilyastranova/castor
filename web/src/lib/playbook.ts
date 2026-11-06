@@ -207,6 +207,7 @@ export function stepFlags(step: PlaybookStepSpec): { label: string; title: strin
 		});
 	if (step.expect) flags.push({ label: 'expect', title: `Expects: ${describeExpect(step.expect).join('; ')}`, tone: 'plain' });
 	if (step.on_failure === 'ask') flags.push({ label: 'ask on fail', title: 'Pauses and notifies people to decide if it fails or its output is unexpected', tone: 'warn' });
+	if (step.on_failure === 'ai') flags.push({ label: 'AI on fail', title: 'Pauses if it fails or its output is unexpected, and the AI decides what to do (or leaves it to people)', tone: 'warn' });
 	if (step.on_failure === 'continue') flags.push({ label: 'continue on fail', title: 'If it fails, the steps after it go ahead anyway', tone: 'plain' });
 	if (step.skip_if_empty) flags.push({ label: 'skip if empty', title: 'Skipped when an upstream value is empty', tone: 'plain' });
 	return flags;

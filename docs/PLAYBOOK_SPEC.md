@@ -136,7 +136,8 @@ Every step has these fields:
 | `vars` | no | mapping | Command steps only: variable slot → `"{{ inputs.<varset input> }}"` or a set name. See 5.1. |
 | `when` | no | condition | Run only if this holds; otherwise the step is `not_taken`. See 8.1. |
 | `join` | no | `all` \| `any` \| `always` | Default `all`. When the step may start. See 8.2. |
-| `on_failure` | no | `stop` \| `continue` \| `ask` | Default `stop`. What a failure means. See 8.3. |
+| `on_failure` | no | `stop` \| `continue` \| `ask` \| `ai` | Default `stop`. What a failure means. See 8.3. |
+| `ai` | no | object | With `on_failure: ai`: what the AI resolver may do on its own. See 8.3. |
 | `expect` | no | mapping | Command steps only: what a good result looks like. See 8.4. |
 | `for_each` | no | reference or mapping | Command steps only: run once per item of a list. See 5.3. |
 
@@ -411,7 +412,7 @@ The run stores how each condition evaluated, test by test, and the UI shows it.
 
 Its `when` (if any) is evaluated after the join allows it.
 
-### 8.3 `on_failure`: stop, continue or ask
+### 8.3 `on_failure`: stop, continue, ask or ai
 
 What happens when the step fails: its job fails, it can't start, its transform errors, or
 its `expect` doesn't hold.
@@ -421,6 +422,7 @@ its `expect` doesn't hold.
 | `stop` (default) | The step is `failed`; what needs it is `blocked` (unless a condition handles the failure). The run fails. |
 | `continue` | The step is `failed`, but what needs it goes ahead with whatever exists, and the run can still succeed. |
 | `ask` | The step pauses as **`attention`** and everyone is notified (in the app, and by webhook if configured). Its dependents wait. |
+| `ai` | Pauses like `ask`, then the AI resolver (Settings → AI) reads the step, its command, the masked end of its output and why it paused, and decides. It acts on its own only within the step's `ai` settings; anything else waits for a person with its suggestion shown (one click applies it). |
 
 A paused step is decided in the UI (Playbooks → the run → the step) or with
 `POST /api/playbook-runs/<run id>/steps/<step id>/resolve {"action": …, "note": "…"}`:
@@ -433,6 +435,22 @@ A paused step is decided in the UI (Playbooks → the run → the step) or with
 | `fail` | Fail it. What needs it is blocked, unless a condition handles the failure, in which case that branch runs. |
 
 Who decided, the reason and the note are kept on the run.
+
+With `on_failure: ai`, the `ai` block says what the resolver may do alone (all optional):
+
+```yaml
+    on_failure: ai
+    ai:
+      allow: [retry, skip]     # default; also continue, fail
+      edit_command: false      # default: a retry with a changed command waits for a person
+      confidence: 0.7          # below this it asks a person
+      max_retries: 2           # AI retries of this step per run
+      instructions: A timeout here usually means retry; "0 hosts up" is a fine result.
+```
+
+`edit_command` is off by default on purpose: the output the model reads can come from the
+systems under test, which could try to talk it into running something else. **Ask AI** on
+any paused step (whatever its `on_failure`) gets a suggestion without acting on it.
 
 ### 8.4 `expect`: what a good result looks like
 

@@ -471,7 +471,7 @@
 				</div>
 				{#if attention.length}
 					<ul class="flex flex-col gap-1.5">
-						{#each attention as a (a.link)}
+						{#each attention as a (`${a.kind}:${a.link}:${a.title}`)}
 							<li in:enter out:leave>
 								<a href={a.link} class="state-layer flex items-start gap-2.5 rounded-md px-2 py-2" onclick={() => a.notification_id && void api().notifications.read(a.notification_id).catch(() => {})}>
 									<Icon name={a.kind === 'mention' ? 'alternate_email' : a.kind === 'decision' ? 'front_hand' : a.kind === 'approval' ? 'bolt' : 'error'} size={18} class="mt-0.5 shrink-0 {a.kind === 'mention' ? 'text-primary' : a.kind === 'decision' || a.kind === 'approval' ? 'text-tertiary' : 'text-error'}" />

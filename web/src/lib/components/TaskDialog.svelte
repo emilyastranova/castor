@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Agent, ArgErrors, Attachment, Column, Comment, CommandDefinition, Job, PlaybookSpec, Project, Task, UUID } from '$lib/api';
+	import type { Agent, ArgErrors, Attachment, Column, Comment, CommandDefinition, Job, PlaybookRun, PlaybookSpec, Project, Task, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { realtime } from '$lib/realtime.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
@@ -18,6 +18,9 @@
 	import RunPanel from './RunPanel.svelte';
 	import DuplicateDialog from './DuplicateDialog.svelte';
 	import AlertRulesDialog from './AlertRulesDialog.svelte';
+	import StepDecisions from './StepDecisions.svelte';
+	import StepDecision from './StepDecision.svelte';
+	import { aiStatus } from '$lib/ai.svelte';
 	import RunPlaybookDialog from './RunPlaybookDialog.svelte';
 	import AssigneePicker from './AssigneePicker.svelte';
 	import MentionMenu from './MentionMenu.svelte';
@@ -493,6 +496,34 @@
 	// ---- duplicate / run again (3m) ----
 	let duplicateOpen = $state(false);
 	let alertsOpen = $state(false);
+	// A step card: its run, for the decisions taken on the step (by people or the AI).
+	let stepRun = $state<PlaybookRun | null>(null);
+	$effect(() => {
+		const runId = task.playbook_step_id ? task.playbook_run_id : null;
+		if (!runId) return;
+		void api().playbookRuns.get(runId).then((r) => (stepRun = r)).catch(() => {});
+		return realtime.subscribe((e) => {
+			if (e.name === 'playbook_run.updated' && (e.data as PlaybookRun).id === runId) stepRun = e.data as PlaybookRun;
+		});
+	});
+	let stepSpec = $derived(stepRun?.spec_snapshot.steps.find((s) => s.id === task.playbook_step_id) ?? null);
+	let stepResult = $derived(stepRun && task.playbook_step_id ? (stepRun.step_results[task.playbook_step_id] ?? null) : null);
+	/** The decision that wrote the command as it is now, when that was the AI's change. */
+	let aiEdit = $derived([...(stepResult?.history ?? [])].reverse().find((d) => d.command_after != null && d.command_after === task.command) ?? null);
+	$effect(() => void aiStatus.load());
+	let explaining = $state(false);
+	let explanation = $state<{ jobId: UUID; text: string; model: string } | null>(null);
+	async function explain(jobId: UUID) {
+		explaining = true;
+		try {
+			const r = await api().ai.explain(jobId);
+			explanation = { jobId, ...r };
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'The AI could not answer');
+		} finally {
+			explaining = false;
+		}
+	}
 	/** "Notify me": an in-app (and desktop) notification when the card finishes: its run ends,
 	 *  its playbook run ends, or (a manual card) it's moved to Done. */
 	let notifyMe = $derived(!!myId && (task.alerts?.people ?? []).includes(myId));
@@ -626,6 +657,10 @@
 	<div class="grid min-h-full grid-cols-[minmax(0,1fr)] gap-6 pt-2 pb-6 lg:grid-cols-[minmax(0,1fr)_300px]" onpaste={onPaste}>
 		<!-- main column -->
 		<div class="flex min-h-0 min-w-0 flex-col gap-4">
+			{#if stepRun && stepSpec && stepRun.step_status[stepSpec.id] === 'attention'}
+				<StepDecision run={stepRun} step={stepSpec} result={stepResult} onresolved={(r) => (stepRun = r)} />
+			{/if}
+			<StepDecisions result={stepResult} />
 			{#if task.kind === 'command' && !editable}
 				<div class="flex flex-col gap-3 rounded-md bg-surface-container p-4">
 					{#if task.command_ref}
@@ -681,7 +716,7 @@
 						{/if}
 					{/if}
 
-					<TextField label="Command" bind:value={command} multiline rows={2} mono oninput={() => edited('command')} onblur={() => command !== task.command && commit('command', { command })} />
+					<TextField label="Command" bind:value={command} multiline rows={2} mono oninput={() => edited('command')} onblur={() => command !== task.command && commit('command', { command })} supporting={aiEdit ? `Changed by the AI: ${aiEdit.change ?? 'a corrected command'} (details at the top)` : ''} />
 					<div class="grid gap-3 sm:grid-cols-2">
 						{#if task.tool}
 							<a href="/tools#{task.tool}" class="flex h-14 items-center gap-2 rounded-xs border border-outline-variant px-4 hover:border-outline" title="The command's tool decides where it runs; see Tools">
@@ -752,9 +787,20 @@
 						</div>
 					{/if}
 					{#if selectedJob}
-						<p class="body-small text-on-surface-variant">
+						<p class="flex flex-wrap items-center gap-x-2 body-small text-on-surface-variant">
 							Agent {agentName(selectedJob.agent_id)}{selectedJob.image ? ` · ${selectedJob.image}` : ' · host shell'} · queued {absoluteTime(selectedJob.queued_at)}
+							{#if aiStatus.enabled && (selectedJob.status === 'failed' || selectedJob.status === 'lost')}
+								<button type="button" class="ml-auto flex items-center gap-1 label-large text-primary hover:underline disabled:opacity-60" disabled={explaining} onclick={() => explain(selectedJob!.id)}>
+									<Icon name="auto_awesome" size={16} />{explaining ? 'Asking…' : 'Explain this failure'}
+								</button>
+							{/if}
 						</p>
+						{#if explanation && explanation.jobId === selectedJob.id}
+							<div class="rounded-md border border-outline-variant bg-surface-container px-4 py-3">
+								<div class="mb-1 flex items-center gap-1.5 label-large text-on-surface"><Icon name="auto_awesome" size={16} class="text-primary" />Why it failed<span class="ml-auto body-small text-on-surface-variant">{explanation.model}</span><IconButton icon="close" label="Hide" size="sm" onclick={() => (explanation = null)} /></div>
+								<RichText text={explanation.text} projectId={task.project_id} class="body-medium text-on-surface" />
+							</div>
+						{/if}
 						{#if hasResults}
 							<div class="flex h-9 w-fit shrink-0 overflow-hidden rounded-full border border-outline" role="group" aria-label="Run view">
 								{#each [{ id: 'console', label: 'Console', icon: 'terminal' }, { id: 'results', label: resultCount ? `Results · ${resultCount}` : 'Results', icon: 'table_view' }] as v, i (v.id)}

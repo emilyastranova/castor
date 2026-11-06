@@ -335,10 +335,30 @@
 		options={[
 			{ value: 'stop', label: 'Stop: block the steps after it' },
 			{ value: 'continue', label: 'Continue with whatever exists' },
-			{ value: 'ask', label: 'Pause and ask (notifies people)' }
+			{ value: 'ask', label: 'Pause and ask (notifies people)' },
+			{ value: 'ai', label: 'Pause and let AI decide (people if it can’t)' }
 		]}
 		onchange={(x) => set('on_failure', x as PlaybookStepSpec['on_failure'])}
 	/>
+	{#if step.on_failure === 'ai'}
+		{@const ai = step.ai ?? {}}
+		{@const allow = ai.allow ?? ['retry', 'skip']}
+		<div class="flex flex-col gap-2 rounded-md border border-outline-variant p-3">
+			<p class="body-small text-on-surface-variant">The AI may, on its own:</p>
+			<div class="flex flex-wrap gap-x-4 gap-y-1">
+				{#each ['retry', 'continue', 'skip', 'fail'] as const as a (a)}
+					<Switch checked={allow.includes(a)} label={a} onchange={(on) => set('ai', { ...ai, allow: on ? [...allow, a] : allow.filter((x) => x !== a) })} />
+				{/each}
+			</div>
+			<Switch checked={!!ai.edit_command} label="Retry with a corrected command" onchange={(on) => set('ai', { ...ai, edit_command: on })} />
+			<p class="-mt-1 px-1 body-small text-on-surface-variant">Off: a changed command waits for a person. The output it reads can come from the target, which could try to steer it.</p>
+			<div class="flex gap-2">
+				<TextField label="Sure at least (%)" type="number" class="w-36" value={String(Math.round((ai.confidence ?? 0.7) * 100))} oninput={(e) => set('ai', { ...ai, confidence: Math.min(100, Math.max(0, Number((e.currentTarget as HTMLInputElement).value) || 0)) / 100 })} />
+				<TextField label="Retries at most" type="number" class="w-36" value={String(ai.max_retries ?? 2)} oninput={(e) => set('ai', { ...ai, max_retries: Math.min(10, Math.max(0, Math.round(Number((e.currentTarget as HTMLInputElement).value) || 0))) })} />
+			</div>
+			<TextField label="Guidance for the AI (optional)" multiline rows={2} value={ai.instructions ?? ''} oninput={(e) => set('ai', { ...ai, instructions: (e.currentTarget as HTMLTextAreaElement).value })} placeholder="e.g. a timeout here usually means retry; no hosts up is fine" />
+		</div>
+	{/if}
 	{#if !step.transform}
 		<Switch checked={step.skip_if_empty} label="Skip when an upstream value is empty" onchange={(c) => set('skip_if_empty', c)} />
 		{#if expectSimple}

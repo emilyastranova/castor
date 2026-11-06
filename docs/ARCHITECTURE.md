@@ -311,6 +311,22 @@ domains, users, credentials and shares, one record per identity key with merged 
 inside the project's scope (`projects.settings.scope`), otherwise after approval; once per
 asset and rate-limited. Command arguments can take `{"assets": {type, where, field}}`.
 
+## AI
+
+`llm.py` (providers: `KINDS`, one adapter per family in `call`, `complete` walks a chain with
+fallback and logs `ai_calls`), `ai.py` (resolver: `suggest_resolution`, `apply_suggestion`,
+`auto_resolve` for `on_failure: ai`; `generate` with validation and repair; `suggest_regex`;
+`explain_job`), `api/ai.py`. Tables `ai_providers` (vault secrets per field) and `ai_calls`;
+chains in `app_settings.ai_chains` (`default`, `resolver`). Endpoints: `GET /api/ai/status`,
+`GET /api/ai/kinds`, `GET|POST /api/ai/providers`, `PUT|DELETE /api/ai/providers/{id}`,
+`POST /api/ai/providers/test`, `POST /api/ai/providers/models`, `GET /api/ai/usage` (admins
+for providers and usage); `POST /api/ai/generate` (operators), `POST /api/ai/regex`,
+`POST /api/ai/explain/{job_id}`, `POST /api/playbook-runs/{id}/steps/{step}/ai/suggest|apply`.
+A paused step's suggestion is `step_results[step].ai`; every decision is appended to
+`step_results[step].history` (`by`, `action`, `note`, `reason`, and for the AI `ai`, `model`,
+`confidence`, `suggested` when a person applied it, and `command_before`/`command_after`/`change`
+when it changed the command, which also writes a `task.ai_edit` activity on the step's card).
+
 ## Alerts
 
 `alerts.py`, `api/alerts.py`. Tables `alert_channels` (kind, name, `fields`, vault-encrypted

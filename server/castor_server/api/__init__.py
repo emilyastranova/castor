@@ -4,6 +4,7 @@ from . import (
     activity,
     agent_tokens,
     agents,
+    ai,
     alerts,
     app_settings,
     assets,
@@ -28,5 +29,5 @@ from . import (
 )
 
 api_router = APIRouter(prefix="/api")
-for module in (auth, clients, projects, tasks, jobs, agents, attachments, activity, commands, parsers, playbooks, variables, notifications, agent_tokens, users, dashboard, tools, notes, search, people, assets, transfer, app_settings, alerts):
+for module in (auth, clients, projects, tasks, jobs, agents, attachments, activity, commands, parsers, playbooks, variables, notifications, agent_tokens, users, dashboard, tools, notes, search, people, assets, transfer, app_settings, alerts, ai):
     api_router.include_router(module.router)

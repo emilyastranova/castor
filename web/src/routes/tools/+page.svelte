@@ -2,6 +2,8 @@
 	import type { ToolAgentState, ToolDefinition } from '$lib/api';
 	import { api, ApiError, saveBlob } from '$lib/api';
 	import LibraryTransfer from '$lib/components/LibraryTransfer.svelte';
+	import AiGenerateDialog from '$lib/components/AiGenerateDialog.svelte';
+	import { aiStatus } from '$lib/ai.svelte';
 	import { Button, Card, Chip, Dialog, Icon, TopAppBar } from '$lib/m3';
 	import { realtime } from '$lib/realtime.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
@@ -13,6 +15,9 @@
 	// svelte-ignore state_referenced_locally
 	let tools = $state<ToolDefinition[]>(data.tools);
 	let mine = $derived(tools.filter((t) => t.origin === 'user').map((t) => t.id));
+	$effect(() => void aiStatus.load());
+	let aiOpen = $state(false);
+	let aiFromEditor = $state(false);
 	// svelte-ignore state_referenced_locally
 	let loaded = data.tools;
 	$effect(() => {
@@ -151,6 +156,7 @@ build:
 <TopAppBar title="Tools" subtitle="What commands run with, prepared on agents when needed">
 	{#snippet actions()}
 		<LibraryTransfer noun="tools" request={{ tools: mine, label: 'castor-tools' }} count={mine.length} onimported={async () => (tools = await api().tools.list())} />
+		{#if editable && aiStatus.enabled}<Button variant="text" icon="auto_awesome" class="ml-1" onclick={() => { aiFromEditor = false; aiOpen = true; }}>Generate</Button>{/if}
 		{#if editable}<Button icon="add" class="ml-2" onclick={() => openNew()}>New tool</Button>{/if}
 	{/snippet}
 </TopAppBar>
@@ -262,8 +268,11 @@ build:
 		{#if editing && editing.origin === 'user' && editable}<Button variant="text" icon="delete" class="mr-auto" onclick={() => editing && remove(editing)}>Delete</Button>{/if}
 		{#if editing && editable}<Button variant="text" icon="content_copy" onclick={() => editing && duplicate(editing)}>Duplicate</Button>{/if}
 		{#if editing}<Button variant="text" icon="download" onclick={() => editing && saveBlob(editing.source_yaml, `${editing.id}.yaml`)}>Export YAML</Button>{/if}
+		{#if !readOnly && aiStatus.enabled}<Button variant="text" icon="auto_awesome" onclick={() => { aiFromEditor = true; aiOpen = true; }}>AI</Button>{/if}
 		<Button variant="text" onclick={check}>Check</Button>
 		<Button variant="text" onclick={() => (editorOpen = false)}>{readOnly ? 'Close' : 'Cancel'}</Button>
 		{#if !readOnly}<Button icon="check" loading={saving} onclick={save}>{editing ? 'Save' : 'Create'}</Button>{/if}
 	{/snippet}
 </Dialog>
+
+<AiGenerateDialog bind:open={aiOpen} kind="tool" current={aiFromEditor ? yaml : ''} onuse={(d) => (aiFromEditor ? (yaml = d.yaml) : openNew(d.yaml))} />

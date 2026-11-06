@@ -83,6 +83,24 @@ def item_label(item: Any) -> str:
     return text if len(text) <= 60 else text[:57] + "…"
 
 
+class AiStepConfig(BaseModel):
+    """What the AI resolver may do for a step on its own (on_failure: ai)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Decisions it may take alone; anything else waits for a person, with its suggestion.
+    allow: list[Literal["retry", "continue", "skip", "fail"]] = Field(default_factory=lambda: ["retry", "skip"])
+    # Whether a retry may change the command. Off by default: the output it reads can come
+    # from the target, which could try to talk it into running something else.
+    edit_command: bool = False
+    # Below this it asks a person.
+    confidence: float = Field(default=0.7, ge=0, le=1)
+    # How many times it may retry this step in one run.
+    max_retries: int = Field(default=2, ge=0, le=10)
+    # Extra guidance for this step, e.g. "a timeout here usually means retry with -T3".
+    instructions: str = Field(default="", max_length=2000)
+
+
 class PlaybookStepSpec(BaseModel):
     """A command step (a card the agent runs) or a transform step (computed on the server
     from upstream outputs, no card). `kind` is derived from which of the two is given."""
@@ -114,7 +132,11 @@ class PlaybookStepSpec(BaseModel):
     # What a failure means (a failed job, a step that can't start, a transform error, or an
     # `expect` that doesn't hold): stop (dependents are blocked), continue (dependents go
     # ahead with whatever exists), or ask (pause the step and notify people to decide).
-    on_failure: Literal["stop", "continue", "ask"] = "stop"
+    # ai: pause like ask, then let the AI resolver decide (see `ai`); it leaves to people
+    # whatever it isn't sure of or isn't allowed to do.
+    on_failure: Literal["stop", "continue", "ask", "ai"] = "stop"
+    # on_failure: ai settings (defaults when omitted).
+    ai: AiStepConfig | None = None
     # Command steps: what a successful result should look like (playbook_conditions.Expect).
     expect: dict[str, Any] | None = None
     # Command steps: one card and job per item of a list; args use {{ item }} / {{ item.f }}.

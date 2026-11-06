@@ -31,8 +31,9 @@ async def update(body: dict[str, Any], db: DB, user: Admin):
     except ValidationError as exc:
         err = exc.errors()[0]
         raise HTTPException(422, f"{err['loc'][0]}: {err['msg']}") from exc
-    await record_activity(db, type="settings.updated", message="Changed settings: " + ", ".join(f"{k} = {v}" for k, v in body.items()),
+    await record_activity(db, type="settings.updated", message="Changed settings: " + ", ".join(
+        k if isinstance(v, (dict, list)) else f"{k} = {v}" for k, v in body.items()),
                           project_id=None, **actor_of(user))
     await db.commit()
-    bus.publish("settings.changed", None, settings.model_dump())
+    bus.publish("settings.changed", None, settings.model_dump(mode="json"))
     return settings

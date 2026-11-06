@@ -817,3 +817,37 @@ class AlertDelivery(Base):
     status: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+
+
+class AiProvider(Base, TimestampMixin):
+    """An LLM provider admins set up in Settings → AI (llm.py `KINDS`): plain `fields` (base
+    URL, project, region…) and vault-encrypted `secrets` per field (API keys, service accounts)."""
+
+    __tablename__ = "ai_providers"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(32))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    fields: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    secrets: Mapped[dict[str, str]] = mapped_column(JSONType, default=dict)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+
+class AiCall(Base):
+    """One attempt at a model (fallbacks are separate rows): what for, which model, how it went."""
+
+    __tablename__ = "ai_calls"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    purpose: Mapped[str] = mapped_column(String(32), index=True)
+    provider_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("ai_providers.id", ondelete="SET NULL"), nullable=True)
+    provider_name: Mapped[str] = mapped_column(String(120), default="")
+    model: Mapped[str] = mapped_column(String(200), default="")
+    ok: Mapped[bool] = mapped_column(Boolean, default=False)
+    error: Mapped[str] = mapped_column(Text, default="")
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ms: Mapped[int] = mapped_column(Integer, default=0)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)

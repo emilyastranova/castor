@@ -155,6 +155,14 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   tables; add new kinds to `TYPES` and a `Searcher` method) behind `GET /api/search`; web
   `CommandPalette.svelte` (Ctrl/Cmd+K, `lib/palette.svelte.ts`). `m3/Select` searches its
   options automatically past 7 (options can have `description`, `group`, `keywords`).
+- AI (3e): `llm.py` (provider `KINDS`, adapters in `call`, httpx only, no SDKs; `complete`
+  walks the purpose's chain with fallback, `check` rejects unusable answers), `ai.py`
+  (resolver for `on_failure: ai` and Ask AI, `generate` validates drafts with the real spec
+  parsers and repairs, regex suggestions, failure explanations). Never send variable values;
+  logs are already masked. Tests use a local fake model server (`tests/test_ai.py`).
+  `ai-resolver-demo` + `commands/demo-trouble.yaml` acts out five realistic failures (timeout,
+  harmless exit 1, renamed flag, prompt injection, missing key) to watch the resolver; run an
+  agent with `--allow-host` (the flaky scenarios remember attempt 1 in `$TMPDIR`).
 - Alerts (3k): `alerts.py` (`PRESETS` kinds, each building one request template; `render`
   escapes `{{ var }}` per content type, never format values in yourself; hooks `job_finished`,
   `run_finished`, `decision`, `approval`; `check_long_running` sweep started in `app.py`).

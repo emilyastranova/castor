@@ -807,7 +807,9 @@ def step_link(run: m.PlaybookRun, step_id: str | None = None) -> str:
     """Where to look at a run (and answer its decisions): its card on the board, or the
     Playbooks page for a run without one."""
     if run.card_id:
-        return f"/projects/{run.project_id}?task={run.card_id}"
+        # A step with its own card opens on top of the run's card (?step=<its card>).
+        step_card = (run.step_task_ids or {}).get(step_id) if step_id else None
+        return f"/projects/{run.project_id}?task={run.card_id}" + (f"&step={step_card}" if step_card else "")
     return f"/playbooks?run={run.id}" + (f"&step={step_id}" if step_id else "")
 
 
@@ -855,7 +857,7 @@ async def _advance(
     def set_result(step_id: str, **fields: Any) -> None:
         """Record a step's result, keeping how its condition was evaluated."""
         prev = results.get(step_id) or {}
-        keep = {k: prev[k] for k in ("condition", "resolution", "items") if k in prev}
+        keep = {k: prev[k] for k in ("condition", "resolution", "history", "items") if k in prev}
         results[step_id] = {**keep, **fields, "finished_at": utcnow().isoformat()}
 
     jobs: list[m.Job] = []
@@ -871,7 +873,7 @@ async def _advance(
 
     async def fail_step(step: PlaybookStepSpec, task: m.Task | None, error: str, **extra: Any) -> None:
         """A step went wrong: pause it for a person (on_failure: ask) or record the failure."""
-        if step.on_failure != "ask":
+        if step.on_failure not in ("ask", "ai"):
             set_result(step.id, status="failed", error=error, **extra)
             return
         set_result(step.id, status="attention", reason=error, **extra)
@@ -897,6 +899,10 @@ async def _advance(
             payload={"run_id": str(run.id), "step_id": step.id},
         )
         await alerts.decision(db, run, step.name, error, step_link(run, step.id))
+        if step.on_failure == "ai":
+            from . import ai
+
+            ai.schedule_resolve(run.id, step.id)
 
     async def check_expect(step: PlaybookStepSpec, task: m.Task | None, job_id: str, log_job: m.Job | None) -> None:
         expect = step.expectation()
@@ -931,7 +937,7 @@ async def _advance(
                         return True
             await check_expect(step, None, fan.id, None)
             return True
-        if fan.status == "failed" and step.on_failure == "ask":
+        if fan.status == "failed" and step.on_failure in ("ask", "ai"):
             await fail_step(step, None, f"{fan.failed} of {len(fan.items)} items failed", job_id=fan.id)
             return True
         return False
@@ -1035,7 +1041,7 @@ async def _advance(
             if job.status == m.JobStatus.succeeded and step.expect is not None:
                 await check_expect(step, task, str(job.id), job)
                 changed = True
-            elif job.status in (m.JobStatus.failed, m.JobStatus.lost) and step.on_failure == "ask":
+            elif job.status in (m.JobStatus.failed, m.JobStatus.lost) and step.on_failure in ("ask", "ai"):
                 await fail_step(step, task, _job_failure(job), job_id=str(job.id))
                 changed = True
         return changed
@@ -1366,14 +1372,16 @@ async def resolve_step(
     user: m.User | None,
     note: str = "",
     actor: str | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> list[m.Job]:
-    """Apply a decision to a paused step (see _resolve_step), one at a time per run."""
+    """Apply a decision to a paused step (see _resolve_step), one at a time per run.
+    `extra` is kept on the decision (e.g. the AI's model, confidence and command change)."""
     async with _run_lock(run.id):
         fresh = await _load_run_for_update(db, run.id)
         if fresh is None:
             raise ResolveError("the run no longer exists")
         try:
-            return await _resolve_step(db, fresh, step_id, action, user, note, actor)
+            return await _resolve_step(db, fresh, step_id, action, user, note, actor, extra)
         except ResolveError:
             await db.rollback()
             raise
@@ -1387,6 +1395,7 @@ async def _resolve_step(
     user: m.User | None,
     note: str = "",
     actor: str | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> list[m.Job]:
     """A decision on a step waiting for one (status attention):
 
@@ -1422,8 +1431,11 @@ async def _resolve_step(
         "note": note.strip(),
         "reason": result.get("reason", ""),
         "at": utcnow().isoformat(),
+        **(extra or {}),
     }
+    # Every decision on the step stays in its history (the AI resolver counts its retries).
     keep = {k: result[k] for k in ("condition", "items") if k in result}
+    keep["history"] = [*(result.get("history") or []), resolution][-20:]
     jobs: list[m.Job] = []
     if action == "retry":
         results[step_id] = {**keep, "resolution": resolution}
@@ -1451,9 +1463,11 @@ async def _resolve_step(
             **result,
             "status": "succeeded",
             "resolution": resolution,
+            "history": keep["history"],
             "finished_at": utcnow().isoformat(),
         }
         results[step_id].pop("reason", None)
+        results[step_id].pop("ai", None)
     elif action == "skip":
         results[step_id] = {
             **keep,

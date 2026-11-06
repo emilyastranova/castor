@@ -1,4 +1,6 @@
 <script lang="ts">
+	import AiGenerateDialog from './AiGenerateDialog.svelte';
+	import { aiStatus } from '$lib/ai.svelte';
 	import type { VarField, VarFieldType, VariableKind } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, IconButton, Select, Switch, TextField } from '$lib/m3';
@@ -26,6 +28,17 @@
 	let saving = $state(false);
 	let openedFor = $state<string | null>(null);
 	let readOnly = $derived(kind?.origin === 'builtin');
+	let aiOpen = $state(false);
+	$effect(() => void aiStatus.load());
+	/** The form as JSON (which is YAML), for the AI to change. */
+	let asYaml = $derived(JSON.stringify({ id, name, description, fields: rows.map((r) => ({ name: r.name, type: r.type, label: r.label, description: r.description, required: r.required, ...(r.choices.trim() ? { choices: r.choices.split(/[\n,]/).map((c) => c.trim()).filter(Boolean) } : {}) })) }, null, 1));
+	function useDraft(spec: Record<string, unknown> | null) {
+		if (!spec) return;
+		if (!kind) id = String(spec.id ?? id);
+		name = String(spec.name ?? name);
+		description = String(spec.description ?? '');
+		rows = ((spec.fields as VarField[]) ?? []).map((f) => ({ name: f.name, type: f.type, label: f.label ?? '', description: f.description ?? '', required: !!f.required, choices: (f.choices ?? []).join('\n') }));
+	}
 
 	const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 63);
 
@@ -162,6 +175,7 @@
 		{#if kind && !readOnly}
 			<Button variant="text" icon="delete" class="mr-auto text-error" onclick={remove}>Delete</Button>
 		{/if}
+		{#if !readOnly && aiStatus.enabled}<Button variant="text" icon="auto_awesome" onclick={() => (aiOpen = true)}>AI</Button>{/if}
 		<Button variant="text" onclick={() => (open = false)}>{readOnly ? 'Close' : 'Cancel'}</Button>
 		{#if readOnly}
 			<Button variant="tonal" icon="content_copy" onclick={duplicate}>Duplicate</Button>
@@ -170,3 +184,5 @@
 		{/if}
 	{/snippet}
 </Dialog>
+
+<AiGenerateDialog bind:open={aiOpen} kind="variable_kind" current={rows.length && name ? asYaml : ''} onuse={(d) => useDraft(d.spec)} />
