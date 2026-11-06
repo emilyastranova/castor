@@ -201,6 +201,8 @@
 
 	// ---- comments / attachments / history ----
 	let comments = $state<Comment[]>([]);
+	/** Shown newest first, under the box, so a long thread doesn't need scrolling to reply. */
+	let newestFirst = $derived([...comments].reverse());
 	let attachments = $state<Attachment[]>([]);
 	let history = $state<{ id: number; message: string; actor_name: string; created_at: string }[]>([]);
 	let newComment = $state('');
@@ -741,7 +743,17 @@
 				</div>
 			{:else if tab === 'comments'}
 				<div class="flex flex-col gap-4">
-					{#each comments as c (c.id)}
+					{#if editable}<div class="flex flex-col gap-2">
+						<div class="relative">
+							<TextField label="Add a comment" bind:value={newComment} multiline rows={3} supporting="Markdown supported · Ctrl+Enter to post · @ to mention someone · paste an image to add it" oninput={newSuggest.oninput} onkeydown={(e) => newSuggest.onkeydown(e) || ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && postComment())} onblur={newSuggest.close} onpaste={images.pasteInto(newCommentTarget)} />
+							<MentionMenu suggest={newSuggest} />
+						</div>
+						<div class="flex items-center justify-end gap-3">
+							{#if images.uploading > 0}<span class="body-small text-on-surface-variant">Uploading image…</span>{/if}
+							<Button icon="send" loading={posting} onclick={postComment} disabled={!newComment.trim() || images.uploading > 0}>Comment</Button>
+						</div>
+					</div>{/if}
+					{#each newestFirst as c (c.id)}
 						{@const authorName = people.user(task.project_id, c.author_id ?? '')?.username}
 						<div class="flex gap-3" id="comment-{c.id}" in:enter={{ enabled: liveSide }} out:leave={{ enabled: liveSide }}>
 							{#if authorName}
@@ -794,16 +806,6 @@
 					{:else}
 						<p class="body-medium text-on-surface-variant">No comments yet.</p>
 					{/each}
-					{#if editable}<div class="flex flex-col gap-2">
-						<div class="relative">
-							<TextField label="Add a comment" bind:value={newComment} multiline rows={3} supporting="Markdown supported · Ctrl+Enter to post · @ to mention someone · paste an image to add it" oninput={newSuggest.oninput} onkeydown={(e) => newSuggest.onkeydown(e) || ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && postComment())} onblur={newSuggest.close} onpaste={images.pasteInto(newCommentTarget)} />
-							<MentionMenu suggest={newSuggest} />
-						</div>
-						<div class="flex items-center justify-end gap-3">
-							{#if images.uploading > 0}<span class="body-small text-on-surface-variant">Uploading image…</span>{/if}
-							<Button icon="send" loading={posting} onclick={postComment} disabled={!newComment.trim() || images.uploading > 0}>Comment</Button>
-						</div>
-					</div>{/if}
 				</div>
 			{:else if tab === 'attachments'}
 				<div class="flex flex-col gap-4">
