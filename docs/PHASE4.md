@@ -10,6 +10,7 @@ through the same API the UI uses, with credentials that can do only what they're
 | --- | --- | --- | --- |
 | 4a. API tokens and reference | Personal tokens with scopes and an optional project list; every endpoint documented with the scope it needs | nothing | Built |
 | 4b. Built-in MCP server | AI assistants (Claude, Gemini, IDEs…) work with Castor through a Model Context Protocol endpoint, using an API token | 4a | Built |
+| 4c. Phone usability | Everything works on a phone; checking a run and answering a decision is easy one-handed | nothing | In progress |
 
 ## 4a. API tokens and reference
 
@@ -94,3 +95,64 @@ limits, service accounts that aren't a person (a user made for the purpose works
 
 Not built from the plan: prompts, resource subscriptions (a live job log), and the open
 question of Castor's own AI using these tools.
+
+## 4c. Phone usability
+
+**In progress.** PRODUCT.md says "a phone must be enough to check a run and answer a decision".
+A critique of the app at phone size on 2026-11-08 (375x812, spot checks at 412x915 and
+320x640; Nielsen score 19/40) found it was the desktop layout squeezed down. Built so far:
+
+- **Phone navigation** (`PhoneNav.svelte`, `routes/+layout.svelte`): below `md` the rail is
+  replaced by a bottom bar (Home, Projects, Search, Inbox, More); More is a sheet with the
+  other destinations and the account. A red dot on More means live updates are offline.
+- **Board header** (`routes/projects/[id]/+page.svelte`): controls drop out as the window
+  narrows (view switch and "Assigned to me" below `lg`, search below `xl`, status chips below
+  `2xl`); phones get a view-switch row and a New card FAB, "Only cards assigned to me" is in
+  the menu. The project Dashboard and Assets pages share the view row.
+- `bottom-above-nav` (`app.css`) puts FABs and snackbars above the phone bar.
+
+Still to do, most important first (file references are from the critique):
+
+1. **The card dialog isn't a phone screen** (P1). Its tab row (Output, Comments,
+   Attachments, Fields, History) is 545–653px wide, so the whole dialog body scrolls
+   sideways and Fields/History start off screen; the Run button cuts the title to "Nma…";
+   Output starts ~1376px down, under the command form; the height uses `vh`, not `dvh`
+   (`Dialog.svelte:61`). Fix: full screen below `sm` (`TaskDialog.svelte`, `size="full"`), a
+   tab row that scrolls by itself, status/assignees/column as one compact row under the title,
+   command cards that have run open on Output with the form collapsed, Run in a bottom bar.
+2. **Answering a paused step has no explanations and no safety net** (P1).
+   `StepDecision.svelte` explains Retry / Continue / Skip branch / Fail only in `title`
+   tooltips (never shown on touch, unreliable for screen readers); Fail and Skip apply on one
+   tap while Cancel run asks first; up to 6 choices; the note field sits above the buttons.
+   Fix: a full-width list of choices with each explanation visible and one "Apply decision"
+   button; confirm Fail and Skip (or offer undo); note below; pin a waiting decision to the
+   top of the run card (`RunPanel.svelte`).
+3. **Settings and Playbooks dead-end on a phone** (P1). `routes/settings/+layout.svelte`
+   hides the sections list below `md` with nothing in its place, so only General can be
+   reached. `/playbooks` keeps two panes (the detail pane is 48px wide; New, Run, View YAML
+   and Copy & edit are off screen), and "Open in Playbooks" from a run card lands there.
+   Fix: `/settings` as a list of sections on phones; Playbooks as list → detail with a back
+   button.
+4. **Smaller things:**
+   - Tap targets under 44px: add-to-column, comment edit/delete (32×32, side by side),
+     assignee picker (28×28), "Assign to me", labels "Add" and "Show everything" (16px tall),
+     graph zoom/fit (32×32), home feed chips (26px).
+   - The playbook graph's labels are 9.5–10.5px (detector: 15 undersized UI text, 2 tiny
+     text) and the graph takes ~300px at 35% zoom before the step list; on a phone, show the
+     step list first and the graph one tap away.
+   - Home: 11 feed-filter chips before any content; stat tiles cut their labels ("Comm…").
+   - Projects card clipped; tokens page: "New token" clipped, token metadata wraps a word
+     per line, the MCP snippet scrolls 549px inside 213px.
+   - The board opens on the empty Backlog column (start at the active or first non-empty
+     one) and columns don't snap when swiped.
+   - Card header created/updated metadata takes four lines; the search palette shows
+     keyboard hints on touch screens (hide under `(pointer: coarse)`).
+   - Reflow at 320px (200% zoom): the card dialog body still scrolls sideways (WCAG 1.4.10).
+
+Untested so far: real phones and iOS Safari (only emulated Chromium), touch drag and drop on
+the board, a step actually waiting for a decision, a full screen-reader pass.
+
+Questions the critique raised: should phones get a "Runs and decisions" inbox (one card per
+waiting step) rather than a squeezed board? Is the live graph worth any space on a phone? Should
+a one-tap decision be undoable rather than confirmed?
+
