@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import models as m
@@ -145,3 +145,28 @@ async def refresh_list_refs(db: AsyncSession, task: m.Task) -> None:
 async def ids_in_use(db: AsyncSession) -> set[str]:
     rows = await db.execute(select(m.Task.command_ref).where(m.Task.command_ref.is_not(None)))
     return {r for (r,) in rows}
+
+
+def playbooks_using(specs: list[tuple[str, str, dict]]) -> dict[str, list[tuple[str, str]]]:
+    """command id -> [(playbook id, name)] for the playbooks with a step that runs it."""
+    out: dict[str, list[tuple[str, str]]] = {}
+    for pid, name, spec in specs:
+        refs = {st.get("command_ref") for st in (spec or {}).get("steps", []) if st.get("command_ref")}
+        for ref in refs:
+            out.setdefault(ref, []).append((pid, name))
+    return out
+
+
+async def usage(db: AsyncSession, visible: set | None) -> tuple[dict[str, int], dict[str, list[tuple[str, str]]]]:
+    """Board cards per command in the projects `visible` (None: all), and the playbooks that
+    run each command. Playbook step cards are left out: the playbook stands for them."""
+    query = (
+        select(m.Task.command_ref, func.count())
+        .where(m.Task.command_ref.is_not(None), m.Task.playbook_step_id.is_(None))
+        .group_by(m.Task.command_ref)
+    )
+    if visible is not None:
+        query = query.where(m.Task.project_id.in_(visible))
+    cards = {ref: n for ref, n in (await db.execute(query)).all()}
+    rows = (await db.execute(select(m.PlaybookDefinition.id, m.PlaybookDefinition.name, m.PlaybookDefinition.spec))).all()
+    return cards, playbooks_using([tuple(r) for r in rows])

@@ -350,7 +350,7 @@ class Searcher:
         cond += [_text(c.tags).ilike(_like(f'"{tag}"'), escape="\\") for tag in q.tags]
         rows = await self.rows(select(c).where(*cond).order_by(c.name))
         return [{"id": cd.id, "title": cd.name, "snippet": cd.description or cd.id, "project": None, "at": None,
-                 "icon": "menu_book", "link": f"/commands?open={cd.id}"} for (cd,) in rows]
+                 "icon": "menu_book", "link": f"/library?c={cd.id}"} for (cd,) in rows]
 
     async def tool(self) -> list[dict[str, Any]]:
         q, t = self.q, m.ToolDefinition
@@ -358,7 +358,7 @@ class Searcher:
             return []
         rows = await self.rows(select(t).where(_match([t.id, t.name, t.description], q.terms)).order_by(t.name))
         return [{"id": td.id, "title": td.name, "snippet": td.description, "project": None, "at": None,
-                 "icon": "handyman", "link": f"/tools#{td.id}"} for (td,) in rows]
+                 "icon": "handyman", "link": f"/library?t={td.id}"} for (td,) in rows]
 
     async def parser(self) -> list[dict[str, Any]]:
         if not self.q.terms:

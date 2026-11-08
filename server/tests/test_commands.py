@@ -211,3 +211,37 @@ def test_netexec_auth_options(client, auth):
     }}, headers=auth)
     assert r.status_code == 200, r.text
     assert r.json()["command"].rstrip().endswith("--dns-server 10.0.0.53 -k")
+
+
+def test_command_usage_counts_visible_cards_and_playbooks(client, auth):
+    import uuid
+
+    project = _project(client, auth)
+    title = f"Usage {uuid.uuid4().hex[:6]}"
+    r = client.post(
+        f"/api/projects/{project['id']}/tasks",
+        json={"title": title, "kind": "command", "command_ref": "nmap-ping-sweep", "command_args": {"targets": "10.0.0.0/24"}},
+        headers=auth,
+    )
+    assert r.status_code == 201, r.text
+
+    listed = {c["id"]: c for c in client.get("/api/commands", headers=auth).json()}["nmap-ping-sweep"]
+    assert listed["card_count"] >= 1
+    assert "network-baseline" in listed["playbooks"]
+
+    use = client.get("/api/commands/nmap-ping-sweep/usage", headers=auth).json()
+    assert any(c["title"] == title and c["project_codename"] == "CMD-TEST" for c in use["cards"])
+    assert use["card_count"] == listed["card_count"]
+    assert any(p["id"] == "network-baseline" for p in use["playbooks"])
+    assert client.get("/api/commands/no-such-command/usage", headers=auth).status_code == 404
+
+    # Someone outside the project doesn't see its cards (or count them).
+    name = f"out{uuid.uuid4().hex[:6]}"
+    client.post("/api/users", json={"username": name, "role": "operator", "password": "a password"}, headers=auth)
+    token = client.post("/api/auth/login", json={"username": name, "password": "a password"}).json()["token"]
+    client.cookies.clear()
+    other = {"Authorization": f"Bearer {token}"}
+    theirs = client.get("/api/commands/nmap-ping-sweep/usage", headers=other).json()
+    assert not any(c["title"] == title for c in theirs["cards"])
+    assert theirs["card_count"] < use["card_count"]
+    assert any(p["id"] == "network-baseline" for p in theirs["playbooks"])  # the library is shared

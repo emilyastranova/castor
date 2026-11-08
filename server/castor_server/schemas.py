@@ -192,6 +192,27 @@ class CommandDefinitionOut(ORM):
     version: int
     updated_at: datetime
     in_use: bool = False
+    # Board cards that run it, in the projects the caller can see; playbooks with a step that runs it.
+    card_count: int = 0
+    playbooks: list[str] = Field(default_factory=list)
+
+
+class CommandUseCard(BaseModel):
+    id: uuid.UUID
+    title: str
+    project_id: uuid.UUID
+    project_codename: str
+
+
+class CommandUsePlaybook(BaseModel):
+    id: str
+    name: str
+
+
+class CommandUsageOut(BaseModel):
+    cards: list[CommandUseCard]
+    card_count: int
+    playbooks: list[CommandUsePlaybook]
 
 
 class CommandYamlIn(BaseModel):

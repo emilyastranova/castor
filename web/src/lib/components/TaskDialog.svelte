@@ -722,7 +722,7 @@
 					<TextField label="Command" bind:value={command} multiline rows={2} mono oninput={() => edited('command')} onblur={() => command !== task.command && commit('command', { command })} supporting={aiEdit ? `Changed by the AI: ${aiEdit.change ?? 'a corrected command'} (details at the top)` : ''} />
 					<div class="grid gap-3 sm:grid-cols-2">
 						{#if task.tool}
-							<a href="/tools#{task.tool}" class="flex h-14 items-center gap-2 rounded-xs border border-outline-variant px-4 hover:border-outline" title="The command's tool decides where it runs; see Tools">
+							<a href="/library?t={task.tool}" class="flex h-14 items-center gap-2 rounded-xs border border-outline-variant px-4 hover:border-outline" title="The command's tool decides where it runs; see the Library">
 								<Icon name="handyman" size={20} class="text-primary" />
 								<span class="min-w-0">
 									<span class="block label-small text-on-surface-variant">Tool</span>

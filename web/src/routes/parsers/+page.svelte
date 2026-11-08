@@ -322,7 +322,7 @@
 							<IconButton icon="content_copy" label="Copy output definition" size="sm" onclick={copySnippet} />
 						</header>
 						<pre class="overflow-auto px-4 pb-3 font-mono text-[12.5px] leading-5 text-on-surface">{snippet}</pre>
-						<p class="px-4 pb-3 body-small text-on-surface-variant">Paste under a command's YAML on the <a class="text-primary underline" href="/commands">Commands</a> page. Options left at their defaults are omitted.</p>
+						<p class="px-4 pb-3 body-small text-on-surface-variant">Paste under a command's YAML on the <a class="text-primary underline" href="/library">Library</a>. Options left at their defaults are omitted.</p>
 					</section>
 				</div>
 			</div>

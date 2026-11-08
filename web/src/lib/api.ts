@@ -719,6 +719,16 @@ export interface CommandDefinition {
 	version: number;
 	updated_at: string;
 	in_use: boolean;
+	/** Board cards that run it, in the projects you can see. */
+	card_count: number;
+	/** Playbooks with a step that runs it. */
+	playbooks: string[];
+}
+
+export interface CommandUsage {
+	cards: { id: UUID; title: string; project_id: UUID; project_codename: string }[];
+	card_count: number;
+	playbooks: { id: string; name: string }[];
 }
 
 /** 422 detail for invalid command arguments. */
@@ -1066,6 +1076,7 @@ export function api(fetchFn: Fetch = fetch) {
 		commands: {
 			list: () => get<CommandDefinition[]>('/commands'),
 			get: (id: string) => get<CommandDefinition>(`/commands/${id}`),
+			usage: (id: string) => get<CommandUsage>(`/commands/${id}/usage`),
 			create: (yaml: string) => post<CommandDefinition>('/commands', { yaml }),
 			update: (id: string, yaml: string) =>
 				request<CommandDefinition>(fetchFn, 'PUT', `/commands/${id}`, { yaml }),

@@ -146,6 +146,12 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   dispatcher resolves it into `job.tool` and the agent's `tools.py` pulls/builds/checks it.
   A recipe's `check` must exit 0 (it is the last build step). Never add tools to the agent
   image.
+  Web: one Library page (`routes/library`, `?c=<command>` / `?t=<tool>` / `?new=`): tools are
+  folders and their commands the rows, a detail pane per item (YAML is edited there), facets
+  and grouping in `lib/library.ts` (pure, meant for the playbook palette too), rows in
+  `components/library/CommandRow.svelte`. `/commands` and `/tools#id` redirect into it.
+  Command usage (board cards you can see, playbooks) is `command_library.usage` and
+  `GET /api/commands/{id}/usage`.
 - People (Phase 3b): `people.py` (who can see a project, `@mention` parsing, assignee checks).
   `tasks.assignees` and `comments.mentions` hold user ids as strings. Personal notifications
   (`task.assigned`, `comment.mention`) use `notify(user_ids=..., webhooks=False)`. Web:
