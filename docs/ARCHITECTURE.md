@@ -13,13 +13,16 @@ the output back into the card.
 | Web UI | `web/` | SvelteKit, Svelte 5, Tailwind v4, custom Material 3 system | Boards, cards, agents, live output |
 | API + orchestrator | `server/` | FastAPI, SQLAlchemy 2 (async), PostgreSQL | REST API, UI WebSocket, agent gateway, dispatcher |
 | Agent | `agent/` | Python 3.10+, `websockets` | Connects out to the server, runs jobs in podman/docker containers (or on the host), streams logs |
-| Command library | `commands/` | YAML | Reusable command definitions with typed arguments (milestone 2 wires these into playbooks) |
+| Libraries | `commands/`, `tools/`, `playbooks/` | YAML | Built-in commands (typed arguments), tool environments and playbooks, synced into the database at startup |
 | Reverse proxy | `compose.yaml` (Caddy) | | Single origin: `/api` and `/ws` go to the server, everything else to the web app |
 
 All services run under `podman compose` / `docker compose` from `compose.yaml`.
 Agents can also run outside compose on any host that can reach the server.
 
-## Data model (milestone 1)
+## Data model (core)
+
+The core tables; later features (playbooks, variables, assets, alerts, AI, API tokens) add
+their own, described in their sections below.
 
 ```
 Client 1──* Project 1──* BoardColumn 1──* Task 1──* Job 1──* JobLogChunk
@@ -70,7 +73,7 @@ Agent → server
 
 | type | fields |
 | --- | --- |
-| `hello` | `token` or `secret`, `name, hostname, os, username, version, capabilities{runtimes[], default_image, host_install, tools[]}, tags[], max_concurrency` |
+| `hello` | `token` or `secret`, `name, hostname, os, username, version, capabilities{runtimes[], default_image, host_install, tools[], tty}, tags[], max_concurrency` |
 | `heartbeat` | `running[]` (job ids), `tools[]` (cached tool image tags) |
 | `tool.prepared` | `tool_id, ref, ok, error?, tools[]` (answer to `tool.prepare`) |
 | `job.started` | `job_id, started_at` |
@@ -258,8 +261,8 @@ re-runs); the step's outputs are its succeeded items' outputs merged in item ord
 A paused step is decided with `POST /api/playbook-runs/{id}/steps/{step}/resolve
 {action: retry|continue|skip|fail, note}` (`services.resolve_step`, which records who
 decided, why and the note in `step_results[step].resolution`). `resolve_step` takes an
-`actor` for decisions that aren't a person's, which is where an automated resolver would
-plug in. Events: `playbook_run.updated` on every change, plus `task.created|updated` for
+`actor` for decisions that aren't a person's; the AI resolver (see AI) decides through it.
+Events: `playbook_run.updated` on every change, plus `task.created|updated` for
 the step cards.
 
 **Visual editor** (`web/src/routes/playbooks/edit/[id]`). Edits the spec as an author
@@ -284,8 +287,8 @@ pipeline (fan-out, three branches, three transforms, fan-in) that runs in second
 agent with `--allow-host` and touches no network; its `fail_at` / `empty_at` inputs
 exercise failure and skip handling. `playbooks/branching-demo.yaml` does the same for
 conditions, failure branches, `expect`, `on_failure` and `join: any`
-(`server/tests/test_playbook_conditions.py` drives it). `server/tests/test_playbook_transforms.py` runs it
-end to end with each command executed under `/bin/sh`.
+(`server/tests/test_playbook_conditions.py` drives it). `server/tests/test_playbook_transforms.py`
+runs `pipeline-demo` end to end with each command executed under `/bin/sh`.
 
 ## Tool library
 
@@ -377,7 +380,8 @@ to apply before first paint.
 `app_settings.AppSettings` declares each key with its default and limits (missing or
 out-of-range rows fall back to the default). `GET /api/settings` (anyone signed in),
 `PATCH /api/settings` (admins; publishes `settings.changed`, activity `settings.updated`).
-Today: `notes_per_project` (default 4, 1–12), enforced when a note is created.
+Keys: `notes_per_project` (default 4, 1–12, enforced when someone adds a note) and
+`ai_chains` (see AI).
 
 ## Duplicating cards
 
@@ -430,7 +434,8 @@ The dispatcher lives in the server process. `pump()` runs whenever a job is enqu
 agent connects, a job finishes, or on a 5 s timer. For each queued job (FIFO) it picks the
 first online agent that: matches the task's selector, has spare concurrency, and supports
 the required runtime (a job with an `image` needs a container runtime; a job with a `tool`
-needs an agent that has a way to provide it). It sends `job.run`
+needs an agent that has a way to provide it; an interactive job needs an agent that
+advertises `tty`). It sends `job.run`
 and marks the job `dispatched`. Jobs with no eligible agent stay `queued`.
 
 ## Dashboard
@@ -457,19 +462,22 @@ keeps the previous version. Images pasted into a note are project attachments wi
 
 ## UI realtime (`/ws/ui`)
 
-Authenticated by the session cookie. The server broadcasts every domain event as
-`{"type":"event","name":"task.moved","project_id":"…","data":{…}}`. Event names:
-`project.updated`, `column.*`, `task.created|updated|moved|deleted`, `job.updated`,
-`job.log`, `job.outputs`, `comment.created`, `attachment.created`, `agent.updated`,
-`playbook_run.updated`, `agent_tokens.changed`, `tool.status`, `tools.changed`, `project.notes`, `notification.created|read`,
-`project.members`, `user.changed` (every browser receives them; the
-client keeps its own user's).
+Authenticated by the session cookie, or an API token in the `Authorization` header. The
+server sends each domain event as
+`{"type":"event","name":"task.moved","project_id":"…","data":{…}}` to the sockets allowed to
+see it (see Auth). Event names include `project.updated`, `column.*`,
+`task.created|updated|moved|deleted`, `job.updated`, `job.log`, `job.outputs`, `job.resize`,
+`comment.created`, `attachment.created`, `agent.updated`, `playbook_run.updated`,
+`agent_tokens.changed`, `api_tokens.changed`, `tool.status`, `tools.changed`,
+`project.notes`, `notification.created|read`, `assets.changed`, `alert_channels.changed`,
+`settings.changed`, `project.members` and `user.changed`; each section above names its own.
 The client keeps page state in sync by applying these to its stores.
 
 ## Auth
 
 `POST /api/auth/login` sets an httpOnly `castor_session` cookie (JWT). The same token is
-accepted as `Authorization: Bearer`.
+accepted as `Authorization: Bearer`. The first admin is created from
+`CASTOR_ADMIN_USERNAME` / `CASTOR_ADMIN_PASSWORD` when the database has no users.
 
 **API tokens** (`api_tokens.py`, `api/tokens.py`, `api_tokens` table): personal
 `castor_pat_…` tokens (SHA-256 stored) sent as `Authorization: Bearer`. `deps.current_user`
@@ -481,8 +489,7 @@ tokens. The user is loaded as usual with `user.api_token` set, so roles still ap
 the password and the profile are session only. Sockets take the token in the header
 (`/ws/ui` needs `projects:read`, a job terminal `jobs:write`). The OpenAPI schema
 (`/api/openapi.json`, Swagger at `/api/docs`) lists each operation's scope as
-`x-castor-scope`. The first admin is created from
-`CASTOR_ADMIN_USERNAME` / `CASTOR_ADMIN_PASSWORD` when the database has no users.
+`x-castor-scope`.
 
 **Roles** (`users.role`): `viewer` (read-only), `operator` (changes things in their
 projects, creates projects, edits the command/playbook/variable libraries, reveals
@@ -521,14 +528,15 @@ operator, and makes every existing user a member of every existing project.
 
 ## Roadmap
 
-* **M1** — this document. Board, cards, agents, container jobs, streamed output,
-  comments, attachments/screenshots, custom fields, activity feed.
-* **M2** (done, see [PHASE2.md](PHASE2.md)) — built: command library, parsers (nmap
-  XML → hosts/ports, etc.), playbooks with transforms, conditions and decisions, variables,
-  notifications, visual playbook editor, per-agent tokens, users with roles and project membership.
-* **M3** (done, see [PHASE3.md](PHASE3.md)) — tool environments, @mentions and a
-  "mine" filter, per-person view, pinned project notes, AI, assets, search, run cards,
-  import/export, interactive jobs, alerts, theme colours, duplicating cards.
-* **M4** (in progress, see [PHASE4.md](PHASE4.md)) — scoped API tokens and an API
-  reference (built), a built-in MCP server (planned).
+* **M1** (done): board, cards, agents, container jobs, streamed output, comments,
+  attachments and screenshots, custom fields, activity feed.
+* **M2** (done, [PHASE2.md](PHASE2.md)): command library, parsers (nmap XML → hosts and
+  ports, etc.), playbooks with transforms, conditions and decisions, variables,
+  notifications, visual playbook editor, per-agent tokens, users with roles and project
+  membership.
+* **M3** (done, [PHASE3.md](PHASE3.md)): tool environments, @mentions and a "mine" filter,
+  per-person view, pinned project notes, AI, assets, search, run cards, import and export,
+  interactive jobs, alerts, theme colours, duplicating cards.
+* **M4** (in progress, [PHASE4.md](PHASE4.md)): scoped API tokens and an API reference
+  (built), a built-in MCP server (planned).
 * Later: reporting, run summaries, artifact export, agent auto-scaling.

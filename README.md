@@ -9,7 +9,7 @@
   &nbsp;·&nbsp;
   <a href="commands/README.md">Commands</a>
   &nbsp;·&nbsp;
-  <a href="docs/PHASE3.md">Roadmap</a>
+  <a href="docs/PHASE4.md">Roadmap</a>
   &nbsp;·&nbsp;
   <a href="LICENSE">MIT</a>
 </p>
@@ -46,8 +46,8 @@ on the board as one card that opens into its live graph, decisions and steps.
   <img src=".github/assets/screenshots/dashboard.png" alt="The home dashboard: a greeting with today's numbers, a timeline of comments, card changes, job results and playbook runs across projects, and side panels for mentions and steps that need attention and for pinned project notes." width="100%">
 </p>
 
-The home dashboard is a cockpit for everything you can see: what changed, what's
-running, and what's waiting on you (mentions, playbook decisions, failed runs).
+The home dashboard covers every project you can see: what changed, what's running,
+and what's waiting on you (mentions, playbook decisions, failed runs, jobs at a prompt).
 
 <table>
   <tr>
@@ -96,12 +96,12 @@ running, and what's waiting on you (mentions, playbook decisions, failed runs).
    **parses** them (nmap XML, NetExec, ffuf JSON, lines, regex) into typed
    results that show on the card.
 
-Every argument value is shell-quoted when the command line is rendered, so a
-value is always one shell word and can never inject shell syntax.
+Castor shell-quotes every argument value when it renders the command line, so a value
+stays one shell word and can't inject shell syntax.
 
-**Home** is the dashboard: what needs you (playbook steps waiting for a decision, failed
-runs), what's running now, and a live timeline of comments, jobs, cards and playbook runs
-across your projects. Each project has the same view next to its board.
+Mark a card **Interactive terminal** and its job runs under a real terminal: you can take
+control from the card and type into it (tmux, vim and sudo prompts work), and Castor alerts
+people when an unattended run stops at a prompt.
 
 ## Playbooks
 
@@ -154,7 +154,7 @@ continue the run.
 
 ## Variables
 
-Credentials, SSH keys, listener addresses and API tokens live on the **Variables** page as
+Credentials, SSH keys, listener addresses and API keys live on the **Variables** page as
 typed *sets* (one *kind* per shape of data; make your own kinds for anything else). A
 command declares what it needs:
 
@@ -165,10 +165,22 @@ vars:
 command: nxc smb {{ targets }} -u {{ creds.username }} -p {{ creds.password }}
 ```
 
-and the card or playbook run picks a set. Values never enter the command line or the job
-history: secrets and files are encrypted at rest, sent only to the agent running the job
-(as environment variables and 0600 files that are deleted afterwards), and masked in the
-output if the tool prints them. See [commands/README.md](commands/README.md#variable-sets-credentials-keys-listeners-).
+and the card or playbook run picks a set. Values stay out of the command line and the job
+history: Castor encrypts secrets and files at rest, sends them only to the agent running
+the job (as environment variables and 0600 files it deletes afterwards), and masks them in
+the output if the tool prints them. See [commands/README.md](commands/README.md#variable-sets-credentials-keys-listeners-).
+
+## API
+
+The UI uses the same REST API you can. Make a personal token under your account menu
+(**API tokens**), pick its scopes and, if you like, the projects it may touch, then send it
+as `Authorization: Bearer castor_pat_…`. A token acts as you with only the access you gave
+it, and it can't make other tokens or change your password. Every endpoint, with the scope
+it needs, is in the reference at `/api/docs`.
+
+```bash
+curl -H "Authorization: Bearer $CASTOR_TOKEN" https://castor.example.internal/api/projects
+```
 
 ## Quick start
 
@@ -212,7 +224,7 @@ git pull && docker compose up -d --build
 # to restore: docker compose exec -T db psql -U castor castor < castor-YYYY-MM-DD.sql
 ```
 
-A SQLite database is copied to `data/backups/` automatically before migrations run.
+The server copies a SQLite database to `data/backups/` before it runs migrations.
 Upgrading to roles keeps everyone's access: users who were admins stay admins, everyone
 else becomes an operator, and every existing user becomes a member of every existing
 project.
@@ -268,18 +280,19 @@ castor-agent --server wss://castor.example.internal/ws/agent \
              --workdir /opt/castor-work
 ```
 
-Each agent's token can be rotated or revoked on its own, which disconnects that agent at
+You can rotate or revoke each agent's token on its own, which disconnects that agent at
 once. The shared `--secret <CASTOR_AGENT_SECRET>` still works for quick setups until you set
 `CASTOR_ALLOW_SHARED_AGENT_SECRET=false`.
 
 The agent's only dependency is `websockets`, so it installs on almost any host
 with Python 3.10 or later.
 
-- With podman or docker present, command cards that name an `image` run inside
-  that image with `--network host`.
+- With podman or docker present, command cards that name an `image` or a `tool` run
+  inside that image with `--network host`. The agent pulls or builds tool images on
+  demand, so the agent itself stays bare.
 - Each job gets its own directory under `--workdir` (a temp directory by
-  default), mounted at `/work`. Files under `/work/artifacts/` and the command's
-  declared outputs are uploaded to the card.
+  default), mounted at `/work`. The agent uploads files under `/work/artifacts/` and
+  the command's declared outputs to the card.
 - Cards without an image run in the agent's shell. Disable that with
   `--no-allow-host`.
 - `--tags` lets a card send its work to specific agents.
@@ -291,15 +304,16 @@ with Python 3.10 or later.
 | [`web/`](web/) | SvelteKit UI with a Material 3 design system |
 | [`server/`](server/) | FastAPI API, UI WebSocket, agent gateway, dispatcher, parsers, playbook engine (SQLite or PostgreSQL) |
 | [`agent/`](agent/) | The agent: runs jobs in podman/docker containers or the host shell |
+| [`tools/`](tools/) | Built-in tool environments (YAML): images or build recipes commands run in |
 | [`commands/`](commands/) | Built-in command definitions (YAML). Format in [`commands/README.md`](commands/README.md) |
 | [`playbooks/`](playbooks/) | Built-in playbooks (YAML). Format in [`docs/PLAYBOOK_SPEC.md`](docs/PLAYBOOK_SPEC.md) |
-| [`docs/`](docs/) | [Architecture](docs/ARCHITECTURE.md) and agent protocol, [Phase 2](docs/PHASE2.md) and [Phase 3](docs/PHASE3.md) plans, [playbook spec](docs/PLAYBOOK_SPEC.md) |
+| [`docs/`](docs/) | [Architecture](docs/ARCHITECTURE.md) and agent protocol, [Phase 2](docs/PHASE2.md), [Phase 3](docs/PHASE3.md) and [Phase 4](docs/PHASE4.md) plans, [playbook spec](docs/PLAYBOOK_SPEC.md) |
 | [`deploy/`](deploy/) | Caddy reverse-proxy configuration for `compose.yaml` |
 | [`.github/assets/`](.github/assets/) | README images, made by `build_assets.py` from the AstraLabs brand files |
 
 ## License
 
-Castor is released under the MIT License. Refer to [LICENSE](LICENSE).
+Castor is released under the MIT License; see [LICENSE](LICENSE).
 
 The AstraLabs name, mark, and wordmark identify the work of Emily Astranova.
 The MIT License does not give trademark rights to them.

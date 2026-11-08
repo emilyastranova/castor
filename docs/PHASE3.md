@@ -23,10 +23,8 @@ playbook step goes wrong.
 | 3l. Your theme colour | Each person picks a Material You seed colour that recolours the whole UI | nothing | Built |
 | 3m. Duplicate a card | Copy an existing card into To Do: just the blueprint, or with its comments and output | nothing | Built |
 
-Suggested order: 3a (it unblocks the NetExec commands on the compose agent), 3d (small),
-3b, 3c, then 3e. 3f is the largest; it can start any time after 3a (it builds on parsers).
-3g's pickers are small and can go any time; 3h changes how runs look everywhere, so it's
-best done before 3e (whose decisions show up on the run card).
+Each slice below starts with what was built (**Built.**, code pointers, and what wasn't);
+the text after it is the plan as written before building, kept as the design record.
 
 ## 3a. Tool environments
 
