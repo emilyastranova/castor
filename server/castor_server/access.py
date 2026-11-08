@@ -14,19 +14,28 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import models as m
+from .api_tokens import project_limit
 from .deps import ROLE_ERRORS
 
 
 async def visible_project_ids(db: AsyncSession, user: m.User) -> set[uuid.UUID] | None:
-    """The projects the user can see, or None for all of them (admins)."""
+    """The projects the user can see, or None for all of them (admins). An API token
+    limited to some projects narrows this to those."""
+    limit = project_limit(user)
     if user.is_admin:
-        return None
+        return None if limit is None else {uuid.UUID(p) for p in limit}
     rows = await db.execute(select(m.ProjectMember.project_id).where(m.ProjectMember.user_id == user.id))
-    return set(rows.scalars())
+    ids = set(rows.scalars())
+    return ids if limit is None else {i for i in ids if str(i) in limit}
 
 
 async def can_see(db: AsyncSession, user: m.User, project_id: uuid.UUID | None) -> bool:
-    if project_id is None or user.is_admin:
+    if project_id is None:
+        return True
+    limit = project_limit(user)
+    if limit is not None and str(project_id) not in limit:
+        return False
+    if user.is_admin:
         return True
     found = await db.execute(
         select(m.ProjectMember.project_id).where(

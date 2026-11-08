@@ -469,7 +469,19 @@ The client keeps page state in sync by applying these to its stores.
 ## Auth
 
 `POST /api/auth/login` sets an httpOnly `castor_session` cookie (JWT). The same token is
-accepted as `Authorization: Bearer` for scripts. The first admin is created from
+accepted as `Authorization: Bearer`.
+
+**API tokens** (`api_tokens.py`, `api/tokens.py`, `api_tokens` table): personal
+`castor_pat_…` tokens (SHA-256 stored) sent as `Authorization: Bearer`. `deps.current_user`
+recognises the prefix, checks revocation and expiry, and checks the request against the
+token's scopes: `api_tokens.RULES` maps every method and path to a scope (`area:read` /
+`area:write`, write includes read, or `any` / `session` / `public`); unmapped routes refuse
+tokens. The user is loaded as usual with `user.api_token` set, so roles still apply, and
+`access.py` intersects visible projects with the token's `project_ids`. Token management,
+the password and the profile are session only. Sockets take the token in the header
+(`/ws/ui` needs `projects:read`, a job terminal `jobs:write`). The OpenAPI schema
+(`/api/openapi.json`, Swagger at `/api/docs`) lists each operation's scope as
+`x-castor-scope`. The first admin is created from
 `CASTOR_ADMIN_USERNAME` / `CASTOR_ADMIN_PASSWORD` when the database has no users.
 
 **Roles** (`users.role`): `viewer` (read-only), `operator` (changes things in their
@@ -514,6 +526,9 @@ operator, and makes every existing user a member of every existing project.
 * **M2** (done, see [PHASE2.md](PHASE2.md)) — built: command library, parsers (nmap
   XML → hosts/ports, etc.), playbooks with transforms, conditions and decisions, variables,
   notifications, visual playbook editor, per-agent tokens, users with roles and project membership.
-* **M3** (planned, see [PHASE3.md](PHASE3.md)) — tool environments, @mentions and a
-  "mine" filter, per-person view, pinned project notes, an AI resolver for paused steps.
+* **M3** (done, see [PHASE3.md](PHASE3.md)) — tool environments, @mentions and a
+  "mine" filter, per-person view, pinned project notes, AI, assets, search, run cards,
+  import/export, interactive jobs, alerts, theme colours, duplicating cards.
+* **M4** (in progress, see [PHASE4.md](PHASE4.md)) — scoped API tokens and an API
+  reference (built), a built-in MCP server (planned).
 * Later: reporting, run summaries, artifact export, agent auto-scaling.

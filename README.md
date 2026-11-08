@@ -33,10 +33,12 @@ record per host, service or URL that every tool adds to, with triggers that act 
 transform steps reshape one tool's results into the next tool's input, and a run shows
 on the board as one card that opens into its live graph, decisions and steps.
 
-> **■ Status: Phase 3 in progress.** Phase 2 (the board, agents with their own tokens,
-> command library, parsers, playbooks with a visual editor, users with roles) is done; see
-> [docs/PHASE2.md](docs/PHASE2.md). Phase 3 has added tool environments, assignees and
-> @mentions, and pinned project notes so far; the rest is in [docs/PHASE3.md](docs/PHASE3.md).
+> **■ Status: Phase 4 in progress.** Phases 2 and 3 are done (the board, agents, command
+> library, parsers, playbooks, users and roles; then tool environments, @mentions, AI help,
+> assets, search, interactive terminals, chat alerts and more): see
+> [docs/PHASE2.md](docs/PHASE2.md) and [docs/PHASE3.md](docs/PHASE3.md). Phase 4 has added
+> scoped API tokens and an API reference at `/api/docs`; a built-in MCP server is next
+> ([docs/PHASE4.md](docs/PHASE4.md)).
 
 ## A look around
 

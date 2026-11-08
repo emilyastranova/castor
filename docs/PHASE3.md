@@ -1,6 +1,6 @@
 # Phase 3 plan
 
-Status: in progress (2026-11-05); 3a–3m are all built. Roadmap item **M3** in
+Status: done (2026-11-08); 3a–3m are all built. Phase 4 is in [PHASE4.md](PHASE4.md). Roadmap item **M3** in
 [ARCHITECTURE.md](ARCHITECTURE.md); Phase 2 is done and recorded in [PHASE2.md](PHASE2.md).
 
 Phase 3 makes Castor easier to run day to day: tools prepared on demand instead of baked

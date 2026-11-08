@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import func, select, update
 
 from .. import models as m
+from ..api_tokens import project_limit
 from ..deps import DB, CurrentUser, parse_uuid
 from ..events import bus
 from ..models import utcnow
@@ -15,6 +18,8 @@ router = APIRouter(prefix="/notifications", tags=["notifications"])
 @router.get("", response_model=NotificationList)
 async def list_notifications(db: DB, user: CurrentUser, unread_only: bool = False, limit: int = 50):
     query = select(m.Notification).where(m.Notification.user_id == user.id)
+    if (limit_to := project_limit(user)) is not None:  # an API token limited to some projects
+        query = query.where(m.Notification.project_id.in_([uuid.UUID(p) for p in limit_to]))
     if unread_only:
         query = query.where(m.Notification.read_at.is_(None))
     rows = (await db.execute(query.order_by(m.Notification.created_at.desc()).limit(min(limit, 200)))).scalars().all()

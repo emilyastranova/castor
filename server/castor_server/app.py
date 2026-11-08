@@ -8,9 +8,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from sqlalchemy import select
 
-from . import alerts
+from . import alerts, api_tokens
 from . import models as m
 from .accounts import ensure_active_admin
 from .api import api_router
@@ -91,8 +92,48 @@ async def lifespan(app: FastAPI):
         await dispatcher.stop()
 
 
+API_DESCRIPTION = """Everything the Castor UI does goes through this API.
+
+**Authentication.** Make a personal API token (your account menu → API tokens) and send it as
+`Authorization: Bearer castor_pat_…`. A token acts as you, so your role and projects apply,
+narrowed to its scopes and, if you chose some, its projects. Each operation below says the
+scope it needs; *session only* ones (tokens, your password and profile) refuse tokens.
+
+**Realtime.** `GET /ws/ui` (WebSocket, `projects:read`) streams the events the UI uses
+(`task.moved`, `job.log`, …) for the projects the token can see.
+"""
+
+
+def _openapi(app: FastAPI):
+    """The schema, with a bearer scheme and each operation's token scope."""
+
+    def build() -> dict:
+        if app.openapi_schema:
+            return app.openapi_schema
+        schema = get_openapi(title=app.title, version=app.version, description=API_DESCRIPTION, routes=app.routes)
+        schema.setdefault("components", {})["securitySchemes"] = {
+            "token": {"type": "http", "scheme": "bearer", "description": "A personal API token (castor_pat_…)"},
+        }
+        labels = {api_tokens.ANY: "any token", api_tokens.SESSION: "session only (API tokens can't use this)",
+                  api_tokens.PUBLIC: "none"}
+        for path, ops in schema.get("paths", {}).items():
+            for method, op in ops.items():
+                scope = api_tokens.required_scope(method, path) or api_tokens.SESSION
+                op["x-castor-scope"] = scope
+                if scope != api_tokens.PUBLIC:
+                    op["security"] = [{"token": []}]
+                note = f"**Token scope:** `{scope}`" if ":" in scope or scope in api_tokens.SCOPES else f"**Token scope:** {labels[scope]}"
+                op["description"] = f"{note}\n\n{op.get('description', '')}".strip()
+        app.openapi_schema = schema
+        return schema
+
+    return build
+
+
 def create_app() -> FastAPI:
-    app = FastAPI(title="Castor", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Castor", version="0.1.0", lifespan=lifespan, docs_url="/api/docs", redoc_url="/api/redoc",
+                  openapi_url="/api/openapi.json", swagger_ui_parameters={"persistAuthorization": True})
+    app.openapi = _openapi(app)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

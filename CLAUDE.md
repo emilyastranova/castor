@@ -204,6 +204,12 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
 - Instance settings admins change in the UI: `app_settings.py` (`AppSettings` fields are the
   keys and defaults), `api/app_settings.py`; web `lib/appSettings.svelte.ts`,
   `routes/settings/general`. Env-level config stays in `config.py`.
+- API tokens (Phase 4a): `api_tokens.py` (`castor_pat_` tokens, `SCOPES`, `RULES` mapping
+  every method+path to a scope; unmapped routes refuse tokens), checked in `deps.current_user`;
+  `user.api_token` carries it, and `access.py` applies its project limit. **A new endpoint
+  needs a rule in `RULES`** (`test_every_route_has_a_scope`). Token management, password and
+  profile are session only. Web: `routes/tokens` (yours), `routes/settings/tokens` (admins).
+  API reference at `/api/docs`. The planned MCP server (4b) is in `docs/PHASE4.md`.
 - Config is `pydantic-settings` with the `CASTOR_` prefix (`config.py`).
 - SQLite uses `NullPool` (aiosqlite connections are bound to the event loop that opened
   them; the test client runs WebSocket sessions on another loop).

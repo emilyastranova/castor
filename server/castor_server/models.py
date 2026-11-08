@@ -162,6 +162,10 @@ class User(Base, TimestampMixin):
     def can(self, role: UserRole) -> bool:
         return self.role.rank >= role.rank
 
+    # The ApiToken a request authenticated with (set by deps, never stored): its scopes
+    # and project limit narrow what this user can do in that request.
+    api_token = None
+
 
 class ProjectMember(Base):
     """Who can see a project (admins see every project without being members)."""
@@ -780,6 +784,28 @@ class ToolDefinition(Base, TimestampMixin):
     spec: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     source_yaml: Mapped[str] = mapped_column(Text, default="")
     version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class ApiToken(Base):
+    """A personal API token (api_tokens.py): acts as its user, narrowed to its scopes and,
+    if set, to some projects. Only the SHA-256 of the token is stored."""
+
+    __tablename__ = "api_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(100))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    # The first characters of the token, to recognise it ("castor_pat_ab12…").
+    prefix: Mapped[str] = mapped_column(String(24))
+    scopes: Mapped[list[str]] = mapped_column(JSONType, default=list)
+    # Project ids (strings) it's limited to; null: every project its user can see.
+    project_ids: Mapped[list[str] | None] = mapped_column(JSONType, nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    last_used_ip: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
 
 class AppSetting(Base):

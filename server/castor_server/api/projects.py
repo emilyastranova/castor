@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 from .. import models as m
 from .. import people
 from ..access import add_member, project_or_404, visible_project_ids
+from ..api_tokens import project_limit
 from ..deps import DB, Admin, CurrentUser, Operator, parse_uuid
 from ..events import bus
 from ..schemas import (
@@ -91,6 +92,8 @@ async def list_projects(db: DB, user: CurrentUser):
 
 @router.post("", response_model=ProjectOut, status_code=201)
 async def create_project(body: ProjectIn, db: DB, user: Operator):
+    if project_limit(user) is not None:
+        raise HTTPException(403, "This API token is limited to some projects, so it can't create one")
     exists = (
         await db.execute(select(m.Project).where(m.Project.codename == body.codename))
     ).scalar_one_or_none()

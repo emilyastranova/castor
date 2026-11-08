@@ -9,6 +9,8 @@
 		icon?: string;
 		trailingIcon?: string;
 		href?: string;
+		/** With href: open it in a new tab (for pages outside the app, like the API docs). */
+		external?: boolean;
 		loading?: boolean;
 		children?: Snippet;
 	}
@@ -17,6 +19,7 @@
 		icon,
 		trailingIcon,
 		href,
+		external = false,
 		loading = false,
 		disabled,
 		class: klass = '',
@@ -38,7 +41,7 @@
 </script>
 
 {#if href}
-	<a {href} class={cls} aria-disabled={disabled || loading}>
+	<a {href} class={cls} aria-disabled={disabled || loading} target={external ? '_blank' : undefined} rel={external ? 'noopener' : undefined}>
 		{#if icon}<Icon name={icon} size={18} />{/if}
 		{@render children?.()}
 		{#if trailingIcon}<Icon name={trailingIcon} size={18} />{/if}

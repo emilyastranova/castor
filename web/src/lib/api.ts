@@ -832,6 +832,33 @@ export interface AgentToken {
 	revoked_at: string | null;
 }
 
+/** A personal API token: acts as its owner, narrowed to its scopes and projects. */
+export interface ApiToken {
+	id: UUID;
+	name: string;
+	/** The token's first characters, to recognise it. */
+	prefix: string;
+	scopes: string[];
+	/** Projects it's limited to (ids); null: every project its owner can see. */
+	project_ids: string[] | null;
+	projects: string[];
+	user: UserBrief | null;
+	created_at: string;
+	expires_at: string | null;
+	last_used_at: string | null;
+	last_used_ip: string;
+	revoked_at: string | null;
+}
+
+export interface ApiScope {
+	name: string;
+	label: string;
+	description: string;
+	group: string;
+	/** The least role that can use it. */
+	role: UserRole;
+}
+
 export interface Agent {
 	id: UUID;
 	name: string;
@@ -1098,6 +1125,16 @@ export function api(fetchFn: Fetch = fetch) {
 			rotate: (id: UUID) => post<AgentToken & { token: string }>(`/agent-tokens/${id}/rotate`),
 			revoke: (id: UUID) => post<AgentToken>(`/agent-tokens/${id}/revoke`),
 			remove: (id: UUID) => del(`/agent-tokens/${id}`)
+		},
+		apiTokens: {
+			scopes: () => get<ApiScope[]>('/tokens/scopes'),
+			/** Yours; with everyone (admins), every user's. */
+			list: (everyone = false) => get<ApiToken[]>(`/tokens${everyone ? '?everyone=true' : ''}`),
+			/** The token is in the reply only this once. */
+			create: (body: { name: string; scopes: string[]; project_ids: UUID[] | null; expires_in_days: number | null }) =>
+				post<ApiToken & { token: string }>('/tokens', body),
+			revoke: (id: UUID) => post<ApiToken>(`/tokens/${id}/revoke`),
+			remove: (id: UUID) => del(`/tokens/${id}`)
 		},
 		tools: {
 			list: () => get<ToolDefinition[]>('/tools'),

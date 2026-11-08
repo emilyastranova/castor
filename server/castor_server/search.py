@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from . import models as m
 from . import parsers
 from .access import visible_project_ids
+from .api_tokens import project_limit
 
 # (type, heading) in the order groups are shown.
 TYPES: list[tuple[str, str]] = [
@@ -376,7 +377,7 @@ class Searcher:
         q, s, k = self.q, m.VariableSet, m.VariableKind
         if not q.terms:
             return []
-        visible = None if self.user.is_admin else self.scope
+        visible = None if self.user.is_admin and project_limit(self.user) is None else self.scope
         # Non-secret values are searchable (target lists, domains); secrets are a separate column.
         sets = (await self.db.execute(
             select(s, k.name).outerjoin(k, k.id == s.kind_id)

@@ -124,6 +124,7 @@
 							<p class="body-small text-on-surface-variant">@{data.user?.username} · {data.user?.role}</p>
 						</div>
 						<MenuItem icon="manage_accounts" onclick={() => (accountOpen = true)}>Account and password</MenuItem>
+						<MenuItem icon="key" onclick={() => goto('/tokens')}>API tokens</MenuItem>
 						<MenuItem icon="logout" onclick={logout}>Sign out</MenuItem>
 					</Menu>
 				</div>

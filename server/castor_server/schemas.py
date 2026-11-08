@@ -483,6 +483,43 @@ class AgentTokenList(BaseModel):
     shared_secret_allowed: bool
 
 
+class ApiTokenIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    scopes: list[str]
+    # Limit it to these projects (ids); null: every project its owner can see.
+    project_ids: list[uuid.UUID] | None = None
+    # Days until it stops working; null: never.
+    expires_in_days: int | None = Field(None, ge=1, le=3650)
+
+
+class ApiTokenOut(ORM):
+    id: uuid.UUID
+    name: str
+    prefix: str
+    scopes: list[str]
+    project_ids: list[str] | None
+    projects: list[str] = []  # their codenames, for the list
+    user: UserBrief | None = None
+    created_at: datetime
+    expires_at: datetime | None
+    last_used_at: datetime | None
+    last_used_ip: str
+    revoked_at: datetime | None
+
+
+class ApiTokenCreated(ApiTokenOut):
+    # The token itself: returned only here, when it's created.
+    token: str
+
+
+class ApiScopeOut(BaseModel):
+    name: str
+    label: str
+    description: str
+    group: str
+    role: UserRole
+
+
 # ---------- playbooks ----------
 
 
