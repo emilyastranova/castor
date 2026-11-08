@@ -6,8 +6,9 @@ import { error } from '@sveltejs/kit';
 export const load: PageLoad = async ({ fetch, params, url }) => {
 	const client = api(fetch);
 	const source = params.id === 'new' ? url.searchParams.get('from') : params.id;
-	const [commands, kinds, playbook] = await Promise.all([
+	const [commands, tools, kinds, playbook] = await Promise.all([
 		client.commands.list(),
+		client.tools.list(),
 		client.variables.kinds(),
 		source
 			? client.playbooks.get(source).catch((err) => {
@@ -16,5 +17,5 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				})
 			: Promise.resolve(null)
 	]);
-	return { commands, kinds, playbook, isNew: params.id === 'new' || playbook?.origin === 'builtin' };
+	return { commands, tools, kinds, playbook, isNew: params.id === 'new' || playbook?.origin === 'builtin' };
 };

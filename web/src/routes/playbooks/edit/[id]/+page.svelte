@@ -7,7 +7,7 @@
 	import PlaybookVisualizer from '$lib/components/PlaybookVisualizer.svelte';
 	import StepEditor from '$lib/components/editor/StepEditor.svelte';
 	import PlaybookSettings from '$lib/components/editor/PlaybookSettings.svelte';
-	import { BLOCK_MIME } from '$lib/playbook';
+	import StepPalette from '$lib/components/editor/StepPalette.svelte';
 	import {
 		connectOptions,
 		deleteStep,
@@ -18,6 +18,9 @@
 		newTransformStep,
 		renameStep,
 		toAuthoring,
+		wireStep,
+		wireTransform,
+		wiringFor,
 		type ConnectOption
 	} from '$lib/playbookEditor';
 
@@ -43,7 +46,7 @@
 	let selectedId = $state<string | null>(null);
 	let tab = $state('visual');
 	let viz: PlaybookVisualizer | undefined = $state();
-	let paletteQuery = $state('');
+	let palette: StepPalette | undefined = $state();
 
 	/** A plain copy of the spec (reading it all also makes an effect track every field). */
 	const plain = (): PlaybookSpec => JSON.parse(JSON.stringify(spec));
@@ -89,7 +92,8 @@
 	}
 
 	/** Add a step where it was dropped, or (clicked in the palette) to the right of the
-	 *  selected step, or the last one added. Everything else keeps its place. */
+	 *  selected step, or the last one added. Everything else keeps its place, and the view pans
+	 *  to the new step rather than zooming out to fit them all. */
 	function addStep(step: PlaybookStepSpec, at?: { x: number; y: number }) {
 		const frozen = { ...(viz?.positions() ?? {}), ...spec.layout };
 		const anchor = frozen[selectedId ?? ''] ?? frozen[spec.steps.at(-1)?.id ?? ''];
@@ -105,13 +109,21 @@
 		}
 		update({ ...spec, steps: [...spec.steps, step], layout: { ...frozen, [step.id]: { x: Math.round(pos.x), y: Math.round(pos.y) } } });
 		selectedId = step.id;
-		if (!at) setTimeout(() => viz?.fitView(), 30);
+		if (!at) setTimeout(() => viz?.reveal(step.id), 30);
 	}
 
-	function addBlock(data: string, at?: { x: number; y: number }) {
-		if (data === 'transform') return addStep(newTransformStep(spec), at);
+	/** `connect`: after the selected step, fed by its output (as the palette suggested). */
+	function addBlock(data: string, at?: { x: number; y: number }, connect = false) {
+		const from = connect ? selected : null;
+		if (data === 'transform') {
+			const step = newTransformStep(spec);
+			return addStep(from ? wireTransform(step, from, commandsById) : step, at);
+		}
 		const cmd = commandsById.get(data.replace(/^command:/, ''));
-		if (cmd) addStep(newCommandStep(spec, cmd), at);
+		if (!cmd) return;
+		const step = newCommandStep(spec, cmd);
+		const wiring = from ? wiringFor(from, cmd, commandsById) : null;
+		addStep(from && wiring ? wireStep(step, from.id, wiring) : step, at);
 	}
 
 	function removeSelected() {
@@ -144,6 +156,11 @@
 		if (e.key === 'Escape') connectMenu = null;
 		const target = e.target as HTMLElement;
 		if (tab !== 'visual' || target.closest('input, textarea, select, [contenteditable], [role="listbox"]')) return;
+		if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
+			e.preventDefault();
+			palette?.focusSearch();
+			return;
+		}
 		if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
 			e.preventDefault();
 			removeSelected();
@@ -196,12 +213,6 @@
 		if (dirty && to?.url.pathname !== `/playbooks/edit/${spec.id}` && !confirm('Leave without saving? Your changes will be lost.')) cancel();
 	});
 
-	let palette = $derived(
-		data.commands.filter((c) => {
-			const q = paletteQuery.trim().toLowerCase();
-			return !q || c.name.toLowerCase().includes(q) || c.id.includes(q) || c.tags.some((t) => t.includes(q));
-		})
-	);
 </script>
 
 <svelte:window onkeydown={onKey} onbeforeunload={(e) => dirty && e.preventDefault()} />
@@ -250,50 +261,10 @@
 	{/if}
 
 	{#if tab === 'visual'}
-		<div class="grid min-h-0 flex-1 grid-cols-[15rem_minmax(0,1fr)_24rem]">
+		<div class="grid min-h-0 flex-1 grid-cols-[18rem_minmax(0,1fr)_24rem]">
 			<!-- palette -->
-			<aside class="flex min-h-0 flex-col gap-2 border-r border-outline-variant p-3">
-				<p class="label-large text-on-surface">Add a step</p>
-				<p class="body-small text-on-surface-variant">Drag onto the canvas, or click to add.</p>
-				<button
-					type="button"
-					draggable="true"
-					class="flex items-center gap-2 rounded-lg border border-dashed border-tertiary/70 bg-surface-container-low px-3 py-2 text-left hover:bg-surface-container"
-					ondragstart={(e) => e.dataTransfer?.setData(BLOCK_MIME, 'transform')}
-					onclick={() => addBlock('transform')}
-				>
-					<Icon name="filter_alt" size={18} class="text-tertiary" />
-					<span class="min-w-0">
-						<span class="block title-small text-on-surface">Transform</span>
-						<span class="block body-small text-on-surface-variant">Filter or reshape results</span>
-					</span>
-				</button>
-				<label class="mt-1 flex items-center gap-2 rounded-full bg-surface-container-high px-3">
-					<Icon name="search" size={18} class="text-on-surface-variant" />
-					<input class="h-9 min-w-0 flex-1 bg-transparent body-medium text-on-surface outline-none placeholder:text-on-surface-variant" placeholder="Search commands" bind:value={paletteQuery} />
-				</label>
-				<ul class="-mr-1 flex min-h-0 flex-1 flex-col gap-1.5 overflow-auto pr-1">
-					{#each palette as c (c.id)}
-						<li>
-							<button
-								type="button"
-								draggable="true"
-								class="flex w-full items-start gap-2 rounded-lg border border-outline-variant bg-surface-container-low px-3 py-2 text-left hover:border-outline hover:bg-surface-container"
-								title={c.spec.description}
-								ondragstart={(e) => e.dataTransfer?.setData(BLOCK_MIME, `command:${c.id}`)}
-								onclick={() => addBlock(`command:${c.id}`)}
-							>
-								<Icon name="terminal" size={18} class="mt-0.5 shrink-0 text-on-surface-variant" />
-								<span class="min-w-0">
-									<span class="block truncate title-small text-on-surface">{c.name}</span>
-									<span class="block truncate font-mono text-[11px] text-on-surface-variant">{c.id}</span>
-								</span>
-							</button>
-						</li>
-					{:else}
-						<li class="px-2 py-4 text-center body-small text-on-surface-variant">No command matches.</li>
-					{/each}
-				</ul>
+			<aside class="flex min-h-0 flex-col border-r border-outline-variant p-3">
+				<StepPalette bind:this={palette} {spec} commands={data.commands} tools={data.tools} {selected} onadd={(block, connect) => addBlock(block, undefined, connect)} />
 			</aside>
 
 			<!-- canvas -->

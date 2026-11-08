@@ -409,6 +409,23 @@
 		zoom = targetZoom;
 	}
 
+	/** Bring a step into view without changing the zoom (a new step shouldn't shrink the rest). */
+	export function reveal(stepId: string) {
+		const n = graph.nodes.find((x) => x.step.id === stepId);
+		const rect = containerEl?.getBoundingClientRect();
+		if (!n || !rect || rect.width <= 0) return;
+		if (zoom < 0.6) zoom = 0.85; // too small to read or grab a handle: come back to a working size
+		const pad = 48;
+		const left = n.x * zoom + panX;
+		const top = n.y * zoom + panY;
+		const right = left + n.width * zoom;
+		const bottom = top + n.height * zoom;
+		if (left < pad) panX += pad - left;
+		else if (right > rect.width - pad) panX -= right - (rect.width - pad);
+		if (top < pad) panY += pad - top;
+		else if (bottom > rect.height - pad) panY -= bottom - (rect.height - pad);
+	}
+
 	function resetLayout() {
 		customPositions = new Map();
 		onlayout?.({});

@@ -1,7 +1,7 @@
 /** Pure operations on a playbook spec for the visual editor. The editor keeps the spec the
  *  way an author writes it: `depends_on` holds only ordering the references don't already
  *  imply (the server adds those), and drawing uses `forDrawing` to put them back. */
-import type { CommandDefinition, PlaybookCondition, PlaybookSpec, PlaybookStepSpec } from '$lib/api';
+import type { ArgSpec, CommandDefinition, PlaybookCondition, PlaybookSpec, PlaybookStepSpec } from '$lib/api';
 import { conditionSteps, stepRefs } from '$lib/playbook';
 
 export const STEP_ID_RE = /^[a-z0-9][a-z0-9_-]{0,62}$/;
@@ -95,6 +95,66 @@ export function availableOutputs(spec: PlaybookSpec, stepId: string, commands: M
 	return spec.steps
 		.filter((st) => st.id !== stepId)
 		.flatMap((st) => outputsOf(st, commands).map((o) => ({ step: st, output: o, ref: ref(st.id, o.name) })));
+}
+
+/** The arguments (best first) that take items of each output type. A generic `targets` takes
+ *  URLs or plain strings only when its description says it does (nuclei's does; NetExec's,
+ *  which wants hosts, doesn't). */
+const ACCEPTS: Record<string, string[]> = {
+	host: ['targets', 'target', 'hosts', 'host'],
+	service: ['targets', 'target'],
+	smb_host: ['targets', 'target'],
+	url: ['urls', 'url', 'targets?url', 'target?url'],
+	string: ['names', 'domains', 'domain', 'targets?domain']
+};
+const elementType = (type: string | null) => type?.match(/^list<(\w+)>$/)?.[1] ?? null;
+
+export interface Wiring {
+	output: OutputPort;
+	arg: ArgSpec;
+	/** A single-value argument fed a list: one card per item (`for_each`). */
+	each: boolean;
+}
+
+/** How `cmd` would take `from`'s output, if it obviously can: the first output whose items
+ *  match one of its arguments by name (targets, urls, names…). */
+export function wiringFor(from: PlaybookStepSpec, cmd: CommandDefinition, commands: Map<string, CommandDefinition>): Wiring | null {
+	for (const output of outputsOf(from, commands)) {
+		const names = ACCEPTS[elementType(output.type) ?? ''] ?? [];
+		for (const want of names) {
+			const [name, mention] = want.split('?');
+			const arg = cmd.spec.args.find(
+				(a) =>
+					a.name === name &&
+					(a.type === 'list' || a.type === 'string') &&
+					(!mention || a.description.toLowerCase().includes(mention))
+			);
+			if (arg) return { output, arg, each: arg.type === 'string' && !/s$/.test(arg.name) };
+		}
+	}
+	return null;
+}
+
+/** Bind a new step to `fromId` the way `w` says. */
+export function wireStep(step: PlaybookStepSpec, fromId: string, w: Wiring): PlaybookStepSpec {
+	const next = clone(step);
+	if (w.each) {
+		next.for_each = { items: ref(fromId, w.output.name) };
+		next.args = { ...next.args, [w.arg.name]: '{{ item }}' };
+	} else {
+		next.args = { ...next.args, [w.arg.name]: ref(fromId, w.output.name) };
+		if (w.arg.required) next.skip_if_empty = true;
+	}
+	return next;
+}
+
+/** A transform fed by `fromId`'s first output. */
+export function wireTransform(step: PlaybookStepSpec, from: PlaybookStepSpec, commands: Map<string, CommandDefinition>): PlaybookStepSpec {
+	const out = outputsOf(from, commands)[0];
+	if (!out || !step.transform) return step;
+	const next = clone(step);
+	next.transform!.input = ref(from.id, out.name);
+	return next;
 }
 
 export interface ConnectOption {
