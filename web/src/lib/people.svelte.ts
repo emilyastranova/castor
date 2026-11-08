@@ -1,3 +1,4 @@
+import { isAstra } from '$lib/components/PersonName.svelte';
 /**
  * Who can see each project (members and admins), loaded once per project and kept fresh
  * from realtime events. Used for assignees, @mention suggestions and mention chips.
@@ -101,7 +102,7 @@ function mentionChip(user: UserBrief, isMe: boolean): HTMLElement {
 		face.textContent = initials(user.display_name);
 	}
 	const name = document.createElement('span');
-	name.className = 'mention-name';
+	name.className = isAstra(user.display_name) ? 'mention-name astra-name' : 'mention-name';
 	name.textContent = user.display_name;
 	chip.append(face, name);
 	return chip;

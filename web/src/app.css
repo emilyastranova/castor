@@ -178,6 +178,12 @@
 	&:disabled::before, &[aria-disabled='true']::before { opacity: 0; }
 }
 
+/* Floating things (FABs, snackbars) on phones sit above the bottom navigation bar (PhoneNav:
+   4rem tall, plus the home-indicator inset) with a 1rem gap; add md:bottom-* for wider screens. */
+@utility bottom-above-nav {
+	bottom: calc(5rem + env(safe-area-inset-bottom));
+}
+
 @utility focus-ring {
 	outline: none;
 	&:focus-visible {
@@ -365,3 +371,52 @@ select optgroup {
 	cursor: zoom-in;
 }
 .prose-m3 td, .prose-m3 th { border: 1px solid var(--md-sys-color-outline-variant); padding: 0.25em 0.6em; }
+
+/* An easter egg: one person's name shimmers while you hover it (PersonName.svelte, mention
+   chips). The gradient sits behind the text the whole time; hovering fades the text colour
+   out to reveal it, so nothing moves. The colours are deliberately outside the theme. */
+:root, :root[data-theme='light'] {
+	--astra-1: #2a9fd8;
+	--astra-2: #e2708f;
+	--astra-3: #a99fb6;
+}
+:root[data-theme='dark'] {
+	--astra-1: #5bcefa;
+	--astra-2: #f5a9b8;
+	--astra-3: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme='light']) {
+		--astra-1: #5bcefa;
+		--astra-2: #f5a9b8;
+		--astra-3: #ffffff;
+	}
+}
+.astra-name {
+	background-image: linear-gradient(
+		100deg,
+		var(--astra-1),
+		var(--astra-2),
+		var(--astra-3),
+		var(--astra-2),
+		var(--astra-1)
+	);
+	background-size: 300% 100%;
+	background-clip: text;
+	-webkit-background-clip: text;
+	transition: color 280ms ease;
+}
+.astra-name:hover {
+	color: transparent;
+	animation: astra-shimmer 2.4s linear infinite;
+}
+@keyframes astra-shimmer {
+	to {
+		background-position: 150% 0;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.astra-name:hover {
+		animation: none;
+	}
+}

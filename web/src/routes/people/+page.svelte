@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PersonName from '$lib/components/PersonName.svelte';
 	import type { PersonBrief } from '$lib/api';
 	import { Avatar, Icon, TopAppBar } from '$lib/m3';
 	import { relativeTime, absoluteTime } from '$lib/format';
@@ -57,7 +58,7 @@
 			<a href="/people/{p.username}" class="state-layer flex items-center gap-3 rounded-lg bg-surface-container-low p-4">
 				<Avatar name={p.display_name} src={p.avatar_url} size={48} />
 				<div class="min-w-0 flex-1">
-					<p class="truncate title-medium text-on-surface">{p.display_name}{p.id === myId ? ' (you)' : ''}</p>
+					<p class="truncate title-medium text-on-surface"><PersonName name={p.display_name} />{p.id === myId ? ' (you)' : ''}</p>
 					<p class="truncate body-small text-on-surface-variant">@{p.username} · {ROLE_LABELS[p.role].label}</p>
 					<p class="mt-1 flex items-center gap-3 body-small text-on-surface-variant">
 						<span class="flex items-center gap-1 {p.open_assigned ? 'text-on-surface' : ''}" title="Open cards assigned to them"><Icon name="assignment_ind" size={16} />{p.open_assigned}</span>

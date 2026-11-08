@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PersonName from '$lib/components/PersonName.svelte';
 	import type { User, UserRole } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Avatar, Button, Dialog, Icon, IconButton, Select, Switch, TextField, TopAppBar } from '$lib/m3';
@@ -123,7 +124,7 @@
 							<span class="flex items-center gap-3">
 								<Avatar name={u.display_name} src={u.avatar_url} size={32} />
 								<span>
-									<a href="/people/{u.username}" class="block text-on-surface hover:underline">{u.display_name}{u.id === self?.id ? ' (you)' : ''}</a>
+									<a href="/people/{u.username}" class="block text-on-surface hover:underline"><PersonName name={u.display_name} />{u.id === self?.id ? ' (you)' : ''}</a>
 									<span class="block body-small text-on-surface-variant">@{u.username}</span>
 								</span>
 							</span>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PersonName from '$lib/components/PersonName.svelte';
 	import type { FeedItem, Person } from '$lib/api';
 	import { api } from '$lib/api';
 	import { Avatar, Button, Icon, IconButton, TopAppBar } from '$lib/m3';
@@ -120,7 +121,7 @@
 		<header class="flex flex-wrap items-center gap-5">
 			<Avatar name={person.display_name} src={person.avatar_url} size={88} />
 			<div class="min-w-0 flex-1">
-				<h1 class="display-small text-on-surface">{person.display_name}{isMe ? ' (you)' : ''}</h1>
+				<h1 class="display-small text-on-surface"><PersonName name={person.display_name} />{isMe ? ' (you)' : ''}</h1>
 				<p class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 body-large text-on-surface-variant">
 					<span>@{person.username}</span>
 					<span class="flex items-center gap-1"><Icon name={ROLE_LABELS[person.role].icon} size={18} />{ROLE_LABELS[person.role].label}</span>
@@ -216,7 +217,7 @@
 									<a href={mn.link} class="state-layer flex items-start gap-2.5 rounded-md px-2 py-2">
 										<Avatar name={mn.author.name} src={mn.author.avatar_url} size={24} />
 										<span class="min-w-0 flex-1">
-											<span class="block truncate body-small text-on-surface-variant"><span class="font-medium text-on-surface">{mn.author.name}</span> on {mn.task.title}</span>
+											<span class="block truncate body-small text-on-surface-variant"><span class="font-medium text-on-surface"><PersonName name={mn.author.name} /></span> on {mn.task.title}</span>
 											<span class="block line-clamp-2 body-medium text-on-surface">{mn.body}</span>
 											<span class="block body-small text-on-surface-variant" title={absoluteTime(mn.created_at)}>{relativeTime(mn.created_at)}{mn.project ? ` · ${mn.project.codename}` : ''}</span>
 										</span>

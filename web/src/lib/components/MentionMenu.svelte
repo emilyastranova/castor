@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PersonName from '$lib/components/PersonName.svelte';
 	import type { MentionSuggest } from '$lib/mentionSuggest.svelte';
 	import { Avatar } from '$lib/m3';
 
@@ -22,7 +23,7 @@
 					onmouseenter={() => (suggest.index = i)}
 				>
 					<Avatar name={u.display_name} src={u.avatar_url} size={24} />
-					<span class="min-w-0 flex-1 truncate body-medium">{u.display_name}</span>
+					<span class="min-w-0 flex-1 truncate body-medium"><PersonName name={u.display_name} /></span>
 					<span class="shrink-0 body-small text-on-surface-variant">@{u.username}</span>
 				</button>
 			</li>

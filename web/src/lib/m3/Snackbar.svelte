@@ -14,7 +14,7 @@
 
 {#if current}
 	<div
-		class="fixed bottom-4 left-1/2 z-50 flex min-h-12 w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 items-center gap-2 rounded-xs py-1 pl-4 pr-1 shadow-e3 body-medium {current.tone === 'error'
+		class="fixed bottom-above-nav left-1/2 z-50 md:bottom-4 flex min-h-12 w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 items-center gap-2 rounded-xs py-1 pl-4 pr-1 shadow-e3 body-medium {current.tone === 'error'
 			? 'bg-error-container text-on-error-container'
 			: 'bg-inverse-surface text-inverse-on-surface'}"
 		role="status"

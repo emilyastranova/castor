@@ -20,11 +20,16 @@
 		<a
 			href={v.href(projectId)}
 			aria-current={current === v.id ? 'page' : undefined}
-			class="state-layer inline-flex items-center gap-1.5 px-4 label-large transition-colors {i ? 'border-l border-outline' : ''} {current === v.id
+			class="state-layer inline-flex items-center gap-1.5 px-3 label-large transition-colors sm:px-4 {i ? 'border-l border-outline' : ''} {current === v.id
 				? 'bg-secondary-container text-on-secondary-container'
 				: 'text-on-surface'}"
 		>
-			<Icon name={current === v.id ? 'check' : v.icon} size={18} />{v.label}
+			<!-- Small screens: only the selected view keeps its icon (the check), so all three fit at 320px. -->
+			{#if current === v.id}
+				<Icon name="check" size={18} />
+			{:else}
+				<span class="hidden sm:contents"><Icon name={v.icon} size={18} /></span>
+			{/if}{v.label}
 		</a>
 	{/each}
 </div>

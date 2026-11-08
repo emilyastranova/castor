@@ -6,7 +6,9 @@
 	import { notifications, SEVERITY } from '$lib/notifications.svelte';
 	import { absoluteTime, relativeTime } from '$lib/format';
 
-	/** Bell in the navigation rail with an unread badge; opens a panel beside the rail. */
+	/** Bell with an unread badge; opens a panel beside the rail, or above the phone's
+	 *  bottom bar when `bar` is set (then it looks like a bar destination). */
+	let { bar = false }: { bar?: boolean } = $props();
 	let open = $state(false);
 	let root: HTMLDivElement | undefined = $state();
 	let showRead = $state(false);
@@ -26,28 +28,49 @@
 
 <svelte:document onclick={onDocClick} onkeydown={(e) => e.key === 'Escape' && (open = false)} />
 
-<div class="relative" bind:this={root}>
+{#snippet badge()}
+	{#if notifications.unread}
+		<span class="absolute top-0.5 right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-error px-1 text-[10px] leading-none font-medium text-on-error">
+			{notifications.unread > 99 ? '99+' : notifications.unread}
+		</span>
+	{/if}
+{/snippet}
+
+<div class={bar ? 'flex flex-1' : 'relative'} bind:this={root}>
 	<button
 		type="button"
-		class="state-layer focus-ring relative flex size-10 items-center justify-center rounded-full text-on-surface-variant"
+		class={bar
+			? 'group flex flex-1 flex-col items-center justify-center gap-1 outline-none'
+			: 'state-layer focus-ring relative flex size-10 items-center justify-center rounded-full text-on-surface-variant'}
 		aria-label={notifications.unread ? `Notifications, ${notifications.unread} unread` : 'Notifications'}
+		aria-expanded={open}
 		title="Notifications"
 		onclick={() => {
 			open = !open;
 			if (open) void notifications.load();
 		}}
 	>
-		<Icon name="notifications" filled={notifications.unread > 0} />
-		{#if notifications.unread}
-			<span class="absolute top-0.5 right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-error px-1 text-[10px] leading-none font-medium text-on-error">
-				{notifications.unread > 99 ? '99+' : notifications.unread}
+		{#if bar}
+			<span
+				class="state-layer relative flex h-8 w-14 items-center justify-center rounded-full transition-colors group-focus-visible:outline-3 group-focus-visible:outline-offset-2 group-focus-visible:outline-secondary {open
+					? 'bg-secondary-container text-on-secondary-container'
+					: 'text-on-surface-variant'}"
+			>
+				<Icon name="notifications" filled={open || notifications.unread > 0} />
+				{@render badge()}
 			</span>
+			<span class="label-medium {open ? 'text-on-surface' : 'text-on-surface-variant'}">Inbox</span>
+		{:else}
+			<Icon name="notifications" filled={notifications.unread > 0} />
+			{@render badge()}
 		{/if}
 	</button>
 
 	{#if open}
 		<div
-			class="fixed bottom-3 left-[5.5rem] z-50 flex max-h-[min(36rem,85vh)] w-[min(26rem,calc(100vw-6.5rem))] flex-col overflow-hidden rounded-lg bg-surface-container shadow-e3"
+			class="fixed z-50 flex flex-col overflow-hidden rounded-lg bg-surface-container shadow-e3 {bar
+				? 'inset-x-2 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] max-h-[calc(100dvh-6rem)]'
+				: 'bottom-3 left-[5.5rem] max-h-[min(36rem,85vh)] w-[min(26rem,calc(100vw-6.5rem))]'}"
 			role="dialog"
 			aria-label="Notifications"
 		>

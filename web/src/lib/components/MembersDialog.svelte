@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PersonName from '$lib/components/PersonName.svelte';
 	import type { UserBrief } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Avatar, Button, Dialog, Icon } from '$lib/m3';
@@ -80,7 +81,7 @@
 							<input type="checkbox" class="size-4 accent-[var(--md-sys-color-primary)]" {checked} disabled={locked} onchange={() => toggle(u.id)} />
 							<Avatar name={u.display_name} src={u.avatar_url} size={28} />
 							<span class="min-w-0 flex-1">
-								<span class="block truncate body-medium text-on-surface">{u.display_name}{u.id === self?.id ? ' (you)' : ''}</span>
+								<span class="block truncate body-medium text-on-surface"><PersonName name={u.display_name} />{u.id === self?.id ? ' (you)' : ''}</span>
 								<span class="block body-small text-on-surface-variant">@{u.username}</span>
 							</span>
 							<span class="flex items-center gap-1 label-medium text-on-surface-variant">

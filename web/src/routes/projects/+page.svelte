@@ -83,7 +83,7 @@
 	{/if}
 </div>
 
-<div class="fixed right-6 bottom-6">
+<div class="fixed right-4 bottom-above-nav md:right-6 md:bottom-6">
 	{#if canEdit()}<Fab icon="add" label="New project" extended onclick={() => (createOpen = true)}>New project</Fab>{/if}
 </div>
 

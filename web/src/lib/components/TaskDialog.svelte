@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PersonName from '$lib/components/PersonName.svelte';
 	import type { Agent, ArgErrors, Attachment, Column, Comment, CommandDefinition, Job, PlaybookRun, PlaybookSpec, Project, Task, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { realtime } from '$lib/realtime.svelte';
@@ -869,7 +870,7 @@
 							{/if}
 							<div class="min-w-0 flex-1 rounded-md bg-surface-container px-4 py-3" class:mentions-me={mentionsMe(c)} class:flash={flashing === c.id}>
 								<div class="flex items-center gap-2 body-small text-on-surface-variant">
-									{#if authorName}<a href="/people/{authorName}" class="label-large text-on-surface hover:underline">{c.author_name}</a>{:else}<span class="label-large text-on-surface">{c.author_name}</span>{/if}
+									{#if authorName}<a href="/people/{authorName}" class="label-large text-on-surface hover:underline"><PersonName name={c.author_name} /></a>{:else}<span class="label-large text-on-surface"><PersonName name={c.author_name} /></span>{/if}
 									<span title={absoluteTime(c.created_at)}>{relativeTime(c.created_at)}</span>
 									{#if mentionsMe(c)}<span class="flex items-center gap-0.5 rounded-full bg-primary-container px-1.5 py-0.5 label-small text-on-primary-container"><Icon name="alternate_email" size={12} />Mentions you</span>{/if}
 									{#if c.edited_at}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PersonName from '$lib/components/PersonName.svelte';
 	import { enter, leave } from '$lib/motion';
 	import type { Activity, UUID } from '$lib/api';
 	import { Icon } from '$lib/m3';
@@ -46,7 +47,7 @@
 				<span class="min-w-0 flex-1">
 					<span class="block body-medium text-on-surface">{a.message}</span>
 					<span class="block body-small text-on-surface-variant" title={absoluteTime(a.created_at)}>
-						{a.actor_type === 'agent' ? 'agent ' : ''}{a.actor_name}{a.payload?.via === 'mcp' ? ' via MCP' : ''} · {relativeTime(a.created_at)}
+						{a.actor_type === 'agent' ? 'agent ' : ''}<PersonName name={a.actor_name} />{a.payload?.via === 'mcp' ? ' via MCP' : ''} · {relativeTime(a.created_at)}
 					</span>
 				</span>
 			</button>

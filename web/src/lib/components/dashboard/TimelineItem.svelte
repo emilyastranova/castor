@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PersonName from '$lib/components/PersonName.svelte';
 	import type { FeedItem } from '$lib/api';
 	import { Avatar, Icon } from '$lib/m3';
 	import RichText from '../RichText.svelte';
@@ -69,9 +70,9 @@
 	<div class="min-w-0 flex-1 pt-0.5">
 		<div class="flex flex-wrap items-baseline gap-x-2 body-small text-on-surface-variant">
 			{#if item.actor.username}
-				<a href="/people/{item.actor.username}" class="label-large text-on-surface hover:underline">{item.actor.name}</a>
+				<a href="/people/{item.actor.username}" class="label-large text-on-surface hover:underline"><PersonName name={item.actor.name} /></a>
 			{:else}
-				<span class="label-large text-on-surface">{item.actor.name}</span>
+				<span class="label-large text-on-surface"><PersonName name={item.actor.name} /></span>
 			{/if}
 			{#if item.via === 'mcp'}<span title="Done through an AI assistant connected over MCP">via MCP</span>{/if}
 			{#if item.kind === 'comment'}

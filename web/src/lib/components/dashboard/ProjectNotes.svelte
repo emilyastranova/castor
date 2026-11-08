@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PersonName from '$lib/components/PersonName.svelte';
 	import { tick } from 'svelte';
 	import type { NoteVersion, ProjectNote, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
@@ -261,7 +262,7 @@
 						<p class="flex-1 body-medium text-on-surface-variant italic">Empty</p>
 					{/if}
 					<footer class="flex shrink-0 items-center gap-1.5 pt-1 body-small text-on-surface-variant">
-						{#if note.updated_by}<Avatar name={note.updated_by.name} src={note.updated_by.avatar_url} size={20} /><span class="truncate">{note.updated_by.name}</span> ·{/if}
+						{#if note.updated_by}<Avatar name={note.updated_by.name} src={note.updated_by.avatar_url} size={20} /><span class="truncate"><PersonName name={note.updated_by.name} /></span> ·{/if}
 						<span class="shrink-0" title={absoluteTime(note.updated_at)}>{relativeTime(note.updated_at)}</span>
 						{#if expanded[note.id] || overflow[note.id]?.more}
 							<button

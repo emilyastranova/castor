@@ -205,7 +205,7 @@
 <svelte:head><title>{project.codename} · Assets · Castor</title></svelte:head>
 
 <TopAppBar>
-	<div class="flex items-center gap-3">
+	<div class="flex min-w-0 items-center gap-3">
 		<IconButton icon="arrow_back" label="All projects" href="/projects" />
 		<div class="min-w-0">
 			<p class="label-medium text-primary">{project.codename}</p>
@@ -213,9 +213,10 @@
 		</div>
 	</div>
 	{#snippet actions()}
-		<ProjectViewSwitch projectId={project.id} current="assets" />
+		<div class="hidden md:contents"><ProjectViewSwitch projectId={project.id} current="assets" /></div>
 	{/snippet}
 </TopAppBar>
+<div class="px-4 pb-2 md:hidden"><ProjectViewSwitch projectId={project.id} current="assets" /></div>
 
 <div class="flex-1 overflow-auto">
 	<div class="mx-auto flex w-full max-w-7xl flex-col gap-4 px-6 pt-2 pb-10">

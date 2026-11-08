@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PersonName from '$lib/components/PersonName.svelte';
 	import { Avatar, Icon, Menu } from '$lib/m3';
 	import { people } from '$lib/people.svelte';
 	import { me } from '$lib/session';
@@ -46,7 +47,7 @@
 							<li>
 								<button type="button" role="menuitemcheckbox" aria-checked={value.includes(u.id)} class="state-layer flex w-full items-center gap-2 px-3 py-1.5 text-left" onclick={() => toggle(u.id)}>
 									<Avatar name={u.display_name} src={u.avatar_url} size={24} />
-									<span class="min-w-0 flex-1 truncate body-medium text-on-surface">{u.display_name}{u.id === myId ? ' (you)' : ''}</span>
+									<span class="min-w-0 flex-1 truncate body-medium text-on-surface"><PersonName name={u.display_name} />{u.id === myId ? ' (you)' : ''}</span>
 									{#if value.includes(u.id)}<Icon name="check" size={18} class="text-primary" />{/if}
 								</button>
 							</li>
@@ -63,7 +64,7 @@
 			{#each assigned as u (u.id)}
 				<li class="flex h-8 items-center gap-1.5 rounded-full bg-surface-container-high py-1 pr-1 pl-1 {editable ? '' : 'pr-3'}">
 					<Avatar name={u.display_name} src={u.avatar_url} size={24} />
-					{#if u.username}<a href="/people/{u.username}" class="max-w-36 truncate label-large text-on-surface hover:underline">{u.display_name}</a>{:else}<span class="max-w-36 truncate label-large text-on-surface">{u.display_name}</span>{/if}
+					{#if u.username}<a href="/people/{u.username}" class="max-w-36 truncate label-large text-on-surface hover:underline"><PersonName name={u.display_name} /></a>{:else}<span class="max-w-36 truncate label-large text-on-surface"><PersonName name={u.display_name} /></span>{/if}
 					{#if editable}
 						<button type="button" class="state-layer flex size-6 items-center justify-center rounded-full text-on-surface-variant" aria-label="Unassign {u.display_name}" title="Unassign" onclick={() => toggle(u.id)}><Icon name="close" size={16} /></button>
 					{/if}

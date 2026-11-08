@@ -5,7 +5,7 @@
 	import { page } from '$app/state';
 	import type { Agent, Column, Task, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
-	import { TopAppBar, IconButton, Button, Icon, Menu, MenuItem, Chip } from '$lib/m3';
+	import { TopAppBar, IconButton, Button, Icon, Menu, MenuItem, Chip, Fab } from '$lib/m3';
 	import { BoardStore } from '$lib/stores/board.svelte';
 	import { realtime } from '$lib/realtime.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
@@ -219,7 +219,7 @@
 <svelte:head><title>{store.project.codename} · Castor</title></svelte:head>
 
 <TopAppBar>
-	<div class="flex items-center gap-3">
+	<div class="flex min-w-0 items-center gap-3">
 		<IconButton icon="arrow_back" label="All projects" href="/projects" />
 		<div class="min-w-0">
 			<p class="label-medium text-primary">{store.project.codename}</p>
@@ -227,8 +227,11 @@
 		</div>
 	</div>
 	{#snippet actions()}
-		<ProjectViewSwitch projectId={store.project.id} current="board" />
-		<div class="mr-2 hidden items-center gap-2 md:flex">
+		<!-- Narrower screens move these out: the view switch and "Assigned to me" below lg (a row
+		     under the header and the menu), search below xl, the status chips below 2xl, and New
+		     card becomes a FAB on phones. -->
+		<div class="hidden lg:contents"><ProjectViewSwitch projectId={store.project.id} current="board" /></div>
+		<div class="mr-2 hidden items-center gap-2 2xl:flex">
 			{#if running > 0}
 				<Chip variant="assist" icon="bolt">{running} running</Chip>
 			{/if}
@@ -236,27 +239,55 @@
 				{online} agent{online === 1 ? '' : 's'} online
 			</Chip>
 		</div>
-		<Chip variant="filter" icon={mineOnly ? 'check' : 'person'} selected={mineOnly} class="mr-2 hidden md:inline-flex" onclick={toggleMine}>Assigned to me</Chip>
-		<label class="hidden items-center gap-2 rounded-full bg-surface-container-high px-4 md:flex">
+		<div class="mr-2 hidden lg:contents">
+			<Chip variant="filter" icon={mineOnly ? 'check' : 'person'} selected={mineOnly} onclick={toggleMine}>Assigned to me</Chip>
+		</div>
+		<label class="hidden items-center gap-2 rounded-full bg-surface-container-high px-4 xl:flex">
 			<Icon name="search" size={20} class="text-on-surface-variant" />
 			<input class="h-10 w-44 bg-transparent body-medium text-on-surface outline-none placeholder:text-on-surface-variant" placeholder="Filter cards" bind:value={filter} />
 		</label>
-		<IconButton icon="history" label="Activity" selected={activityOpen} onclick={() => (activityOpen = !activityOpen)} />
+		<!-- The activity panel only opens from lg up. -->
+		<div class="hidden lg:contents">
+			<IconButton icon="history" label="Activity" selected={activityOpen} onclick={() => (activityOpen = !activityOpen)} />
+		</div>
 		<Menu>
 			{#snippet anchor()}<IconButton icon="more_vert" label="Project menu" />{/snippet}
+			<div class="lg:hidden">
+				<MenuItem icon={mineOnly ? 'check_box' : 'check_box_outline_blank'} onclick={toggleMine}>Only cards assigned to me</MenuItem>
+			</div>
 			<MenuItem icon="group" onclick={() => (membersOpen = true)}>Members</MenuItem>
 			{#if editable}<MenuItem icon="edit" onclick={() => (editOpen = true)}>Edit project</MenuItem>{/if}
 			<MenuItem icon="download" onclick={() => (exportOpen = true)}>Export project…</MenuItem>
 			<MenuItem icon="refresh" onclick={() => invalidateAll()}>Reload board</MenuItem>
 			{#if isAdmin()}<MenuItem icon="delete" danger onclick={deleteProject}>Delete project</MenuItem>{/if}
 		</Menu>
-		{#if editable}
-			<Button icon="add" class="ml-2" onclick={() => { newColumn = null; newOpen = true; }}>New card</Button>
-		{:else}
-			<Chip variant="assist" icon="visibility">View only</Chip>
-		{/if}
+		<div class="hidden md:contents">
+			{#if editable}
+				<Button icon="add" class="ml-2" onclick={() => { newColumn = null; newOpen = true; }}>New card</Button>
+			{:else}
+				<Chip variant="assist" icon="visibility">View only</Chip>
+			{/if}
+		</div>
 	{/snippet}
 </TopAppBar>
+
+<div class="flex flex-wrap items-center gap-2 px-4 pb-2 lg:hidden">
+	<ProjectViewSwitch projectId={store.project.id} current="board" />
+	{#if mineOnly}
+		<Chip variant="filter" icon="check" selected onclick={toggleMine}>Mine</Chip>
+	{/if}
+	{#if !editable}
+		<span class="md:hidden"><Chip variant="assist" icon="visibility">View only</Chip></span>
+	{/if}
+</div>
+{#if editable}
+	<Fab
+		icon="add"
+		label="New card"
+		class="fixed right-4 bottom-above-nav z-30 md:hidden"
+		onclick={() => { newColumn = null; newOpen = true; }}
+	/>
+{/if}
 
 <div class="flex min-h-0 flex-1">
 	<div class="flex min-h-0 flex-1 gap-3 overflow-x-auto px-4 pb-4">

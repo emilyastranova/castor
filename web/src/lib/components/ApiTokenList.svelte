@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PersonName from '$lib/components/PersonName.svelte';
 	import type { ApiToken } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Avatar, Button, Card, Icon, IconButton } from '$lib/m3';
@@ -54,7 +55,7 @@
 					<code class="rounded-full bg-surface-container-highest px-2 py-0.5 font-mono text-[11.5px] text-on-surface-variant">{t.prefix}…</code>
 					{#if st}<span class="rounded-full px-2 py-0.5 label-small {st.tone}">{st.label}</span>{/if}
 					{#if everyone && t.user}
-						<span class="flex items-center gap-1 body-small text-on-surface-variant"><Avatar name={t.user.display_name} src={t.user.avatar_url} size={18} />{t.user.display_name}</span>
+						<span class="flex items-center gap-1 body-small text-on-surface-variant"><Avatar name={t.user.display_name} src={t.user.avatar_url} size={18} /><PersonName name={t.user.display_name} /></span>
 					{/if}
 				</span>
 				<span class="block truncate body-small text-on-surface-variant" title={t.scopes.join(', ')}>

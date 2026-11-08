@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PersonName from '$lib/components/PersonName.svelte';
 	import '../app.css';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -13,6 +14,7 @@
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import { palette } from '$lib/palette.svelte';
 	import NotificationBell from '$lib/components/NotificationBell.svelte';
+	import PhoneNav from '$lib/components/PhoneNav.svelte';
 	import AccountDialog from '$lib/components/AccountDialog.svelte';
 	import { notifications } from '$lib/notifications.svelte';
 
@@ -89,7 +91,9 @@
 <svelte:window onkeydown={shortcut} />
 
 {#if data.user}
-	<div class="flex h-dvh w-full overflow-hidden bg-surface">
+	<!-- Phones get a bottom bar (PhoneNav) instead of the rail. -->
+	<div class="flex h-dvh w-full flex-col overflow-hidden bg-surface md:flex-row">
+		<div class="hidden md:contents">
 		<NavigationRail items={nav} current={page.url.pathname}>
 			{#snippet top()}
 				<a href="/" class="flex size-12 items-center justify-center rounded-lg bg-primary-container text-on-primary-container" aria-label="Castor home">
@@ -120,7 +124,7 @@
 							</button>
 						{/snippet}
 						<div class="px-3 py-2">
-							<p class="title-small text-on-surface">{data.user?.display_name}</p>
+							<p class="title-small text-on-surface"><PersonName name={data.user?.display_name} /></p>
 							<p class="body-small text-on-surface-variant">@{data.user?.username} · {data.user?.role}</p>
 						</div>
 						<MenuItem icon="manage_accounts" onclick={() => (accountOpen = true)}>Account and password</MenuItem>
@@ -130,9 +134,22 @@
 				</div>
 			{/snippet}
 		</NavigationRail>
-		<main class="flex min-w-0 flex-1 flex-col overflow-hidden">
+		</div>
+		<main class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
 			{@render children()}
 		</main>
+		<PhoneNav
+			items={nav}
+			current={page.url.pathname}
+			user={data.user}
+			{dark}
+			onaccount={() => (accountOpen = true)}
+			ontheme={() => {
+				toggleMode();
+				dark = isDark();
+			}}
+			onlogout={logout}
+		/>
 	</div>
 {:else}
 	{@render children()}
