@@ -295,6 +295,8 @@ export interface FeedItem {
 	job: { id: UUID; status: string; exit_code: number | null; seconds: number | null; agent: string | null; command: string } | null;
 	run_id: string | null;
 	step_id: string | null;
+	/** 'mcp': done through an AI assistant. */
+	via?: string | null;
 }
 
 export interface DashboardSummary {

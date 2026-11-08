@@ -76,9 +76,20 @@ limits, service accounts that aren't a person (a user made for the purpose works
   output keeps its end).
 - `POST /api/tasks/{id}/move` now takes `position: null` for "top of the column", so callers
   (and `move_card`) don't need to compute one.
-- **UI.** "Connect an AI assistant" on the API tokens page: config for Claude Code, VS Code,
-  Gemini CLI and Claude Desktop (through `mcp-remote`).
+- **Resources.** `resources/list` gives each visible project's board
+  (`castor://projects/{id}/board`); templates add `castor://cards/{id}`,
+  `castor://jobs/{id}/output` (untrusted) and `castor://runs/{id}`. Reading one is the same
+  in-process GET as a tool, and templates the token's scopes don't allow are hidden. No
+  subscriptions: the endpoint has no stream back.
+- **"via MCP".** The in-process calls carry `X-Castor-Via` with a key made at startup
+  (`api_tokens.MCP_KEY`, so a client can't fake it); `deps.current_user` sets the `via`
+  context variable and `record_activity` stores `payload.via = "mcp"`. The home timeline and a
+  card's activity show "via MCP" after the person's name.
+- **stdio.** `castor-mcp` (in the agent package, standard library only) forwards stdio
+  JSON-RPC lines to `/api/mcp`, for clients that only speak stdio (Claude Desktop). It reads
+  the token from `CASTOR_TOKEN` and the address from `--server` or `CASTOR_URL`.
+- **UI.** "Connect an AI assistant" on the API tokens page: config for Claude Code, Claude
+  Desktop (`castor-mcp`), VS Code and Gemini CLI.
 
-Not built from the plan: resources (`castor://` cards and logs), prompts, a `castor-mcp` stdio
-shim (Claude Desktop uses `mcp-remote`), marking MCP calls "via MCP" in the activity feed (they
-show as the token's user), and the open question of Castor's own AI using these tools.
+Not built from the plan: prompts, resource subscriptions (a live job log), and the open
+question of Castor's own AI using these tools.

@@ -6,6 +6,9 @@ header, so a tool can do exactly what that token can do over HTTP: the same scop
 project limit and validation, with nothing re-implemented here. tools/list shows only the
 tools the token's scopes allow.
 
+Resources (castor://… boards, cards, job output, runs) are read the same way; there are no
+subscriptions, since replies are plain JSON with no stream back.
+
 Job output is someone else's text (a tool's banner can say anything), so tool results that
 carry it say so before the data."""
 
@@ -119,8 +122,7 @@ BY_NAME = {t.name: t for t in TOOLS}
 
 
 def visible_tools(user: User) -> list[Tool]:
-    token = user.api_token
-    return [t for t in TOOLS if token is None or api_tokens.grants(token.scopes or [], t.scope)]
+    return _visible(user, TOOLS)
 
 
 async def call_tool(app: Any, authorization: str, user: User, name: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -132,20 +134,89 @@ async def call_tool(app: Any, authorization: str, user: User, name: str, args: d
     if missing:
         return _result(f"Missing arguments: {', '.join(missing)}", error=True)
     path = re.sub(r"\{([^}]+)\}", lambda mt: quote(str(args.pop(mt.group(1))), safe=""), tool.path)
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://castor") as client:
-        r = await client.request(tool.method, path, headers={"Authorization": authorization},
-                                 params=args if tool.method == "GET" else None,
-                                 json=args if tool.method != "GET" else None)
+    r = await _rest(app, authorization, tool.method, path, args)
     if r.status_code >= 400:
-        try:
-            detail = r.json().get("detail", r.text)
-        except ValueError:
-            detail = r.text
-        return _result(f"HTTP {r.status_code}: {detail if isinstance(detail, str) else json.dumps(detail)}", error=True)
+        return _result(_failure(r), error=True)
     text = r.text if "json" not in r.headers.get("content-type", "") else json.dumps(r.json(), ensure_ascii=False)
     if len(text) > MAX_TEXT:  # output keeps its end (where errors are); JSON its start
         text = ("…(truncated)\n" + text[-MAX_TEXT:]) if name == "get_job_output" else (text[:MAX_TEXT] + "\n…(truncated)")
     return _result((UNTRUSTED if tool.untrusted else "") + text)
+
+
+async def _rest(app: Any, authorization: str, method: str, path: str, args: dict[str, Any] | None = None) -> httpx.Response:
+    """The REST endpoint, in-process, as the caller. VIA marks the activity it records."""
+    headers = {"Authorization": authorization, api_tokens.VIA_HEADER: api_tokens.MCP_KEY}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://castor") as client:
+        return await client.request(method, path, headers=headers, params=args if method == "GET" else None,
+                                    json=args if method != "GET" else None)
+
+
+def _failure(r: httpx.Response) -> str:
+    try:
+        detail = r.json().get("detail", r.text)
+    except ValueError:
+        detail = r.text
+    return f"HTTP {r.status_code}: {detail if isinstance(detail, str) else json.dumps(detail)}"
+
+
+# ---------- resources: things a client can attach as context ----------
+
+
+@dataclass(frozen=True)
+class Resource:
+    template: str  # castor://… with {placeholders}
+    name: str
+    description: str
+    path: str  # the GET endpoint, same placeholders
+    mime: str = "application/json"
+    untrusted: bool = False
+
+    @property
+    def scope(self) -> str:
+        return api_tokens.required_scope("GET", re.sub(r"\{[^}]+\}", "x", self.path)) or api_tokens.SESSION
+
+    def match(self, uri: str) -> dict[str, str] | None:
+        pattern = "^" + re.sub(r"\\\{([^}]+)\\\}", r"(?P<\1>[^/]+)", re.escape(self.template)) + "$"
+        found = re.match(pattern, uri)
+        return found.groupdict() if found else None
+
+
+RESOURCES = [
+    Resource("castor://projects/{project_id}/board", "Board", "A project's columns and cards", "/api/projects/{project_id}/board"),
+    Resource("castor://cards/{task_id}", "Card", "One card with its latest job", "/api/tasks/{task_id}"),
+    Resource("castor://jobs/{job_id}/output", "Job output", "A job's output as plain text (untrusted)", "/api/jobs/{job_id}/output",
+             "text/plain", untrusted=True),
+    Resource("castor://runs/{run_id}", "Playbook run", "A run with each step's status", "/api/playbook-runs/{run_id}"),
+]
+
+
+def _visible(user: User, items: list) -> list:
+    token = user.api_token
+    return [i for i in items if token is None or api_tokens.grants(token.scopes or [], i.scope)]
+
+
+async def list_resources(app: Any, authorization: str, user: User) -> list[dict[str, Any]]:
+    """Every visible project's board (cards, jobs and runs are reached by their templates)."""
+    if RESOURCES[0] not in _visible(user, RESOURCES):
+        return []
+    r = await _rest(app, authorization, "GET", "/api/projects")
+    projects = r.json() if r.status_code == 200 else []
+    return [{"uri": f"castor://projects/{p['id']}/board", "name": f"{p['codename']} board",
+             "title": f"{p['codename']} · {p['name']}", "mimeType": "application/json"} for p in projects]
+
+
+async def read_resource(app: Any, authorization: str, user: User, uri: str) -> dict[str, Any] | None:
+    """The resource's contents, or None if no visible template matches or it can't be read."""
+    for res in _visible(user, RESOURCES):
+        params = res.match(uri)
+        if params is None:
+            continue
+        r = await _rest(app, authorization, "GET", res.path.format(**{k: quote(v, safe="") for k, v in params.items()}))
+        if r.status_code >= 400:
+            return None
+        text = r.text[-MAX_TEXT:] if res.untrusted else r.text[:MAX_TEXT]
+        return {"contents": [{"uri": uri, "mimeType": res.mime, "text": (UNTRUSTED if res.untrusted else "") + text}]}
+    return None
 
 
 def _result(text: str, *, error: bool = False) -> dict[str, Any]:
@@ -162,7 +233,8 @@ async def handle(app: Any, authorization: str, user: User, message: Any) -> dict
     if method == "initialize":
         wanted = params.get("protocolVersion")
         return _ok(mid, {"protocolVersion": wanted if wanted in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[0],
-                         "capabilities": {"tools": {"listChanged": False}},
+                         "capabilities": {"tools": {"listChanged": False},
+                                          "resources": {"subscribe": False, "listChanged": False}},
                          "serverInfo": {"name": "castor", "title": "Castor", "version": app.version},
                          "instructions": INSTRUCTIONS})
     if method == "ping":
@@ -173,6 +245,15 @@ async def handle(app: Any, authorization: str, user: User, message: Any) -> dict
         if not isinstance(params.get("name"), str) or not isinstance(params.get("arguments", {}), dict):
             return _error(mid, -32602, "tools/call needs a name and an arguments object")
         return _ok(mid, await call_tool(app, authorization, user, params["name"], params.get("arguments") or {}))
+    if method == "resources/list":
+        return _ok(mid, {"resources": await list_resources(app, authorization, user)})
+    if method == "resources/templates/list":
+        return _ok(mid, {"resourceTemplates": [{"uriTemplate": r.template, "name": r.name, "description": r.description,
+                                                "mimeType": r.mime} for r in _visible(user, RESOURCES)]})
+    if method == "resources/read":
+        uri = params.get("uri")
+        found = await read_resource(app, authorization, user, uri) if isinstance(uri, str) else None
+        return _ok(mid, found) if found else _error(mid, -32002, f"Resource not found: {uri}")
     return _error(mid, -32601, f"Method not found: {method}")
 
 

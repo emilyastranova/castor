@@ -12,6 +12,7 @@ dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5"]
 
 [project.scripts]
 castor-agent = "castor_agent.__main__:main"
+castor-mcp = "castor_agent.mcp_stdio:main"
 
 [build-system]
 requires = ["setuptools>=68"]

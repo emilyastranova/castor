@@ -14,9 +14,9 @@
 		{
 			id: 'claude-desktop',
 			label: 'Claude Desktop',
-			where: 'In claude_desktop_config.json (through mcp-remote, which needs Node):',
+			where: 'In claude_desktop_config.json, after pip install ./agent from the Castor repository (use the full path to castor-mcp if Claude can\'t find it):',
 			text: JSON.stringify(
-				{ mcpServers: { castor: { command: 'npx', args: ['-y', 'mcp-remote', url, '--header', 'Authorization:${CASTOR_AUTH}'], env: { CASTOR_AUTH: `Bearer ${TOKEN}` } } } },
+				{ mcpServers: { castor: { command: 'castor-mcp', args: ['--server', origin], env: { CASTOR_TOKEN: TOKEN } } } },
 				null,
 				2
 			)

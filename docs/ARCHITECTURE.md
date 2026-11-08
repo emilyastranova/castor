@@ -435,7 +435,10 @@ Streamable HTTP (JSON replies; `initialize`, `ping`, `tools/list`, `tools/call`)
 bearer token (no cookies). Every tool is one REST endpoint called in-process with the
 caller's Authorization header, so scopes, roles and project limits apply unchanged, and
 `tools/list` hides tools the token's scopes don't grant. Results with job output are prefixed
-as untrusted data.
+as untrusted data. Resources (`resources/list`, `resources/templates/list`, `resources/read`;
+`castor://projects/{id}/board`, `cards/{id}`, `jobs/{id}/output`, `runs/{id}`) are GETs the same
+way. The in-process calls carry `X-Castor-Via: <api_tokens.MCP_KEY>`, so the activity they
+record has `payload.via = "mcp"`. `castor-mcp` (agent package) bridges stdio clients to it.
 
 ## Dispatcher
 

@@ -16,12 +16,19 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from .models import ApiToken, User, UserRole
 
 PREFIX = "castor_pat_"
+
+# How the request came in, for the activity it records ("mcp": through the MCP server). The
+# MCP server marks its in-process calls with a key made at startup, so a client can't fake it.
+via: ContextVar[str | None] = ContextVar("via", default=None)
+VIA_HEADER = "X-Castor-Via"
+MCP_KEY = secrets.token_hex(16)
 
 
 def new_token() -> tuple[str, str, str]:

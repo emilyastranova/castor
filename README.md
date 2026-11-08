@@ -184,7 +184,8 @@ curl -H "Authorization: Bearer $CASTOR_TOKEN" https://castor.example.internal/ap
 
 AI assistants that speak MCP (Claude, Gemini CLI, VS Code…) connect to `/api/mcp` with the
 same kind of token and get the tools its scopes allow: search, boards, cards, runs, job
-output, playbooks and assets. The API tokens page has the setup for each.
+output, playbooks and assets. The API tokens page has the setup for each. Clients that only
+speak stdio (Claude Desktop) use `castor-mcp`, which `pip install ./agent` installs.
 
 ## Quick start
 

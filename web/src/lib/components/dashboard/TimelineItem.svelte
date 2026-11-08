@@ -73,6 +73,7 @@
 			{:else}
 				<span class="label-large text-on-surface">{item.actor.name}</span>
 			{/if}
+			{#if item.via === 'mcp'}<span title="Done through an AI assistant connected over MCP">via MCP</span>{/if}
 			{#if item.kind === 'comment'}
 				<span>commented on</span>
 			{/if}

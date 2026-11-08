@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from . import alerts, notifications, variables
+from . import alerts, api_tokens, notifications, variables
 from . import models as m
 from .command_library import apply_library, load_spec, refresh_list_refs
 from .command_render import ArgumentError
@@ -73,7 +73,7 @@ async def record_activity(
         actor_name=actor_name,
         type=type,
         message=message,
-        payload=payload or {},
+        payload={**(payload or {}), "via": via} if (via := api_tokens.via.get()) else (payload or {}),
     )
     db.add(event)
     await db.flush()

@@ -212,7 +212,10 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   API reference at `/api/docs`.
 - MCP server (4b): `mcp.py` (`TOOLS`: each tool is one REST endpoint, called in-process with the
   caller's own token, so it inherits that endpoint's scope and checks; never re-implement checks
-  there), `api/mcp.py` (`POST /api/mcp`, bearer only). Web: `McpConnect.svelte`.
+  there; `RESOURCES` the same for `castor://` URIs), `api/mcp.py` (`POST /api/mcp`, bearer only).
+  Its calls mark activity `payload.via = "mcp"` (`api_tokens.via`, set in `deps.current_user` from
+  a startup key). `castor-mcp` (agent `mcp_stdio.py`, stdlib only) bridges stdio clients. Web:
+  `McpConnect.svelte`.
 - Config is `pydantic-settings` with the `CASTOR_` prefix (`config.py`).
 - SQLite uses `NullPool` (aiosqlite connections are bound to the event loop that opened
   them; the test client runs WebSocket sessions on another loop).

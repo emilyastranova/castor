@@ -61,3 +61,28 @@ def test_tools_follow_the_token(client, auth):
     assert _call(client, writer, "get_card", task_id=task_id)["content"][0]["text"].count(done["id"])
     missing = _call(client, writer, "get_card")
     assert missing["isError"] and "task_id" in missing["content"][0]["text"]
+
+
+def test_resources(client, auth):
+    p = client.post("/api/projects", json={"codename": f"MR-{uuid.uuid4().hex[:6]}", "name": "Res", "kind": "internal"}, headers=auth).json()
+    reader = _token(client, auth, scopes=["projects:read"], project_ids=[p["id"]])
+    listed = _rpc(client, reader, "resources/list")["result"]["resources"]
+    assert [r["uri"] for r in listed] == [f"castor://projects/{p['id']}/board"]
+    templates = {t["uriTemplate"] for t in _rpc(client, reader, "resources/templates/list")["result"]["resourceTemplates"]}
+    assert "castor://cards/{task_id}" in templates and "castor://jobs/{job_id}/output" not in templates  # needs jobs:read
+    board = _rpc(client, reader, "resources/read", {"uri": listed[0]["uri"]})["result"]["contents"][0]
+    assert json.loads(board["text"])["project"]["id"] == p["id"]
+    assert _rpc(client, reader, "resources/read", {"uri": "castor://nothing/here"})["error"]["code"] == -32002
+
+
+def test_actions_through_mcp_are_marked(client, auth):
+    p = client.post("/api/projects", json={"codename": f"MV-{uuid.uuid4().hex[:6]}", "name": "Via", "kind": "internal"}, headers=auth).json()
+    writer = _token(client, auth, scopes=["projects:write"], project_ids=[p["id"]])
+    card = json.loads(_call(client, writer, "create_card", project_id=p["id"], title="Through MCP")["content"][0]["text"])
+    direct = client.post(f"/api/projects/{p['id']}/tasks", json={"title": "Directly"}, headers=writer).json()
+    via = {a["task_id"]: a["payload"].get("via") for a in client.get(f"/api/projects/{p['id']}/activity", headers=auth).json()
+           if a["type"] == "task.created"}
+    assert via[card["id"]] == "mcp" and via[direct["id"]] is None
+    # The marker is a key made at startup: a client sending the header itself doesn't get it.
+    forged = client.post(f"/api/projects/{p['id']}/tasks", json={"title": "Forged"}, headers={**writer, "X-Castor-Via": "mcp"}).json()
+    assert not any(a["payload"].get("via") for a in client.get(f"/api/tasks/{forged['id']}/activity", headers=auth).json())

@@ -67,6 +67,7 @@ class FeedItem(BaseModel):
     job: dict[str, Any] | None = None
     run_id: str | None = None
     step_id: str | None = None
+    via: str | None = None  # "mcp": done through an AI assistant
 
 
 class FeedOut(BaseModel):
@@ -211,6 +212,7 @@ async def _enrich(db: DB, events: list[m.ActivityEvent]) -> list[FeedItem]:
             },
             run_id=payload.get("run_id"),
             step_id=payload.get("step_id"),
+            via=payload.get("via"),
         )
         comment = comments.get(uuid.UUID(payload["comment_id"])) if _is_uuid(payload.get("comment_id")) else None
         if comment is not None:

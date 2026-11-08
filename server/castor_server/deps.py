@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 import uuid
 from datetime import timedelta
 from typing import Annotated
@@ -88,6 +89,8 @@ async def current_user(request: Request, db: DB) -> User:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
     if user.disabled_at is not None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "This account is disabled")
+    if secrets.compare_digest(request.headers.get(api_tokens.VIA_HEADER, ""), api_tokens.MCP_KEY):
+        api_tokens.via.set("mcp")
     return user
 
 
