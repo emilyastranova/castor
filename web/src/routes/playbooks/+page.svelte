@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { currentProject } from '$lib/currentProject.svelte';
 	import { enter, leave, glide } from '$lib/motion';
 	import { onMount } from 'svelte';
 	import type { PlaybookDefinition, PlaybookRun, PlaybookStepSpec, Project, Task, JobOutput, CommandDefinition } from '$lib/api';
@@ -54,7 +55,10 @@
 
 	// Runs selection
 	// svelte-ignore state_referenced_locally
-	let selectedRunId = $state<string>(data.runs[0]?.id || '');
+	// The runs tab is the current project's runs (the library is shared).
+	let projectRuns = $derived(runs.filter((r) => !currentProject.id || r.project_id === currentProject.id));
+	// svelte-ignore state_referenced_locally
+	let selectedRunId = $state<string>(data.runs.find((r) => !currentProject.id || r.project_id === currentProject.id)?.id || '');
 	let selectedRun = $derived(runs.find((r) => r.id === selectedRunId) || null);
 
 	// Run Dialog
@@ -399,7 +403,7 @@ steps:
 
 	const tabs = $derived([
 		{ id: 'library', label: 'Playbook Library', icon: 'auto_mode', badge: playbooks.length },
-		{ id: 'runs', label: 'Runs & Visualizer', icon: 'account_tree', badge: runs.length }
+		{ id: 'runs', label: 'Runs & Visualizer', icon: 'account_tree', badge: projectRuns.length }
 	]);
 </script>
 
@@ -663,11 +667,11 @@ steps:
 			<div class="flex w-96 flex-col gap-3 overflow-hidden shrink-0">
 				<div class="flex items-center justify-between px-1">
 					<span class="title-small font-medium text-on-surface">Execution History</span>
-					<span class="body-small text-on-surface-variant">{runs.length} runs</span>
+					<span class="body-small text-on-surface-variant">{projectRuns.length} runs in this project</span>
 				</div>
 
 				<div class="flex flex-1 flex-col gap-2.5 overflow-y-auto pr-1">
-					{#each runs as run (run.id)}
+					{#each projectRuns as run (run.id)}
 						{@const isSelected = selectedRunId === run.id}
 						{@const project = projects.find((p) => p.id === run.project_id)}
 						<div in:enter out:leave animate:glide>
@@ -723,7 +727,7 @@ steps:
 						</div>
 					{:else}
 						<div class="py-12 text-center text-on-surface-variant body-medium">
-							No playbook runs yet. Launch one from the Library!
+							No playbook runs in this project yet. Launch one from the Library!
 						</div>
 					{/each}
 				</div>
@@ -1061,6 +1065,7 @@ steps:
 	bind:open={runDialogOpen}
 	spec={playbookToRun ? playbookToRun.spec : null}
 	{projects}
+	projectId={currentProject.id ?? ''}
 	onRun={handleRunStarted}
 />
 

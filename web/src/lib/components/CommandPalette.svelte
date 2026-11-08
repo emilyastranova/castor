@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { currentProject } from '$lib/currentProject.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { SearchGroup, SearchHit } from '$lib/api';
@@ -71,20 +72,23 @@
 	const place = (id: string, title: string, snippet: string, link: string, icon: string, keywords: string, admin = false): Place => ({
 		id, title, snippet, link, icon, keywords, admin, project: null, at: null
 	});
-	const PLACES: Place[] = [
-		place('home', 'Home', 'Dashboard', '/', 'space_dashboard', 'dashboard cockpit start overview timeline feed attention'),
-		place('projects', 'Projects', 'Boards and engagements', '/projects', 'view_kanban', 'boards kanban engagements clients'),
+	// Home, Board and Assets are the current project's (currentProject).
+	let PLACES = $derived<Place[]>([
+		place('home', 'Home', "This project's dashboard", currentProject.home, 'space_dashboard', 'dashboard cockpit start overview timeline feed attention notes'),
+		place('board', 'Board', "This project's cards", currentProject.board, 'view_kanban', 'kanban cards columns tasks'),
+		place('assets', 'Assets', 'What this project found', currentProject.assets, 'radar', 'hosts services urls credentials inventory triggers scope'),
+		place('projects', 'Switch project', 'Choose another project, or start one', '/projects', 'swap_horiz', 'projects switch change engagements clients new'),
 		place('playbooks', 'Playbooks', 'Run or edit a playbook', '/playbooks', 'account_tree', 'pipelines workflows runs graph dag automation'),
 		place('commands', 'Commands', 'The command library', '/commands', 'menu_book', 'library templates scripts'),
 		place('tools', 'Tools', 'Tool environments for commands', '/tools', 'handyman', 'images containers recipes docker install'),
 		place('variables', 'Variables', 'Credentials, lists and settings for commands', '/variables', 'key', 'secrets credentials vault sets kinds lists targets'),
 		place('parsers', 'Parsers', 'Turn tool output into results', '/parsers', 'data_object', 'outputs results nmap ffuf netexec parse'),
 		place('agents', 'Agents', 'Machines that run jobs', '/agents', 'dns', 'runners workers machines hosts tokens'),
-		place('activity', 'Activity', 'Everything that happened', '/activity', 'history', 'log audit events history'),
 		place('people', 'People', 'Who is on the team and what they have on', '/people', 'groups', 'team people members workload assigned'),
 		place('settings', 'Settings', 'Admin settings', '/settings', 'settings', 'admin configuration preferences', true),
-		place('users', 'Users', 'Settings · accounts and roles', '/settings/users', 'group', 'people accounts roles admins members permissions passwords', true)
-	];
+		place('users', 'Users', 'Settings · accounts and roles', '/settings/users', 'group', 'people accounts roles admins members permissions passwords', true),
+		place('activity', 'Activity log', 'Settings · everything, across projects', '/settings/activity', 'history', 'log audit events history', true)
+	]);
 	let typed = $derived(query.trim().length > 0);
 	let places = $derived(PLACES.filter((p) => !p.admin || isAdmin()));
 	/** Pages whose name (or one of their words) starts with every word typed; filters skip them. */

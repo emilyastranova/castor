@@ -4,7 +4,7 @@
 	import type { Asset, AssetTrigger, AssetTriggerFire, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, Icon, IconButton, Select, Switch, Tabs, TextField, TopAppBar } from '$lib/m3';
-	import ProjectViewSwitch from '$lib/components/ProjectViewSwitch.svelte';
+	import ProjectSwitcher from '$lib/components/ProjectSwitcher.svelte';
 	import AssetDialog from '$lib/components/AssetDialog.svelte';
 	import TriggerDialog from '$lib/components/TriggerDialog.svelte';
 	import { assetTypes, show } from '$lib/assetTypes.svelte';
@@ -205,18 +205,8 @@
 <svelte:head><title>{project.codename} · Assets · Castor</title></svelte:head>
 
 <TopAppBar>
-	<div class="flex min-w-0 items-center gap-3">
-		<IconButton icon="arrow_back" label="All projects" href="/projects" />
-		<div class="min-w-0">
-			<p class="label-medium text-primary">{project.codename}</p>
-			<h1 class="truncate title-large text-on-surface">{project.name}</h1>
-		</div>
-	</div>
-	{#snippet actions()}
-		<div class="hidden md:contents"><ProjectViewSwitch projectId={project.id} current="assets" /></div>
-	{/snippet}
+	<ProjectSwitcher {project} />
 </TopAppBar>
-<div class="px-4 pb-2 md:hidden"><ProjectViewSwitch projectId={project.id} current="assets" /></div>
 
 <div class="flex-1 overflow-auto">
 	<div class="mx-auto flex w-full max-w-7xl flex-col gap-4 px-6 pt-2 pb-10">

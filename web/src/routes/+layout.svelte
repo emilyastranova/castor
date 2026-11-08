@@ -15,25 +15,28 @@
 	import { palette } from '$lib/palette.svelte';
 	import NotificationBell from '$lib/components/NotificationBell.svelte';
 	import PhoneNav from '$lib/components/PhoneNav.svelte';
+	import { currentProject } from '$lib/currentProject.svelte';
 	import AccountDialog from '$lib/components/AccountDialog.svelte';
 	import { notifications } from '$lib/notifications.svelte';
 
 	let { data, children } = $props();
 	let dark = $state(false);
 
-	const baseNav = [
-		{ href: '/', icon: 'space_dashboard', label: 'Home' },
-		{ href: '/projects', icon: 'view_kanban', label: 'Projects' },
-		{ href: '/playbooks', icon: 'account_tree', label: 'Playbooks' },
+	// This project (Home, Board, Assets follow the current project), then the shared library,
+	// then the instance. Switching projects is in the project title and the account menu.
+	let nav = $derived([
+		{ href: currentProject.home, icon: 'space_dashboard', label: 'Home', exact: true },
+		{ href: currentProject.board, icon: 'view_kanban', label: 'Board', exact: true },
+		{ href: currentProject.assets, icon: 'radar', label: 'Assets', exact: true },
+		{ href: '/playbooks', icon: 'account_tree', label: 'Playbooks', divider: true },
 		{ href: '/commands', icon: 'menu_book', label: 'Commands' },
 		{ href: '/tools', icon: 'handyman', label: 'Tools' },
 		{ href: '/variables', icon: 'key', label: 'Variables' },
 		{ href: '/parsers', icon: 'data_object', label: 'Parsers' },
-		{ href: '/agents', icon: 'dns', label: 'Agents' },
-		{ href: '/activity', icon: 'history', label: 'Activity' },
-		{ href: '/people', icon: 'groups', label: 'People' }
-	];
-	let nav = $derived(data.user?.role === 'admin' ? [...baseNav, { href: '/settings', icon: 'settings', label: 'Settings' }] : baseNav);
+		{ href: '/agents', icon: 'dns', label: 'Agents', divider: true },
+		{ href: '/people', icon: 'groups', label: 'People' },
+		...(data.user?.role === 'admin' ? [{ href: '/settings', icon: 'settings', label: 'Settings' }] : [])
+	]);
 	let accountOpen = $state(false);
 
 	onMount(() => {
@@ -44,6 +47,10 @@
 	$effect(() => {
 		const seed = data.user?.theme_seed;
 		if (seed !== undefined && (seed || null) !== getSeed()) void applySeed(seed || null);
+	});
+
+	$effect.pre(() => {
+		if (data.user) currentProject.init(data.user.id);
 	});
 
 	$effect(() => {
@@ -96,7 +103,7 @@
 		<div class="hidden md:contents">
 		<NavigationRail items={nav} current={page.url.pathname}>
 			{#snippet top()}
-				<a href="/" class="flex size-12 items-center justify-center rounded-lg bg-primary-container text-on-primary-container" aria-label="Castor home">
+				<a href={currentProject.home} class="flex size-12 items-center justify-center rounded-lg bg-primary-container text-on-primary-container" aria-label="Castor home">
 					<Icon name="radar" filled />
 				</a>
 				<IconButton icon="search" label="Search everything (Ctrl+K)" class="mt-2" onclick={() => palette.show()} />
@@ -128,6 +135,7 @@
 							<p class="body-small text-on-surface-variant">@{data.user?.username} · {data.user?.role}</p>
 						</div>
 						<MenuItem icon="manage_accounts" onclick={() => (accountOpen = true)}>Account and password</MenuItem>
+						<MenuItem icon="swap_horiz" onclick={() => goto('/projects')}>Switch project</MenuItem>
 						<MenuItem icon="key" onclick={() => goto('/tokens')}>API tokens</MenuItem>
 						<MenuItem icon="logout" onclick={logout}>Sign out</MenuItem>
 					</Menu>

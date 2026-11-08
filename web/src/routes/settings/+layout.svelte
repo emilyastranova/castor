@@ -12,6 +12,7 @@
 		{ href: '/settings/tokens', icon: 'key', label: 'API tokens', detail: "Everyone's personal tokens" },
 		{ href: '/settings/alerts', icon: 'campaign', label: 'Alerts', detail: 'Chat and webhook channels' },
 		{ href: '/settings/ai', icon: 'auto_awesome', label: 'AI', detail: 'Providers, models and fallbacks' },
+		{ href: '/settings/activity', icon: 'history', label: 'Activity log', detail: 'Everything, across projects' },
 		{ href: '/settings/transfer', icon: 'sync_alt', label: 'Import and export', detail: 'Archives of projects and libraries' }
 	];
 </script>

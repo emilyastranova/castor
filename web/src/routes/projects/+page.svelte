@@ -7,9 +7,14 @@
 	import ImportDialog from '$lib/components/ImportDialog.svelte';
 	import { relativeTime } from '$lib/format';
 	import { realtime } from '$lib/realtime.svelte';
+	import { page } from '$app/state';
+	import { currentProject } from '$lib/currentProject.svelte';
 
 	let { data } = $props();
-	let createOpen = $state(false);
+	// The project picker: choosing one makes it current and opens its Home. ?new=1 (from the
+	// project switcher) opens New project straight away.
+	// svelte-ignore state_referenced_locally
+	let createOpen = $state(page.url.searchParams.get('new') === '1' && canEdit());
 	let importOpen = $state(false);
 
 	$effect(() =>
@@ -25,7 +30,7 @@
 
 <svelte:head><title>Projects · Castor</title></svelte:head>
 
-<TopAppBar title="Projects" subtitle="{data.projects.length} project{data.projects.length === 1 ? '' : 's'} · {online} agent{online === 1 ? '' : 's'} online">
+<TopAppBar title="Choose a project" subtitle="{data.projects.length} project{data.projects.length === 1 ? '' : 's'} · {online} agent{online === 1 ? '' : 's'} online">
 	{#snippet actions()}
 		{#if canEdit()}<Button variant="text" icon="upload" onclick={() => (importOpen = true)}>Import project…</Button>{/if}
 	{/snippet}
@@ -45,7 +50,7 @@
 	{:else}
 		<div class="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4 pt-2">
 			{#each data.projects as project (project.id)}
-				<a href="/projects/{project.id}" class="focus-ring rounded-md">
+				<a href="/projects/{project.id}/dashboard" class="focus-ring rounded-md" aria-current={project.id === currentProject.id ? 'true' : undefined} onclick={() => currentProject.set(project.id)}>
 					<Card variant="elevated" interactive class="flex h-full flex-col gap-3 p-5">
 						<div class="flex items-start justify-between gap-2">
 							<div class="min-w-0">
@@ -87,7 +92,7 @@
 	{#if canEdit()}<Fab icon="add" label="New project" extended onclick={() => (createOpen = true)}>New project</Fab>{/if}
 </div>
 
-<ProjectDialog bind:open={createOpen} clients={data.clients} oncreated={() => invalidateAll()} />
+<ProjectDialog bind:open={createOpen} clients={data.clients} oncreated={(p) => { currentProject.set(p.id); void goto(`/projects/${p.id}/dashboard`); }} />
 
 <ImportDialog
 	bind:open={importOpen}

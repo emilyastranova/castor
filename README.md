@@ -43,11 +43,12 @@ on the board as one card that opens into its live graph, decisions and steps.
 ## A look around
 
 <p align="center">
-  <img src=".github/assets/screenshots/dashboard.png" alt="The home dashboard: a greeting with today's numbers, a timeline of comments, card changes, job results and playbook runs across projects, and side panels for mentions and steps that need attention and for pinned project notes." width="100%">
+  <img src=".github/assets/screenshots/dashboard.png" alt="The home dashboard: a greeting with today's numbers, a timeline of comments, card changes, job results and playbook runs, and side panels for mentions and steps that need attention and for pinned project notes." width="100%">
 </p>
 
-The home dashboard covers every project you can see: what changed, what's running,
-and what's waiting on you (mentions, playbook decisions, failed runs, jobs at a prompt).
+You work in one project at a time (pick it once; Castor remembers it). Its Home is the
+dashboard: what changed, what's running, and what's waiting on you (mentions, playbook
+decisions, failed runs, jobs at a prompt). The Inbox covers every project.
 
 <table>
   <tr>

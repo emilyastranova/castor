@@ -452,8 +452,16 @@ and marks the job `dispatched`. Jobs with no eligible agent stay `queued`.
 
 ## Dashboard
 
-The home page (`/`) and each project's Dashboard view (`/projects/<id>/dashboard`) are the
-same component (`web/src/lib/components/dashboard/`), across every visible project or one.
+Everything in the UI is about one **current project**, remembered per person in the browser
+(`currentProject.svelte.ts`): Home (`/projects/<id>/dashboard`, where `/` redirects), Board
+(`/projects/<id>`) and Assets in the navigation follow it, and opening any project URL makes
+that project current (a switch that came from a link is announced). Switching is in the
+project title (`ProjectSwitcher`), the account menu and Ctrl+K; `/projects` is the picker.
+The library (commands, tools, playbooks, variables, parsers), agents and people are shared.
+Settings → Activity log is the feed across all projects. The dashboard API still answers for
+all visible projects (no `project_id`) for API clients.
+
+A project's Home is the dashboard component (`web/src/lib/components/dashboard/`).
 `GET /api/dashboard/summary` gives the headline numbers (last 24 h), **needs attention**
 (playbook steps waiting for a decision; cards whose latest run failed in the last week and
 aren't done) and **live now** (queued/running jobs, running playbook runs with progress,

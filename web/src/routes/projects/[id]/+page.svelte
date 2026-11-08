@@ -16,7 +16,8 @@
 	import ProjectDialog from '$lib/components/ProjectDialog.svelte';
 	import MembersDialog from '$lib/components/MembersDialog.svelte';
 	import ExportDialog from '$lib/components/ExportDialog.svelte';
-	import ProjectViewSwitch from '$lib/components/ProjectViewSwitch.svelte';
+	import ProjectSwitcher from '$lib/components/ProjectSwitcher.svelte';
+	import { currentProject } from '$lib/currentProject.svelte';
 	import { canEdit, isAdmin, me } from '$lib/session';
 	import { people } from '$lib/people.svelte';
 	import ActivityFeed from '$lib/components/ActivityFeed.svelte';
@@ -212,6 +213,7 @@
 		});
 		if (!ok) return;
 		await api().projects.remove(store.project.id);
+		if (currentProject.id === store.project.id) currentProject.set(null);
 		await goto('/projects');
 	}
 </script>
@@ -219,19 +221,11 @@
 <svelte:head><title>{store.project.codename} · Castor</title></svelte:head>
 
 <TopAppBar>
-	<div class="flex min-w-0 items-center gap-3">
-		<IconButton icon="arrow_back" label="All projects" href="/projects" />
-		<div class="min-w-0">
-			<p class="label-medium text-primary">{store.project.codename}</p>
-			<h1 class="truncate title-large text-on-surface">{store.project.name}</h1>
-		</div>
-	</div>
+	<ProjectSwitcher project={store.project} />
 	{#snippet actions()}
-		<!-- Narrower screens move these out: the view switch and "Assigned to me" below lg (a row
-		     under the header and the menu), search below xl, the status chips below 2xl, and New
-		     card becomes a FAB on phones. -->
-		<div class="hidden lg:contents"><ProjectViewSwitch projectId={store.project.id} current="board" /></div>
-		<div class="mr-2 hidden items-center gap-2 2xl:flex">
+		<!-- Narrower screens move these out: the status chips below xl, search and Activity below
+		     lg; on phones "Assigned to me" is in the menu and New card is a FAB. -->
+		<div class="mr-2 hidden items-center gap-2 xl:flex">
 			{#if running > 0}
 				<Chip variant="assist" icon="bolt">{running} running</Chip>
 			{/if}
@@ -239,10 +233,10 @@
 				{online} agent{online === 1 ? '' : 's'} online
 			</Chip>
 		</div>
-		<div class="mr-2 hidden lg:contents">
+		<div class="mr-2 hidden md:contents">
 			<Chip variant="filter" icon={mineOnly ? 'check' : 'person'} selected={mineOnly} onclick={toggleMine}>Assigned to me</Chip>
 		</div>
-		<label class="hidden items-center gap-2 rounded-full bg-surface-container-high px-4 xl:flex">
+		<label class="hidden items-center gap-2 rounded-full bg-surface-container-high px-4 lg:flex">
 			<Icon name="search" size={20} class="text-on-surface-variant" />
 			<input class="h-10 w-44 bg-transparent body-medium text-on-surface outline-none placeholder:text-on-surface-variant" placeholder="Filter cards" bind:value={filter} />
 		</label>
@@ -252,7 +246,7 @@
 		</div>
 		<Menu>
 			{#snippet anchor()}<IconButton icon="more_vert" label="Project menu" />{/snippet}
-			<div class="lg:hidden">
+			<div class="md:hidden">
 				<MenuItem icon={mineOnly ? 'check_box' : 'check_box_outline_blank'} onclick={toggleMine}>Only cards assigned to me</MenuItem>
 			</div>
 			<MenuItem icon="group" onclick={() => (membersOpen = true)}>Members</MenuItem>
@@ -271,15 +265,13 @@
 	{/snippet}
 </TopAppBar>
 
-<div class="flex flex-wrap items-center gap-2 px-4 pb-2 lg:hidden">
-	<ProjectViewSwitch projectId={store.project.id} current="board" />
-	{#if mineOnly}
-		<Chip variant="filter" icon="check" selected onclick={toggleMine}>Mine</Chip>
-	{/if}
-	{#if !editable}
-		<span class="md:hidden"><Chip variant="assist" icon="visibility">View only</Chip></span>
-	{/if}
-</div>
+{#if mineOnly || !editable}
+	<!-- Phones: what the header can't show (the filter in use, view-only). -->
+	<div class="flex flex-wrap items-center gap-2 px-4 pb-2 md:hidden">
+		{#if mineOnly}<Chip variant="filter" icon="check" selected onclick={toggleMine}>Mine</Chip>{/if}
+		{#if !editable}<Chip variant="assist" icon="visibility">View only</Chip>{/if}
+	</div>
+{/if}
 {#if editable}
 	<Fab
 		icon="add"

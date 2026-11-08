@@ -278,8 +278,15 @@ dependency; keep it that way so the agent stays trivially installable on target 
   (it can't clone Svelte state proxies). The server renders and checks YAML in
   `POST /api/playbooks/to-yaml` (`playbook_yaml.py`); keep its round trip exact
   (`test_playbook_yaml.py` runs every built-in playbook through it).
-- Home (`routes/+page.svelte`) and `routes/projects/[id]/dashboard` render
-  `lib/components/dashboard/Dashboard.svelte` (global, or one `projectId`), fed by
+- Current project: `lib/currentProject.svelte.ts` (per user in localStorage). Home, Board and
+  Assets in the nav (`routes/+layout.svelte`, `PhoneNav`) are the current project's; `/`
+  redirects to its dashboard (or the `/projects` picker). `routes/projects/[id]/+layout.*`
+  loads the project and makes it current, announcing a switch that came from a link; project
+  page titles are `ProjectSwitcher.svelte`. Library pages (commands, tools, playbooks…) are
+  shared; the Playbooks runs tab shows the current project's runs. The all-projects activity
+  feed is Settings → Activity log (`routes/settings/activity`).
+- `routes/projects/[id]/dashboard` (the project's Home) renders
+  `lib/components/dashboard/Dashboard.svelte` (one `projectId`), fed by
   `api/dashboard.py` (`/summary`, `/feed`: activity events enriched with the comment, job,
   card and author). New activity types map to feed kinds in `dashboard.kind_of`.
   A project dashboard starts with `ProjectNotes.svelte` (pinned notes, `api/notes.py`; edits

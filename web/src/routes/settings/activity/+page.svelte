@@ -26,9 +26,9 @@
 	let projectOf = (id: string | null) => data.projects.find((p) => p.id === id);
 </script>
 
-<svelte:head><title>Activity · Castor</title></svelte:head>
+<svelte:head><title>Activity log · Settings · Castor</title></svelte:head>
 
-<TopAppBar title="Activity" subtitle="Everything that happened across workflows" />
+<TopAppBar title="Activity log" subtitle="Everything that happened, in every project and outside them (users, agents, settings)" />
 <div class="flex flex-wrap gap-2 px-6 pb-2">
 	<Chip variant="filter" selected={projectFilter === null} onclick={() => (projectFilter = null)}>All</Chip>
 	{#each data.projects as p (p.id)}

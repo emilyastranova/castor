@@ -1,8 +1,5 @@
-import type { PageLoad } from './$types';
-import { api } from '$lib/api';
+import { redirect } from '@sveltejs/kit';
 
-export const load: PageLoad = async ({ fetch }) => {
-	const client = api(fetch);
-	const [activity, projects] = await Promise.all([client.activity.recent(100), client.projects.list()]);
-	return { activity, projects };
-};
+/** The all-projects activity feed moved to Settings → Activity log (a project's own activity
+ *  is its Home timeline). */
+export const load = () => redirect(308, '/settings/activity');

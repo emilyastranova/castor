@@ -110,6 +110,12 @@ A critique of the app at phone size on 2026-11-08 (375x812, spot checks at 412x9
   `2xl`); phones get a view-switch row and a New card FAB, "Only cards assigned to me" is in
   the menu. The project Dashboard and Assets pages share the view row.
 - `bottom-above-nav` (`app.css`) puts FABs and snackbars above the phone bar.
+- **One current project** (2026-11-08): Home, Board and Assets follow a project you pick once
+  (remembered per person in the browser); the Projects nav item, the all-projects dashboard
+  and the Board/Dashboard/Assets pill selector are gone. Switching is in the project title,
+  the account menu (More on phones) and Ctrl+K; `/projects` is the picker. The all-projects
+  activity feed moved to Settings → Activity log; the Playbooks runs tab shows the current
+  project's runs.
 
 Still to do, most important first (file references are from the critique):
 

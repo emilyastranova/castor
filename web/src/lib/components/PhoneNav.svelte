@@ -19,11 +19,11 @@
 	}
 	let { items, current, user, dark, onaccount, ontheme, onlogout }: Props = $props();
 
-	const PINNED = ['/', '/projects'];
-	const active = (href: string) => (href === '/' ? current === '/' : current.startsWith(href));
-	let pinned = $derived(items.filter((i) => PINNED.includes(i.href)));
-	let rest = $derived(items.filter((i) => !PINNED.includes(i.href)));
-	let elsewhere = $derived(rest.some((i) => active(i.href)) || current.startsWith('/tokens'));
+	// The first two destinations (Home and Board) are in the bar; the rest are in More.
+	const active = (item: NavItem) => (item.exact || item.href === '/' ? current === item.href : current.startsWith(item.href));
+	let pinned = $derived(items.slice(0, 2));
+	let rest = $derived(items.slice(2));
+	let elsewhere = $derived(rest.some(active) || current.startsWith('/tokens') || current === '/projects');
 
 	let sheet: HTMLDialogElement | undefined = $state();
 	let sheetOpen = $state(false);
@@ -56,9 +56,9 @@
 	class="flex shrink-0 items-stretch border-t border-outline-variant/60 bg-surface-container pb-[env(safe-area-inset-bottom)] md:hidden"
 	aria-label="Main"
 >
-	{#each pinned as i (i.href)}
-		<a href={i.href} class="group flex h-16 flex-1 flex-col items-center justify-center gap-1 outline-none" aria-current={active(i.href) ? 'page' : undefined}>
-			{@render item(i.icon, i.label, active(i.href))}
+	{#each pinned as i (i.label)}
+		<a href={i.href} class="group flex h-16 flex-1 flex-col items-center justify-center gap-1 outline-none" aria-current={active(i) ? 'page' : undefined}>
+			{@render item(i.icon, i.label, active(i))}
 		</a>
 	{/each}
 	<button type="button" class="group flex h-16 flex-1 flex-col items-center justify-center gap-1 outline-none" onclick={() => palette.show()}>
@@ -100,17 +100,17 @@
 	</div>
 
 	<ul class="grid grid-cols-3 gap-1 px-3">
-		{#each rest as i (i.href)}
+		{#each rest as i (i.label)}
 			<li>
 				<a
 					href={i.href}
 					onclick={closeSheet}
-					aria-current={active(i.href) ? 'page' : undefined}
-					class="state-layer focus-ring flex h-18 flex-col items-center justify-center gap-1 rounded-lg {active(i.href)
+					aria-current={active(i) ? 'page' : undefined}
+					class="state-layer focus-ring flex h-18 flex-col items-center justify-center gap-1 rounded-lg {active(i)
 						? 'bg-secondary-container text-on-secondary-container'
 						: 'text-on-surface'}"
 				>
-					<Icon name={i.icon} filled={active(i.href)} />
+					<Icon name={i.icon} filled={active(i)} />
 					<span class="label-medium">{i.label}</span>
 				</a>
 			</li>
@@ -123,6 +123,11 @@
 			<button type="button" class="state-layer focus-ring flex h-12 w-full items-center gap-4 rounded-lg px-3 body-large text-on-surface" onclick={() => then(onaccount)}>
 				<Icon name="manage_accounts" class="text-on-surface-variant" />Account and password
 			</button>
+		</li>
+		<li>
+			<a href="/projects" onclick={closeSheet} class="state-layer focus-ring flex h-12 w-full items-center gap-4 rounded-lg px-3 body-large text-on-surface">
+				<Icon name="swap_horiz" class="text-on-surface-variant" />Switch project
+			</a>
 		</li>
 		<li>
 			<a href="/tokens" onclick={closeSheet} class="state-layer focus-ring flex h-12 w-full items-center gap-4 rounded-lg px-3 body-large text-on-surface">

@@ -1,8 +1,9 @@
 import { error } from '@sveltejs/kit';
-import type { PageLoad } from './$types';
+import type { LayoutLoad } from './$types';
 import { api, ApiError } from '$lib/api';
 
-export const load: PageLoad = async ({ fetch, params }) => {
+/** The project every page under it is about (Home, Board, Assets). */
+export const load: LayoutLoad = async ({ fetch, params }) => {
 	try {
 		return { project: await api(fetch).projects.get(params.id) };
 	} catch (err) {
