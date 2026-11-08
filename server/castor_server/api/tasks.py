@@ -4,7 +4,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from .. import models as m
 from .. import notifications, people, variables
@@ -227,7 +227,11 @@ async def move(task_id: str, body: TaskMove, db: DB, user: CurrentUser):
     column = await db.get(m.BoardColumn, body.column_id)
     if column is None or column.project_id != task.project_id:
         raise HTTPException(404, "Column not found")
-    job = await move_task(db, task, column, body.position, user)
+    position = body.position
+    if position is None:
+        top = (await db.execute(select(func.min(m.Task.position)).where(m.Task.column_id == column.id))).scalar()
+        position = (top if top is not None else 1.0) - 1.0
+    job = await move_task(db, task, column, position, user)
     await db.commit()
     out = await publish_task(db, task, "task.moved")
     if job is not None:

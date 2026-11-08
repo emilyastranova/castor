@@ -271,7 +271,7 @@ class TaskPatch(BaseModel):
 
 class TaskMove(BaseModel):
     column_id: uuid.UUID
-    position: float
+    position: float | None = None  # None: the top of the column
 
 
 class JobOut(ORM):

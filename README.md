@@ -37,8 +37,8 @@ on the board as one card that opens into its live graph, decisions and steps.
 > library, parsers, playbooks, users and roles; then tool environments, @mentions, AI help,
 > assets, search, interactive terminals, chat alerts and more): see
 > [docs/PHASE2.md](docs/PHASE2.md) and [docs/PHASE3.md](docs/PHASE3.md). Phase 4 has added
-> scoped API tokens and an API reference at `/api/docs`; a built-in MCP server is next
-> ([docs/PHASE4.md](docs/PHASE4.md)).
+> scoped API tokens, an API reference at `/api/docs` and a built-in MCP server for AI
+> assistants ([docs/PHASE4.md](docs/PHASE4.md)).
 
 ## A look around
 
@@ -181,6 +181,10 @@ it needs, is in the reference at `/api/docs`.
 ```bash
 curl -H "Authorization: Bearer $CASTOR_TOKEN" https://castor.example.internal/api/projects
 ```
+
+AI assistants that speak MCP (Claude, Gemini CLI, VS Code…) connect to `/api/mcp` with the
+same kind of token and get the tools its scopes allow: search, boards, cards, runs, job
+output, playbooks and assets. The API tokens page has the setup for each.
 
 ## Quick start
 

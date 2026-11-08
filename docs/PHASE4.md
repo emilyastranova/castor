@@ -9,7 +9,7 @@ through the same API the UI uses, with credentials that can do only what they're
 | Slice | What you get | Depends on | Status |
 | --- | --- | --- | --- |
 | 4a. API tokens and reference | Personal tokens with scopes and an optional project list; every endpoint documented with the scope it needs | nothing | Built |
-| 4b. Built-in MCP server | AI assistants (Claude, Gemini, IDEs…) work with Castor through a Model Context Protocol endpoint, using an API token | 4a | Planned |
+| 4b. Built-in MCP server | AI assistants (Claude, Gemini, IDEs…) work with Castor through a Model Context Protocol endpoint, using an API token | 4a | Built |
 
 ## 4a. API tokens and reference
 
@@ -53,31 +53,32 @@ limits, service accounts that aren't a person (a user made for the purpose works
 
 ## 4b. Built-in MCP server
 
-**Planned.** An MCP endpoint in the server so an AI assistant can work with Castor the way
-a person does in the UI: look at boards, make and run cards, read output, run playbooks,
-answer paused steps.
+**Built.** Code: `mcp.py` (protocol and tools), `api/mcp.py` (`POST /api/mcp`); web
+`McpConnect.svelte` on the API tokens page. Tests: `test_mcp.py`.
 
-- **Transport.** Streamable HTTP at `/api/mcp` (inside the API, so Caddy and the Vite proxy
-  already route it), authenticated with an API token (4a) as `Authorization: Bearer`. The
-  token's scopes decide which tools the server lists, and each call goes through the same
-  checks as the REST endpoint behind it. A small `castor-mcp` stdio shim for clients that
-  only speak stdio (it forwards to the HTTP endpoint).
-- **Tools** (thin wrappers over `services.py`, not over HTTP): `search`, `list_projects`,
-  `get_board`, `get_card`, `create_card` (manual, raw command, or a library command with
-  arguments), `move_card`, `comment`, `run_card`, `get_job` / `get_job_output` (plain text,
-  `interactive.plain`, tail by default), `cancel_job`, `list_commands` / `get_command`,
-  `list_playbooks`, `run_playbook`, `get_run`, `resolve_step`, `list_assets`. Each declares
-  its scope; destructive ones (`delete_*`) are left out at first.
-- **Resources.** Cards, job logs and playbook runs as `castor://` URIs, so a client can
-  attach them as context; subscribing to a job's log streams new output.
-- **Prompts.** "Triage this failed card", "Summarise this project's findings", "Draft a
-  command for <tool>" (these reuse 3e's prompts where they exist).
-- **Safety.** Secret variable values never appear in tool results (only with
-  `secrets:reveal`, and then still masked unless asked). Job output can contain hostile text
-  (3e's banner test), so tool results mark it as untrusted data. Every call is recorded in
-  the activity feed as the token's user, "via MCP".
-- **UI.** On the API tokens page: "Connect an AI assistant" with ready-to-paste config for
-  Claude Desktop/Code, Gemini CLI and VS Code, and a token preset for it.
-- **Open questions:** an official MCP Python SDK dependency, or the small JSON-RPC subset
-  by hand (the server already avoids SDKs for LLMs)? Should Castor's own AI (3e) use these
-  tools too, so the resolver can look around before deciding?
+- **Transport.** Streamable HTTP at `/api/mcp`, stateless: each POST carries one JSON-RPC
+  message (or a batch) and gets a plain JSON reply; notifications get 202; `GET` answers 405
+  (no server-initiated stream). Protocol versions 2025-06-18, 2025-03-26 and 2024-11-05.
+  Methods: `initialize`, `ping`, `tools/list`, `tools/call`.
+- **Auth.** A bearer token is required (an API token; a session JWT also works when sent
+  as a bearer); cookies are refused, so a web page can't drive it with someone's session.
+- **Tools are REST endpoints.** Each tool names one endpoint and is called in-process
+  (`httpx.ASGITransport`) with the caller's own Authorization header, so it can do exactly
+  what the token can over HTTP: same scopes, role, project limit, validation and activity.
+  `tools/list` shows only the tools the token's scopes grant (`Tool.scope` comes from
+  `api_tokens.RULES`). Tools: `search`, `list_projects`, `get_board`, `get_card`,
+  `list_comments`, `create_card`, `move_card`, `comment`, `run_card`, `list_jobs`, `get_job`,
+  `get_job_output`, `get_job_results`, `cancel_job`, `list_commands`, `get_command`,
+  `list_playbooks`, `run_playbook`, `get_run`, `resolve_step`, `list_assets`. Nothing
+  deletes, and nothing reveals secrets.
+- **Untrusted output.** Results that carry job output or what a job found start with a note
+  that the text is data, not instructions. Long results are cut at 100k characters (job
+  output keeps its end).
+- `POST /api/tasks/{id}/move` now takes `position: null` for "top of the column", so callers
+  (and `move_card`) don't need to compute one.
+- **UI.** "Connect an AI assistant" on the API tokens page: config for Claude Code, VS Code,
+  Gemini CLI and Claude Desktop (through `mcp-remote`).
+
+Not built from the plan: resources (`castor://` cards and logs), prompts, a `castor-mcp` stdio
+shim (Claude Desktop uses `mcp-remote`), marking MCP calls "via MCP" in the activity feed (they
+show as the token's user), and the open question of Castor's own AI using these tools.

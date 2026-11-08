@@ -87,6 +87,7 @@ RULES: list[tuple[str, str, str]] = [
     ("*", "/api/auth/logout", PUBLIC),
     ("POST", "/api/jobs/*/artifacts", PUBLIC),  # the agent, with the job's one-off token
     ("GET", "/api/auth/me", ANY),
+    ("*", "/api/mcp", ANY),  # each tool call is checked against its own endpoint's scope
     ("*", "/api/auth/**", SESSION),
     ("*", "/api/tokens/**", SESSION),
     ("*", "/api/openapi.json", PUBLIC),

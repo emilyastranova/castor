@@ -428,6 +428,15 @@ and agents. Every word must appear in some field (case-insensitive, over the liv
 `in:CODE`, `type:`, `by:`, `tag:`, `is:mine` and `status:` filter. Results come back grouped,
 each with a snippet and a link into the UI. Variable-set secrets are never searched.
 
+## MCP server
+
+`POST /api/mcp` (`mcp.py`, `api/mcp.py`) speaks the Model Context Protocol over stateless
+Streamable HTTP (JSON replies; `initialize`, `ping`, `tools/list`, `tools/call`). It needs a
+bearer token (no cookies). Every tool is one REST endpoint called in-process with the
+caller's Authorization header, so scopes, roles and project limits apply unchanged, and
+`tools/list` hides tools the token's scopes don't grant. Results with job output are prefixed
+as untrusted data.
+
 ## Dispatcher
 
 The dispatcher lives in the server process. `pump()` runs whenever a job is enqueued, an

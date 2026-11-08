@@ -209,7 +209,10 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `user.api_token` carries it, and `access.py` applies its project limit. **A new endpoint
   needs a rule in `RULES`** (`test_every_route_has_a_scope`). Token management, password and
   profile are session only. Web: `routes/tokens` (yours), `routes/settings/tokens` (admins).
-  API reference at `/api/docs`. The planned MCP server (4b) is in `docs/PHASE4.md`.
+  API reference at `/api/docs`.
+- MCP server (4b): `mcp.py` (`TOOLS`: each tool is one REST endpoint, called in-process with the
+  caller's own token, so it inherits that endpoint's scope and checks; never re-implement checks
+  there), `api/mcp.py` (`POST /api/mcp`, bearer only). Web: `McpConnect.svelte`.
 - Config is `pydantic-settings` with the `CASTOR_` prefix (`config.py`).
 - SQLite uses `NullPool` (aiosqlite connections are bound to the event loop that opened
   them; the test client runs WebSocket sessions on another loop).

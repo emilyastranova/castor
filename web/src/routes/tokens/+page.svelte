@@ -4,6 +4,7 @@
 	import { Button, TopAppBar } from '$lib/m3';
 	import ApiTokenDialog from '$lib/components/ApiTokenDialog.svelte';
 	import ApiTokenList from '$lib/components/ApiTokenList.svelte';
+	import McpConnect from '$lib/components/McpConnect.svelte';
 
 	let { data } = $props();
 	// svelte-ignore state_referenced_locally
@@ -31,6 +32,7 @@
 			It acts as you, so your role and projects apply, narrowed to its scopes. Tokens can't make tokens or change your password.
 		</p>
 		<ApiTokenList {tokens} onchange={reload} oncreate={() => (dialogOpen = true)} />
+		<McpConnect />
 	</div>
 </div>
 
