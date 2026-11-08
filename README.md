@@ -93,7 +93,10 @@ decisions, failed runs, jobs at a prompt). The Inbox covers every project.
 ## How it works
 
 <p align="center">
-  <img src=".github/assets/architecture.svg" alt="The browser talks to the Castor server over HTTP and a WebSocket. Agents connect to the server over a WebSocket, receive jobs, run them in podman or docker containers or the host shell, and stream logs and files back." width="100%">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset=".github/assets/architecture-light.svg">
+    <img src=".github/assets/architecture.svg" alt="The browser talks to the Castor server over HTTP and a WebSocket. Agents connect to the server over a WebSocket, receive jobs, run them in podman or docker containers or the host shell, and stream logs and files back." width="100%">
+  </picture>
 </p>
 
 1. A command card names a command from the **library**: a YAML definition with
@@ -118,7 +121,10 @@ people when an unattended run stops at a prompt.
 ## Playbooks
 
 <p align="center">
-  <img src=".github/assets/playbook.svg" alt="A playbook graph: a seed step fans out into three parallel branches; dashed transform steps reshape the data between commands; a report step collects all three branches." width="100%">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset=".github/assets/playbook-light.svg">
+    <img src=".github/assets/playbook.svg" alt="A playbook graph: a seed step fans out into three parallel branches; dashed transform steps reshape the data between commands; a report step collects all three branches." width="100%">
+  </picture>
 </p>
 
 A playbook is a YAML graph of steps. **Command steps** become cards and run on

@@ -65,9 +65,11 @@ connections turn it on.
 Regenerate the default Material 3 palette: `cd web && node scripts/gen-tokens.mjs '#4f5bd5'`
 writes `src/lib/m3/tokens.css` (committed, do not hand-edit).
 
-README images (`.github/assets/*.svg`) are generated from the AstraLabs brand repo
-(`../astralabs_design`) with fontTools: `python3 .github/assets/build_assets.py`. Don't
-hand-edit the SVGs; change the script and regenerate.
+README images (`.github/assets/*.svg`, each in dark and `-light`) are generated with fontTools
+in the app's look (colours from `tokens.css`, Roboto Flex/Mono and Material Symbols, cached in
+`.github/assets/.cache/`): `python3 .github/assets/build_assets.py`. Only the footer needs the
+AstraLabs brand repo (`../astralabs_design`). Don't hand-edit the SVGs; change the script and
+regenerate.
 README screenshots (`.github/assets/screenshots/*.png`) come from a seeded throwaway demo
 instance (`seed_demo.py`, `capture.py`); the steps are in that folder's README.
 

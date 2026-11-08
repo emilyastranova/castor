@@ -1,7 +1,9 @@
-"""Make the README images in .github/assets/ from the AstraLabs brand files.
+"""Make the README images in .github/assets/.
 
-The images follow the AstraLabs brand guide. All text is converted to
-outlines, because GitHub does not load fonts in SVG images.
+The banner and diagrams use the app's own look: colour roles from web/src/lib/m3/tokens.css,
+Roboto Flex and Roboto Mono, Material Symbols, each in a dark and a light version. The footer is
+the AstraLabs lockup from the brand repository. All text is converted to outlines, because
+GitHub does not load fonts in SVG images.
 
 Usage:
 
@@ -11,7 +13,6 @@ The script needs fontTools (pip install fonttools). The default path of the
 brand repository is ../astralabs_design next to this repository.
 """
 
-import math
 import re
 import sys
 import urllib.request
@@ -28,19 +29,7 @@ BRAND = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT.parent / "astralabs_des
 FONT = BRAND / "brand" / "fonts" / "MartianMono[wdth,wght].ttf"
 LOCKUP = BRAND / "brand" / "astralabs-lockup.svg"
 
-# Brand tokens (astralabs_design/README.md, Color).
-VOID = "#0A0909"
-PLATE = "#131212"
-RULE = "#2C2A29"
-MARK = "#FFFFFF"
-BONE = "#EDE6E1"
-ASH = "#8E8380"
-ACID = "#B6FF2E"
-
-MARK_PATHS = (
-    '<path d="M0 519.62 L300 0 L542.84 420.62 L466.63 420.62 L300 132 L76.21 519.62 Z"/>'
-    '<path d="M114.32 519.62 L300 198 L338.11 264 L228.63 453.62 L561.89 453.62 L600 519.62 Z"/>'
-)
+VOID = "#0A0909"  # the AstraLabs brand background, for the footer
 
 
 def num(value):
@@ -52,7 +41,10 @@ class Face:
     """One instance of a variable font (Martian Mono unless another is given)."""
 
     def __init__(self, weight, width, font_path=FONT, **axes):
-        font = instancer.instantiateVariableFont(TTFont(font_path), {"wght": weight, "wdth": width, **axes})
+        font = TTFont(font_path)
+        present = {a.axisTag for a in font["fvar"].axes}
+        limits = {k: v for k, v in {"wght": weight, "wdth": width, **axes}.items() if k in present}
+        font = instancer.instantiateVariableFont(font, limits)
         self.glyphs = font.getGlyphSet()
         self.cmap = font.getBestCmap()
         self.hmtx = font["hmtx"]
@@ -90,56 +82,6 @@ class Face:
         return " ".join(parts)
 
 
-WORDMARK = Face(300, 112.5)
-LABEL = Face(500, 85)
-DATA = Face(400, 100)
-
-
-def label(text, x, baseline, fill=ASH, size=13, anchor="start", face=LABEL, tracking=0.14):
-    d = face.text(text.upper(), size, tracking, x, baseline, anchor)
-    return f'<path fill="{fill}" d="{d}"/>'
-
-
-def wordmark_paths(path_text):
-    """Returns the letter paths and the acid paths of `[PATH]`, in lockup
-    units (the coordinates of astralabs-lockup.svg).
-
-    The measures come from the AstraLabs lockup: letter size 56, baseline
-    74.9, tracking 0.36 em, and 0.14 em of extra space inside each bracket.
-    """
-    size, baseline, tracking, bracket = 56, 74.9, 0.36, 0.14
-    step = WORDMARK.advance("A", size) + tracking * size
-    x = 163.24  # origin of "[" in the AstraLabs lockup
-    letters, acid = [], [WORDMARK.glyph("[", size, x, baseline)]
-    x += step + bracket * size
-    for char in path_text:
-        target = acid if char == "/" else letters
-        target.append(WORDMARK.glyph(char, size, x, baseline))
-        x += step
-    # x is now one step after the last letter.
-    x += bracket * size
-    acid.append(WORDMARK.glyph("]", size, x, baseline))
-    right = x + 474 * size / 1000  # right edge of "]"
-    return " ".join(letters), " ".join(acid), right
-
-
-def frame(width, height):
-    """The dot grid and the corner ticks of the AstraLabs banner."""
-    ticks = []
-    for x, dx in ((24, 14), (width - 24, -14)):
-        for y, dy in ((24, 14), (height - 24, -14)):
-            ticks.append(
-                f'<path d="M{x} {y + dy} V{y} H{x + dx}" fill="none" stroke="{BONE}" '
-                f'stroke-opacity=".55" stroke-width="1.5"/>'
-            )
-    return (
-        '<defs><pattern id="dots" width="16" height="16" patternUnits="userSpaceOnUse">'
-        f'<circle cx="8" cy="8" r="1" fill="{BONE}" fill-opacity=".16"/></pattern></defs>\n'
-        f'<rect width="{width}" height="{height}" fill="{VOID}"/>\n'
-        f'<rect width="{width}" height="{height}" fill="url(#dots)"/>\n' + "\n".join(ticks) + "\n"
-    )
-
-
 # ---------- the Castor banner: the app's own look (Material You tokens, Roboto Flex) ----------
 # It follows the UI rather than the AstraLabs terminal style: the README is where people first
 # see Castor, so it should look like the thing they'll use. The footer keeps the AstraLabs mark.
@@ -148,6 +90,8 @@ CACHE = HERE / ".cache"  # downloaded once, not committed (see .gitignore)
 ROBOTO_URL = ("https://github.com/google/fonts/raw/main/ofl/robotoflex/"
               "RobotoFlex%5BGRAD%2CXOPQ%2CXTRA%2CYOPQ%2CYTAS%2CYTDE%2CYTFI%2CYTLC%2CYTUC%2Copsz%2Cslnt%2Cwdth%2Cwght%5D.ttf")
 RADAR_URL = "https://fonts.gstatic.com/s/i/short-term/release/materialsymbolsrounded/radar/fill1/48px.svg"
+MONO_URL = "https://github.com/google/fonts/raw/main/ofl/robotomono/RobotoMono%5Bwght%5D.ttf"
+SYMBOLS = "https://fonts.gstatic.com/s/i/short-term/release/materialsymbolsrounded"
 TOKENS = ROOT / "web" / "src" / "lib" / "m3" / "tokens.css"
 
 
@@ -249,158 +193,125 @@ def castor_banner(theme):
     return "\n".join(out)
 
 
-def banner():
-    width, height = 1280, 360
-    letters, acid, right = wordmark_paths("CASTOR")
-    lockup_width = right + 15.45  # same right margin as the AstraLabs lockup
-    # Same letter size as the AstraLabs banner, unless the name needs to shrink to fit.
-    scale = min(600 / 904.68, (width - 2 * 120) / lockup_width)
-    x = (width - lockup_width * scale) / 2
-    y = (height - 105 * scale) / 2 - 8
-    return (
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" '
-        f'width="{width}" height="{height}" role="img" aria-label="Castor">\n'
-        + frame(width, height)
-        + f'<g transform="translate({num(x)} {num(y)}) scale({scale:.5f})">\n'
-        f'<g transform="scale(0.20207)" fill="{MARK}">{MARK_PATHS}</g>\n'
-        f'<path fill="{MARK}" d="{letters}"/>\n'
-        f'<path fill="{ACID}" d="{acid}"/>\n'
-        "</g>\n"
-        + label("Kanban board / workflow orchestrator", 48, 334, size=15)
-        + "\n"
-        + label("MIT", width - 48, 334, size=15, anchor="end")
-        + "\n</svg>\n"
-    )
+def icon(name, x, y, size, fill, style="default"):
+    """A Material Symbols Rounded icon (Apache 2.0) with its top left corner at x, y."""
+    path = cached(f"{name}-{style}.svg", f"{SYMBOLS}/{name}/{style}/48px.svg")
+    d = re.search(r' d="([^"]+)"', path.read_text()).group(1)
+    return (f'<g transform="translate({num(x)} {num(y)}) scale({size / 960:.5f}) translate(0 960)">'
+            f'<path fill="{fill}" d="{d}"/></g>')
 
 
-def arrow(x1, y1, x2, y2, color, width=1.0, heads=(False, True)):
-    """A line with 60-degree heads (the brand angle)."""
-    out = [
-        f'<path d="M{num(x1)} {num(y1)} L{num(x2)} {num(y2)}" stroke="{color}" '
-        f'stroke-width="{width}" fill="none"/>'
-    ]
-    angle = math.atan2(y2 - y1, x2 - x1)
-    for at_start, (px, py, a) in zip(heads, ((x1, y1, angle + math.pi), (x2, y2, angle))):
-        if not at_start:
-            continue
-        length = 9
-        points = []
-        for side in (-1, 1):
-            b = a + math.pi - side * math.pi / 6
-            points.append((px + length * math.cos(b), py + length * math.sin(b)))
-        (ax, ay), (bx, by) = points
-        out.append(
-            f'<path d="M{num(ax)} {num(ay)} L{num(px)} {num(py)} L{num(bx)} {num(by)}" '
-            f'stroke="{color}" stroke-width="{width}" fill="none"/>'
-        )
+class Look:
+    """The app's colours and type for one theme, shared by the README diagrams."""
+
+    def __init__(self, theme):
+        self.theme = theme
+        self.c = theme_tokens(theme)
+        roboto = cached("RobotoFlex.ttf", ROBOTO_URL)
+        self.title = Face(560, 100, roboto, opsz=24)
+        self.body = Face(420, 100, roboto, opsz=14)
+        self.mono = Face(450, 100, cached("RobotoMono.ttf", MONO_URL))
+
+    def text(self, face, text, size, x, baseline, fill, anchor="start", tracking=0.0):
+        return f'<path fill="{self.c[fill]}" d="{face.text(text, size, tracking, x, baseline, anchor)}"/>'
+
+    def card(self, x, y, w, h, r):
+        """A card on a container: raised with elevation 1 in light, a lighter tone in dark."""
+        if self.theme == "light":
+            return rounded(x, y, w, h, r, self.c["surface-container-lowest"], ' filter="url(#e1)"')
+        return rounded(x, y, w, h, r, self.c["surface-container-high"])
+
+    def chip(self, text, cx, cy, tone="surface-container-highest", on="on-surface-variant"):
+        w = self.mono.width(text, 12, 0) + 20
+        return (rounded(cx - w / 2, cy - 12, w, 24, 12, self.c[tone]) + "\n"
+                + self.text(self.mono, text, 12, cx, cy + 4.5, on, "middle"))
+
+    def open(self, width, height, label, background="surface"):
+        return [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" '
+            f'height="{height}" role="img" aria-label="{label}">',
+            '<defs><filter id="e1" x="-10%" y="-10%" width="120%" height="140%">'
+            '<feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#000" flood-opacity=".14"/></filter></defs>',
+            f'<rect width="{width}" height="{height}" fill="{self.c[background]}"/>',
+        ]
+
+
+def double_arrow(look, x1, x2, y, color, width=2):
+    """A horizontal link with a filled head at each end (the graph's arrowheads)."""
+    c = look.c[color]
+    out = [f'<path d="M{num(x1 + 8)} {num(y)} H{num(x2 - 8)}" stroke="{c}" stroke-width="{width}" stroke-linecap="round"/>']
+    for tip, back in ((x1, x1 + 10), (x2, x2 - 10)):
+        out.append(f'<path d="M{num(tip)} {num(y)} L{num(back)} {num(y - 5)} L{num(back)} {num(y + 5)} Z" fill="{c}"/>')
     return "\n".join(out)
 
 
-def box(x, y, w, h, title, sub=None, dashed=False, stroke=BONE, title_fill=BONE):
-    """A component box: an uppercase title and an optional ash subtitle."""
-    dash = ' stroke-dasharray="6 4"' if dashed else ""
-    out = [
-        f'<rect x="{num(x + .5)}" y="{num(y + .5)}" width="{num(w - 1)}" height="{num(h - 1)}" '
-        f'fill="{VOID}" stroke="{stroke}" stroke-opacity=".8"{dash}/>'
-    ]
-    cx = x + w / 2
-    if sub:
-        out.append(f'<path fill="{title_fill}" d="{DATA.text(title.upper(), 14, 0.06, cx, y + h / 2 - 2, "middle")}"/>')
-        out.append(f'<path fill="{ASH}" d="{DATA.text(sub, 11, 0.02, cx, y + h / 2 + 15, "middle")}"/>')
-    else:
-        out.append(f'<path fill="{title_fill}" d="{DATA.text(title.upper(), 14, 0.06, cx, y + h / 2 + 5, "middle")}"/>')
-    return "\n".join(out)
-
-
-def architecture():
+def architecture(theme):
     """Browser, server and agents, and what flows between them."""
-    width, height = 1280, 460
-    out = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" '
-        f'width="{width}" height="{height}" role="img" aria-label="Castor architecture: '
-        'the browser talks to the server over HTTP and a WebSocket; agents connect to the '
-        'server over a WebSocket and run jobs in containers or the host shell.">',
-        frame(width, height),
-    ]
-    top, bottom = 96, 412
-    panel_w = 320
+    look = Look(theme)
+    c = look.c
+    width, height = 1280, 480
+    out = look.open(width, height, "Castor architecture: the browser talks to the server over HTTP and a "
+                    "WebSocket; agents connect to the server over a WebSocket and run jobs in containers "
+                    "or the host shell.")
+    top, bottom, panel_w = 56, 432, 320
     panels = (
-        (72, "Browser", "SvelteKit",
+        (56, "language", "Browser", "SvelteKit",
          (("Board", "cards, columns"), ("Playbooks", "graph, runs"), ("Live output", "logs, results"))),
-        (480, "Server", "FastAPI",
-         (("API + events", "REST, /ws/ui"), ("Dispatcher", "jobs to agents"), ("Parsers", "outputs, transforms"))),
-        (888, "Agents", "any number",
+        (480, "dns", "Server", "FastAPI",
+         (("API + events", "REST, /ws/ui, /api/mcp"), ("Dispatcher", "jobs to agents"), ("Parsers", "outputs, assets"))),
+        (904, "deployed_code", "Agents", "any number",
          (("Job runner", "/ws/agent"), ("Containers", "podman, docker"), ("Host shell", "--allow-host"))),
     )
-    rows_y = (124, 220, 316)
-    row_h = 64
-    for x, title, sub, rows in panels:
-        out.append(
-            f'<rect x="{x + .5}" y="{top + .5}" width="{panel_w - 1}" height="{bottom - top - 1}" '
-            f'fill="{PLATE}" stroke="{RULE}"/>'
-        )
-        out.append(label(title, x, top - 14, fill=BONE))
-        out.append(label(sub, x + panel_w, top - 14, anchor="end"))
+    rows_y, row_h = (144, 236, 328), 76
+    for x, glyph, title, sub, rows in panels:
+        out.append(rounded(x, top, panel_w, bottom - top, 28, c["surface-container-low"]))
+        out.append(rounded(x + 24, top + 24, 44, 44, 14, c["primary-container"]))
+        out.append(icon(glyph, x + 34, top + 34, 24, c["on-primary-container"]))
+        out.append(look.text(look.title, title, 20, x + 84, top + 44, "on-surface"))
+        out.append(look.text(look.body, sub, 14, x + 84, top + 64, "on-surface-variant"))
         for (name, detail), y in zip(rows, rows_y):
-            out.append(box(x + 32, y, panel_w - 64, row_h, name, detail))
-    # Links between the panels, at the level of the rows they connect.
+            out.append(look.card(x + 16, y, panel_w - 32, row_h, 16))
+            out.append(look.text(look.title, name, 16, x + 36, y + 32, "on-surface"))
+            out.append(look.text(look.mono, detail, 13, x + 36, y + 54, "on-surface-variant"))
+    # Links at the level of the rows they connect.
     a_y = rows_y[0] + row_h / 2
-    out.append(arrow(392 + 8, a_y, 480 - 8, a_y, BONE, 1.2, heads=(True, True)))
-    out.append(label("HTTP + WS", 436, a_y - 14, fill=BONE, anchor="middle", size=11))
+    out.append(double_arrow(look, 376 + 6, 480 - 6, a_y, "outline"))
+    out.append(look.chip("HTTP + WS", 428, a_y - 26))
     b_y = rows_y[1] + row_h / 2
-    out.append(arrow(800 + 8, b_y, 888 - 8, b_y, ACID, 1.5, heads=(True, True)))
-    out.append(label("job.run", 844, b_y - 14, fill=BONE, anchor="middle", size=11))
-    out.append(label("logs, files", 844, b_y + 26, anchor="middle", size=11))
+    out.append(double_arrow(look, 800 + 6, 904 - 6, b_y, "primary", 2.5))
+    out.append(look.chip("job.run", 852, b_y - 26, "primary-container", "on-primary-container"))
+    out.append(look.chip("logs, files", 852, b_y + 26))
     out.append("</svg>\n")
     return "\n".join(out)
 
 
-def link(x1, y1, x2, y2, color=BONE, width=1.2, opacity=".7"):
-    """An edge from a node's right side to another's left side; level changes use the
-    brand's 60-degree angle."""
-    if abs(y1 - y2) < 0.5:
-        d = f"M{num(x1)} {num(y1)} H{num(x2)}"
-    else:
-        run = abs(y2 - y1) / math.sqrt(3)  # horizontal run of a 60-degree diagonal
-        bend = max(x1 + 6, x2 - 12 - run)
-        d = f"M{num(x1)} {num(y1)} H{num(bend)} L{num(bend + run)} {num(y2)} H{num(x2)}"
-    head = []
-    for side in (-1, 1):
-        b = math.pi - side * math.pi / 6
-        head.append((x2 + 8 * math.cos(b), y2 + 8 * math.sin(b)))
-    (ax, ay), (bx, by) = head
-    return (
-        f'<path d="{d}" fill="none" stroke="{color}" stroke-opacity="{opacity}" stroke-width="{width}"/>\n'
-        f'<path d="M{num(ax)} {num(ay)} L{num(x2)} {num(y2)} L{num(bx)} {num(by)}" fill="none" '
-        f'stroke="{color}" stroke-opacity="{opacity}" stroke-width="{width}"/>'
-    )
+def playbook(theme):
+    """An example playbook drawn like the app's graph: commands, transforms, fan-out and fan-in."""
+    look = Look(theme)
+    c = look.c
+    width, height = 1280, 460
+    out = look.open(width, height, "A playbook graph: one seed step fans out into three parallel branches, "
+                    "transform steps reshape the data between commands, and a report step collects all "
+                    "branches.", "surface-container-lowest")
+    out.insert(2, '<defs><pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse">'
+               f'<circle cx="10" cy="10" r="1.1" fill="{c["outline-variant"]}"/></pattern></defs>')
+    out.append(f'<rect width="{width}" height="{height}" fill="url(#dots)"/>')
 
-
-def playbook():
-    """The pipeline-demo playbook as a graph: commands, transforms, fan-out and fan-in."""
-    width, height = 1280, 440
-    out = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" '
-        f'width="{width}" height="{height}" role="img" aria-label="A playbook graph: one seed '
-        'step fans out into three parallel branches, transform steps reshape the data between '
-        'commands, and a report step collects all branches.">',
-        frame(width, height),
-    ]
-    # Sized so the longest title fits and a 60-degree edge fits between columns.
-    node_w, node_h = 148, 50
-    cols = [56 + i * ((width - 112 - node_w) / 5) for i in range(6)]
-    rows = (160, 232, 304)  # node centre lines
+    node_w, node_h = 168, 80
+    cols = [44 + i * ((width - 88 - node_w) / 5) for i in range(6)]
+    rows = (160, 260, 360)  # node centre lines
+    # key: (column, row, title, command id or ops, parser, transform)
     nodes = {
-        "seed": (0, 1, "Seed hosts", "nmap.hosts", False),
-        "svc": (1, 0, "Service scan", "nmap.services", False),
-        "smb": (1, 1, "SMB scan", "nmap.hosts", False),
-        "dns": (1, 2, "DNS names", "lines", False),
-        "web": (2, 0, "Web targets", "filter / format", True),
-        "audit": (2, 1, "SMB audit", "netexec.smb", False),
-        "dir": (3, 0, "Dir brute", "ffuf.results", False),
-        "unsigned": (3, 1, "Signing off", "filter / pluck", True),
-        "interesting": (4, 0, "Interesting", "filter / pluck", True),
-        "report": (5, 1, "Report", "text", False),
+        "seed": (0, 1, "Seed hosts", "seed-hosts", "nmap.hosts", False),
+        "svc": (1, 0, "Service scan", "service-scan", "nmap.services", False),
+        "smb": (1, 1, "SMB port scan", "smb-scan", "nmap.hosts", False),
+        "dns": (1, 2, "DNS names", "dns-names", "lines", False),
+        "web": (2, 0, "Web URLs", "filter · format", None, True),
+        "audit": (2, 1, "SMB audit", "smb-audit", "netexec.smb", False),
+        "dir": (3, 0, "Dir brute force", "dir-brute", "ffuf.results", False),
+        "unsigned": (3, 1, "Signing off", "filter · pluck", None, True),
+        "interesting": (4, 0, "Interesting", "filter · pluck", None, True),
+        "report": (5, 1, "Report", "report", "text", False),
     }
     edges = (
         ("seed", "svc"), ("seed", "smb"), ("seed", "dns"),
@@ -412,24 +323,55 @@ def playbook():
 
     def anchor(key, side):
         col, row, *_ = nodes[key]
-        return (cols[col] + (node_w if side == "out" else 0), rows[row])
+        return cols[col] + (node_w if side == "out" else 0), rows[row]
 
     for a, b in edges:
         (x1, y1), (x2, y2) = anchor(a, "out"), anchor(b, "in")
-        transform_edge = nodes[a][4] or nodes[b][4]
-        out.append(link(x1, y1, x2, y2, ACID if transform_edge else BONE, 1.4 if transform_edge else 1.2,
-                        "1" if transform_edge else ".6"))
-    for col, row, name, sub, transform in nodes.values():
-        out.append(box(cols[col], rows[row] - node_h / 2, node_w, node_h, name, sub,
-                       dashed=transform, stroke=ACID if transform else BONE))
+        x2 -= 9  # leave room for the arrowhead
+        if x2 - x1 > 140:  # long edges run straight, then bend into the target
+            bx = x2 - 110
+            d = f"M{num(x1)} {num(y1)} H{num(bx)} C{num(bx + 60)} {num(y1)} {num(x2 - 50)} {num(y2)} {num(x2)} {num(y2)}"
+        else:
+            mid = (x1 + x2) / 2
+            d = f"M{num(x1)} {num(y1)} C{num(mid)} {num(y1)} {num(mid)} {num(y2)} {num(x2)} {num(y2)}"
+        out.append(f'<path d="{d}" fill="none" stroke="{c["primary"]}" stroke-width="2.2" stroke-opacity=".85"/>')
+        out.append(f'<path d="M{num(x2 + 9)} {num(y2)} L{num(x2 - 1)} {num(y2 - 5)} L{num(x2 - 1)} {num(y2 + 5)} Z" fill="{c["primary"]}"/>')
 
-    # Legend, top left; caption, bottom.
-    out.append(f'<rect x="48.5" y="54.5" width="23" height="13" fill="{VOID}" stroke="{BONE}" stroke-opacity=".8"/>')
-    out.append(label("Command: a card, run by an agent", 82, 66, fill=BONE, size=12))
-    out.append(f'<rect x="420.5" y="54.5" width="23" height="13" fill="{VOID}" stroke="{ACID}" stroke-dasharray="6 4"/>')
-    out.append(label("Transform: runs on the server", 454, 66, fill=BONE, size=12))
-    out.append(label("an example playbook", 48, 416, size=13))
-    out.append(label("parallel branches / fan-in", width - 48, 416, size=13, anchor="end"))
+    for key, (col, row, title, sub, parser, transform) in nodes.items():
+        x, y = cols[col], rows[row] - node_h / 2
+        accent = c["tertiary"] if transform else c["primary"]
+        if transform:
+            out.append(rounded(x + .5, y + .5, node_w - 1, node_h - 1, 12, c["surface-container-low"],
+                               f' stroke="{accent}" stroke-opacity=".7" stroke-dasharray="5 4"'))
+        else:
+            out.append(look.card(x, y, node_w, node_h, 12))
+            out.append(rounded(x + 12, y, node_w - 24, 3, 1.5, accent))
+        out.append(icon("filter_alt" if transform else "terminal", x + 12, y + 13, 16,
+                        accent if transform else c["on-surface-variant"]))
+        out.append(look.text(look.title, title, 14, x + 34, y + 26, "on-surface"))
+        out.append(look.text(look.mono, sub, 11, x + 14, y + 46, "on-surface-variant"))
+        out.append(icon("check_circle", x + 13, y + 56, 14, c["primary"]))
+        out.append(look.text(look.body, "Done", 12, x + 32, y + 67, "primary"))
+        if parser:
+            w = look.mono.width(parser, 10, 0) + 12
+            out.append(rounded(x + node_w - 12 - w, y + 55, w, 16, 4, c["tertiary-container"]))
+            out.append(look.text(look.mono, parser, 10, x + node_w - 18, y + 66.5, "on-tertiary-container", "end"))
+        # The graph's output handle, on steps something reads from.
+        hy = y + node_h / 2
+        if any(a == key for a, _ in edges):
+            out.append(f'<circle cx="{num(x + node_w)}" cy="{num(hy)}" r="5" fill="{accent}" stroke="{c["surface-container-lowest"]}" stroke-width="2"/>')
+
+    # Legend (the graph's own), top left; caption, bottom left.
+    lx, ly = 48, 44
+    out.append(rounded(lx, ly, 352, 36, 18, c["surface-container"]))
+    out.append(icon("terminal", lx + 16, ly + 10, 16, c["on-surface-variant"]))
+    out.append(look.text(look.body, "Command", 13, lx + 38, ly + 23, "on-surface"))
+    out.append(icon("filter_alt", lx + 118, ly + 10, 16, c["tertiary"]))
+    out.append(look.text(look.body, "Transform", 13, lx + 140, ly + 23, "tertiary"))
+    out.append(rounded(lx + 232, ly + 17, 18, 2.5, 1.25, c["primary"]))
+    out.append(look.text(look.body, "Data flow", 13, lx + 258, ly + 23, "on-surface"))
+    out.append(look.text(look.body, "An example playbook: parallel branches that meet in one report", 14,
+                         48, height - 30, "on-surface-variant"))
     out.append("</svg>\n")
     return "\n".join(out)
 
@@ -459,8 +401,10 @@ def main():
     outputs = {
         "banner.svg": castor_banner("dark"),
         "banner-light.svg": castor_banner("light"),
-        "architecture.svg": architecture(),
-        "playbook.svg": playbook(),
+        "architecture.svg": architecture("dark"),
+        "architecture-light.svg": architecture("light"),
+        "playbook.svg": playbook("dark"),
+        "playbook-light.svg": playbook("light"),
         "footer.svg": footer(),
     }
     for name, svg in outputs.items():
