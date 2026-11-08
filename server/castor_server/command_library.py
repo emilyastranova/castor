@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import models as m
@@ -41,13 +41,17 @@ async def sync_builtin_definitions(db: AsyncSession) -> int:
         log.info("no built-in command directory at %s", directory)
         return 0
     loaded = 0
+    seen: set[str] = set()
+    complete = True
     for path in sorted(directory.glob("*.y*ml")):
         text = path.read_text()
         try:
             spec = parse_spec(text)
         except ValueError as exc:
             log.warning("skipping built-in command %s: %s", path.name, exc)
+            complete = False
             continue
+        seen.add(spec.id)
         row = await db.get(m.CommandDefinition, spec.id)
         if row is not None and row.origin != "builtin":
             log.warning("built-in command %s shadowed by a user definition", spec.id)
@@ -65,8 +69,21 @@ async def sync_builtin_definitions(db: AsyncSession) -> int:
             db.add(row)
         definition_from_spec(row, spec, text)
         loaded += 1
+    if complete:  # a file that didn't parse might be one of these; retire nothing then
+        await _retire_builtins(db, seen)
     await db.commit()
     return loaded
+
+
+async def _retire_builtins(db: AsyncSession, seen: set[str]) -> None:
+    """Remove built-ins whose file is gone from the library. Cards that used one keep their
+    rendered command line and become plain command cards."""
+    gone = (await db.execute(select(m.CommandDefinition).where(
+        m.CommandDefinition.origin == "builtin", m.CommandDefinition.id.not_in(seen)))).scalars().all()
+    for row in gone:
+        await db.execute(update(m.Task).where(m.Task.command_ref == row.id).values(command_ref=None))
+        await db.delete(row)
+        log.info("retired built-in command %s (its file is gone)", row.id)
 
 
 async def load_spec(db: AsyncSession, command_id: str) -> CommandSpec | None:

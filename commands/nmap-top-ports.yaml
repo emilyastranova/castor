@@ -1,0 +1,32 @@
+id: nmap-top-ports
+name: Nmap top ports scan
+schema_version: 1
+description: Find open TCP ports fast (the most common N ports on each host, no version detection)
+tags: [network, discovery, nmap]
+tool: nmap
+container_flags:
+  - --privileged
+  - --network=bridge
+args:
+  - name: targets
+    type: list
+    description: Hosts, ranges or CIDRs (a ping sweep's hosts work here)
+    required: true
+    example: 192.168.0.0/24
+    regex: '^[0-9a-zA-Z./,:_ -]+$'
+  - name: top
+    type: number
+    description: How many of the most common ports to try
+    default: 1000
+  - name: exclude
+    type: list
+    separator: ","
+    description: Hosts or ranges to skip (pick an exclusion list)
+    regex: '^[0-9a-zA-Z./:_-]+$'
+    flag: --exclude
+command: nmap -Pn -sS --top-ports {{ top }} --open -T4 -oX /work/top-ports.xml {{ targets }} {{ exclude }}
+outputs:
+  - name: services
+    type: list<service>
+    parser: nmap.services
+    source: /work/top-ports.xml

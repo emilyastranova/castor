@@ -1,0 +1,7 @@
+# The script is /ssh-audit.py in this image (not on PATH); commands call it with python3.
+id: ssh-audit
+name: ssh-audit
+description: SSH server configuration audit (key exchange, ciphers, MACs, host keys)
+tags: [ssh, hardening, compliance]
+homepage: https://github.com/jtesta/ssh-audit
+image: docker.io/positronsecurity/ssh-audit

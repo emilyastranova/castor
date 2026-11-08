@@ -1,0 +1,6 @@
+id: nuclei
+name: Nuclei
+description: Template-based vulnerability scanner (ProjectDiscovery); downloads its templates on the first run of each job
+tags: [web, vulnerabilities]
+homepage: https://github.com/projectdiscovery/nuclei
+image: docker.io/projectdiscovery/nuclei

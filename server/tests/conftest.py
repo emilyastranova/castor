@@ -1,4 +1,5 @@
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -12,6 +13,17 @@ os.environ["CASTOR_AGENT_SECRET"] = "test-agent-secret"
 os.environ["CASTOR_ADMIN_USERNAME"] = "admin"
 os.environ["CASTOR_ADMIN_PASSWORD"] = "secret"
 os.environ["CASTOR_DISPATCH_INTERVAL"] = "0.2"
+
+# The library the tests sync: the real built-ins plus test-only fixtures (tests/fixtures: the
+# demo commands and playbooks the end-to-end tests drive, which don't ship to users).
+_repo, _fixtures = Path(__file__).resolve().parents[2], Path(__file__).resolve().parent / "fixtures"
+for _kind in ("commands", "playbooks", "tools"):
+    _dir = _tmp / "library" / _kind
+    _dir.mkdir(parents=True)
+    for _src in (_repo / _kind, _fixtures / _kind):
+        for _file in sorted(_src.glob("*.y*ml")) if _src.is_dir() else []:
+            shutil.copy(_file, _dir)
+    os.environ[f"CASTOR_{_kind.upper()}_DIR"] = str(_dir)
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

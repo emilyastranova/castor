@@ -1,0 +1,30 @@
+id: dnsx-resolve
+name: Resolve names
+schema_version: 1
+description: Resolve host names to IPv4 addresses and keep the ones that resolve
+tags: [dns, recon, dnsx]
+tool: dnsx
+args:
+  - name: names
+    type: list
+    description: Host names (a subdomain discovery's output works here)
+    required: true
+    example: www.example.com,mail.example.com
+command: |
+  printf '%s\n' {{ names }} | tr ',' '\n' | sed '/^$/d' > /work/names.txt
+  dnsx -l /work/names.txt -silent -nc -a -resp -o /work/resolved.txt
+outputs:
+  - name: resolved
+    type: list<string>
+    parser: regex
+    source: /work/resolved.txt
+    options:
+      pattern: '^(\S+) \[A\]'
+      group: 1
+  - name: ips
+    type: list<string>
+    parser: regex
+    source: /work/resolved.txt
+    options:
+      pattern: '\[([0-9]{1,3}(?:\.[0-9]{1,3}){3})\]'
+      group: 1

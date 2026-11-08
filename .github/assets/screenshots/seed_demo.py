@@ -21,6 +21,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from pathlib import Path
 
 API = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8100").rstrip("/")
 PASSWORD = "demo-password"  # the demo users' password (throwaway instance only)
@@ -129,6 +130,11 @@ def main() -> None:
          command="echo 'Trying AXFR against ns1.northwind.local'; echo 'Transfer failed: REFUSED' >&2; exit 1")
 
     # Two demo playbooks (fake tool output, no network): one finishes, one stops for a decision.
+    # They're test fixtures, not built-ins, so this throwaway instance gets them uploaded first.
+    fixtures = Path(__file__).resolve().parents[3] / "server" / "tests" / "fixtures"
+    for kind in ("commands", "playbooks"):
+        for path in sorted((fixtures / kind).glob("*.yaml")):
+            call("POST", f"/{kind}", admin, {"yaml": path.read_text()})
     runs = [
         call("POST", "/playbooks/pipeline-demo/run", admin, {"project_id": nwl["id"], "inputs": {"subnet": "10.20.4", "host_count": 6, "speed": 0.3}}),
         call("POST", "/playbooks/branching-demo/run", sam, {"project_id": nwl["id"], "inputs": {"subnet": "10.20.8", "fail_at": "smb_audit", "speed": 0.3}}),

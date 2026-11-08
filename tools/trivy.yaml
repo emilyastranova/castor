@@ -1,0 +1,6 @@
+id: trivy
+name: Trivy
+description: Vulnerability scanner for container images, filesystems and repositories (Aqua Security); downloads its vulnerability database on each job
+tags: [containers, vulnerabilities, ops]
+homepage: https://trivy.dev
+image: docker.io/aquasec/trivy

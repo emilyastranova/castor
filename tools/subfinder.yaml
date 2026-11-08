@@ -1,0 +1,6 @@
+id: subfinder
+name: subfinder
+description: Passive subdomain discovery from public sources (ProjectDiscovery)
+tags: [dns, recon]
+homepage: https://github.com/projectdiscovery/subfinder
+image: docker.io/projectdiscovery/subfinder

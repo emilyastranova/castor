@@ -1,0 +1,6 @@
+id: httpx
+name: httpx
+description: Probe hosts for live web servers with status, title and technologies (ProjectDiscovery)
+tags: [web, discovery]
+homepage: https://github.com/projectdiscovery/httpx
+image: docker.io/projectdiscovery/httpx

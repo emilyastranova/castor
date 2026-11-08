@@ -119,8 +119,13 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `docs/PLAYBOOK_SPEC.md` is the authoring spec (keep it in sync with the format);
   `check_against_library` validates against the command library on save and in
   `POST /api/playbooks/validate`.
-  `pipeline-demo` + `commands/demo-*` is a no-network test pipeline for the playbook UI;
-  run an agent with `--allow-host --max-concurrency 4` to watch it.
+  Built-in library: `tools/`, `commands/`, `playbooks/` ship real tooling (nmap, NetExec,
+  ffuf, httpx, nuclei, subfinder, dnsx, testssl.sh, ssh-audit, trivy, curl). A built-in whose
+  file is removed is retired at the next start (`_retire_builtins`; cards keep their command
+  line). The no-network demo commands and playbooks (`pipeline-demo`, `branching-demo`,
+  `ai-resolver-demo`, `demo-*`) are test fixtures in `server/tests/fixtures/`: conftest builds
+  the tests' library from the built-ins plus those. Copy them into `commands/`/`playbooks/`
+  locally to watch them in the UI (agent `--allow-host --max-concurrency 4`); don't ship them.
 - Branching: `playbook_conditions.py` (`when` condition trees, `expect`), step `join` and
   `on_failure` in `playbook_spec.py` (`readiness`, `step_statuses`, `run_outcome` are pure;
   test them without a DB). Conditions and expectations stay raw dicts on the step and are
@@ -128,7 +133,7 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   A stored step result with `job_id` overrides that job's status (a judgement or decision);
   a newer job supersedes it. `on_failure: ask` pauses a step (`attention`) and calls
   `notifications.notify`; `services.resolve_step` applies retry/continue/skip/fail and takes
-  an `actor` for non-human resolvers. `branching-demo` exercises all of it.
+  an `actor` for non-human resolvers. The `branching-demo` test fixture exercises all of it.
 - Run cards (3h): a run is one board card (`playbook_runs.card_id`, `TaskOut.run` summary,
   `services._card_to_review`, `ensure_run_cards`); step cards have `playbook_step_id` and are
   filtered out of the board (server `get_board`, client `BoardStore`). Web: `RunPanel.svelte`
@@ -160,7 +165,7 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   (resolver for `on_failure: ai` and Ask AI, `generate` validates drafts with the real spec
   parsers and repairs, regex suggestions, failure explanations). Never send variable values;
   logs are already masked. Tests use a local fake model server (`tests/test_ai.py`).
-  `ai-resolver-demo` + `commands/demo-trouble.yaml` acts out five realistic failures (timeout,
+  The `ai-resolver-demo` fixture + `demo-trouble` (tests/fixtures) act out five realistic failures (timeout,
   harmless exit 1, renamed flag, prompt injection, missing key) to watch the resolver; run an
   agent with `--allow-host` (the flaky scenarios remember attempt 1 in `$TMPDIR`).
 - Alerts (3k): `alerts.py` (`PRESETS` kinds, each building one request template; `render`

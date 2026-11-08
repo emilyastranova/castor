@@ -148,10 +148,26 @@ continue the run.
   It is self-contained, so you can give it to an agent that writes playbooks.
 - `POST /api/playbooks/validate` checks a playbook against the command library
   without saving it.
-- [`playbooks/pipeline-demo.yaml`](playbooks/pipeline-demo.yaml) is the graph
-  above. Its commands invent their output, so it runs in seconds with no network.
-  It is good for trying the UI. Its `fail_at` and `empty_at` inputs show failure
-  and skip handling.
+- Built-in playbooks: **Network baseline** (live hosts, open ports, web services,
+  certificate expiry), **Web attack surface** (subdomains, live sites, Nuclei findings,
+  security headers), **TLS review**, **SMB signing discovery** and **SSH version discovery**.
+
+### What's included
+
+Each command runs in its own tool container, pulled or built on an agent the first time it's
+needed, so agents stay bare.
+
+| Area | Commands (tool) |
+| --- | --- |
+| Network discovery | Ping sweep, top TCP ports, UDP scan, service/version scan, SMB port 445 (nmap) |
+| Web | Web probe with titles and technologies (httpx), vulnerability scan (Nuclei), directory brute force with SecLists (ffuf), security headers (curl) |
+| TLS and SSH | TLS configuration scan (testssl.sh), certificate expiry (nmap), SSH configuration audit (ssh-audit) |
+| DNS and recon | Passive subdomain discovery (subfinder), name resolution (dnsx) |
+| Windows / SMB | SMB signing and host info, authenticated checks over any protocol, share listing (NetExec) |
+| Containers and ops | Image vulnerability scan (Trivy) |
+
+Parsed results (hosts, services, URLs from nmap, httpx, ffuf and NetExec) become the
+project's assets.
 
 ## Variables
 

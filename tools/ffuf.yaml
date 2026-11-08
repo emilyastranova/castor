@@ -1,6 +1,13 @@
+# The published ffuf image plus SecLists' common web-content wordlist, so ffuf-dir works with
+# no setup. Built once per agent and cached (castor-tools/ffuf:<hash>).
 id: ffuf
 name: ffuf
-description: Fast web fuzzer (secsi/ffuf)
+description: Fast web fuzzer (secsi/ffuf) with SecLists common.txt at /usr/share/wordlists/common.txt
 tags: [web, fuzzing]
 homepage: https://github.com/ffuf/ffuf
-image: docker.io/secsi/ffuf
+build:
+  base: docker.io/secsi/ffuf
+  install: |
+    mkdir -p /usr/share/wordlists
+    wget -q -O /usr/share/wordlists/common.txt https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt
+  check: ffuf -V && test -s /usr/share/wordlists/common.txt

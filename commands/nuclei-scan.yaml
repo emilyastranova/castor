@@ -1,0 +1,40 @@
+id: nuclei-scan
+name: Nuclei vulnerability scan
+schema_version: 1
+description: Run Nuclei's community templates against web targets and list what they find (full JSON as an artifact)
+tags: [web, vulnerabilities, nuclei]
+tool: nuclei
+args:
+  - name: targets
+    type: list
+    description: URLs or hosts (an httpx probe's URLs work here)
+    required: true
+    example: https://app.example.com
+  - name: severity
+    type: list
+    separator: ","
+    description: Severities to report
+    default: [medium, high, critical]
+    choices: [info, low, medium, high, critical]
+    flag: -severity
+  - name: tags
+    type: list
+    separator: ","
+    description: Only templates with these tags (e.g. cve, misconfig, exposure); empty runs all that match the severity
+    regex: '^[a-z0-9_-]+$'
+    flag: -tags
+  - name: rate_limit
+    type: number
+    description: Requests per second
+    default: 50
+command: |
+  printf '%s\n' {{ targets }} | tr ',' '\n' | sed '/^$/d' > /work/targets.txt
+  nuclei -update-templates -silent > /dev/null 2>&1
+  mkdir -p /work/artifacts
+  nuclei -l /work/targets.txt {{ severity }} {{ tags }} -rl {{ rate_limit }} -nc -silent -o /work/nuclei.txt -jle /work/artifacts/nuclei.jsonl
+  touch /work/nuclei.txt
+outputs:
+  - name: findings
+    type: list<string>
+    parser: lines
+    source: /work/nuclei.txt

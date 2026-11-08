@@ -1,0 +1,32 @@
+id: nmap-udp-scan
+name: Nmap UDP scan
+schema_version: 1
+description: Check the most common UDP ports (DNS, SNMP, NTP, IKE…) with version detection; slower than TCP
+tags: [network, discovery, udp, nmap]
+tool: nmap
+container_flags:
+  - --privileged
+  - --network=bridge
+args:
+  - name: targets
+    type: list
+    description: Hosts, ranges or CIDRs
+    required: true
+    example: 192.168.0.10
+    regex: '^[0-9a-zA-Z./,:_ -]+$'
+  - name: top
+    type: number
+    description: How many of the most common UDP ports to try
+    default: 25
+  - name: exclude
+    type: list
+    separator: ","
+    description: Hosts or ranges to skip (pick an exclusion list)
+    regex: '^[0-9a-zA-Z./:_-]+$'
+    flag: --exclude
+command: nmap -Pn -sU -sV --version-light --top-ports {{ top }} --open -oX /work/udp-scan.xml {{ targets }} {{ exclude }}
+outputs:
+  - name: services
+    type: list<service>
+    parser: nmap.services
+    source: /work/udp-scan.xml

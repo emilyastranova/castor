@@ -1,0 +1,25 @@
+id: httpx-probe
+name: httpx web probe
+schema_version: 1
+description: Find which hosts answer over HTTP(S) and record status, title, size and technologies (URLs become assets)
+tags: [web, discovery, httpx]
+tool: httpx
+args:
+  - name: targets
+    type: list
+    description: Hosts, host:port pairs or URLs (subdomains, a ping sweep's hosts…)
+    required: true
+    example: app.example.com,10.0.0.5:8080
+  - name: ports
+    type: string
+    description: Ports to try on each host (nmap syntax, e.g. 80,443,8000-8100); empty uses httpx's defaults
+    regex: '^[0-9a-z:,-]+$'
+    flag: -ports
+command: |
+  printf '%s\n' {{ targets }} | tr ',' '\n' | sed '/^$/d' > /work/targets.txt
+  httpx -l /work/targets.txt -sc -cl -wc -lc -title -td -fr -json -silent -o /work/httpx.jsonl {{ ports }}
+outputs:
+  - name: urls
+    type: list<url>
+    parser: httpx.results
+    source: /work/httpx.jsonl

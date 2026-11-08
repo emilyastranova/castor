@@ -1,0 +1,65 @@
+id: network-baseline
+name: Network baseline
+schema_version: 1
+description: >-
+  A first look at a network range: find live hosts, their open TCP ports, which of those
+  ports serve web pages, and when the TLS certificates on them expire. Hosts, services and
+  URLs become assets.
+tags: [network, discovery, nmap, httpx, tls]
+inputs:
+  - name: targets
+    type: string
+    description: Range in scope (CIDR, range or comma-separated hosts)
+    required: true
+    example: 192.168.1.0/24
+  - name: top_ports
+    type: number
+    description: How many of the most common TCP ports to scan
+    default: 1000
+steps:
+  - id: sweep
+    name: Ping sweep
+    command_ref: nmap-ping-sweep
+    args:
+      targets: "{{ inputs.targets }}"
+
+  - id: live
+    name: Live hosts
+    transform:
+      input: "{{ steps.sweep.outputs.hosts }}"
+      ops:
+        - filter: { field: status, equals: up }
+        - pluck: ip
+      output: { name: ips }
+
+  - id: ports
+    name: Open ports
+    command_ref: nmap-top-ports
+    skip_if_empty: true
+    args:
+      targets: "{{ steps.live.outputs.ips }}"
+      top: "{{ inputs.top_ports }}"
+
+  - id: web_ports
+    name: Ports that may serve web pages
+    transform:
+      input: "{{ steps.ports.outputs.services }}"
+      ops:
+        - filter: { field: name, matches: "http|ssl|https" }
+        - format: "{{ host }}:{{ port }}"
+        - unique: true
+      output: { name: endpoints }
+
+  - id: web
+    name: Probe web services
+    command_ref: httpx-probe
+    skip_if_empty: true
+    args:
+      targets: "{{ steps.web_ports.outputs.endpoints }}"
+
+  - id: certificates
+    name: Certificate expiry
+    command_ref: tls-cert-expiry
+    skip_if_empty: true
+    args:
+      targets: "{{ steps.live.outputs.ips }}"

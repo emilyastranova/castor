@@ -1,0 +1,6 @@
+id: testssl
+name: testssl.sh
+description: TLS/SSL configuration and certificate checks
+tags: [tls, web, compliance]
+homepage: https://testssl.sh
+image: docker.io/drwetter/testssl.sh

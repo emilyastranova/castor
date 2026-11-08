@@ -313,7 +313,7 @@ async def _map(db: AsyncSession, parser: str, rows: Any, project_id: uuid.UUID, 
                 }, **obs)
                 svc = await observe(db, project_id, "service", {"host": row.get("host"), "port": row.get("port") or 445, "proto": "tcp", "name": "microsoft-ds", "state": "open"}, **obs)
                 await link(db, project_id, svc, host, "on")
-            elif parser == "ffuf.results":
+            elif parser in ("ffuf.results", "httpx.results"):
                 url = await observe(db, project_id, "url", {k: row.get(k) for k in ("url", "status", "length", "title", "content_type")}, **obs)
                 hostname = urlsplit(str(row.get("url") or "")).hostname
                 host = await _find_host(db, project_id, hostname) if hostname else None
@@ -323,7 +323,7 @@ async def _map(db: AsyncSession, parser: str, rows: Any, project_id: uuid.UUID, 
             continue  # a row without an identity (e.g. no address) isn't an asset
 
 
-MAPPED_PARSERS = {"nmap.hosts", "nmap.services", "netexec.smb", "ffuf.results"}
+MAPPED_PARSERS = {"nmap.hosts", "nmap.services", "netexec.smb", "ffuf.results", "httpx.results"}
 
 
 async def ingest_outputs(db: AsyncSession, job: m.Job, task: m.Task, outputs: list[m.JobOutput]) -> Batch:

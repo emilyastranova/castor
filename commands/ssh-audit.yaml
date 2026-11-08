@@ -1,0 +1,29 @@
+id: ssh-audit
+name: SSH configuration audit
+schema_version: 1
+description: Audit an SSH server's key exchange, ciphers, MACs and host keys; lists every [fail] and [warn]
+tags: [ssh, hardening, compliance]
+tool: ssh-audit
+args:
+  - name: target
+    type: string
+    description: Host name or IP
+    required: true
+    example: 10.0.0.5
+    regex: '^[A-Za-z0-9.:_-]+$'
+  - name: port
+    type: number
+    description: SSH port
+    default: 22
+# ssh-audit exits 2 for warnings and 3 for failures; those are results, not errors. Only a
+# connection error (1) fails the job.
+command: |
+  python3 /ssh-audit.py -n -p {{ port }} {{ target }}
+  status=$?
+  [ "$status" -ne 1 ]
+outputs:
+  - name: problems
+    type: list<string>
+    parser: lines
+    options:
+      match: '-- \[(fail|warn)\]'

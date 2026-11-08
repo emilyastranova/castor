@@ -1,0 +1,58 @@
+id: web-attack-surface
+name: Web attack surface
+schema_version: 1
+description: >-
+  From a domain to its web findings: passive subdomain discovery, probe which subdomains
+  serve HTTP(S), then run Nuclei against the live sites and check each one's security
+  headers. Live URLs become assets.
+tags: [web, recon, subfinder, httpx, nuclei]
+inputs:
+  - name: domain
+    type: string
+    description: Domain in scope (e.g. example.com)
+    required: true
+    example: example.com
+  - name: severity
+    type: string
+    description: Nuclei severities to report (comma-separated)
+    default: medium,high,critical
+steps:
+  - id: subdomains
+    name: Subdomain discovery
+    command_ref: subfinder-enum
+    args:
+      domain: "{{ inputs.domain }}"
+
+  - id: probe
+    name: Probe for web servers
+    command_ref: httpx-probe
+    skip_if_empty: true
+    args:
+      targets: "{{ steps.subdomains.outputs.subdomains }}"
+
+  - id: live_urls
+    name: Live URLs
+    transform:
+      input: "{{ steps.probe.outputs.urls }}"
+      ops:
+        - pluck: url
+        - unique: true
+      output: { name: urls }
+
+  - id: nuclei
+    name: Nuclei scan
+    command_ref: nuclei-scan
+    skip_if_empty: true
+    args:
+      targets: "{{ steps.live_urls.outputs.urls }}"
+      severity: "{{ inputs.severity }}"
+
+  - id: headers
+    name: Security headers
+    command_ref: http-security-headers
+    for_each:
+      items: "{{ steps.live_urls.outputs.urls }}"
+      concurrency: 4
+      max_items: 50
+    args:
+      url: "{{ item }}"

@@ -282,10 +282,13 @@ posts each one to webhooks (Slack, Discord and ntfy formats by host, JSON otherw
 background thread; `CASTOR_PUBLIC_URL` makes links absolute. The web UI shows them under
 the bell in the navigation rail and, if allowed, as desktop notifications.
 
-`playbooks/pipeline-demo.yaml` and the `commands/demo-*` commands are a fake recon
-pipeline (fan-out, three branches, three transforms, fan-in) that runs in seconds on an
+The built-in library (`tools/`, `commands/`, `playbooks/`) ships real tooling; a built-in
+whose file is removed is retired at the next start (commands and playbooks are deleted, cards
+keep their command line, runs their snapshot; a tool is kept as a user tool while a command
+uses it). For tests, `server/tests/fixtures/playbooks/pipeline-demo.yaml` and the
+`fixtures/commands/demo-*` commands are a fake recon pipeline (fan-out, three branches, three transforms, fan-in) that runs in seconds on an
 agent with `--allow-host` and touches no network; its `fail_at` / `empty_at` inputs
-exercise failure and skip handling. `playbooks/branching-demo.yaml` does the same for
+exercise failure and skip handling. `fixtures/playbooks/branching-demo.yaml` does the same for
 conditions, failure branches, `expect`, `on_failure` and `join: any`
 (`server/tests/test_playbook_conditions.py` drives it). `server/tests/test_playbook_transforms.py`
 runs `pipeline-demo` end to end with each command executed under `/bin/sh`.

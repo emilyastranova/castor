@@ -1,0 +1,29 @@
+id: tls-scan
+name: TLS configuration scan
+schema_version: 1
+description: testssl.sh against one TLS endpoint (protocols, ciphers, certificate, known weaknesses); lists the IDs of findings at or above a severity
+tags: [tls, web, compliance, testssl]
+tool: testssl
+args:
+  - name: target
+    type: string
+    description: host, host:port or URL
+    required: true
+    example: app.example.com:443
+    regex: '^[A-Za-z0-9.:/_-]+$'
+  - name: severity
+    type: string
+    description: Lowest severity to report
+    default: MEDIUM
+    choices: [LOW, MEDIUM, HIGH, CRITICAL]
+command: |
+  mkdir -p /work/artifacts
+  testssl.sh --quiet --color 0 --warnings off --severity {{ severity }} --jsonfile /work/artifacts/testssl.json {{ target }}
+outputs:
+  - name: issues
+    type: list<string>
+    parser: regex
+    source: /work/artifacts/testssl.json
+    options:
+      pattern: '"id"\s*:\s*"([^"]+)"[^}]*?"severity"\s*:\s*"(?:LOW|MEDIUM|HIGH|CRITICAL)"'
+      group: 1

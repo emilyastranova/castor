@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import models as m
@@ -39,13 +40,17 @@ async def sync_builtin_playbooks(db: AsyncSession) -> int:
         log.info("no built-in playbook directory at %s", directory)
         return 0
     loaded = 0
+    seen: set[str] = set()
+    complete = True
     for path in sorted(directory.glob("*.y*ml")):
         text = path.read_text()
         try:
             spec = parse_playbook_spec(text)
         except ValueError as exc:
             log.warning("skipping built-in playbook %s: %s", path.name, exc)
+            complete = False
             continue
+        seen.add(spec.id)
         for problem in await check_against_library(db, spec):
             log.warning("built-in playbook %s: %s", spec.id, problem)
         row = await db.get(m.PlaybookDefinition, spec.id)
@@ -57,6 +62,13 @@ async def sync_builtin_playbooks(db: AsyncSession) -> int:
             db.add(row)
         definition_from_spec(row, spec, text)
         loaded += 1
+    if complete:  # a file that didn't parse might be one of these; retire nothing then
+        # Built-ins whose file is gone are removed; their runs keep a snapshot of the spec.
+        gone = (await db.execute(select(m.PlaybookDefinition).where(
+            m.PlaybookDefinition.origin == "builtin", m.PlaybookDefinition.id.not_in(seen)))).scalars().all()
+        for row in gone:
+            await db.delete(row)
+            log.info("retired built-in playbook %s (its file is gone)", row.id)
     await db.commit()
     return loaded
 

@@ -298,6 +298,39 @@ def ffuf_results(data: bytes, options: FfufOptions | None = None) -> list[dict[s
     ]
 
 
+class HttpxOptions(Options):
+    status: list[int] = Field(default_factory=list, description="Only keep these status codes (empty: all)")
+
+
+@parser(
+    "httpx.results",
+    "list<url>",
+    "Live web servers from httpx JSON lines (-json), with status, size, title and technologies",
+    HttpxOptions,
+    sample="httpx.jsonl",
+)
+def httpx_results(data: bytes, options: HttpxOptions | None = None) -> list[dict[str, Any]]:
+    options = options or HttpxOptions()
+    out = []
+    for n, line in enumerate(data.decode("utf-8", "replace").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            r = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ParseError(f"line {n} isn't httpx JSON: {exc}") from exc
+        if not isinstance(r, dict) or not r.get("url") or r.get("failed"):
+            continue
+        if options.status and r.get("status_code") not in options.status:
+            continue
+        out.append({
+            "url": r["url"], "status": r.get("status_code"), "length": r.get("content_length"),
+            "words": r.get("words"), "lines": r.get("lines"), "title": r.get("title") or "",
+            "content_type": r.get("content_type") or "", "tech": r.get("tech") or [],
+        })
+    return out
+
+
 # ---------- netexec ----------
 
 ANSI_RE = regex.compile(r"\x1b\[[0-9;]*[a-zA-Z]")

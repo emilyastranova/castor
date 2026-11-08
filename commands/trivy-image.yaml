@@ -1,0 +1,32 @@
+id: trivy-image
+name: Container image vulnerabilities
+schema_version: 1
+description: Scan a container image (from its registry) for known vulnerabilities with Trivy; lists the CVE/GHSA IDs found
+tags: [containers, vulnerabilities, ops, trivy]
+tool: trivy
+args:
+  - name: image
+    type: string
+    description: Image reference
+    required: true
+    example: docker.io/library/nginx:1.27
+    regex: '^[A-Za-z0-9./:@_-]+$'
+  - name: severity
+    type: list
+    separator: ","
+    description: Severities to report
+    default: [HIGH, CRITICAL]
+    choices: [UNKNOWN, LOW, MEDIUM, HIGH, CRITICAL]
+    flag: --severity
+  - name: ignore_unfixed
+    type: boolean
+    description: Only vulnerabilities that have a fix
+    flag: --ignore-unfixed
+command: trivy image --quiet --no-progress {{ severity }} {{ ignore_unfixed }} --format table {{ image }}
+outputs:
+  - name: vulnerabilities
+    type: list<string>
+    parser: regex
+    options:
+      pattern: '\b(CVE-\d{4}-\d{4,}|GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4})\b'
+      group: 1

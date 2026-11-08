@@ -272,3 +272,11 @@ async def test_playbook_chaining_and_output_binding(client, auth):
         assert len(enqueued) == 0
         assert run.status == m.PlaybookRunStatus.succeeded
 
+
+
+def test_builtin_playbooks_check_against_the_library(client, auth):
+    """Every shipped playbook names real commands, arguments and outputs (what saving checks)."""
+    for path in sorted(PLAYBOOKS_DIR.glob("*.yaml")):
+        r = client.post("/api/playbooks/validate", json={"yaml": path.read_text()}, headers=auth)
+        assert r.status_code == 200, (path.name, r.text)
+        assert r.json().get("errors") in (None, []), (path.name, r.json())

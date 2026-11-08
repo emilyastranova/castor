@@ -377,9 +377,9 @@ a status test **waits for that step to end, however it ends**, so its failure do
 it. That's how a failure branch works:
 
 ```yaml
-  - id: fallback_names
-    name: Fallback name lookup
-    command_ref: demo-dns-names
+  - id: fallback_scan
+    name: Fallback service scan
+    command_ref: nmap-service-scan
     when: { step: smb_audit, status: failed }
     args:
       targets: "{{ steps.smb_scan.outputs.hosts }}"
@@ -401,13 +401,13 @@ The run stores how each condition evaluated, test by test, and the UI shows it.
 | `always` | every dependency has ended, whatever happened (clean-up, a report of whatever exists). |
 
 ```yaml
-  - id: report
-    name: Report
-    command_ref: demo-report
+  - id: port_scan
+    name: Port scan what we found
+    command_ref: nmap-top-ports
     join: any
-    depends_on: [relay_scan, fallback_names]
+    depends_on: [relay_scan, fallback_scan]
     args:
-      unsigned: "{{ steps.unsigned.outputs.hosts }}"   # empty if that branch wasn't taken
+      targets: "{{ steps.unsigned.outputs.hosts }}"   # empty if that branch wasn't taken
 ```
 
 Its `when` (if any) is evaluated after the join allows it.
@@ -529,19 +529,22 @@ built-ins as of this writing:
 | `netexec-smb` | host | `targets`* | `smb_hosts` list<smb_host> (netexec.smb) |
 | `netexec-smb-auth` | host | `targets`*; slot `creds` (credential) | `smb_hosts` list<smb_host> (netexec.smb) |
 | `netexec-auth` | host | `protocol`*=smb (choices from the "NetExec protocols" set), `targets`*, `use_dns` + `dns_server` (`--dns-server`), `kerberos` (`-k`), `local_auth` (`--local-auth`); slot `creds` (credential) | `successes` list<string> (lines), `smb_hosts` list<smb_host> (netexec.smb) |
-| `ffuf-dir` | container | `url`*, `wordlist`=/work/wordlists/common.txt | `paths` list<url> (ffuf.results) |
-| `demo-seed-hosts` | host | `subnet`=10.20.0, `count`=6 | `hosts` list<host> (nmap.hosts) |
-| `demo-service-scan` | host | `targets`* | `services` list<service> (nmap.services) |
-| `demo-smb-scan` | host | `targets`* | `hosts` list<host> (nmap.hosts) |
-| `demo-smb-audit` | host | `targets`*, `signing`=mixed (`all`: every host requires signing) | `smb_hosts` list<smb_host> (netexec.smb) |
-| `demo-dns-names` | host | `targets`* | `names` list<string> (lines) |
-| `demo-dir-brute` | host | `urls`* | `paths` list<url> (ffuf.results) |
-| `demo-report` | host | `findings`, `unsigned`, `names` | `report` string (text) |
-| `demo-vars` | host | slots `creds` (credential), `key` (ssh-key, optional), `callback` (listener, optional) | (none) |
+| `ffuf-dir` | container | `url`*, `wordlist`=/usr/share/wordlists/common.txt (SecLists, in the tool) | `paths` list<url> (ffuf.results) |
+| `nmap-top-ports` | container | `targets`*, `top`=1000, `exclude` | `services` list<service> (nmap.services) |
+| `nmap-udp-scan` | container | `targets`*, `top`=25, `exclude` | `services` list<service> (nmap.services) |
+| `tls-cert-expiry` | container | `targets`*, `ports`=443,465,636,993,995,3389,8443 | `certificates` list<string> (lines: "host:port expires DATE (subject)") |
+| `httpx-probe` | container | `targets`* (hosts, host:port, URLs), `ports` (`-ports`) | `urls` list<url> (httpx.results; also `title`, `content_type`, `tech`) |
+| `nuclei-scan` | container | `targets`*, `severity`=medium,high,critical, `tags`, `rate_limit`=50 | `findings` list<string> (lines); full JSON in artifacts |
+| `tls-scan` | container | `target`* (host:port), `severity`=MEDIUM | `issues` list<string> (regex: testssl finding IDs); JSON in artifacts |
+| `ssh-audit` | container | `target`*, `port`=22 | `problems` list<string> (lines: every [fail]/[warn]) |
+| `http-security-headers` | container | `url`* | `missing` list<string> (regex: missing header names) |
+| `subfinder-enum` | container | `domain`*, `all_sources` (`-all`) | `subdomains` list<string> (lines) |
+| `dnsx-resolve` | container | `names`* | `resolved` list<string>, `ips` list<string> (regex) |
+| `trivy-image` | container | `image`*, `severity`=HIGH,CRITICAL, `ignore_unfixed` | `vulnerabilities` list<string> (regex: CVE/GHSA IDs) |
+| `netexec-shares` | container | `targets`*; slot `creds` (credential) | `accessible` list<string> ("host share READ,WRITE"), `smb_hosts` list<smb_host> |
 
-- Every `demo-*` command also takes `step`, `delay`, `speed`, `fail_at` and `empty_at`.
-  These are knobs for testing. The `demo-*` commands invent their output and touch no
-  network, so they're for exercising playbooks, not real work.
+- Every command runs in its tool's container (`tool:`), pulled or built on the agent the
+  first time. Agents without Docker or Podman can run `netexec-*` with a NetExec on the host.
 - `nmap.hosts` keeps hosts reported as down by default. After `nmap-ping-sweep`, filter
   `status: up` (as in section 2) before scanning further.
 - `ffuf-dir` takes a single base `url`; use `for_each` to run it once per URL (5.3).
@@ -597,7 +600,8 @@ curl -s -X POST http://localhost:8000/api/playbooks/validate \
   "spec": { "...": "normalised spec with kinds and implicit depends_on filled in" } }
 ```
 
-Get a token with `POST /api/auth/login` (`{"username": …, "password": …}` → `{"token": …}`).
+Authenticate with a personal API token (`castor_pat_…`, scope `library:write` to save,
+`library:read` to validate) as `Authorization: Bearer`, or with `POST /api/auth/login`.
 Save with `POST /api/playbooks {yaml}` (new) or `PUT /api/playbooks/<id> {yaml}`; both run
 the same checks and answer 422 with the problems. Built-in playbooks (files in
 `playbooks/`) are read-only in the UI.
@@ -622,12 +626,12 @@ the same checks and answer 422 with the problems. Built-in playbooks (files in
 **Fan-in**: one step references several upstream steps. It waits for all of them.
 
 ```yaml
-  - id: report
-    name: Report
-    command_ref: demo-report
+  - id: certificates
+    name: Certificate expiry
+    command_ref: tls-cert-expiry
     args:
-      findings: "{{ steps.interesting.outputs.urls }}"
-      unsigned: "{{ steps.unsigned.outputs.hosts }}"
+      targets: "{{ steps.live.outputs.ips }}"
+      ports: "{{ steps.tls_ports.outputs.ports }}"
 ```
 
 Or merge lists of the same kind first with a multi-input transform:
@@ -669,14 +673,16 @@ they meet.
     when: { value: "{{ steps.svc.outputs.services }}", some: { field: name, in: [http, https] } }
     args: { url: "http://{{ inputs.target }}/" }
   - id: no_web
-    name: Note the absence
-    command_ref: demo-report
+    name: No web; check UDP instead
+    command_ref: nmap-udp-scan
     when: { value: "{{ steps.svc.outputs.services }}", none: { field: name, in: [http, https] } }
+    args: { targets: "{{ inputs.target }}" }
   - id: wrap_up
-    name: Wrap up
-    command_ref: demo-report
+    name: Certificates either way
+    command_ref: tls-cert-expiry
     join: any
     depends_on: [has_web, no_web]
+    args: { targets: "{{ inputs.target }}" }
 ```
 
 **Failure branch**: `when: { step: x, status: failed }` (section 8.1). Give `x`
@@ -694,12 +700,12 @@ spread a long list over several agents.
 
 ```yaml
 x-common: &common
-  speed: "{{ inputs.speed }}"
+  ports: "{{ inputs.ports }}"
 steps:
-  - id: a
-    name: Seed
-    command_ref: demo-seed-hosts
-    args: { <<: *common, step: a }
+  - id: internal
+    name: Probe internal hosts
+    command_ref: httpx-probe
+    args: { <<: *common, targets: "{{ inputs.internal }}" }
 ```
 
 ## 13. Checklist for authors
@@ -718,6 +724,8 @@ steps:
 - [ ] Names are short; descriptions say why the step exists.
 - [ ] `POST /api/playbooks/validate` returns `"ok": true`.
 
-Complete worked examples: `playbooks/pipeline-demo.yaml` (transforms, fan-out, fan-in) and
-`playbooks/branching-demo.yaml` (conditions, a failure branch, `expect`, `on_failure`,
-`join: any`).
+Complete worked examples: `playbooks/network-baseline.yaml` (transforms, fan-out),
+`playbooks/web-attack-surface.yaml` (`skip_if_empty`, `for_each`) and
+`playbooks/tls-review.yaml` (`for_each` over an input). For conditions, a failure branch,
+`expect`, `on_failure` and `join: any` together, see the test fixture
+`server/tests/fixtures/playbooks/branching-demo.yaml` (it uses test-only commands).

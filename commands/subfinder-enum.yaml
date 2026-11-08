@@ -1,0 +1,23 @@
+id: subfinder-enum
+name: Subdomain discovery
+schema_version: 1
+description: Passive subdomain discovery for a domain from public sources (no traffic to the target)
+tags: [dns, recon, subfinder]
+tool: subfinder
+args:
+  - name: domain
+    type: string
+    description: Domain to enumerate
+    required: true
+    example: example.com
+    regex: '^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'
+  - name: all_sources
+    type: boolean
+    description: Use every source (slower, finds more)
+    flag: -all
+command: subfinder -d {{ domain }} -silent {{ all_sources }} -o /work/subdomains.txt
+outputs:
+  - name: subdomains
+    type: list<string>
+    parser: lines
+    source: /work/subdomains.txt

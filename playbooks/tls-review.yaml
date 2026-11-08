@@ -1,0 +1,33 @@
+id: tls-review
+name: TLS review
+schema_version: 1
+description: >-
+  Check TLS on a list of endpoints: certificate expiry for all of them, and a full
+  testssl.sh scan of each one (protocols, ciphers, certificate trust, known weaknesses).
+tags: [tls, compliance, testssl]
+inputs:
+  - name: endpoints
+    type: string
+    description: Comma-separated host:port endpoints
+    required: true
+    example: app.example.com:443,mail.example.com:993
+  - name: severity
+    type: string
+    description: Lowest testssl.sh severity to report (LOW, MEDIUM, HIGH, CRITICAL)
+    default: MEDIUM
+steps:
+  - id: expiry
+    name: Certificate expiry
+    command_ref: tls-cert-expiry
+    args:
+      targets: "{{ inputs.endpoints }}"
+
+  - id: scan
+    name: TLS scan
+    command_ref: tls-scan
+    for_each:
+      items: "{{ inputs.endpoints }}"
+      concurrency: 2
+    args:
+      target: "{{ item }}"
+      severity: "{{ inputs.severity }}"

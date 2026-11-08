@@ -8,7 +8,8 @@ import yaml
 from castor_server.playbook_spec import parse_playbook_spec
 from castor_server.playbook_yaml import authoring_dict, to_yaml
 
-PLAYBOOKS = sorted((Path(__file__).resolve().parents[2] / "playbooks").glob("*.yaml"))
+PLAYBOOKS = sorted((Path(__file__).resolve().parents[2] / "playbooks").glob("*.yaml")) + sorted(
+    (Path(__file__).resolve().parent / "fixtures" / "playbooks").glob("*.yaml"))
 
 
 @pytest.mark.parametrize("path", PLAYBOOKS, ids=lambda p: p.stem)

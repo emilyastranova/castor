@@ -1,0 +1,6 @@
+id: dnsx
+name: dnsx
+description: Fast DNS resolution and record lookups (ProjectDiscovery)
+tags: [dns, recon]
+homepage: https://github.com/projectdiscovery/dnsx
+image: docker.io/projectdiscovery/dnsx

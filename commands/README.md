@@ -98,8 +98,7 @@ Variables. Unsaved manual values are encrypted like any set but stay with that c
 and are deleted with it.
 
 Saving a command checks that every slot's kind exists and every `{{ slot.field }}` names a
-field of that kind. `demo-vars` shows everything a job receives without touching the network,
-and `netexec-smb-auth` is a real example.
+field of that kind. `netexec-smb-auth` and `netexec-shares` are real examples.
 
 ## Dropdowns from a variable set (`choices_from`)
 
