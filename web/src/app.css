@@ -47,6 +47,10 @@
 	}
 }
 
+/* Window heights the navigation rail adapts to: tighter spacing, then icons only. */
+@custom-variant short (@media (max-height: 980px));
+@custom-variant shorter (@media (max-height: 820px));
+
 /* ---------- Material 3 system tokens ---------- */
 :root {
 	--md-sys-typescale-font: 'Roboto Flex', system-ui, sans-serif;
