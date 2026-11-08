@@ -86,3 +86,22 @@ def test_actions_through_mcp_are_marked(client, auth):
     # The marker is a key made at startup: a client sending the header itself doesn't get it.
     forged = client.post(f"/api/projects/{p['id']}/tasks", json={"title": "Forged"}, headers={**writer, "X-Castor-Via": "mcp"}).json()
     assert not any(a["payload"].get("via") for a in client.get(f"/api/tasks/{forged['id']}/activity", headers=auth).json())
+
+
+def test_attach_file(client, auth):
+    import base64
+
+    p = client.post("/api/projects", json={"codename": f"MA-{uuid.uuid4().hex[:6]}", "name": "Attach", "kind": "internal"}, headers=auth).json()
+    task = client.post(f"/api/projects/{p['id']}/tasks", json={"title": "Shots"}, headers=auth).json()
+    writer = _token(client, auth, scopes=["projects:write"], project_ids=[p["id"]])
+    png = b"\x89PNG\r\n\x1a\n fake image"
+    done = _call(client, writer, "attach_file", task_id=task["id"], filename="login.png", content_base64=base64.b64encode(png).decode())
+    assert not done["isError"], done
+    att = json.loads(done["content"][0]["text"])
+    assert att["filename"] == "login.png" and att["markdown"] == f"![login.png](/api/attachments/{att['id']}/download?inline=true)"
+    assert client.get(f"/api/attachments/{att['id']}/download", headers=auth).content == png
+    assert not _call(client, writer, "comment", task_id=task["id"], body=f"Here: {att['markdown']}")["isError"]
+
+    assert _call(client, writer, "attach_file", task_id=task["id"], filename="x.txt", content_base64="not base64!")["isError"]
+    reader = _token(client, auth, scopes=["projects:read"], project_ids=[p["id"]])
+    assert "attach_file" not in {t["name"] for t in _rpc(client, reader, "tools/list")["result"]["tools"]}

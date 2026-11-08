@@ -67,7 +67,8 @@ limits, service accounts that aren't a person (a user made for the purpose works
   what the token can over HTTP: same scopes, role, project limit, validation and activity.
   `tools/list` shows only the tools the token's scopes grant (`Tool.scope` comes from
   `api_tokens.RULES`). Tools: `search`, `list_projects`, `get_board`, `get_card`,
-  `list_comments`, `create_card`, `move_card`, `comment`, `run_card`, `list_jobs`, `get_job`,
+  `list_comments`, `create_card`, `move_card`, `comment`, `attach_file` (base64 content as a
+  multipart upload; the result has `markdown` to embed it in a comment), `run_card`, `list_jobs`, `get_job`,
   `get_job_output`, `get_job_results`, `cancel_job`, `list_commands`, `get_command`,
   `list_playbooks`, `run_playbook`, `get_run`, `resolve_step`, `list_assets`. Nothing
   deletes, and nothing reveals secrets.

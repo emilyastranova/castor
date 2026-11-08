@@ -14,7 +14,10 @@ carry it say so before the data."""
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
+import mimetypes
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -46,6 +49,7 @@ class Tool:
     properties: dict[str, Any] = field(default_factory=dict)
     required: tuple[str, ...] = ()
     untrusted: bool = False
+    upload: bool = False  # filename + content_base64 go up as a multipart file
 
     @property
     def scope(self) -> str:
@@ -91,6 +95,11 @@ TOOLS: list[Tool] = [
          ("task_id", "column_id")),
     Tool("comment", "Add a comment to a card (markdown; @username mentions notify people).", "POST",
          "/api/tasks/{task_id}/comments", {"task_id": ID["task_id"], "body": _s("Markdown")}, ("task_id", "body")),
+    Tool("attach_file", "Attach a file (a screenshot, a report…) to a card. To show an image in a comment, attach it, then put the "
+         "`markdown` from the result in the comment body.", "POST", "/api/tasks/{task_id}/attachments",
+         {"task_id": ID["task_id"], "filename": _s("File name, e.g. login-page.png"),
+          "content_base64": _s("The file's bytes, base64-encoded"), "content_type": _s("MIME type, e.g. image/png (guessed from the name if left out)")},
+         ("task_id", "filename", "content_base64"), upload=True),
     Tool("run_card", "Run a command card now.", "POST", "/api/tasks/{task_id}/run", {"task_id": ID["task_id"]}, ("task_id",)),
     Tool("list_jobs", "A card's runs, newest first.", "GET", "/api/tasks/{task_id}/jobs", {"task_id": ID["task_id"]},
          ("task_id",), untrusted=True),
@@ -134,6 +143,20 @@ async def call_tool(app: Any, authorization: str, user: User, name: str, args: d
     if missing:
         return _result(f"Missing arguments: {', '.join(missing)}", error=True)
     path = re.sub(r"\{([^}]+)\}", lambda mt: quote(str(args.pop(mt.group(1))), safe=""), tool.path)
+    if tool.upload:
+        try:
+            content = base64.b64decode(args["content_base64"], validate=True)
+        except (binascii.Error, TypeError) as exc:
+            return _result(f"content_base64 isn't valid base64: {exc}", error=True)
+        name = str(args["filename"])
+        kind = args.get("content_type") or mimetypes.guess_type(name)[0] or "application/octet-stream"
+        r = await _rest(app, authorization, tool.method, path, files={"file": (name, content, kind)})
+        if r.status_code >= 400:
+            return _result(_failure(r), error=True)
+        out = r.json()
+        link = f"/api/attachments/{out['id']}/download?inline=true"
+        out["markdown"] = f"![{name}]({link})" if kind.startswith("image/") else f"[{name}]({link})"
+        return _result(json.dumps(out, ensure_ascii=False))
     r = await _rest(app, authorization, tool.method, path, args)
     if r.status_code >= 400:
         return _result(_failure(r), error=True)
@@ -143,10 +166,13 @@ async def call_tool(app: Any, authorization: str, user: User, name: str, args: d
     return _result((UNTRUSTED if tool.untrusted else "") + text)
 
 
-async def _rest(app: Any, authorization: str, method: str, path: str, args: dict[str, Any] | None = None) -> httpx.Response:
+async def _rest(app: Any, authorization: str, method: str, path: str, args: dict[str, Any] | None = None,
+                files: dict[str, Any] | None = None) -> httpx.Response:
     """The REST endpoint, in-process, as the caller. VIA marks the activity it records."""
     headers = {"Authorization": authorization, api_tokens.VIA_HEADER: api_tokens.MCP_KEY}
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://castor") as client:
+        if files:
+            return await client.request(method, path, headers=headers, files=files)
         return await client.request(method, path, headers=headers, params=args if method == "GET" else None,
                                     json=args if method != "GET" else None)
 
