@@ -1,0 +1,287 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-08T20:43:08+00:00",
+  "title": "Design System: Castor",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Muted Indigo",
+        "canonical": "#545a92",
+        "tonalRamp": [
+          "#0f144b",
+          "#262b61",
+          "#3d4279",
+          "#545a92",
+          "#7d83bf",
+          "#bdc2ff",
+          "#e0e0ff",
+          "#f1efff"
+        ]
+      },
+      "secondary-container": {
+        "role": "secondary",
+        "displayName": "Slate Lavender",
+        "canonical": "#e1e0f9",
+        "tonalRamp": [
+          "#191a2c",
+          "#2d2f42",
+          "#444559",
+          "#5c5d72",
+          "#8e8fa6",
+          "#c4c4dd",
+          "#e1e0f9",
+          "#f2f0ff"
+        ]
+      },
+      "tertiary": {
+        "role": "tertiary",
+        "displayName": "Dusky Mauve",
+        "canonical": "#78536b",
+        "tonalRamp": [
+          "#2e1126",
+          "#45263c",
+          "#5e3c53",
+          "#78536b",
+          "#a8819b",
+          "#e7b9d5",
+          "#ffd7ef",
+          "#ffecf5"
+        ]
+      },
+      "error": {
+        "role": "error",
+        "displayName": "Signal Red",
+        "canonical": "#ba1a1a",
+        "tonalRamp": [
+          "#410002",
+          "#690005",
+          "#93000a",
+          "#ba1a1a",
+          "#e2524a",
+          "#ffb4ab",
+          "#ffdad6",
+          "#ffedea"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Lavender Paper",
+        "canonical": "#fbf8ff",
+        "tonalRamp": [
+          "#0d0e13",
+          "#131318",
+          "#1f1f25",
+          "#34343a",
+          "#e4e1e9",
+          "#efedf4",
+          "#f5f2fa",
+          "#fbf8ff"
+        ]
+      },
+      "on-surface": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#1b1b21"
+      },
+      "on-surface-variant": {
+        "role": "neutral",
+        "displayName": "Soft Ink",
+        "canonical": "#46464f"
+      }
+    },
+    "typographyMeta": {
+      "headline-small": {
+        "displayName": "Headline small",
+        "purpose": "Dialog titles."
+      },
+      "title-large": {
+        "displayName": "Title large",
+        "purpose": "Page titles in the top app bar."
+      },
+      "body-medium": {
+        "displayName": "Body medium",
+        "purpose": "Default reading size."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Commands, tokens, paths and logs only."
+      }
+    },
+    "shadows": [
+      {
+        "name": "e1",
+        "value": "0 1px 2px rgb(0 0 0 / 0.3), 0 1px 3px 1px rgb(0 0 0 / 0.15)",
+        "purpose": "Board cards at rest, elevated chips."
+      },
+      {
+        "name": "e2",
+        "value": "0 1px 2px rgb(0 0 0 / 0.3), 0 2px 6px 2px rgb(0 0 0 / 0.15)",
+        "purpose": "Hover on interactive cards and buttons."
+      },
+      {
+        "name": "e3",
+        "value": "0 1px 3px rgb(0 0 0 / 0.3), 0 4px 8px 3px rgb(0 0 0 / 0.15)",
+        "purpose": "Dialogs and the FAB."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-standard",
+        "value": "cubic-bezier(0.2, 0, 0, 1)",
+        "purpose": "State layers and small transitions."
+      },
+      {
+        "name": "ease-emphasized",
+        "value": "cubic-bezier(0.05, 0.7, 0.1, 1)",
+        "purpose": "Larger movements."
+      },
+      {
+        "name": "duration-short",
+        "value": "150ms",
+        "purpose": "Hover and state-layer fades."
+      },
+      {
+        "name": "duration-medium",
+        "value": "300ms",
+        "purpose": "Panels and dialogs."
+      },
+      {
+        "name": "row-enter",
+        "value": "240ms",
+        "purpose": "lib/motion.ts enter for live list rows."
+      },
+      {
+        "name": "row-leave",
+        "value": "170ms",
+        "purpose": "lib/motion.ts leave."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "md",
+        "value": "768px"
+      }
+    ],
+    "darkTheme": {
+      "surface": "#131318",
+      "on-surface": "#e4e1e9",
+      "primary": "#bdc2ff",
+      "secondary-container": "#444559",
+      "surface-container-high": "#2a292f"
+    }
+  },
+  "components": [
+    {
+      "name": "Filled Button",
+      "kind": "button",
+      "refersTo": "button-filled",
+      "description": "The one main action per view.",
+      "html": "<button class=\"ds-btn-filled\">Create token</button>",
+      "css": ".ds-btn-filled{position:relative;height:40px;padding:0 24px;border:none;border-radius:9999px;background:var(--md-sys-color-primary);color:var(--md-sys-color-on-primary);font:500 0.875rem/1.25rem var(--md-sys-typescale-font, \"Roboto Flex\", system-ui, sans-serif);letter-spacing:0.006rem;cursor:pointer;transition:box-shadow 150ms cubic-bezier(0.2,0,0,1),filter 150ms;} .ds-btn-filled:hover{box-shadow:0 1px 2px rgb(0 0 0 / 0.3),0 1px 3px 1px rgb(0 0 0 / 0.15);filter:brightness(1.08);} .ds-btn-filled:focus-visible{outline:3px solid var(--md-sys-color-secondary);outline-offset:2px;} .ds-btn-filled:active{filter:brightness(1.12);}"
+    },
+    {
+      "name": "Tonal Button",
+      "kind": "button",
+      "refersTo": "button-tonal",
+      "description": "Secondary actions and empty-state calls to action.",
+      "html": "<button class=\"ds-btn-tonal\">New channel</button>",
+      "css": ".ds-btn-tonal{height:40px;padding:0 24px;border:none;border-radius:9999px;background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container);font:500 0.875rem/1.25rem var(--md-sys-typescale-font, \"Roboto Flex\", system-ui, sans-serif);cursor:pointer;transition:box-shadow 150ms,filter 150ms;} .ds-btn-tonal:hover{box-shadow:0 1px 2px rgb(0 0 0 / 0.3),0 1px 3px 1px rgb(0 0 0 / 0.15);filter:brightness(0.97);} .ds-btn-tonal:focus-visible{outline:3px solid var(--md-sys-color-secondary);outline-offset:2px;}"
+    },
+    {
+      "name": "Text Button",
+      "kind": "button",
+      "refersTo": "button-text",
+      "description": "Low-emphasis actions: Cancel, Copy, Revoke.",
+      "html": "<button class=\"ds-btn-text\">Cancel</button>",
+      "css": ".ds-btn-text{height:40px;padding:0 12px;border:none;border-radius:9999px;background:transparent;color:var(--md-sys-color-primary);font:500 0.875rem/1.25rem var(--md-sys-typescale-font, \"Roboto Flex\", system-ui, sans-serif);cursor:pointer;transition:background 150ms;} .ds-btn-text:hover{background:color-mix(in srgb,var(--md-sys-color-primary) 8%,transparent);} .ds-btn-text:focus-visible{outline:3px solid var(--md-sys-color-secondary);outline-offset:2px;} .ds-btn-text:active{background:color-mix(in srgb,var(--md-sys-color-primary) 10%,transparent);}"
+    },
+    {
+      "name": "Filter Chips",
+      "kind": "chip",
+      "refersTo": "chip-filter-selected",
+      "description": "Pick one or several options; selected chips fill with secondary-container and show a check.",
+      "html": "<div class=\"ds-chips\"><button class=\"ds-chip ds-chip-on\" aria-pressed=\"true\"><svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\"><path fill=\"currentColor\" d=\"M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z\"/></svg>Read only</button><button class=\"ds-chip\" aria-pressed=\"false\">Pick scopes</button></div>",
+      "css": ".ds-chips{display:flex;gap:8px;} .ds-chip{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--md-sys-color-outline-variant);background:transparent;color:var(--md-sys-color-on-surface-variant);font:500 0.875rem/1.25rem var(--md-sys-typescale-font, \"Roboto Flex\", system-ui, sans-serif);cursor:pointer;transition:background 150ms;} .ds-chip:hover{background:color-mix(in srgb,currentColor 8%,transparent);} .ds-chip:focus-visible{outline:3px solid var(--md-sys-color-secondary);outline-offset:2px;} .ds-chip-on{padding-left:8px;border-color:transparent;background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container);}"
+    },
+    {
+      "name": "Outlined Text Field",
+      "kind": "input",
+      "refersTo": "text-field-outlined",
+      "description": "Material outlined field with a notched floating label and supporting text.",
+      "html": "<label class=\"ds-field\"><input placeholder=\" \" /><span>Name</span><small>What it's for, so you recognise it later.</small></label>",
+      "css": ".ds-field{position:relative;display:block;width:280px;font-family:var(--md-sys-typescale-font, \"Roboto Flex\", system-ui, sans-serif);} .ds-field input{width:100%;height:56px;padding:0 16px;border:1px solid var(--md-sys-color-outline);border-radius:4px;background:transparent;color:var(--md-sys-color-on-surface);font:400 1rem/1.5rem var(--md-sys-typescale-font, \"Roboto Flex\", system-ui, sans-serif);outline:none;} .ds-field input:focus{border:2px solid var(--md-sys-color-primary);padding:0 15px;} .ds-field span{position:absolute;left:12px;top:-8px;padding:0 4px;background:var(--md-sys-color-surface);color:var(--md-sys-color-on-surface-variant);font:400 0.75rem/1rem var(--md-sys-typescale-font, \"Roboto Flex\", system-ui, sans-serif);} .ds-field input:focus+span{color:var(--md-sys-color-primary);} .ds-field small{display:block;padding:4px 16px 0;color:var(--md-sys-color-on-surface-variant);font:400 0.75rem/1rem var(--md-sys-typescale-font, \"Roboto Flex\", system-ui, sans-serif);}"
+    },
+    {
+      "name": "List Card",
+      "kind": "card",
+      "refersTo": "card-outlined",
+      "description": "Outlined row on list pages (tokens, alert channels): icon tile, title, metadata, trailing action.",
+      "html": "<div class=\"ds-card\"><span class=\"ds-card-tile\"><svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\"><path fill=\"currentColor\" d=\"M7 14a2 2 0 1 1 0-4 2 2 0 0 1 0 4m5.6-4A6 6 0 1 0 7 18a6 6 0 0 0 5.6-4H17v4h4v-4h2v-4z\"/></svg></span><div class=\"ds-card-body\"><strong>CI pipeline</strong><span>projects:read, jobs:write · last used 3m ago</span></div><button class=\"ds-card-action\">Revoke</button></div>",
+      "css": ".ds-card{display:flex;align-items:center;gap:16px;width:520px;padding:16px;border-radius:12px;border:1px solid var(--md-sys-color-outline-variant);background:var(--md-sys-color-surface);color:var(--md-sys-color-on-surface);font-family:var(--md-sys-typescale-font, \"Roboto Flex\", system-ui, sans-serif);} .ds-card-tile{display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:12px;background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container);} .ds-card-body{flex:1;min-width:0;display:flex;flex-direction:column;} .ds-card-body strong{font:500 0.875rem/1.25rem var(--md-sys-typescale-font, \"Roboto Flex\", system-ui, sans-serif);} .ds-card-body span{font:400 0.75rem/1rem var(--md-sys-typescale-font, \"Roboto Flex\", system-ui, sans-serif);color:var(--md-sys-color-on-surface-variant);} .ds-card-action{height:40px;padding:0 12px;border:none;border-radius:9999px;background:transparent;color:var(--md-sys-color-primary);font:500 0.875rem/1.25rem var(--md-sys-typescale-font, \"Roboto Flex\", system-ui, sans-serif);cursor:pointer;} .ds-card-action:hover{background:color-mix(in srgb,var(--md-sys-color-primary) 8%,transparent);} .ds-card-action:focus-visible{outline:3px solid var(--md-sys-color-secondary);outline-offset:2px;}"
+    },
+    {
+      "name": "Board Card",
+      "kind": "custom",
+      "refersTo": "task-card",
+      "description": "A card on a board column: lowest surface, e1 shadow lifting to e2 on hover, status chip.",
+      "html": "<div class=\"ds-col\"><div class=\"ds-task\"><span class=\"ds-task-title\">Service scan</span><code>nmap -sV 10.20.0.0/24</code><span class=\"ds-status\">Running</span></div></div>",
+      "css": ".ds-col{width:320px;padding:12px;border-radius:16px;background:var(--md-sys-color-surface-container-low);} .ds-task{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:12px;background:var(--md-sys-color-surface-container-lowest);color:var(--md-sys-color-on-surface);box-shadow:0 1px 2px rgb(0 0 0 / 0.3),0 1px 3px 1px rgb(0 0 0 / 0.15);outline:1px solid var(--md-sys-color-tertiary);cursor:pointer;transition:box-shadow 150ms cubic-bezier(0.2,0,0,1);font-family:var(--md-sys-typescale-font, \"Roboto Flex\", system-ui, sans-serif);} .ds-task:hover{box-shadow:0 1px 2px rgb(0 0 0 / 0.3),0 2px 6px 2px rgb(0 0 0 / 0.15);} .ds-task-title{font:500 0.875rem/1.25rem var(--md-sys-typescale-font, \"Roboto Flex\", system-ui, sans-serif);} .ds-task code{font:400 12px/1.4 \"Roboto Mono\",ui-monospace,monospace;color:var(--md-sys-color-on-surface-variant);} .ds-status{align-self:flex-start;padding:2px 8px;border-radius:9999px;background:var(--md-sys-color-tertiary-container);color:var(--md-sys-color-on-tertiary-container);font:500 0.6875rem/1rem var(--md-sys-typescale-font, \"Roboto Flex\", system-ui, sans-serif);}"
+    },
+    {
+      "name": "Navigation Rail",
+      "kind": "nav",
+      "refersTo": "nav-rail-indicator-active",
+      "description": "80px rail; the active destination sits in a secondary-container pill.",
+      "html": "<nav class=\"ds-rail\"><a class=\"ds-rail-item ds-rail-on\" href=\"#\"><span class=\"ds-pill\"><svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\"><path fill=\"currentColor\" d=\"M3 3h8v10H3zm10 0h8v6h-8zm0 8h8v10h-8zM3 15h8v6H3z\"/></svg></span>Home</a><a class=\"ds-rail-item\" href=\"#\"><span class=\"ds-pill\"><svg viewBox=\"0 0 24 24\" width=\"24\" height=\"24\"><path fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" d=\"M4 4h16v16H4zM9 4v16M15 4v16\"/></svg></span>Projects</a></nav>",
+      "css": ".ds-rail{display:flex;flex-direction:column;gap:12px;width:80px;padding:12px 0;background:var(--md-sys-color-surface);} .ds-rail-item{display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--md-sys-color-on-surface-variant);text-decoration:none;font:500 0.75rem/1rem var(--md-sys-typescale-font, \"Roboto Flex\", system-ui, sans-serif);border-radius:12px;} .ds-rail-item:focus-visible{outline:3px solid var(--md-sys-color-secondary);outline-offset:2px;} .ds-pill{display:flex;align-items:center;justify-content:center;width:56px;height:32px;border-radius:9999px;transition:background 150ms;} .ds-rail-item:hover .ds-pill{background:color-mix(in srgb,currentColor 8%,transparent);} .ds-rail-on{color:var(--md-sys-color-on-surface);} .ds-rail-on .ds-pill{background:var(--md-sys-color-secondary-container);color:var(--md-sys-color-on-secondary-container);}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Field Notebook",
+    "overview": "**Creative North Star: \"The Field Notebook\"**\n\nCastor is a working record. Every card is a page of what ran, what it printed, what it\nfound and who decided what, and the interface reads like a well-kept notebook: soft tonal\npaper, quiet ink, and colour reserved for the things that need a second look. It is Material 3\n(Material You) built in-house (`web/src/lib/m3`), so the warmth comes from rounded shapes,\ntonal surfaces and each person's own seed colour rather than from decoration.\n\nThe density is that of a tool people live in for hours: boards of 320px columns, compact\ncards, small type for metadata, monospace where a value is literal (commands, tokens, logs).\nDark mode is first-class and light mode is complete; both are generated from one seed, and\nany person can pick their own seed (`users.theme_seed`), which regenerates every colour\nrole. The design therefore speaks in roles, never in fixed colours.\n\nThe confirmed anti-reference is the dashboard-template look: no neon, no glowing gradients,\nno glassmorphism.",
+    "keyCharacteristics": [
+      "Tonal layering over shadows: surfaces step through the surface-container ramp.",
+      "Pill buttons, softly rounded cards, generous 28px dialog corners.",
+      "Colour is for state and attention (failed, running, waiting, selected), on tonal containers.",
+      "Roboto Flex everywhere, Roboto Mono for literal values, Material Symbols Rounded icons.",
+      "Every surface follows the person's seed colour in light and dark."
+    ],
+    "rules": [
+      {
+        "name": "The surface-container ramp** (lowest → highest): cards on boards sit on *lowest*, board\n  columns on *low*, dialogs on *high*, code blocks and filled cards on *highest*.\n- **Ink** (on-surface) for primary text; **Soft Ink** (on-surface-variant) for metadata,\n  supporting text and inactive icons.\n- **Outline / outline-variant**: field strokes and hairline card borders respectively.\n\n### Named Rules\n**The Roles Only Rule",
+        "body": "Use the role utilities (`bg-primary`, `text-on-surface-variant`, `bg-tertiary-container`…), never a raw Tailwind palette colour or `dark:` variant: every person can recolour the whole UI, and a fixed colour breaks their theme.",
+        "section": "colors"
+      },
+      {
+        "name": "The Container Rule",
+        "body": "State colour goes on a tonal container with its `on-` partner (error-container + on-error-container), not as saturated fills, so status reads at a glance without shouting.",
+        "section": "colors"
+      },
+      {
+        "name": "The Literal Rule",
+        "body": "Anything a person might paste into a terminal (a command, a token, a path, a log line) is set in mono on a surface-container-highest well; nothing else is.",
+        "section": "typography"
+      },
+      {
+        "name": "The Lift-On-Touch Rule",
+        "body": "A shadow grows only in answer to the pointer (hover e1 → e2); nothing animates its elevation on its own.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use role utilities for every colour, so a person's seed recolours it correctly in light and dark.",
+      "Do put state on tonal containers with their `on-` partner (failed → error-container).",
+      "Do keep one filled button per view; make the rest tonal, outlined or text.",
+      "Do set commands, tokens, paths and logs in Roboto Mono on surface-container-highest.",
+      "Do use the shared `state-layer` and `focus-ring` utilities on anything clickable.",
+      "Do animate appearing and disappearing rows with `lib/motion.ts` (240ms enter, 170ms leave, fades only under reduced motion)."
+    ],
+    "donts": [
+      "Don't use neon colours, glowing gradients or glassmorphism.",
+      "Don't use raw Tailwind palette colours or the `dark:` variant.",
+      "Don't add shadows to list cards; depth there is tonal and the hairline border.",
+      "Don't hand-edit `tokens.css`; regenerate it with `scripts/gen-tokens.mjs`."
+    ]
+  }
+}
