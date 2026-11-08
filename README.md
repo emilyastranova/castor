@@ -1,5 +1,8 @@
 <p align="center">
-  <img src=".github/assets/banner.svg" alt="Castor" width="100%">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset=".github/assets/banner-light.svg">
+    <img src=".github/assets/banner.svg" alt="Castor: the Kanban board that runs the work" width="100%">
+  </picture>
 </p>
 
 <p align="center">
@@ -43,7 +46,7 @@ on the board as one card that opens into its live graph, decisions and steps.
 ## A look around
 
 <p align="center">
-  <img src=".github/assets/screenshots/dashboard.png" alt="The home dashboard: a greeting with today's numbers, a timeline of comments, card changes, job results and playbook runs, and side panels for mentions and steps that need attention and for pinned project notes." width="100%">
+  <img src=".github/assets/screenshots/dashboard.png" alt="A project's Home: a greeting with what's running, four colored pinned notes (Status, Objectives, Scope, Contacts), today's numbers, a timeline of comments and card changes, and a Needs attention panel with mentions, a step waiting for a decision and a failed job." width="100%">
 </p>
 
 You work in one project at a time (pick it once; Castor remembers it). Its Home is the
@@ -69,11 +72,19 @@ decisions, failed runs, jobs at a prompt). The Inbox covers every project.
     between them, and each step's status and outputs.</td>
   </tr>
   <tr>
-    <td colspan="2"><img src=".github/assets/screenshots/project-dashboard.png" alt="A project's dashboard in the light theme, topped by four colored pinned notes: Status with a checklist, Objectives, Scope, and Contacts."></td>
+    <td colspan="2"><img src=".github/assets/screenshots/assets.png" alt="A project's asset inventory in the light theme: filter chips for hosts, services, URLs, domains, users, credentials and shares, and a table of hosts and services with their details, links and when they were last seen."></td>
   </tr>
   <tr>
-    <td colspan="2"><b>Project dashboards</b> open with the team's pinned notes (status,
-    objectives, scope, contacts), shown here in the light theme.</td>
+    <td colspan="2"><b>Assets.</b> Every host, service, URL and credential your jobs find,
+    merged into one inventory you can filter and feed back into commands; shown here in the
+    light theme.</td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src=".github/assets/screenshots/phone.png" alt="Three phone screens: a project's Home with its pinned notes, the board with a New card button, and the More sheet listing every destination above a bottom navigation bar."></td>
+  </tr>
+  <tr>
+    <td colspan="2"><b>On a phone</b>, a bottom bar replaces the rail, so checking a run or
+    answering a decision works one-handed.</td>
   </tr>
 </table>
 

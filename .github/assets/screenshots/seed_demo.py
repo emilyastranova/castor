@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import sys
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -25,6 +26,28 @@ from pathlib import Path
 
 API = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8100").rstrip("/")
 PASSWORD = "demo-password"  # the demo users' password (throwaway instance only)
+
+
+FIXTURE_COMMANDS = ("demo-seed-hosts", "demo-smb-scan", "demo-smb-audit", "demo-service-scan", "demo-dns-names",
+                    "demo-dir-brute", "demo-report")
+PLAYBOOK_TEXT = {
+    "pipeline-demo": ("Internal recon", "Sweep a subnet, then scan services, SMB, names and web paths in parallel and write one findings report."),
+    "branching-demo": ("SMB signing review", "Find SMB hosts, check signing, branch on what's exposed and stop for a decision when the audit fails."),
+}
+
+
+def presentable(text: str) -> str:
+    """A fixture's YAML with the test wording swapped for what a real library would say."""
+    for old, (name, description) in PLAYBOOK_TEXT.items():
+        if f"id: {old}" in text:
+            text = re.sub(r"^name: .*$", f"name: {name}", text, flags=re.M)
+            text = re.sub(r"^description: >-\n(  .*\n)+", f"description: {description}\n", text, flags=re.M)
+    text = text.replace("pipeline-demo", "internal-recon").replace("branching-demo", "smb-signing-review")
+    text = re.sub(r"\bdemo-", "", text)
+    text = re.sub(r'"Demo: (\w)', lambda m: '"' + m[1].upper(), text)
+    text = re.sub(r"Pretend (\w)", lambda m: m[1].upper(), text)
+    text = re.sub(r"^tags: \[.*\]$", "tags: [recon]", text, flags=re.M)
+    return text.replace("[demo] ", "").replace(" (castor demo)", "").replace("Pipeline demo report", "Internal recon report").replace("the fake network", "the network")
 
 
 def call(method: str, path: str, token: str | None = None, body=None):
@@ -129,15 +152,16 @@ def main() -> None:
     card("Check DNS zone transfer", "todo", kind="command", tags=["dns"],
          command="echo 'Trying AXFR against ns1.northwind.local'; echo 'Transfer failed: REFUSED' >&2; exit 1")
 
-    # Two demo playbooks (fake tool output, no network): one finishes, one stops for a decision.
-    # They're test fixtures, not built-ins, so this throwaway instance gets them uploaded first.
+    # Two playbooks with fake tool output (no network): one finishes, one stops for a decision.
+    # They're the test fixtures, not built-ins, so this throwaway instance gets them uploaded
+    # first, worded as real work (presentable) so the screenshots don't say "demo" everywhere.
     fixtures = Path(__file__).resolve().parents[3] / "server" / "tests" / "fixtures"
-    for kind in ("commands", "playbooks"):
-        for path in sorted((fixtures / kind).glob("*.yaml")):
-            call("POST", f"/{kind}", admin, {"yaml": path.read_text()})
+    for kind, names in (("commands", FIXTURE_COMMANDS), ("playbooks", ("pipeline-demo", "branching-demo"))):
+        for name in names:
+            call("POST", f"/{kind}", admin, {"yaml": presentable((fixtures / kind / f"{name}.yaml").read_text())})
     runs = [
-        call("POST", "/playbooks/pipeline-demo/run", admin, {"project_id": nwl["id"], "inputs": {"subnet": "10.20.4", "host_count": 6, "speed": 0.3}}),
-        call("POST", "/playbooks/branching-demo/run", sam, {"project_id": nwl["id"], "inputs": {"subnet": "10.20.8", "fail_at": "smb_audit", "speed": 0.3}}),
+        call("POST", "/playbooks/internal-recon/run", admin, {"project_id": nwl["id"], "inputs": {"subnet": "10.20.4", "host_count": 6, "speed": 0.3}}),
+        call("POST", "/playbooks/smb-signing-review/run", sam, {"project_id": nwl["id"], "inputs": {"subnet": "10.20.8", "fail_at": "smb_audit", "speed": 0.3}}),
     ]
     run_dns = [t for t in call("GET", f"/projects/{nwl['id']}/board", admin)["tasks"] if t["title"] == "Check DNS zone transfer"][0]
     call("POST", f"/tasks/{run_dns['id']}/run", admin)

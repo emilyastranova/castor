@@ -32,7 +32,7 @@
 			<a
 				href={item.href}
 				title={item.label}
-				class="group flex w-full shrink-0 flex-col items-center gap-1 outline-none"
+				class="group flex w-full shrink-0 flex-col items-center gap-1 outline-none short:gap-0"
 				aria-current={active(item) ? 'page' : undefined}
 			>
 				<span

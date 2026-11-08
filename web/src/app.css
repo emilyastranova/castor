@@ -48,8 +48,8 @@
 }
 
 /* Window heights the navigation rail adapts to: tighter spacing, then icons only. */
-@custom-variant short (@media (max-height: 980px));
-@custom-variant shorter (@media (max-height: 820px));
+@custom-variant short (@media (max-height: 1040px));
+@custom-variant shorter (@media (max-height: 870px));
 
 /* ---------- Material 3 system tokens ---------- */
 :root {

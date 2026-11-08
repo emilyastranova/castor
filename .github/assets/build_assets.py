@@ -14,6 +14,7 @@ brand repository is ../astralabs_design next to this repository.
 import math
 import re
 import sys
+import urllib.request
 from pathlib import Path
 
 from fontTools.pens.svgPathPen import SVGPathPen
@@ -48,10 +49,10 @@ def num(value):
 
 
 class Face:
-    """One instance of the Martian Mono variable font."""
+    """One instance of a variable font (Martian Mono unless another is given)."""
 
-    def __init__(self, weight, width):
-        font = instancer.instantiateVariableFont(TTFont(FONT), {"wght": weight, "wdth": width})
+    def __init__(self, weight, width, font_path=FONT, **axes):
+        font = instancer.instantiateVariableFont(TTFont(font_path), {"wght": weight, "wdth": width, **axes})
         self.glyphs = font.getGlyphSet()
         self.cmap = font.getBestCmap()
         self.hmtx = font["hmtx"]
@@ -137,6 +138,115 @@ def frame(width, height):
         f'<rect width="{width}" height="{height}" fill="{VOID}"/>\n'
         f'<rect width="{width}" height="{height}" fill="url(#dots)"/>\n' + "\n".join(ticks) + "\n"
     )
+
+
+# ---------- the Castor banner: the app's own look (Material You tokens, Roboto Flex) ----------
+# It follows the UI rather than the AstraLabs terminal style: the README is where people first
+# see Castor, so it should look like the thing they'll use. The footer keeps the AstraLabs mark.
+
+CACHE = HERE / ".cache"  # downloaded once, not committed (see .gitignore)
+ROBOTO_URL = ("https://github.com/google/fonts/raw/main/ofl/robotoflex/"
+              "RobotoFlex%5BGRAD%2CXOPQ%2CXTRA%2CYOPQ%2CYTAS%2CYTDE%2CYTFI%2CYTLC%2CYTUC%2Copsz%2Cslnt%2Cwdth%2Cwght%5D.ttf")
+RADAR_URL = "https://fonts.gstatic.com/s/i/short-term/release/materialsymbolsrounded/radar/fill1/48px.svg"
+TOKENS = ROOT / "web" / "src" / "lib" / "m3" / "tokens.css"
+
+
+def cached(name, url):
+    """A file from the web (Roboto Flex, OFL; a Material Symbol, Apache 2.0), fetched once."""
+    path = CACHE / name
+    if not path.exists():
+        CACHE.mkdir(exist_ok=True)
+        with urllib.request.urlopen(url) as resp:
+            path.write_bytes(resp.read())
+    return path
+
+
+def theme_tokens(theme):
+    """The app's colour roles for one theme, read from the generated tokens.css."""
+    css = TOKENS.read_text()
+    selector = ":root, :root[data-theme='light'] {" if theme == "light" else ":root[data-theme='dark'] {"
+    block = css[css.index(selector):]
+    block = block[: block.index("}")]
+    return dict(re.findall(r"--md-sys-color-([a-z-]+):\s*(#[0-9a-fA-F]{6})", block))
+
+
+def rounded(x, y, w, h, r, fill, extra=""):
+    return f'<rect x="{num(x)}" y="{num(y)}" width="{num(w)}" height="{num(h)}" rx="{num(r)}" fill="{fill}"{extra}/>'
+
+
+def castor_banner(theme):
+    c = theme_tokens(theme)
+    roboto = cached("RobotoFlex.ttf", ROBOTO_URL)
+    title = Face(560, 100, roboto, opsz=96)
+    body = Face(420, 100, roboto, opsz=24)
+    small = Face(560, 100, roboto, opsz=14)
+    radar = re.search(r' d="([^"]+)"', cached("radar.svg", RADAR_URL).read_text()).group(1)
+    width, height = 1280, 360
+    out = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" '
+        f'height="{height}" role="img" aria-label="Castor: the Kanban board that runs the work">',
+        f'<rect width="{width}" height="{height}" fill="{c["surface"]}"/>',
+        # The app's elevation 1 for board cards (only visible on the light surfaces).
+        '<defs><filter id="e1" x="-10%" y="-10%" width="120%" height="140%">'
+        '<feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#000" flood-opacity=".14"/></filter></defs>',
+    ]
+
+    # The app mark (the rail's: radar on primary-container), the name and what it is.
+    x0, top = 88, 92
+    out.append(rounded(x0, top, 76, 76, 22, c["primary-container"]))
+    out.append(f'<g transform="translate({x0 + 14} {top + 14}) scale({48 / 960}) translate(0 960)">'
+               f'<path fill="{c["on-primary-container"]}" d="{radar}"/></g>')
+    out.append(f'<path fill="{c["on-surface"]}" d="{title.text("Castor", 84, -0.01, x0 + 100, top + 66)}"/>')
+    out.append(f'<path fill="{c["on-surface-variant"]}" d="{body.text("The Kanban board that runs the work", 26, 0, x0, top + 128)}"/>')
+
+    # A few of the things it does, as the app's assist chips (the first one selected).
+    x, y = x0, top + 158
+    for i, text in enumerate(["Board", "Playbooks", "Agents", "Assets", "API + MCP"]):
+        w = small.width(text, 15, 0.01) + 32
+        if i == 0:
+            out.append(rounded(x, y, w, 36, 10, c["secondary-container"]))
+            fill = c["on-secondary-container"]
+        else:
+            out.append(rounded(x + 0.5, y + 0.5, w - 1, 35, 10, "none", f' stroke="{c["outline-variant"]}"'))
+            fill = c["on-surface-variant"]
+        out.append(f'<path fill="{fill}" d="{small.text(text, 15, 0.01, x + 16, y + 23)}"/>')
+        x += w + 10
+
+    # A small board: three columns of cards with the app's status colours.
+    status = {
+        "running": c["tertiary-container"], "done": c["primary-container"], "failed": c["error-container"],
+        "queued": c["surface-container-highest"],
+    }
+    columns = [
+        ("To Do", [(0.78, None), (0.6, "queued")]),
+        ("In Progress", [(0.7, "running"), (0.84, "run"), (0.55, "running")]),
+        ("Review", [(0.66, "done"), (0.8, "failed"), (0.5, "done")]),
+    ]
+    bx, by, col_w, gap = 712, 44, 152, 14
+    for ci, (name, cards) in enumerate(columns):
+        cx = bx + ci * (col_w + gap)
+        out.append(rounded(cx, by, col_w, height - by * 2, 18, c["surface-container-low"]))
+        out.append(f'<path fill="{c["on-surface"]}" d="{small.text(name, 14, 0.01, cx + 16, by + 30)}"/>')
+        count = str(len(cards))
+        out.append(rounded(cx + col_w - 36, by + 16, 22, 20, 10, c["surface-container-highest"]))
+        out.append(f'<path fill="{c["on-surface-variant"]}" d="{small.text(count, 12, 0, cx + col_w - 25, by + 30, "middle")}"/>')
+        y = by + 50
+        for line, state in cards:
+            h = 74 if state == "run" else 62
+            card = (c["surface-container-lowest"], ' filter="url(#e1)"') if theme == "light" else (c["surface-container-high"], "")
+            out.append(rounded(cx + 10, y, col_w - 20, h, 12, card[0], card[1]))
+            out.append(rounded(cx + 22, y + 14, (col_w - 44) * line, 8, 4, c["on-surface"], ' fill-opacity=".72"'))
+            out.append(rounded(cx + 22, y + 28, (col_w - 44) * line * 0.6, 6, 3, c["on-surface-variant"], ' fill-opacity=".4"'))
+            if state == "run":  # a playbook run card: progress so far
+                out.append(rounded(cx + 22, y + 46, col_w - 44, 6, 3, c["surface-container-highest"]))
+                out.append(rounded(cx + 22, y + 46, (col_w - 44) * 0.62, 6, 3, c["primary"]))
+            elif state:
+                out.append(rounded(cx + 22, y + 42, 44, 10, 5, status[state]))
+            y += h + 10
+
+    out.append(f'<path fill="{c["on-surface-variant"]}" fill-opacity=".8" d="{small.text("Self-hosted · open source · MIT", 13, 0.02, x0, height - 34)}"/>')
+    out.append("</svg>\n")
+    return "\n".join(out)
 
 
 def banner():
@@ -318,7 +428,7 @@ def playbook():
     out.append(label("Command: a card, run by an agent", 82, 66, fill=BONE, size=12))
     out.append(f'<rect x="420.5" y="54.5" width="23" height="13" fill="{VOID}" stroke="{ACID}" stroke-dasharray="6 4"/>')
     out.append(label("Transform: runs on the server", 454, 66, fill=BONE, size=12))
-    out.append(label("playbooks/pipeline-demo.yaml", 48, 416, size=13))
+    out.append(label("an example playbook", 48, 416, size=13))
     out.append(label("parallel branches / fan-in", width - 48, 416, size=13, anchor="end"))
     out.append("</svg>\n")
     return "\n".join(out)
@@ -347,7 +457,8 @@ def footer():
 
 def main():
     outputs = {
-        "banner.svg": banner(),
+        "banner.svg": castor_banner("dark"),
+        "banner-light.svg": castor_banner("light"),
         "architecture.svg": architecture(),
         "playbook.svg": playbook(),
         "footer.svg": footer(),
