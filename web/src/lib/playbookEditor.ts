@@ -266,6 +266,16 @@ export function disconnect(spec: PlaybookSpec, fromId: string, toId: string): { 
 	return { spec: next, conditionLeft };
 }
 
+/** A copy of a step that reads the same inputs (nothing depends on the copy yet). */
+export function duplicateStep(spec: PlaybookSpec, id: string): PlaybookStepSpec | null {
+	const st = spec.steps.find((x) => x.id === id);
+	if (!st) return null;
+	const copy = clone(st);
+	copy.id = uniqueStepId(spec, `${st.id}_copy`);
+	copy.name = `${st.name} (copy)`;
+	return copy;
+}
+
 export function deleteStep(spec: PlaybookSpec, id: string): PlaybookSpec {
 	let next: PlaybookSpec = { ...spec, steps: spec.steps.filter((st) => st.id !== id) };
 	for (const st of next.steps) {

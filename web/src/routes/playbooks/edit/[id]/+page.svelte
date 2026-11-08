@@ -2,8 +2,9 @@
 	import { beforeNavigate, goto } from '$app/navigation';
 	import type { PlaybookSpec, PlaybookStepSpec } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
-	import { Button, Icon, IconButton, Tabs, TextField } from '$lib/m3';
+	import { Button, Dialog, Icon, IconButton, Tabs, TextField } from '$lib/m3';
 	import { snackbar } from '$lib/snackbar.svelte';
+	import { confirmAction } from '$lib/confirm.svelte';
 	import PlaybookVisualizer from '$lib/components/PlaybookVisualizer.svelte';
 	import StepEditor from '$lib/components/editor/StepEditor.svelte';
 	import PlaybookSettings from '$lib/components/editor/PlaybookSettings.svelte';
@@ -12,6 +13,7 @@
 		connectOptions,
 		deleteStep,
 		disconnect,
+		duplicateStep,
 		errorsByStep,
 		forDrawing,
 		newCommandStep,
@@ -82,13 +84,49 @@
 	let selected = $derived(spec.steps.find((st) => st.id === selectedId) ?? null);
 	let hasComments = $derived(!!data.playbook && !data.isNew && /^\s*#/m.test(data.playbook.source_yaml));
 
-	function update(next: PlaybookSpec) {
+	// ---------- undo / redo ----------
+	// Every change goes through update(), which keeps the spec as it was before. Edits in one
+	// form in quick succession (typing in a field) are one step, so undo doesn't go a letter at a time.
+	// svelte-ignore state_referenced_locally
+	let savedSnapshot = JSON.stringify(spec);
+	let past = $state<string[]>([]);
+	let future = $state<string[]>([]);
+	let lastGroup: string | null = null;
+	let lastAt = 0;
+	const HISTORY = 100;
+
+	function update(next: PlaybookSpec, group: string | null = null) {
+		const now = Date.now();
+		if (!(group && group === lastGroup && now - lastAt < 1500)) past = [...past.slice(1 - HISTORY), JSON.stringify(spec)];
+		lastGroup = group;
+		lastAt = now;
+		future = [];
 		spec = next;
 		dirty = true;
 	}
+	function travel(from: string[], to: string[]): [string[], string[]] | null {
+		const prev = from.at(-1);
+		if (prev === undefined) return null;
+		to = [...to, JSON.stringify(spec)];
+		spec = JSON.parse(prev);
+		lastGroup = null;
+		dirty = JSON.stringify(spec) !== savedSnapshot;
+		if (selectedId && !spec.steps.some((st) => st.id === selectedId)) selectedId = null;
+		return [from.slice(0, -1), to];
+	}
+	function undo() {
+		const r = travel(past, future);
+		if (r) [past, future] = r;
+		else snackbar.show('Nothing to undo');
+	}
+	function redo() {
+		const r = travel(future, past);
+		if (r) [future, past] = r;
+		else snackbar.show('Nothing to redo');
+	}
 
 	function updateStep(step: PlaybookStepSpec) {
-		update({ ...spec, steps: spec.steps.map((st) => (st.id === step.id ? step : st)) });
+		update({ ...spec, steps: spec.steps.map((st) => (st.id === step.id ? step : st)) }, `step:${step.id}`);
 	}
 
 	/** Add a step where it was dropped, or (clicked in the palette) to the right of the
@@ -152,18 +190,112 @@
 		if (res.conditionLeft) snackbar.show(`“${toId}” still waits for ${fromId}: its condition refers to it`);
 	}
 
+	function duplicateSelected() {
+		if (!selectedId) return;
+		const copy = duplicateStep(spec, selectedId);
+		if (!copy) return;
+		const frozen = { ...(viz?.positions() ?? {}), ...spec.layout };
+		const from = frozen[selectedId] ?? { x: 0, y: 0 };
+		let pos = { x: from.x, y: from.y + 140 };
+		while (Object.values(frozen).some((p) => Math.abs(p.x - pos.x) < 200 && Math.abs(p.y - pos.y) < 100)) pos = { ...pos, y: pos.y + 140 };
+		update({ ...spec, steps: [...spec.steps, copy], layout: { ...frozen, [copy.id]: pos } });
+		selectedId = copy.id;
+		setTimeout(() => viz?.reveal(copy.id), 30);
+	}
+
+	/** Arrow keys walk the graph: ← what the step reads from, → what reads from it, ↑↓ the
+	 *  nearest step above or below. With nothing selected, any arrow picks the first step. */
+	function walk(dir: 'left' | 'right' | 'up' | 'down') {
+		const pos = viz?.positions() ?? {};
+		const steps = drawn.steps;
+		if (!steps.length) return;
+		const at = (id: string) => pos[id] ?? { x: 0, y: 0 };
+		let next: string | undefined;
+		if (!selectedId || !pos[selectedId]) {
+			next = [...steps].sort((a, b) => at(a.id).x - at(b.id).x || at(a.id).y - at(b.id).y)[0]?.id;
+		} else {
+			const cur = at(selectedId);
+			const me = steps.find((st) => st.id === selectedId);
+			let pool =
+				dir === 'right'
+					? steps.filter((st) => st.depends_on?.includes(selectedId!))
+					: dir === 'left'
+						? steps.filter((st) => me?.depends_on?.includes(st.id))
+						: steps.filter((st) => st.id !== selectedId && Math.abs(at(st.id).x - cur.x) < 200 && (dir === 'up' ? at(st.id).y < cur.y : at(st.id).y > cur.y));
+			// No connection that way: the nearest step in that direction on the canvas.
+			if (!pool.length && (dir === 'left' || dir === 'right'))
+				pool = steps.filter((st) => (dir === 'right' ? at(st.id).x > cur.x + 20 : at(st.id).x < cur.x - 20));
+			const dist = (id: string) => Math.hypot(at(id).x - cur.x, (at(id).y - cur.y) * 1.5);
+			next = pool.sort((a, b) => dist(a.id) - dist(b.id))[0]?.id;
+		}
+		if (next) {
+			selectedId = next;
+			viz?.reveal(next);
+		}
+	}
+
+	let shortcutsOpen = $state(false);
+	const SHORTCUTS: [string[], string][] = [
+		[['/'], 'Search the steps to add'],
+		[['Enter'], 'In the list: add after the selected step, connected'],
+		[['Shift', 'Enter'], 'In the list: add on its own'],
+		[['icon:arrow_back', 'icon:arrow_forward'], 'Select what the step reads from, or what reads from it'],
+		[['icon:arrow_upward', 'icon:arrow_downward'], 'Select the step above or below'],
+		[['Esc'], 'Deselect (the playbook’s settings show)'],
+		[['Ctrl', 'D'], 'Duplicate the selected step'],
+		[['Delete'], 'Delete the selected step'],
+		[['Ctrl', 'Z'], 'Undo'],
+		[['Ctrl', 'Shift', 'Z'], 'Redo'],
+		[['Ctrl', 'S'], 'Save'],
+		[['F'], 'Fit the graph in view'],
+		[['?'], 'This list']
+	];
 	function onKey(e: KeyboardEvent) {
-		if (e.key === 'Escape') connectMenu = null;
 		const target = e.target as HTMLElement;
-		if (tab !== 'visual' || target.closest('input, textarea, select, [contenteditable], [role="listbox"]')) return;
-		if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
-			e.preventDefault();
-			palette?.focusSearch();
+		const mod = e.ctrlKey || e.metaKey;
+		const key = e.key.toLowerCase();
+		if (e.key === 'Escape' && connectMenu) {
+			connectMenu = null;
 			return;
 		}
-		if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
+		// Save works everywhere, even while typing in a field.
+		if (mod && key === 's') {
+			e.preventDefault();
+			void saveFromKeys();
+			return;
+		}
+		if (tab !== 'visual' || shortcutsOpen) return;
+		// Typing keeps its own keys (a field's own undo, too); the palette list keeps the plain
+		// keys (its arrows and Enter) but not Ctrl/Cmd ones.
+		if (target.closest('input, textarea, select, [contenteditable], [role="dialog"], [role="menu"]')) return;
+		if (!mod && target.closest('[role="listbox"]')) return;
+		if (mod && key === 'z') {
+			e.preventDefault();
+			if (e.shiftKey) redo();
+			else undo();
+		} else if (mod && key === 'y') {
+			e.preventDefault();
+			redo();
+		} else if (mod && key === 'd') {
+			e.preventDefault();
+			duplicateSelected();
+		} else if (mod || e.altKey) {
+			return;
+		} else if (e.key === '/') {
+			e.preventDefault();
+			palette?.focusSearch();
+		} else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
 			e.preventDefault();
 			removeSelected();
+		} else if (e.key.startsWith('Arrow')) {
+			e.preventDefault();
+			walk(e.key.slice(5).toLowerCase() as 'left' | 'right' | 'up' | 'down');
+		} else if (key === 'f') {
+			viz?.fitView();
+		} else if (e.key === '?') {
+			shortcutsOpen = true;
+		} else if (e.key === 'Escape') {
+			selectedId = null;
 		}
 	}
 
@@ -171,17 +303,25 @@
 	let yamlDraft = $state('');
 	let yamlDirty = $state(false);
 	let yamlErrors = $state<string[]>([]);
-	async function applyYaml() {
+	async function applyYaml(): Promise<boolean> {
 		const res = await api().playbooks.validate(yamlDraft);
 		if (!res.spec) {
 			yamlErrors = res.errors;
-			return;
+			return false;
 		}
 		yamlErrors = [];
 		yamlDirty = false;
 		update(toAuthoring(res.spec));
 		if (selectedId && !res.spec.steps.some((st) => st.id === selectedId)) selectedId = null;
 		snackbar.show(res.ok ? 'Applied' : `Applied, with ${res.errors.length} problem${res.errors.length === 1 ? '' : 's'}`);
+		return true;
+	}
+
+	/** Ctrl/Cmd+S: in the YAML tab, apply what was typed there first. */
+	async function saveFromKeys() {
+		if (saving) return;
+		if (tab === 'yaml' && yamlDirty && !(await applyYaml())) return;
+		if (dirty || !savedId) await save();
 	}
 
 	// ---------- save ----------
@@ -200,6 +340,7 @@
 				savedId = spec.id;
 			}
 			dirty = false;
+			savedSnapshot = JSON.stringify(spec);
 			snackbar.show(`Saved “${spec.name}”`);
 			if (location.pathname !== `/playbooks/edit/${spec.id}`) await goto(`/playbooks/edit/${spec.id}`, { replaceState: true });
 		} catch (err) {
@@ -209,8 +350,22 @@
 		}
 	}
 
-	beforeNavigate(({ cancel, to }) => {
-		if (dirty && to?.url.pathname !== `/playbooks/edit/${spec.id}` && !confirm('Leave without saving? Your changes will be lost.')) cancel();
+	// Leaving with unsaved changes asks first (in the app's own dialog; closing the tab or
+	// reloading is the browser's own prompt, from onbeforeunload below).
+	let leaving = false;
+	beforeNavigate(({ cancel, to, type }) => {
+		if (!dirty || leaving || type === 'leave' || !to || to.url.pathname === `/playbooks/edit/${spec.id}`) return;
+		cancel();
+		void confirmAction({
+			title: 'Leave without saving?',
+			message: 'Your changes to this playbook will be lost.',
+			confirmLabel: 'Leave',
+			danger: true
+		}).then((ok) => {
+			if (!ok) return;
+			leaving = true;
+			void goto(to.url);
+		});
 	});
 
 </script>
@@ -237,6 +392,13 @@
 			{/if}
 		</span>
 		<div class="ml-auto flex items-center gap-2">
+			{#if tab === 'visual'}
+				<span class="flex items-center">
+					<IconButton icon="undo" label="Undo (Ctrl+Z)" disabled={!past.length} onclick={undo} />
+					<IconButton icon="redo" label="Redo (Ctrl+Shift+Z)" disabled={!future.length} onclick={redo} />
+					<IconButton icon="keyboard" label="Keyboard shortcuts (?)" onclick={() => (shortcutsOpen = true)} />
+				</span>
+			{/if}
 			<Tabs
 				tabs={[
 					{ id: 'visual', label: 'Visual', icon: 'account_tree' },
@@ -311,7 +473,7 @@
 						/>
 					{/key}
 				{:else}
-					<PlaybookSettings {spec} idEditable={!savedId} kinds={data.kinds} errors={problems.general} onchange={update} />
+					<PlaybookSettings {spec} idEditable={!savedId} kinds={data.kinds} errors={problems.general} onchange={(next) => update(next, 'settings')} />
 				{/if}
 			</aside>
 		</div>
@@ -373,3 +535,13 @@
 		</div>
 	</div>
 {/if}
+
+<Dialog bind:open={shortcutsOpen} title="Keyboard shortcuts" icon="keyboard" size="sm">
+	<dl class="grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-6 gap-y-2 pt-2 body-medium">
+		{#each SHORTCUTS as [keys, what] (what)}
+			<dt class="flex flex-wrap gap-1">{#each keys as k (k)}<kbd class="flex h-6 min-w-6 items-center justify-center rounded-xs border border-outline-variant bg-surface-container px-1.5 font-mono text-[12px] text-on-surface">{#if k.startsWith('icon:')}<Icon name={k.slice(5)} size={14} /><span class="sr-only">{k.slice(5).replace('arrow_', '').replace('ward', '')} arrow</span>{:else}{k}{/if}</kbd>{/each}</dt>
+			<dd class="text-on-surface-variant">{what}</dd>
+		{/each}
+	</dl>
+	{#snippet actions()}<Button variant="text" onclick={() => (shortcutsOpen = false)}>Close</Button>{/snippet}
+</Dialog>

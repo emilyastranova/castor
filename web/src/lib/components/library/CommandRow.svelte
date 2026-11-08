@@ -19,16 +19,14 @@
 	let uses = $derived(usageCount(c));
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events (the list owns the keyboard) -->
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus (the list owns focus and the keyboard; rows aren't focusable, so they can be dragged and a click focuses the list) -->
 <div
 	{id}
 	{role}
-	tabindex="-1"
 	aria-selected={selected}
 	class="state-layer flex min-h-12 cursor-pointer items-center gap-3 rounded-md py-1.5 pr-3 {nested ? 'pl-10' : 'pl-3'} {selected
 		? 'bg-secondary-container text-on-secondary-container'
 		: 'text-on-surface'}"
-	onmousedown={(e) => e.preventDefault()}
 	onclick={onselect}
 >
 	<div class="min-w-0 flex-1">

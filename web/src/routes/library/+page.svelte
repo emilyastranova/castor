@@ -348,11 +348,10 @@ build:
 				{@const key = f.tool ? `t:${f.id}` : 'f:'}
 				{@const ready = f.tool ? readiness(f.tool) : null}
 				<div class="pt-1">
-					<!-- svelte-ignore a11y_click_events_have_key_events (the listbox owns the keyboard) -->
+					<!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus (the tree owns focus and the keyboard) -->
 					<div
 						id={rowId(key)}
 						role="treeitem"
-						tabindex="-1"
 						aria-selected={selected === key}
 						aria-expanded={open}
 						class="state-layer flex min-h-12 cursor-pointer items-center gap-2 rounded-md pr-3 pl-1 {selected === key
@@ -360,7 +359,6 @@ build:
 							: cursor === key
 								? 'bg-surface-container-high text-on-surface'
 								: 'text-on-surface'}"
-						onmousedown={(e) => e.preventDefault()}
 						onclick={() => {
 							list?.focus();
 							cursor = key;

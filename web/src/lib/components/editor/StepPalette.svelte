@@ -182,14 +182,12 @@
 								}}
 							/>
 						{:else}
-							<!-- svelte-ignore a11y_click_events_have_key_events (the listbox owns the keyboard) -->
+							<!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus (the listbox owns focus and the keyboard) -->
 							<div
 								id={rowId(row.key)}
 								role="option"
-								tabindex="-1"
 								aria-selected="false"
 								class="state-layer flex min-h-12 cursor-pointer items-center gap-3 rounded-md border border-dashed border-tertiary/60 px-3 py-1.5"
-								onmousedown={(e) => e.preventDefault()}
 								onclick={() => {
 									cursor = row.key;
 									add(row);
