@@ -109,6 +109,40 @@ export function rectOf(selector: string): DOMRect | undefined {
 	return el ? el.getBoundingClientRect() : undefined;
 }
 
+/** A copy of the element to fly over the page. A table row (list view) goes inside a one-row
+ *  table of its own with every cell held at its real width: on its own in <body> its cells
+ *  would shrink to their content and the row would squash, then spring back when it lands. */
+function ghostOf(el: HTMLElement): HTMLElement {
+	const copy = el.cloneNode(true) as HTMLElement;
+	if (el.tagName !== 'TR') return copy;
+	const source = el.closest('table');
+	const table = document.createElement('table');
+	if (source) table.className = source.className;
+	table.style.tableLayout = 'fixed';
+	const cells = [...el.children] as HTMLElement[];
+	[...copy.children].forEach((cell, i) => {
+		const w = cells[i]?.getBoundingClientRect().width ?? 0;
+		(cell as HTMLElement).style.width = `${w}px`;
+		(cell as HTMLElement).style.maxWidth = `${w}px`;
+	});
+	// Rows have no background of their own (the list's is on its scroll box): give the copy
+	// that one, or whatever it passes over shows through it.
+	table.style.background = backgroundBehind(el);
+	table.style.borderRadius = '8px';
+	const body = document.createElement('tbody');
+	body.append(copy);
+	table.append(body);
+	return table;
+}
+
+function backgroundBehind(el: HTMLElement): string {
+	for (let node: HTMLElement | null = el; node; node = node.parentElement) {
+		const bg = getComputedStyle(node).backgroundColor;
+		if (bg && bg !== 'transparent' && !/rgba\(.*,\s*0\)$/.test(bg)) return bg;
+	}
+	return 'var(--md-sys-color-surface)';
+}
+
 export function fly(selector: string, from: DOMRect, id: string, duration = 420): void {
 	const done = () => {
 		flying.delete(id);
@@ -119,7 +153,7 @@ export function fly(selector: string, from: DOMRect, id: string, duration = 420)
 	const dx = from.left - to.left;
 	const dy = from.top - to.top;
 	if (Math.hypot(dx, dy) < 4 || !to.width) return done();
-	const ghost = el.cloneNode(true) as HTMLElement;
+	const ghost = ghostOf(el);
 	Object.assign(ghost.style, {
 		position: 'fixed',
 		left: `${to.left}px`,
