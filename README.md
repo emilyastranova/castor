@@ -71,6 +71,10 @@ on the board as one card that opens into its live graph, decisions and steps.
   Changes it makes to commands wait for a person by default.
 
 **Work as a team**
+- **Live everywhere.** Every open browser updates as things happen, no refresh: cards glide to
+  their new column when someone else moves them, job output streams into the console, playbook
+  graphs fill in step by step, and comments, notifications, agents and new assets appear as
+  they arrive. ([Projects and Boards](https://github.com/emilyastranova/castor/wiki/Projects-and-Boards))
 - **Roles and projects.** Viewers, operators and admins; members per project. ([People and Notifications](https://github.com/emilyastranova/castor/wiki/People-and-Notifications))
 - **@mentions, assignees and an inbox**, plus chat and webhook **alerts** for finished runs,
   decisions and long-running jobs. ([Alerts](https://github.com/emilyastranova/castor/wiki/Alerts))
