@@ -7,7 +7,7 @@ import { isAstra } from '$lib/components/PersonName.svelte';
  *   people.user(projectId, id)
  */
 import { browser } from '$app/environment';
-import type { Group, UserBrief, UUID } from '$lib/api';
+import type { Group, Task, UserBrief, UUID } from '$lib/api';
 import { api } from '$lib/api';
 import { realtime } from '$lib/realtime.svelte';
 import { initials } from '$lib/format';
@@ -58,6 +58,26 @@ class PeopleStore {
 		} finally {
 			this.groupsLoading = false;
 		}
+	}
+
+	group(id: string): Group | undefined {
+		if (this.groupList === null && !this.groupsLoading && browser) void this.fetchGroups();
+		return this.groupList?.find((g) => g.id === id);
+	}
+
+	/** Is the card assigned to me, directly or through one of my groups? */
+	assignedTo(task: Pick<Task, 'assignees' | 'group_assignees'>, userId: string): boolean {
+		return task.assignees.includes(userId) || (task.group_assignees ?? []).some((g) => this.group(g)?.member_ids.includes(userId));
+	}
+
+	/** A card's assignees for faces: its people, then its groups (entries with `group`). */
+	assigneesOf(task: Pick<Task, 'project_id' | 'assignees' | 'group_assignees'>): Mentionable[] {
+		const who: Mentionable[] = task.assignees.map((id) => this.user(task.project_id, id)).filter((u) => !!u);
+		for (const id of task.group_assignees ?? []) {
+			const g = this.group(id);
+			if (g) who.push({ id: `group:${g.id}`, username: g.slug, display_name: `@${g.slug}`, role: 'viewer', avatar_url: null, group: g });
+		}
+		return who;
 	}
 
 	user(projectId: UUID | null | undefined, id: string): UserBrief | undefined {

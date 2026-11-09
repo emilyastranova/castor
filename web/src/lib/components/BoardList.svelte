@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Column, Task, UUID } from '$lib/api';
-	import { Avatar, Icon, IconButton, Menu, MenuItem } from '$lib/m3';
+	import { Icon, IconButton, Menu, MenuItem } from '$lib/m3';
+	import AssigneeFace from './AssigneeFace.svelte';
 	import { people } from '$lib/people.svelte';
 	import { relativeTime, absoluteTime } from '$lib/format';
 	import { isRunning, kindIcon, runState } from '$lib/taskStatus';
@@ -91,7 +92,7 @@
 	// over hidden columns would still give them width in a fixed table.
 	const MIDDLE = ['hidden sm:table-cell', 'hidden lg:table-cell', 'hidden md:table-cell', 'hidden xl:table-cell', 'hidden md:table-cell'];
 	const ariaSort = (key: string) => (sort?.key === key ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined);
-	const assigneesOf = (t: Task) => t.assignees.map((id) => people.user(t.project_id, id)).filter((u) => !!u);
+	const assigneesOf = (t: Task) => people.assigneesOf(t);
 </script>
 
 {#snippet header(key: 'title' | 'status' | 'priority' | 'assignees' | 'updated', label: string)}
@@ -192,7 +193,7 @@
 							<td class="hidden border-t border-outline-variant/40 px-2 py-2 md:table-cell">
 								{#if who.length}
 									<span class="flex -space-x-1.5" title={who.map((u) => u.display_name).join(', ')}>
-										{#each who.slice(0, 4) as u (u.id)}<span class="rounded-full ring-2 ring-surface-container-low"><Avatar name={u.display_name} src={u.avatar_url} size={22} /></span>{/each}
+										{#each who.slice(0, 4) as u (u.id)}<span class="rounded-full ring-2 ring-surface-container-low"><AssigneeFace who={u} size={22} /></span>{/each}
 										{#if who.length > 4}<span class="z-10 flex size-[22px] items-center justify-center rounded-full bg-surface-container-highest label-small ring-2 ring-surface-container-low">+{who.length - 4}</span>{/if}
 									</span>
 								{/if}

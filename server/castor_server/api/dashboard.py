@@ -17,6 +17,7 @@ from ..access import can_see, visible_project_ids
 from ..deps import DB, CurrentUser, parse_uuid
 from ..models import utcnow
 from ..orchestrator.gateway import gateway
+from ..people import assigned_to, my_group_ids
 from ..services import playbook_run_out, step_link
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -140,8 +141,11 @@ async def _mine(db: DB, user: m.User, scope: set[uuid.UUID] | None) -> tuple[set
         return column.in_(scope) if scope is not None else true()
 
     me = str(user.id)
-    rows = (await db.execute(select(m.Task.id, m.Task.assignees, m.Task.created_by).where(in_scope(m.Task.project_id)))).all()
-    tasks = {tid for tid, assignees, creator in rows if me in (assignees or []) or creator == user.id}
+    groups = await my_group_ids(db, user.id)
+    rows = (await db.execute(select(m.Task.id, m.Task.assignees, m.Task.group_assignees, m.Task.created_by)
+                             .where(in_scope(m.Task.project_id)))).all()
+    tasks = {tid for tid, assignees, by_group, creator in rows
+             if me in (assignees or []) or groups & set(by_group or []) or creator == user.id}
     commented = await db.execute(
         select(m.Comment.task_id).join(m.Task, m.Task.id == m.Comment.task_id)
         .where(in_scope(m.Task.project_id), m.Comment.author_id == user.id).distinct()
@@ -388,6 +392,7 @@ class Summary(BaseModel):
 @router.get("/summary", response_model=Summary)
 async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
     scope = await _scope(db, user, project_id)
+    my_groups = await my_group_ids(db, user.id)
 
     def in_scope(column):
         return column.in_(scope) if scope is not None else true()
@@ -511,7 +516,7 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
             "project": project_ref(task.project_id),
             "task_id": str(task.id),
             "link": f"/projects/{task.project_id}?task={task.id}",
-            "for_you": str(user.id) in (task.assignees or []) or job.created_by == user.id,
+            "for_you": assigned_to(task, user.id, my_groups) or job.created_by == user.id,
         })
 
     # Cards whose latest run failed in the last week and that aren't done yet.
@@ -552,7 +557,7 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
             "project": project_ref(task.project_id),
             "task_id": str(task.id),
             "link": f"/projects/{task.project_id}?task={task.id}",
-            "for_you": str(user.id) in (task.assignees or []) or task.created_by == user.id,
+            "for_you": assigned_to(task, user.id, my_groups) or task.created_by == user.id,
         })
 
     # Unread mentions of you come first: someone is waiting on you. Opening one marks it read.
@@ -615,7 +620,7 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
     online = [c for c in gateway.connections.values()]
     open_rows = (
         await db.execute(
-            select(m.Task.assignees, m.Task.created_by)
+            select(m.Task.assignees, m.Task.created_by, m.Task.group_assignees)
             .join(m.BoardColumn, m.BoardColumn.id == m.Task.column_id)
             .where(in_scope(m.Task.project_id), m.BoardColumn.role.is_(None) | m.BoardColumn.role.not_in(done_roles))
         )
@@ -629,8 +634,8 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
         )
     ).scalar_one()
     mine = {
-        "assigned": sum(me in (a or []) for a, _ in open_rows),
-        "opened": sum(c == user.id for _, c in open_rows),
+        "assigned": sum(me in (a or []) or bool(my_groups & set(g or [])) for a, _, g in open_rows),
+        "opened": sum(c == user.id for _, c, _ in open_rows),
         "mentions": unread_mentions,
     }
     return Summary(

@@ -174,7 +174,8 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   alone. `@group` expands to members; handles share a namespace with usernames
   (`people.handle_taken`). SSO keeps `sso_group` groups in step (`sso.sync_groups`). Web:
   `routes/settings/groups`, `GroupDialog`, groups in `MembersDialog`, `people.mentionables`.
-  `tasks.assignees` and `comments.mentions` hold user ids as strings. Personal notifications
+  `tasks.assignees` and `comments.mentions` hold user ids as strings; `tasks.group_assignees` group ids
+  (check "is it mine" with `people.assigned_to`/`my_group_ids`, web `people.assignedTo`). Personal notifications
   (`task.assigned`, `comment.mention`) use `notify(user_ids=..., webhooks=False)`. Web:
   `lib/people.svelte.ts` (per-project people + mention chips), `mentionSuggest.svelte.ts`.
   Person pages (3c): `api/people.py` (`/api/people`, `/api/people/{username}`, scoped to the

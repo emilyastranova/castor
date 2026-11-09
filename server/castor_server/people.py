@@ -80,6 +80,48 @@ async def check_assignees(db: AsyncSession, project_id: uuid.UUID, values: Itera
     return out
 
 
+async def check_group_assignees(db: AsyncSession, values: Iterable[str]) -> list[str]:
+    """Validate group assignees (group ids, or @handles for convenience); returns their ids
+    as strings, in the given order, without duplicates."""
+    groups = (await db.execute(select(m.Group))).scalars().all()
+    by_key = {str(g.id): g for g in groups} | {g.slug.lower(): g for g in groups}
+    out: list[str] = []
+    for value in values:
+        group = by_key.get(str(value).strip().lstrip("@").lower()) or by_key.get(str(value).strip())
+        if group is None:
+            raise HTTPException(422, f"Can't assign {value}: no such group")
+        if str(group.id) not in out:
+            out.append(str(group.id))
+    return out
+
+
+async def my_group_ids(db: AsyncSession, user_id: uuid.UUID) -> set[str]:
+    """The groups someone is in, as id strings (to match against `group_assignees`)."""
+    return {str(g) for g in (await db.execute(select(m.GroupMember.group_id).where(m.GroupMember.user_id == user_id))).scalars()}
+
+
+def assigned_to(task: m.Task, user_id: uuid.UUID, groups: set[str]) -> bool:
+    """Whether the card is assigned to them: directly, or to a group they're in."""
+    return str(user_id) in (task.assignees or []) or bool(groups & set(task.group_assignees or []))
+
+
+async def group_people(db: AsyncSession, project_id: uuid.UUID, group_ids: Iterable[str]) -> list[m.User]:
+    """The people in these groups who can see the project."""
+    ids = [uuid.UUID(g) for g in group_ids]
+    if not ids:
+        return []
+    members = set((await db.execute(select(m.GroupMember.user_id).where(m.GroupMember.group_id.in_(ids)))).scalars())
+    return [u for u in await project_people(db, project_id) if u.id in members]
+
+
+async def group_names(db: AsyncSession, ids: Iterable[str]) -> list[str]:
+    wanted = [uuid.UUID(i) for i in ids]
+    if not wanted:
+        return []
+    rows = dict((await db.execute(select(m.Group.id, m.Group.slug).where(m.Group.id.in_(wanted)))).all())
+    return [f"@{rows[i]}" if i in rows else "a group" for i in wanted]
+
+
 async def names_of(db: AsyncSession, ids: Iterable[str]) -> list[str]:
     wanted = [uuid.UUID(i) for i in ids]
     if not wanted:

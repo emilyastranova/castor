@@ -640,7 +640,7 @@
 							{/each}
 						</Menu>
 						{#if task.priority > 0}<span class="flex h-8 items-center gap-1 rounded-sm border border-outline-variant px-2 label-large text-on-surface-variant"><PriorityGlyph level={task.priority} />{priorityOptions[task.priority]?.label}</span>{/if}
-						{#if task.assignees.length}<span class="flex h-8 items-center gap-1 label-large text-on-surface-variant"><Icon name="person" size={18} />{task.assignees.length}</span>{/if}
+						{#if task.assignees.length || task.group_assignees?.length}<span class="flex h-8 items-center gap-1 label-large text-on-surface-variant"><Icon name={task.group_assignees?.length ? 'groups' : 'person'} size={18} />{task.assignees.length + (task.group_assignees?.length ?? 0)}</span>{/if}
 					</div>
 				{/if}
 			</div>
@@ -1042,7 +1042,7 @@
 			<Select label="Priority" bind:value={priority} disabled={!editable} options={priorityOptions} onchange={(v) => save({ priority: Number(v) })}>
 				{#snippet leading(level)}<PriorityGlyph {level} />{/snippet}
 			</Select>
-			<AssigneePicker projectId={task.project_id} value={task.assignees} {editable} onchange={(ids) => save({ assignees: ids })} />
+			<AssigneePicker projectId={task.project_id} value={task.assignees} groups={task.group_assignees ?? []} {editable} onchange={(ids) => save({ assignees: ids })} ongroupschange={(ids) => save({ group_assignees: ids })} />
 			{#if !task.playbook_step_id}
 				<div class="flex flex-col gap-1.5">
 					<p class="label-large text-on-surface-variant">When it finishes</p>

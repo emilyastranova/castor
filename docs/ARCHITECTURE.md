@@ -457,7 +457,7 @@ the first keystroke sets `jobs.input_by` (activity `job.taken_over`; keystrokes 
 never stored). Resizes are stored in `jobs.tty_size` and published as `job.resize` so viewers
 match the size. The agent's prompt watch (a quiet line that asks for something) sends
 `job.prompt`; while nobody has taken over, `interactive.on_prompt` sets `jobs.waiting_input`,
-notifies the job's starter, the card's creator, assignees and Notify-me people, emits the
+notifies the job's starter, the card's creator, assignees (and assigned groups' people) and Notify-me people, emits the
 `input` alert event, and lists it in Needs attention (`kind: input`). Text consumers (AI log
 tail, `expect.log`, `/api/jobs/{id}/output`) strip terminal escapes (`interactive.plain`);
 `?raw=1` returns the exact bytes.
@@ -528,9 +528,10 @@ read access; importing needs an operator.
 - **Handles:** a group's `slug` is its `@handle`. Handles and usernames share one namespace (`people.handle_taken`).
 - **Mentions:** `@group` in a comment mentions the group's people who can see the project (`people.mentioned`).
 - **Access:** a project shared with groups is visible to their members as if each were a member (`access.member_project_ids`, `people.project_people`).
+- **Assignment:** `tasks.group_assignees` holds group ids (the API also takes `@handles`). The card is everyone's in the group who can see the project: Home's *mine*, `is:mine`, the board's *assigned to me* filter, waiting-prompt notices (`people.assigned_to`, `my_group_ids`, `group_people`). Assigning notifies those people (`task.assigned`), except the actor and anyone assigned directly.
 - **Sign-on:** a group with `sso_group` follows that provider group at each SSO sign-in (`sso.sync_groups`), but only when the provider sent groups.
 - **Realtime:** changes publish `groups.changed` and `project.members`, and sockets reload what they may see.
-- **Export:** a project export carries its groups' handles, and an import shares the project with the local groups of the same handle.
+- **Export:** a project export carries its groups' handles (and those of groups its cards are assigned to), and an import shares the project with, and assigns cards to, the local groups of the same handle.
 
 `GET /api/people` lists everyone active with their open assigned cards and last activity;
 `GET /api/people/{username}` adds their projects, 30-day numbers, assigned cards and the

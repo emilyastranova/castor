@@ -264,6 +264,7 @@ class TaskIn(BaseModel):
     priority: int = 0
     tags: list[str] = Field(default_factory=list)
     assignees: list[str] = Field(default_factory=list)
+    group_assignees: list[str] = Field(default_factory=list)  # group ids (or @handles)
     custom_fields: dict[str, Any] = Field(default_factory=dict)
     due_at: datetime | None = None
     var_bindings: dict[str, uuid.UUID | None] = Field(default_factory=dict)
@@ -285,6 +286,7 @@ class TaskPatch(BaseModel):
     priority: int | None = None
     tags: list[str] | None = None
     assignees: list[str] | None = None
+    group_assignees: list[str] | None = None  # group ids (or @handles)
     custom_fields: dict[str, Any] | None = None
     due_at: datetime | None = None
     # Variable slot → set id; null unbinds a slot. Replaces all bindings when given.
@@ -374,6 +376,7 @@ class TaskOut(ORM):
     priority: int
     tags: list[str]
     assignees: list[str]
+    group_assignees: list[str] = Field(default_factory=list)
     custom_fields: dict[str, Any]
     due_at: datetime | None
     created_by: uuid.UUID | None

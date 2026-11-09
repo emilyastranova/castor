@@ -599,6 +599,7 @@ async def duplicate_task(
     task.title = f"{src.title} (copy)"[:300]
     if not assignees:
         task.assignees = []
+        task.group_assignees = []
     db.add(task)
     await db.flush()
     ids = {str(src.id): str(task.id)}

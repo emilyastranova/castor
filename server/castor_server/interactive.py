@@ -60,6 +60,9 @@ async def on_prompt(db: AsyncSession, job: m.Job, text: str | None) -> None:
     if task is not None:
         people = {uid for uid in [job.created_by, task.created_by] if uid}
         people |= {uuid.UUID(a) for a in (task.assignees or [])}
+        from .people import group_people
+
+        people |= {u.id for u in await group_people(db, task.project_id, task.group_assignees or [])}
         people |= {uuid.UUID(str(p)) for p in ((task.alerts or {}).get("people") or [])}
         link = f"/projects/{task.project_id}?task={task.id}"
         if task.playbook_run_id is not None:

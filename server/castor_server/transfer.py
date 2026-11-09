@@ -285,6 +285,9 @@ async def _project_bundle(db: AsyncSession, project: m.Project, opts: ExportOpti
         # groups of the same handle, if it has them.
         "groups": list((await db.execute(select(m.Group.slug).join(m.ProjectGroup, m.ProjectGroup.group_id == m.Group.id)
                                          .where(m.ProjectGroup.project_id == pid))).scalars()),
+        # Cards' group assignees: group id → @handle, so they map onto the importer's groups.
+        "group_handles": {str(gid): slug for gid, slug in (await db.execute(select(m.Group.id, m.Group.slug).where(
+            m.Group.id.in_({uuid.UUID(g) for t in tasks for g in (t.group_assignees or [])})))).all()},
     }
     if opts.jobs:
         jobs = await _rows(db, select(m.Job).where(m.Job.task_id.in_(task_ids)))
@@ -857,6 +860,9 @@ async def _import_project(
 
     card_ids: dict[uuid.UUID, uuid.UUID] = {}
     mapped = set(ids.values())
+    # Cards' group assignees follow the @handle onto this instance's groups.
+    handles: dict[str, str] = bundle.get("group_handles") or {}
+    local_groups = {slug: str(gid) for gid, slug in (await db.execute(select(m.Group.id, m.Group.slug))).all()}
     set_names = {n for (n,) in (await db.execute(select(m.VariableSet.name))).all()}
     for table, model in PROJECT_TABLES:
         rows = []
@@ -873,6 +879,8 @@ async def _import_project(
                 card_ids[values["id"]] = values.pop("card_id")
             elif table == "tasks":
                 values["assignees"] = [a for a in values.get("assignees") or [] if a in known_users]
+                values["group_assignees"] = [local_groups[handles[g]] for g in raw.get("group_assignees") or []
+                                             if handles.get(g) in local_groups]
                 values["var_bindings"] = {k: v for k, v in (values.get("var_bindings") or {}).items() if v in mapped}
             elif table == "comments":
                 values["mentions"] = [x for x in values.get("mentions") or [] if x in known_users]

@@ -12,9 +12,8 @@ providers that only speak it. A provider's groups should also be able to put peo
 [groups](#groups), not only set their role.
 
 ### More for groups
-Groups (Settings → Groups) can already be mentioned, share projects, and follow a sign-on
-provider's groups. Still to come:
-- **Assignment:** cards assigned to a group.
+Groups (Settings → Groups) can already be mentioned, share projects, take cards and follow a
+sign-on provider's groups. Still to come:
 - **Alerts and approvals:** a group receiving an alert, or approving a waiting trigger.
 
 ## Running work

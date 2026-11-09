@@ -47,7 +47,7 @@
 		<p class="body-medium text-on-surface-variant">
 			A copy of “{task.title}” goes to the top of To Do with its {task.kind === 'command' ? 'command, arguments, ' : ''}description, tags, priority and fields. It won't run until you start it.
 		</p>
-		{#if task.assignees.length}<Switch bind:checked={assignees} label="Keep the assignees" />{/if}
+		{#if task.assignees.length || task.group_assignees?.length}<Switch bind:checked={assignees} label="Keep the assignees" />{/if}
 		<Switch bind:checked={comments} disabled={!counts.comments} label="Comments ({counts.comments})" />
 		<Switch bind:checked={attachments} disabled={!counts.files} label="Files and screenshots ({counts.files})" />
 		{#if task.kind === 'command'}

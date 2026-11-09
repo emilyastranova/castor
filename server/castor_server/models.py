@@ -305,6 +305,8 @@ class Task(Base, TimestampMixin):
     tags: Mapped[list[str]] = mapped_column(JSONType, default=list)
     # User ids (strings) of the people the card is assigned to (people.check_assignees).
     assignees: Mapped[list[str]] = mapped_column(JSONType, default=list)
+    # Group ids (strings) the card is assigned to: everyone in them, as far as they can see it.
+    group_assignees: Mapped[list[str]] = mapped_column(JSONType, default=list)
     custom_fields: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     due_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(

@@ -827,6 +827,8 @@ export interface Task {
 	priority: number;
 	tags: string[];
 	assignees: string[];
+	/** Group ids: everyone in them who can see the card. */
+	group_assignees: string[];
 	custom_fields: Record<string, unknown>;
 	due_at: string | null;
 	created_by: UUID | null;

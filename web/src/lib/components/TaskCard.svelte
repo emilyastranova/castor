@@ -1,7 +1,8 @@
 <script lang="ts">
 	import type { Task } from '$lib/api';
-	import { Avatar, Icon } from '$lib/m3';
+	import { Icon } from '$lib/m3';
 	import { people } from '$lib/people.svelte';
+	import AssigneeFace from './AssigneeFace.svelte';
 	import StatusChip from './StatusChip.svelte';
 	import PriorityGlyph, { priorityLabels } from './PriorityGlyph.svelte';
 	import { isRunning, kindIcon, runState as runStateOf } from '$lib/taskStatus';
@@ -11,7 +12,7 @@
 		onopen: (task: Task) => void;
 	}
 	let { task, onopen }: Props = $props();
-	let assignees = $derived(task.assignees.map((id) => people.user(task.project_id, id)).filter((u) => !!u));
+	let assignees = $derived(people.assigneesOf(task));
 	let running = $derived(isRunning(task));
 	/** A playbook run's card: its state in a word, and how far along it is. */
 	let runState = $derived(runStateOf(task));
@@ -64,7 +65,7 @@
 				{#if task.attachment_count}<span class="flex items-center gap-0.5"><Icon name="attach_file" size={14} />{task.attachment_count}</span>{/if}
 				{#if assignees.length}
 					<span class="flex -space-x-1.5" title="Assigned to {assignees.map((u) => u.display_name).join(', ')}">
-						{#each assignees.slice(0, 3) as u (u.id)}<span class="rounded-full ring-2 ring-surface-container-lowest"><Avatar name={u.display_name} src={u.avatar_url} size={20} /></span>{/each}
+						{#each assignees.slice(0, 3) as u (u.id)}<span class="rounded-full ring-2 ring-surface-container-lowest"><AssigneeFace who={u} size={20} /></span>{/each}
 						{#if assignees.length > 3}<span class="z-10 flex size-5 items-center justify-center rounded-full bg-surface-container-highest text-[10px] ring-2 ring-surface-container-lowest">+{assignees.length - 3}</span>{/if}
 					</span>
 				{/if}

@@ -85,3 +85,49 @@ def test_who_may_change_groups(client, auth):
     assert client.put(f"/api/projects/{p['id']}/groups", json=[g["id"]], headers=oh).status_code == 404  # not their project
     client.put(f"/api/projects/{p['id']}/members", json=[op["id"]], headers=auth)
     assert client.put(f"/api/projects/{p['id']}/groups", json=[g["id"]], headers=oh).status_code == 200
+
+
+def test_a_card_assigned_to_a_group(client, auth):
+    p = _project(client, auth)
+    ada, ah = _user(client, auth)
+    bob, bh = _user(client, auth)
+    outsider, oh = _user(client, auth)
+    client.put(f"/api/projects/{p['id']}/members", json=[ada["id"], bob["id"]], headers=auth)
+    g = _group(client, auth, [ada, bob, outsider])
+    title = f"Triage {uuid.uuid4().hex[:4]}"
+    # By @handle (stored as the group's id); bob is also assigned directly.
+    task = client.post(f"/api/projects/{p['id']}/tasks", json={"title": title, "group_assignees": [f"@{g['slug']}"], "assignees": [bob["id"]]},
+                       headers=auth).json()
+    assert task["group_assignees"] == [g["id"]]
+    assert client.post(f"/api/projects/{p['id']}/tasks", json={"title": "x", "group_assignees": ["no-such-group"]}, headers=auth).status_code == 422
+
+    def assigned(h):
+        return [n["title"] for n in client.get("/api/notifications", headers=h).json()["items"] if n["kind"] == "task.assigned" and title in n["title"]]
+    assert assigned(ah) and "you're in it" in assigned(ah)[0]
+    assert len(assigned(bh)) == 1 and "assigned you" in assigned(bh)[0]  # once, as the direct assignee
+    assert not assigned(oh)  # can't see the project
+
+    # It's theirs: Home counts it and is:mine finds it.
+    assert client.get(f"/api/dashboard/summary?project_id={p['id']}", headers=ah).json()["mine"]["assigned"] == 1
+    found = client.get("/api/search", params={"q": f"is:mine {title}"}, headers=ah).json()
+    assert any(h["title"] == title for grp in found["groups"] for h in grp["hits"]), found
+
+    # Unassigning the group; duplicating without assignees drops groups too.
+    changed = client.patch(f"/api/tasks/{task['id']}", json={"group_assignees": []}, headers=auth).json()
+    assert changed["group_assignees"] == [] and changed["assignees"] == [bob["id"]]
+    client.patch(f"/api/tasks/{task['id']}", json={"group_assignees": [g["id"]]}, headers=auth)
+    feed = client.get(f"/api/dashboard/feed?project_id={p['id']}", headers=auth).json()["items"]
+    assert any(i["type"] == "task.assigned" and f"@{g['slug']}" in i["message"] for i in feed)
+    copy = client.post(f"/api/tasks/{task['id']}/duplicate", json={"assignees": False}, headers=auth).json()
+    assert copy["group_assignees"] == [] and copy["assignees"] == []
+
+
+def test_group_assignees_travel_by_handle(client, auth):
+    p = _project(client, auth)
+    g = _group(client, auth)
+    client.post(f"/api/projects/{p['id']}/tasks", json={"title": "Carried", "group_assignees": [g["id"]]}, headers=auth)
+    data = client.post("/api/export", json={"projects": [p["id"]]}, headers=auth).content
+    preview = client.post("/api/import/preview", files={"file": ("x.castor.zip", data, "application/zip")}, headers=auth).json()
+    result = client.post("/api/import", json={"token": preview["token"], "filename": preview["filename"]}, headers=auth).json()
+    board = client.get(f"/api/projects/{result['projects'][0]}/board", headers=auth).json()
+    assert next(t for t in board["tasks"] if t["title"] == "Carried")["group_assignees"] == [g["id"]]

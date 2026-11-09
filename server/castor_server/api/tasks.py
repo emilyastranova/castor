@@ -100,6 +100,7 @@ async def create_task(project_id: str, body: TaskIn, db: DB, user: CurrentUser):
             raise HTTPException(409, "Project has no columns")
     data = body.model_dump(exclude={"column_id", "command_ref", "command_args", "var_bindings"})
     data["assignees"] = await people.check_assignees(db, project.id, body.assignees)
+    data["group_assignees"] = await people.check_group_assignees(db, body.group_assignees)
     data["agent_selector"] = await _selector(db, body.agent_selector)
     task = m.Task(
         project_id=project.id,
@@ -122,7 +123,7 @@ async def create_task(project_id: str, body: TaskIn, db: DB, user: CurrentUser):
         task_id=task.id,
         **actor_of(user),
     )
-    await _assigned(db, task, user, task.assignees)
+    await _assigned(db, task, user, task.assignees, task.group_assignees)
     # Creating a command card directly in the active column runs it immediately.
     if (
         column.role == m.ColumnRole.active
@@ -154,12 +155,17 @@ async def update_task(task_id: str, body: TaskPatch, db: DB, user: CurrentUser):
         if body.alerts and body.alerts.people:
             body.alerts.people = [uuid.UUID(u) for u in await people.check_assignees(db, task.project_id, [str(p) for p in body.alerts.people])]
         task.alerts = body.alerts.stored() if body.alerts else None
-    if changes.get("assignees") is not None:
-        before = list(task.assignees or [])
-        changes["assignees"] = await people.check_assignees(db, task.project_id, changes["assignees"])
-        await _assignees_changed(db, task, user, before, changes["assignees"])
+    if changes.get("assignees") is not None or changes.get("group_assignees") is not None:
+        before, groups_before = list(task.assignees or []), list(task.group_assignees or [])
+        after = await people.check_assignees(db, task.project_id, changes["assignees"]) \
+            if changes.get("assignees") is not None else before
+        groups_after = await people.check_group_assignees(db, changes["group_assignees"]) \
+            if changes.get("group_assignees") is not None else groups_before
+        changes["assignees"], changes["group_assignees"] = after, groups_after
+        await _assignees_changed(db, task, user, before, after, groups_before, groups_after)
     else:
         changes.pop("assignees", None)
+        changes.pop("group_assignees", None)
     library_ref = changes.pop("command_ref", task.command_ref)
     library_args = changes.pop("command_args", None)
     detaching = "command_ref" in body.model_fields_set and library_ref is None
@@ -222,7 +228,7 @@ async def duplicate(task_id: str, body: TaskDuplicate, db: DB, user: CurrentUser
     if (await db.execute(select(m.PlaybookRun.id).where(m.PlaybookRun.card_id == src.id))).first():
         raise HTTPException(409, "This is a playbook run; run the playbook again instead")
     task = await duplicate_task(db, src, user, **body.model_dump())
-    await _assigned(db, task, user, task.assignees)
+    await _assigned(db, task, user, task.assignees, task.group_assignees)
     await db.commit()
     return await publish_task(db, task, "task.created")
 
@@ -293,8 +299,9 @@ async def task_activity(task_id: str, db: DB, user: CurrentUser):
 # ----- assignees -----
 
 
-async def _assigned(db, task: m.Task, actor: m.User, user_ids: list[str]) -> None:
-    """Tell newly assigned people (not the one assigning themselves). In-app only."""
+async def _assigned(db, task: m.Task, actor: m.User, user_ids: list[str], group_ids: list[str] = ()) -> None:
+    """Tell newly assigned people (not the one assigning themselves), and the people in newly
+    assigned groups who can see the card (not those assigned directly too). In-app only."""
     others = [uuid.UUID(u) for u in user_ids if u != str(actor.id)]
     if others:
         await notifications.notify(
@@ -302,25 +309,39 @@ async def _assigned(db, task: m.Task, actor: m.User, user_ids: list[str]) -> Non
             link=f"/projects/{task.project_id}?task={task.id}", project_id=task.project_id,
             subject=f"task:{task.id}:assigned", user_ids=others, webhooks=False,
         )
+    for gid, name in zip(group_ids, await people.group_names(db, group_ids), strict=True):
+        members = [u.id for u in await people.group_people(db, task.project_id, [gid])
+                   if u.id != actor.id and str(u.id) not in (task.assignees or [])]
+        if members:
+            await notifications.notify(
+                db, kind="task.assigned", title=f"{actor.display_name} assigned {name} (you're in it) “{task.title}”",
+                link=f"/projects/{task.project_id}?task={task.id}", project_id=task.project_id,
+                subject=f"task:{task.id}:assigned", user_ids=members, webhooks=False,
+            )
 
 
-async def _assignees_changed(db, task: m.Task, actor: m.User, before: list[str], after: list[str]) -> None:
+async def _assignees_changed(db, task: m.Task, actor: m.User, before: list[str], after: list[str],
+                             groups_before: list[str] = (), groups_after: list[str] = ()) -> None:
     added = [u for u in after if u not in before]
     removed = [u for u in before if u not in after]
-    if not added and not removed:
+    groups_added = [g for g in groups_after if g not in groups_before]
+    groups_removed = [g for g in groups_before if g not in groups_after]
+    if not (added or removed or groups_added or groups_removed):
         return
     parts = []
-    if added:
-        parts.append("assigned " + ", ".join(await people.names_of(db, added)))
-    if removed:
-        parts.append("unassigned " + ", ".join(await people.names_of(db, removed)))
+    if added or groups_added:
+        parts.append("assigned " + ", ".join([*await people.names_of(db, added), *await people.group_names(db, groups_added)]))
+    if removed or groups_removed:
+        parts.append("unassigned " + ", ".join([*await people.names_of(db, removed), *await people.group_names(db, groups_removed)]))
     message = " and ".join(parts)
     await record_activity(
         db, type="task.assigned", message=f"{message[0].upper()}{message[1:]} on “{task.title}”",
-        project_id=task.project_id, task_id=task.id, payload={"added": added, "removed": removed},
+        project_id=task.project_id, task_id=task.id,
+        payload={"added": added, "removed": removed, "groups_added": groups_added, "groups_removed": groups_removed},
         **actor_of(actor),
     )
-    await _assigned(db, task, actor, added)
+    task.assignees = after  # _assigned skips people assigned directly as well as through a group
+    await _assigned(db, task, actor, added, groups_added)
 
 
 # ----- comments -----

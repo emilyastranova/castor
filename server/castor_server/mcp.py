@@ -323,7 +323,7 @@ TOOLS += [
     _auto("update_card", "PATCH", "/api/tasks/{task_id}",
           "Change a card (move it with move_card); only the fields given change: title, description, command (shell) or command_ref + "
           "command_args (library), image, container_flags, agent_selector (where it runs), tags, priority, assignees "
-          "(user ids from list_people), timeout_s, run_on_move, tty, var_bindings, alerts (see set_card_alerts).",
+          "(user ids from list_people), group_assignees (group ids or @handles from list_groups), timeout_s, run_on_move, tty, var_bindings, alerts (see set_card_alerts).",
           properties={"task_id": ID["task_id"], "agent_selector": _SELECTOR}),
     _auto("delete_card", "DELETE", "/api/tasks/{task_id}", "Delete a card with its comments, attachments and runs.", **_DESTRUCTIVE),
     _auto("duplicate_card", "POST", "/api/tasks/{task_id}/duplicate", "Copy a card (optionally into another column or project)."),

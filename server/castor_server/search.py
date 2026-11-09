@@ -200,7 +200,10 @@ class Searcher:
         if (by := await self.by_user_id()) is not None:
             cond.append(t.created_by == by)
         if q.mine:
-            cond.append(or_(_text(t.assignees).ilike(_like(str(self.user.id)), escape="\\"), t.created_by == self.user.id))
+            from .people import my_group_ids
+
+            by_group = [_text(t.group_assignees).ilike(_like(g), escape="\\") for g in await my_group_ids(self.db, self.user.id)]
+            cond.append(or_(_text(t.assignees).ilike(_like(str(self.user.id)), escape="\\"), t.created_by == self.user.id, *by_group))
         if q.status:
             latest = select(m.Job.status).where(m.Job.task_id == t.id).order_by(m.Job.queued_at.desc()).limit(1).scalar_subquery()
             cond.append(cast(latest, String).ilike(q.status))

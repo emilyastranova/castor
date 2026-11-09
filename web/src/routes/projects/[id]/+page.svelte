@@ -249,7 +249,7 @@
 	function filtered(column: Column): Task[] {
 		let list = store.tasksIn(column.id);
 		const myId = me()?.id;
-		if (mineOnly && myId) list = list.filter((t) => t.assignees.includes(myId));
+		if (mineOnly && myId) list = list.filter((t) => people.assignedTo(t, myId));
 		if (!filter.trim()) return list;
 		const q = filter.toLowerCase();
 		return list.filter((t) => t.title.toLowerCase().includes(q) || t.command.toLowerCase().includes(q) || t.tags.some((x) => x.toLowerCase().includes(q)));
