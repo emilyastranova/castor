@@ -12,7 +12,7 @@
   &nbsp;·&nbsp;
   <a href="commands/README.md">Commands</a>
   &nbsp;·&nbsp;
-  <a href="docs/PHASE4.md">Roadmap</a>
+  <a href="docs/ARCHITECTURE.md#roadmap">Roadmap</a>
   &nbsp;·&nbsp;
   <a href="LICENSE">MIT</a>
 </p>
@@ -35,13 +35,6 @@ record per host, service or URL that every tool adds to, with triggers that act 
 **Playbooks** chain commands into a graph. Steps run in parallel where they can,
 transform steps reshape one tool's results into the next tool's input, and a run shows
 on the board as one card that opens into its live graph, decisions and steps.
-
-> **■ Status: Phase 4 in progress.** Phases 2 and 3 are done (the board, agents, command
-> library, parsers, playbooks, users and roles; then tool environments, @mentions, AI help,
-> assets, search, interactive terminals, chat alerts and more): see
-> [docs/PHASE2.md](docs/PHASE2.md) and [docs/PHASE3.md](docs/PHASE3.md). Phase 4 has added
-> scoped API tokens, an API reference at `/api/docs` and a built-in MCP server for AI
-> assistants ([docs/PHASE4.md](docs/PHASE4.md)).
 
 ## A look around
 

@@ -605,6 +605,6 @@ operator, and makes every existing user a member of every existing project.
 * **M3** (done, [PHASE3.md](PHASE3.md)): tool environments, @mentions and a "mine" filter,
   per-person view, pinned project notes, AI, assets, search, run cards, import and export,
   interactive jobs, alerts, theme colours, duplicating cards.
-* **M4** (in progress, [PHASE4.md](PHASE4.md)): scoped API tokens and an API reference
-  (built), a built-in MCP server (planned).
+* **M4** (done, [PHASE4.md](PHASE4.md)): scoped API tokens and an API reference, a built-in
+  MCP server for AI assistants, phone usability.
 * Later: reporting, run summaries, artifact export, agent auto-scaling.

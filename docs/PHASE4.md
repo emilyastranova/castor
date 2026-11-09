@@ -1,6 +1,6 @@
 # Phase 4 plan
 
-Status: in progress (2026-11-08). Roadmap item **M4** in [ARCHITECTURE.md](ARCHITECTURE.md);
+Status: done (2026-11-08). Roadmap item **M4** in [ARCHITECTURE.md](ARCHITECTURE.md);
 Phase 3 is done and recorded in [PHASE3.md](PHASE3.md).
 
 Phase 4 opens Castor up to other software: scripts, CI pipelines and AI assistants drive it
