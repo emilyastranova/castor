@@ -12,14 +12,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from .. import models as m
-from .. import vault
+from .. import ssh_config, vault
 from ..deps import DB, Admin, parse_uuid
 from ..events import bus
 from ..orchestrator.gateway import gateway
-from ..orchestrator.ssh import fingerprint, generate_key, import_key, ssh_hosts
+from ..orchestrator.ssh import fingerprint, generate_key, import_key, load_config, ssh_hosts
 from ..services import record_activity
 
 router = APIRouter(prefix="/ssh-hosts", tags=["ssh hosts"])
+config_router = APIRouter(prefix="/ssh-config", tags=["ssh hosts"])
 
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 
@@ -27,8 +28,9 @@ NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 class SshHostIn(BaseModel):
     name: str
     host: str = Field(min_length=1, max_length=255)
-    port: int = Field(default=22, ge=1, le=65535)
-    username: str = Field(min_length=1, max_length=128)
+    # Host can be an alias from the SSH config; empty port and username come from it too.
+    port: int | None = Field(default=None, ge=1, le=65535)
+    username: str = Field(default="", max_length=128)
     workdir: str = Field(default="castor-jobs", min_length=1, max_length=500)
     network: str = Field(default="host", max_length=64)
     allow_host: bool = True
@@ -48,7 +50,7 @@ class SshHostOut(BaseModel):
     agent_id: uuid.UUID
     name: str
     host: str
-    port: int
+    port: int | None
     username: str
     workdir: str
     network: str
@@ -62,21 +64,37 @@ class SshHostOut(BaseModel):
     host_key_fingerprint: str | None
     # A different key the host presented, waiting for an admin to accept it.
     host_key_pending_fingerprint: str | None
+    # How it's reached per the SSH config: each hop as user@host:port, the host itself last.
+    route: list[str]
+    route_error: str | None
+    # Jump hosts' keys (fingerprints by hop), trusted and waiting to be accepted.
+    jump_host_keys: dict[str, str | None]
+    jump_host_keys_pending: dict[str, str | None]
     # connecting | connected | error | host_key_changed | disabled
     state: str
     error: str | None
     connected: bool
 
 
-def _out(row: m.SshHost, agent: m.Agent) -> SshHostOut:
+def _route(row: m.SshHost, parsed: ssh_config.Parsed) -> tuple[list[str], str | None]:
+    try:
+        return [h.label for h in ssh_config.route(parsed, row.host, row.username or None, row.port)], None
+    except ssh_config.ConfigError as exc:
+        return [], str(exc)
+
+
+def _out(row: m.SshHost, agent: m.Agent, parsed: ssh_config.Parsed) -> SshHostOut:
     link = ssh_hosts.links.get(row.id)
+    route, route_error = _route(row, parsed)
     state = link.state if link else ("disabled" if not row.enabled else "connecting")
     return SshHostOut(
         id=row.id, agent_id=row.agent_id, name=agent.name, host=row.host, port=row.port, username=row.username,
         workdir=row.workdir, network=row.network, allow_host=row.allow_host, allow_host_install=row.allow_host_install,
         enabled=row.enabled, tags=agent.tags or [], max_concurrency=agent.max_concurrency, public_key=row.public_key,
         key_fingerprint=fingerprint(row.public_key), host_key_fingerprint=fingerprint(row.host_key),
-        host_key_pending_fingerprint=fingerprint(row.host_key_pending), state=state,
+        host_key_pending_fingerprint=fingerprint(row.host_key_pending), state=state, route=route, route_error=route_error,
+        jump_host_keys={k: fingerprint(v) for k, v in (row.jump_host_keys or {}).items()},
+        jump_host_keys_pending={k: fingerprint(v) for k, v in (row.jump_host_keys_pending or {}).items()},
         error=(link.error if link else row.last_error), connected=gateway.get(row.agent_id) is not None,
     )
 
@@ -95,8 +113,8 @@ def _check(body: SshHostIn) -> None:
     for label, value in (("host", body.host), ("username", body.username), ("workdir", body.workdir), ("network", body.network)):
         if any(c in value for c in "\0\n\r"):
             raise HTTPException(422, f"{label}: no line breaks")
-    if body.host.startswith("-") or body.username.startswith("-"):
-        raise HTTPException(422, "host and username can't start with a dash")
+    if body.host.startswith("-") or body.username.startswith("-") or "@" in body.host or " " in body.host.strip():
+        raise HTTPException(422, "host: a hostname, address or SSH config alias (the user goes in username)")
 
 
 def _key(body: SshHostIn, name: str) -> tuple[str, str] | None:
@@ -134,7 +152,8 @@ def _changed(row: m.SshHost) -> None:
 @router.get("", response_model=list[SshHostOut])
 async def list_hosts(db: DB, _: Admin):
     rows = (await db.execute(select(m.SshHost, m.Agent).join(m.Agent, m.Agent.id == m.SshHost.agent_id).order_by(m.Agent.name))).all()
-    return [_out(row, agent) for row, agent in rows]
+    parsed = ssh_config.parse(await load_config(db))
+    return [_out(row, agent, parsed) for row, agent in rows]
 
 
 @router.post("", response_model=SshHostOut, status_code=201)
@@ -157,7 +176,7 @@ async def create_host(body: SshHostIn, db: DB, user: Admin):
     await ssh_hosts.reload(row.id, agent.id)
     bus.publish("agent.updated", None, await gateway.agent_out(agent))
     _changed(row)
-    return _out(row, agent)
+    return _out(row, agent, ssh_config.parse(await load_config(db)))
 
 
 @router.put("/{host_id}", response_model=SshHostOut)
@@ -182,24 +201,31 @@ async def update_host(host_id: str, body: SshHostIn, db: DB, _: Admin):
         gateway._notify()
     bus.publish("agent.updated", None, await gateway.agent_out(agent))
     _changed(row)
-    return _out(row, agent)
+    return _out(row, agent, ssh_config.parse(await load_config(db)))
 
 
 @router.post("/{host_id}/accept-host-key", response_model=SshHostOut)
 async def accept_host_key(host_id: str, db: DB, user: Admin):
     """Trust the different key the host presented (after checking it's the right machine)."""
     row, agent = await _row(db, host_id)
-    if not row.host_key_pending:
+    jumps = {k: v for k, v in (row.jump_host_keys_pending or {}).items() if v}
+    if not row.host_key_pending and not jumps:
         raise HTTPException(409, "No new host key to accept")
-    old = fingerprint(row.host_key)
-    row.host_key, row.host_key_pending = row.host_key_pending, None
+    changes = []
+    if row.host_key_pending:
+        changes.append(f"{agent.name}: {fingerprint(row.host_key_pending)}, was {fingerprint(row.host_key)}")
+        row.host_key, row.host_key_pending = row.host_key_pending, None
+    for label, key in jumps.items():
+        changes.append(f"jump host {label}: {fingerprint(key)}, was {fingerprint((row.jump_host_keys or {}).get(label))}")
+    row.jump_host_keys = {**(row.jump_host_keys or {}), **jumps}
+    row.jump_host_keys_pending = {}
     await record_activity(db, type="ssh_host.key_accepted",
-                          message=f"New host key for {agent.name} accepted ({fingerprint(row.host_key)}, was {old})",
+                          message="New host key accepted (" + "; ".join(changes) + ")",
                           project_id=None, actor_type="user", actor_id=str(user.id), actor_name=user.username)
     await db.commit()
     await ssh_hosts.reload(row.id, agent.id)
     _changed(row)
-    return _out(row, agent)
+    return _out(row, agent, ssh_config.parse(await load_config(db)))
 
 
 @router.post("/{host_id}/reconnect", response_model=SshHostOut)
@@ -211,7 +237,7 @@ async def reconnect(host_id: str, db: DB, _: Admin):
         await ssh_hosts.reload(row.id, agent.id)
     else:
         link.retry_now()
-    return _out(row, agent)
+    return _out(row, agent, ssh_config.parse(await load_config(db)))
 
 
 @router.delete("/{host_id}", status_code=204)
@@ -227,3 +253,65 @@ async def delete_host(host_id: str, db: DB, user: Admin):
     await db.commit()
     bus.publish("agent.deleted", None, {"id": agent_id})
     bus.publish("ssh_hosts.changed", None, {"id": row.id})
+
+
+# ---------- the SSH config they share ----------
+
+
+class SshConfigIn(BaseModel):
+    text: str = Field(default="", max_length=200_000)
+
+
+class SshConfigOut(BaseModel):
+    text: str
+    errors: list[str]
+    warnings: list[str]
+    # Each SSH host's route with this config (hops as user@host:port), or why it has none.
+    routes: dict[str, list[str]]
+    route_errors: dict[str, str]
+
+
+async def _config_out(db, text: str) -> SshConfigOut:
+    parsed = ssh_config.parse(text)
+    rows = (await db.execute(select(m.SshHost, m.Agent).join(m.Agent, m.Agent.id == m.SshHost.agent_id))).all()
+    routes, route_errors = {}, {}
+    for row, agent in rows:
+        route, error = _route(row, parsed)
+        if error and not parsed.errors:
+            route_errors[agent.name] = error
+        elif not error:
+            routes[agent.name] = route
+    return SshConfigOut(text=text, errors=parsed.errors, warnings=parsed.warnings, routes=routes, route_errors=route_errors)
+
+
+@config_router.get("", response_model=SshConfigOut)
+async def get_config(db: DB, _: Admin):
+    """The SSH config (ssh_config format) SSH hosts are reached with: aliases, users, ports
+    and jump hosts (ProxyJump)."""
+    return await _config_out(db, await load_config(db))
+
+
+@config_router.post("/check", response_model=SshConfigOut)
+async def check_config(body: SshConfigIn, db: DB, _: Admin):
+    """What a config would do, without saving it."""
+    return await _config_out(db, body.text)
+
+
+@config_router.put("", response_model=SshConfigOut)
+async def save_config(body: SshConfigIn, db: DB, user: Admin):
+    out = await _config_out(db, body.text)
+    if out.errors:
+        raise HTTPException(422, "; ".join(out.errors))
+    row = await db.get(m.AppSetting, ssh_config.SETTING)
+    if row is None:
+        db.add(m.AppSetting(key=ssh_config.SETTING, value=body.text, updated_by=user.id))
+    else:
+        row.value, row.updated_by = body.text, user.id
+    await record_activity(db, type="ssh_config.changed", message="SSH config changed", project_id=None,
+                          actor_type="user", actor_id=str(user.id), actor_name=user.username)
+    await db.commit()
+    hosts = (await db.execute(select(m.SshHost.id, m.SshHost.agent_id))).all()
+    for host_id, agent_id in hosts:  # reconnect each the new way
+        await ssh_hosts.reload(host_id, agent_id)
+    bus.publish("ssh_hosts.changed", None, {"config": True})
+    return out

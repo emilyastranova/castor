@@ -42,7 +42,7 @@ from typing import Any
 
 import asyncssh
 
-from .. import artifacts, vault
+from .. import artifacts, ssh_config, vault
 from .. import models as m
 from ..config import settings
 from ..db import SessionLocal
@@ -60,7 +60,11 @@ CONNECT_TIMEOUT = 15
 
 
 class HostKeyChanged(Exception):
-    """The host presented a different key than the one Castor trusted."""
+    """The host (or a jump host) presented a different key than the one Castor trusted."""
+
+
+class JumpFailed(Exception):
+    """Couldn't get through a jump host."""
 
 
 # ---------- keys ----------
@@ -486,6 +490,7 @@ class HostLink:
         self.state = "connecting"  # connecting | connected | error | host_key_changed | disabled
         self.error: str | None = None
         self.conn: asyncssh.SSHClientConnection = None  # type: ignore[assignment]
+        self.connected: Connected | None = None
         self.agent: AgentConnection | None = None
         self.probe: Probe = None  # type: ignore[assignment]
         self.network = "host"
@@ -513,8 +518,8 @@ class HostLink:
 
     def drop(self, reason: str) -> None:
         log.info("ssh host %s: dropping the connection: %s", self.name, reason)
-        if self.conn is not None:
-            self.conn.close()
+        if self.connected is not None:
+            self.connected.close()
 
     def retry_now(self) -> None:
         self._wake.set()
@@ -539,9 +544,9 @@ class HostLink:
             except HostKeyChanged as exc:
                 await self._set("host_key_changed", str(exc))
                 backoff = 300  # nothing changes until an admin accepts the key (retry_now)
-            except RegisterError as exc:
+            except (RegisterError, JumpFailed, ssh_config.ConfigError) as exc:
                 await self._set("error", str(exc))
-                backoff = 60
+                backoff = 60 if not isinstance(exc, JumpFailed) else min(backoff * 2, 60)
             except (OSError, asyncssh.Error, TimeoutError, vault.VaultError) as exc:
                 await self._set("error", _describe(exc))
                 backoff = min(backoff * 2, 60)
@@ -563,19 +568,28 @@ class HostLink:
                 raise asyncio.CancelledError
             db.expunge(row)
             self.name = agent.name
+            config_text = await load_config(db)
         if not row.enabled:
             await self._set("disabled")
             await asyncio.Event().wait()  # until reload() replaces this link
         self.network, self.allow_host, self.allow_host_install = row.network, row.allow_host, row.allow_host_install
         await self._set("connecting", None)
-        self.conn, seen = await connect(row)
-        if row.host_key is None:
+        connected = await connect(row, config_text)
+        self.connected, self.conn = connected, connected.conn
+        new_jumps = {k: v for k, v in connected.jump_keys.items() if k not in (row.jump_host_keys or {})}
+        if row.host_key is None or new_jumps:
             async with SessionLocal() as db:
                 current = await db.get(m.SshHost, self.host_id)
                 if current is not None:
-                    current.host_key, current.host_key_pending = seen, None
+                    if current.host_key is None:
+                        current.host_key, current.host_key_pending = connected.host_key, None
+                    if new_jumps:
+                        current.jump_host_keys = {**(current.jump_host_keys or {}), **new_jumps}
+                        current.jump_host_keys_pending = {k: v for k, v in (current.jump_host_keys_pending or {}).items()
+                                                          if k not in new_jumps}
                     await db.commit()
-            log.info("ssh host %s: trusting host key %s on first use", self.name, fingerprint(seen))
+            for label, key in ([("", connected.host_key)] if row.host_key is None else []) + list(new_jumps.items()):
+                log.info("ssh host %s: trusting %s key %s on first use", self.name, label or "its", fingerprint(key))
         workdir = row.workdir
         try:
             self.probe = await probe(self.conn, workdir)
@@ -597,7 +611,7 @@ class HostLink:
         finally:
             for task in list(self.tasks):
                 task.cancel()
-            self.conn.close()
+            connected.close()
             if self.agent is not None:
                 await asyncio.shield(gateway._unregister(self.agent))
                 self.agent = None
@@ -776,39 +790,77 @@ class _SeenKey(asyncssh.SSHClient):
         return False
 
 
-async def connect(row: m.SshHost) -> tuple[asyncssh.SSHClientConnection, str]:
-    """Open the connection, checking the host key against the trusted one (if any).
-    Returns (connection, the host key it presented)."""
+@dataclass
+class Connected:
+    conn: asyncssh.SSHClientConnection
+    tunnels: list[asyncssh.SSHClientConnection]  # the jump hosts' connections, in order
+    host_key: str  # the key the host presented
+    jump_keys: dict[str, str]  # every jump host's presented key, by hop label
+
+    def close(self) -> None:
+        self.conn.close()
+        for tunnel in reversed(self.tunnels):
+            tunnel.close()
+
+
+async def load_config(db: Any) -> str:
+    row = await db.get(m.AppSetting, ssh_config.SETTING)
+    return str(row.value or "") if row is not None else ""
+
+
+async def connect(row: m.SshHost, config_text: str = "") -> Connected:
+    """Reach the host, through its jump hosts if the SSH config gives it some, checking each
+    hop's host key against the trusted one (trust on first use)."""
+    hops = ssh_config.route(ssh_config.parse(config_text), row.host, row.username or None, row.port)
     key = asyncssh.import_private_key(vault.decrypt(row.private_key).decode())
-    options: dict[str, Any] = {
-        "port": row.port, "username": row.username, "client_keys": [key], "agent_path": None,
-        "config": [], "preferred_auth": "publickey", "keepalive_interval": 15, "keepalive_count_max": 3,
-        "connect_timeout": CONNECT_TIMEOUT, "login_timeout": CONNECT_TIMEOUT,
-    }
-    seen = _SeenKey()
-    options["client_factory"] = lambda: seen
-    if row.host_key:
-        trusted = asyncssh.import_public_key(row.host_key)
-        options["known_hosts"] = ([trusted], [], [])
-    else:
-        options["known_hosts"] = None
+    trusted_jumps = row.jump_host_keys or {}
+    opened: list[asyncssh.SSHClientConnection] = []
+    keys: dict[str, str] = {}
     try:
-        conn = await asyncssh.connect(row.host, **options)
-    except asyncssh.HostKeyNotVerifiable as exc:
-        # The key it presented instead, from this same connection (a second one just to
-        # read the key would be turned away by sshd's per-source penalties).
-        new = seen.key.export_public_key().decode().strip() if seen.key else None
-        async with SessionLocal() as db:
-            current = await db.get(m.SshHost, row.id)
-            if current is not None:
-                current.host_key_pending = new
-                await db.commit()
-        raise HostKeyChanged(
-            f"the host key changed (now {fingerprint(new) or 'unknown'}, trusted {fingerprint(row.host_key)}): "
-            "make sure it's the right machine, then accept the new key"
-        ) from exc
-    presented = conn.get_server_host_key()
-    return conn, presented.export_public_key().decode().strip() if presented else ""
+        for i, hop in enumerate(hops):
+            last = i == len(hops) - 1
+            trusted = row.host_key if last else trusted_jumps.get(hop.label)
+            seen = _SeenKey()
+            options: dict[str, Any] = {
+                "port": hop.port, "username": hop.user, "client_keys": [key], "agent_path": None, "config": [],
+                "preferred_auth": "publickey", "client_factory": lambda seen=seen: seen,
+                "keepalive_interval": hop.keepalive_interval or 15, "keepalive_count_max": hop.keepalive_count or 3,
+                "connect_timeout": hop.connect_timeout or CONNECT_TIMEOUT, "login_timeout": CONNECT_TIMEOUT,
+                "known_hosts": ([asyncssh.import_public_key(trusted)], [], []) if trusted else None,
+                "tunnel": opened[-1] if opened else (),
+            }
+            try:
+                conn = await asyncssh.connect(hop.hostname, **options)
+            except asyncssh.HostKeyNotVerifiable as exc:
+                # The key it presented instead, from this same connection (a second one just
+                # to read the key would be turned away by sshd's per-source penalties).
+                new = seen.key.export_public_key().decode().strip() if seen.key else None
+                async with SessionLocal() as db:
+                    current = await db.get(m.SshHost, row.id)
+                    if current is not None:
+                        if last:
+                            current.host_key_pending = new
+                        else:
+                            current.jump_host_keys_pending = {**(current.jump_host_keys_pending or {}), hop.label: new}
+                        await db.commit()
+                what = "the host key" if last else f"the host key of jump host {hop.label}"
+                raise HostKeyChanged(
+                    f"{what} changed (now {fingerprint(new) or 'unknown'}, trusted {fingerprint(trusted)}): "
+                    "make sure it's the right machine, then accept the new key"
+                ) from exc
+            except (OSError, asyncssh.Error, TimeoutError) as exc:
+                if last:
+                    raise
+                raise JumpFailed(f"jump host {hop.label}: {_describe(exc)}") from exc
+            opened.append(conn)
+            presented = conn.get_server_host_key()
+            keys[hop.label] = presented.export_public_key().decode().strip() if presented else ""
+    except BaseException:
+        for conn in reversed(opened):
+            conn.close()
+        raise
+    target = keys.pop(hops[-1].label)
+    return Connected(conn=opened[-1], tunnels=opened[:-1], host_key=target, jump_keys=keys)
 
 
 async def probe(conn: asyncssh.SSHClientConnection, workdir: str) -> Probe:

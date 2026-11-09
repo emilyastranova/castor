@@ -13,6 +13,7 @@
 	import { confirmAction } from '$lib/confirm.svelte';
 	import AgentTokenDialog from '$lib/components/AgentTokenDialog.svelte';
 	import SshHostDialog from '$lib/components/SshHostDialog.svelte';
+	import SshConfigDialog from '$lib/components/SshConfigDialog.svelte';
 
 	let { data } = $props();
 	// svelte-ignore state_referenced_locally
@@ -48,6 +49,7 @@
 	}
 	const sshOf = (a: Agent) => (a.ssh_host_id ? sshHosts.find((h) => h.id === a.ssh_host_id) : undefined);
 	let sshOpen = $state(false);
+	let sshConfigOpen = $state(false);
 	let sshEditing = $state<SshHost | null>(null);
 	function addSshHost() {
 		sshEditing = null;
@@ -61,9 +63,13 @@
 		sshHosts = [...sshHosts.filter((x) => x.id !== h.id), h];
 	}
 	async function acceptHostKey(h: SshHost) {
+		const jump = Object.entries(h.jump_host_keys_pending)[0];
+		const [who, now, was] = h.host_key_pending_fingerprint || !jump
+			? [h.name, h.host_key_pending_fingerprint, h.host_key_fingerprint]
+			: [`jump host ${jump[0]}`, jump[1], h.jump_host_keys[jump[0]]];
 		const ok = await confirmAction({
-			title: `Trust ${h.name}'s new host key?`,
-			message: `It now presents ${h.host_key_pending_fingerprint}, not the ${h.host_key_fingerprint} Castor trusted. That happens when the machine is reinstalled or its SSH keys are regenerated, and also when something else answers at ${h.host}. Accept it only if you know why it changed.`,
+			title: `Trust the new key of ${who}?`,
+			message: `It now presents ${now}, not the ${was} Castor trusted. That happens when the machine is reinstalled or its SSH keys are regenerated, and also when something else answers at that address. Accept it only if you know why it changed.`,
 			confirmLabel: 'Trust the new key',
 			icon: 'key'
 		});
@@ -230,6 +236,7 @@
 	{#snippet actions()}
 		<IconButton icon="refresh" label="Refresh" onclick={() => invalidateAll()} />
 		{#if isAdmin()}
+			<Button variant="text" icon="route" onclick={() => (sshConfigOpen = true)}>SSH config</Button>
 			<Button variant="text" icon="terminal" onclick={addSshHost}>Add SSH host</Button>
 			<Button variant="tonal" icon="add" onclick={() => { revealed = null; enrollOpen = true; }}>Enroll agent</Button>
 		{/if}
@@ -259,7 +266,7 @@
 						<div class="min-w-0 flex-1">
 							<h2 class="truncate title-medium text-on-surface">{a.name}</h2>
 							<p class="truncate body-small text-on-surface-variant">
-								{#if sshOf(a)}{@const h = sshOf(a)!}{h.username}@{h.host}{h.port !== 22 ? `:${h.port}` : ''}{:else}{a.username}@{a.hostname}{/if}
+								{#if sshOf(a)}{@const h = sshOf(a)!}{h.route.at(-1)?.replace(/:22$/, '') ?? `${h.username ? `${h.username}@` : ''}${h.host}`}{:else}{a.username}@{a.hostname}{/if}
 							</p>
 						</div>
 						<span class="rounded-full px-2 py-0.5 label-small {statusCls[a.status]}">{a.status}{a.running_jobs ? ` · ${a.running_jobs}` : ''}</span>
@@ -268,6 +275,10 @@
 						<dt>OS</dt><dd class="truncate text-on-surface" title={a.os}>{a.os || '—'}</dd>
 						<dt>Runtimes</dt><dd class="text-on-surface">{(a.capabilities.runtimes ?? []).join(', ') || '—'}</dd>
 						<dt>Slots</dt><dd class="text-on-surface">{a.running_jobs}/{a.max_concurrency}</dd>
+						{#if (sshOf(a)?.route.length ?? 0) > 1}
+							{@const hops = sshOf(a)!.route.slice(0, -1)}
+							<dt>Via</dt><dd class="truncate font-mono text-[12px] text-on-surface" title="Jump hosts, from the SSH config">{hops.map((h) => h.replace(/:22$/, '')).join(' › ')}</dd>
+						{/if}
 						<dt>Seen</dt><dd class="text-on-surface" title={absoluteTime(a.last_seen_at)}>{a.connected ? 'now' : relativeTime(a.last_seen_at) || 'never'}</dd>
 						<dt>Auth</dt>
 						<dd class="flex min-w-0 items-center gap-1.5">
@@ -295,11 +306,18 @@
 					{#if sshOf(a) && !a.connected}
 						{@const h = sshOf(a)!}
 						{#if h.state === 'host_key_changed'}
+							{@const jumps = Object.entries(h.jump_host_keys_pending)}
 							<div class="flex flex-col gap-2 rounded-md bg-error-container px-3 py-2 body-small text-on-error-container">
-								<span class="flex items-start gap-1.5"><Icon name="gpp_maybe" size={18} class="mt-px shrink-0" />The host key changed, so Castor stopped connecting.</span>
+								<span class="flex items-start gap-1.5"><Icon name="gpp_maybe" size={18} class="mt-px shrink-0" />{h.host_key_pending_fingerprint || !jumps.length ? 'The host key changed' : `The key of jump host ${jumps[0][0]} changed`}, so Castor stopped connecting.</span>
 								<dl class="grid grid-cols-[auto_1fr] gap-x-2 font-mono text-[11.5px]">
-									<dt>now</dt><dd class="break-all">{h.host_key_pending_fingerprint ?? 'unknown'}</dd>
-									<dt>was</dt><dd class="break-all">{h.host_key_fingerprint}</dd>
+									{#if h.host_key_pending_fingerprint || !jumps.length}
+										<dt>now</dt><dd class="break-all">{h.host_key_pending_fingerprint ?? 'unknown'}</dd>
+										<dt>was</dt><dd class="break-all">{h.host_key_fingerprint}</dd>
+									{/if}
+									{#each jumps as [label, fp] (label)}
+										<dt>now</dt><dd class="break-all">{fp ?? 'unknown'}</dd>
+										<dt>was</dt><dd class="break-all">{h.jump_host_keys[label] ?? '—'}</dd>
+									{/each}
 								</dl>
 								<Button variant="text" class="self-end" onclick={() => acceptHostKey(h)}>Review and trust…</Button>
 							</div>
@@ -394,6 +412,7 @@
 	{/snippet}
 </Dialog>
 
+<SshConfigDialog bind:open={sshConfigOpen} onsaved={() => void reloadSshHosts()} />
 <SshHostDialog bind:open={sshOpen} host={sshEditing} hosts={sshHosts} onsaved={sshSaved} />
 
 <AgentTokenDialog bind:open={enrollOpen} {wsUrl} {revealed} {sharedSecretAllowed} oncreated={() => void reloadTokens()} />

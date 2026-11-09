@@ -247,7 +247,10 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   registers it with the gateway as an agent whose `ws` is an in-process `SshSocket`, so it
   speaks the agent protocol unchanged), `api/ssh_hosts.py` (admin), web `SshHostDialog` on the
   Agents page. Keys go through `vault`; host keys are trusted on first use (`host_key_pending`
-  until an admin accepts a change). Variable values reach the host only in `.castor/env`
+  until an admin accepts a change, per hop). Jump hosts come from one shared SSH config
+  that `ssh_config.py` parses itself (allowlist: Host, HostName, Port, User, ProxyJump,
+  keepalives; never pass it to asyncssh, whose ProxyCommand/Include would run or read things
+  on the server). Variable values reach the host only in `.castor/env`
   (sourced and deleted by the job's script), never in a command line. Tests run a real
   asyncssh server in a thread (`tests/test_ssh_hosts.py`).
 - Config is `pydantic-settings` with the `CASTOR_` prefix (`config.py`).

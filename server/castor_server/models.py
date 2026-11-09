@@ -456,14 +456,18 @@ class SshHost(Base, TimestampMixin):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
     agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), unique=True)
     host: Mapped[str] = mapped_column(String(255))
-    port: Mapped[int] = mapped_column(Integer, default=22)
-    username: Mapped[str] = mapped_column(String(128))
+    # Port and username: empty to take them from the SSH config (then 22, and the host's User).
+    port: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    username: Mapped[str] = mapped_column(String(128), default="")
     private_key: Mapped[str] = mapped_column(Text)  # vault token of the OpenSSH private key
     public_key: Mapped[str] = mapped_column(Text, default="")
     # The host's key ("ssh-ed25519 AAAA…"), recorded on the first connection; a different
     # key later is kept in host_key_pending until an admin accepts it.
     host_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     host_key_pending: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Jump hosts from the SSH config (ProxyJump): their keys by "user@host:port", the same way.
+    jump_host_keys: Mapped[dict[str, str]] = mapped_column(JSONType, default=dict)
+    jump_host_keys_pending: Mapped[dict[str, str]] = mapped_column(JSONType, default=dict)
     workdir: Mapped[str] = mapped_column(String(500), default="castor-jobs")  # relative: under the home directory
     network: Mapped[str] = mapped_column(String(64), default="host")
     allow_host: Mapped[bool] = mapped_column(Boolean, default=True)

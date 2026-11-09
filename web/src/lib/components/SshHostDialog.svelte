@@ -44,7 +44,7 @@
 		const h = host;
 		name = h?.name ?? '';
 		address = h?.host ?? '';
-		port = String(h?.port ?? 22);
+		port = h?.port ? String(h.port) : '';
 		username = h?.username ?? '';
 		workdir = h?.workdir ?? 'castor-jobs';
 		network = h?.network ?? 'host';
@@ -72,7 +72,7 @@
 		const body: SshHostIn = {
 			name: name.trim(),
 			host: address.trim(),
-			port: Number(port) || 22,
+			port: Number(port) || null,
 			username: username.trim(),
 			workdir: workdir.trim() || 'castor-jobs',
 			network: network.trim(),
@@ -118,7 +118,7 @@
 	}
 
 	let canSave = $derived(
-		!!name.trim() && !!address.trim() && !!username.trim() && (keyMode !== 'paste' || !!privateKey.trim())
+		!!name.trim() && !!address.trim() && (keyMode !== 'paste' || !!privateKey.trim())
 	);
 	type KeyMode = 'keep' | 'generate' | 'paste';
 	let keyModes = $derived<{ id: KeyMode; label: string }[]>([
@@ -132,8 +132,8 @@
 	{#if live}
 		<div class="flex flex-col gap-4 pb-2">
 			<p class="body-medium text-on-surface">
-				Castor signs in as <span class="font-mono">{live.username}@{live.host}</span> with this key. Add it to that account's
-				<code class="font-mono">~/.ssh/authorized_keys</code>, on the host:
+				Castor signs in as <span class="font-mono">{live.route.at(-1) ?? `${live.username}@${live.host}`}</span> with this key. Add it to that account's
+				<code class="font-mono">~/.ssh/authorized_keys</code>, on the host{live.route.length > 1 ? ' and on each jump host on the way' : ''}:
 			</p>
 			<div>
 				<div class="mb-1 flex items-center justify-between">
@@ -162,11 +162,11 @@
 	{:else}
 		<div class="flex flex-col gap-4 pt-1 pb-2">
 			<div class="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_6rem]">
-				<TextField label="Host" bind:value={address} placeholder="10.0.0.5 or lab-box.internal" required />
-				<TextField label="Port" bind:value={port} type="number" />
+				<TextField label="Host" bind:value={address} placeholder="10.0.0.5 or lab-box.internal" required supporting="An address, or a Host from the SSH config (for jump hosts)." />
+				<TextField label="Port" bind:value={port} type="number" placeholder="22" />
 			</div>
 			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-				<TextField label="Username" bind:value={username} placeholder="castor" required autocomplete="off" />
+				<TextField label="Username" bind:value={username} placeholder="castor" autocomplete="off" supporting="Empty: the SSH config's User." />
 				<TextField label="Name" bind:value={name} placeholder="lab-box-01" required supporting="How it's listed with the agents." />
 			</div>
 

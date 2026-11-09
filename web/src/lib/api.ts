@@ -949,8 +949,10 @@ export interface SshHost {
 	id: UUID;
 	agent_id: UUID;
 	name: string;
+	/** An address, or a Host alias from the SSH config. */
 	host: string;
-	port: number;
+	/** Null (port) or empty (username): from the SSH config. */
+	port: number | null;
 	username: string;
 	workdir: string;
 	network: string;
@@ -959,6 +961,12 @@ export interface SshHost {
 	enabled: boolean;
 	tags: string[];
 	max_concurrency: number;
+	/** How the SSH config reaches it: each hop as user@host:port, the host itself last. */
+	route: string[];
+	route_error: string | null;
+	/** Jump hosts' key fingerprints by hop, trusted and waiting to be accepted. */
+	jump_host_keys: Record<string, string | null>;
+	jump_host_keys_pending: Record<string, string | null>;
 	/** Goes in the account's ~/.ssh/authorized_keys. */
 	public_key: string;
 	key_fingerprint: string | null;
@@ -970,10 +978,20 @@ export interface SshHost {
 	connected: boolean;
 }
 
+/** The SSH config (ssh_config format) SSH hosts are reached with. */
+export interface SshConfig {
+	text: string;
+	errors: string[];
+	warnings: string[];
+	/** Each SSH host's route with this config, by name, or why it has none. */
+	routes: Record<string, string[]>;
+	route_errors: Record<string, string>;
+}
+
 export interface SshHostIn {
 	name: string;
 	host: string;
-	port: number;
+	port: number | null;
 	username: string;
 	workdir: string;
 	network: string;
@@ -1264,7 +1282,10 @@ export function api(fetchFn: Fetch = fetch) {
 			update: (id: UUID, body: SshHostIn) => request<SshHost>(fetchFn, 'PUT', `/ssh-hosts/${id}`, body),
 			acceptHostKey: (id: UUID) => post<SshHost>(`/ssh-hosts/${id}/accept-host-key`),
 			reconnect: (id: UUID) => post<SshHost>(`/ssh-hosts/${id}/reconnect`),
-			remove: (id: UUID) => del(`/ssh-hosts/${id}`)
+			remove: (id: UUID) => del(`/ssh-hosts/${id}`),
+			config: () => get<SshConfig>('/ssh-config'),
+			checkConfig: (text: string) => post<SshConfig>('/ssh-config/check', { text }),
+			saveConfig: (text: string) => request<SshConfig>(fetchFn, 'PUT', '/ssh-config', { text })
 		},
 		agentTokens: {
 			list: () => get<{ tokens: AgentToken[]; shared_secret_allowed: boolean }>('/agent-tokens'),

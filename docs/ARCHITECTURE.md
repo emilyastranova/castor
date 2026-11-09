@@ -143,9 +143,22 @@ interactive job gets a pty. Afterwards `.castor/` is removed, and the declared o
 `artifacts/**` are fetched over SFTP into attachments (`artifacts.store`, which the upload
 endpoint uses too), skipping symlinks and anything resolving outside the job dir.
 
-Host keys are trusted on first use: the first key seen is stored in `host_key`. If the host
-later presents another key (captured from that same connection in `host_key_pending`), the
-link stops with state `host_key_changed` until an admin accepts it
+Hosts can be reached through jump hosts. One instance-wide SSH config, in `ssh_config` format
+(app setting `ssh_config`, `GET|PUT /api/ssh-config`, `POST /api/ssh-config/check`, admin
+only), is parsed by Castor itself (`ssh_config.py`), never by asyncssh or OpenSSH. Only
+`Host`, `HostName` (`%h`), `Port`, `User`, `ProxyJump`, `ConnectTimeout` and `ServerAlive*`
+are used. `ProxyCommand`, `Match` and `Include` are refused, since they would run commands or
+read files on the server, and other keywords are ignored with a warning. OpenSSH's rules
+apply: the first value wins, a host's own port and username fields beat the config, and in
+`ProxyJump a,b` each hop is tunnelled through the one before, with every jump host getting its
+own config. `ssh_config.route` gives the hops (`SshHostOut.route`). `connect` opens them in
+turn, each with the host's own key, and closes them together. Saving the config reconnects
+every SSH host.
+
+Host keys are trusted on first use: the first key seen is stored in `host_key`, and each jump
+host's in `jump_host_keys` (by `user@host:port`). If the host (or a
+jump host) later presents another key (captured from that same connection in
+`host_key_pending` or `jump_host_keys_pending`), the link stops with state `host_key_changed` until an admin accepts it
 (`POST /api/ssh-hosts/{id}/accept-host-key`). Link state (`connecting`, `connected`, `error`,
 `host_key_changed`, `disabled`) and the last error are in `GET /api/ssh-hosts`, and changes
 publish `ssh_hosts.changed`. Each job uses one SSH channel, plus short-lived ones for SFTP

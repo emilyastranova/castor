@@ -73,7 +73,7 @@
 				? 'border-2 border-primary'
 				: 'border-outline hover:border-on-surface'
 	);
-	const fieldBase = 'peer w-full bg-transparent text-on-surface body-large outline-none placeholder:text-on-surface-variant/70 disabled:opacity-40';
+	const fieldBase = 'peer w-full bg-transparent text-on-surface outline-none placeholder:text-on-surface-variant/70 disabled:opacity-40';
 </script>
 
 <div class="flex flex-col {variant === 'outlined' ? 'pt-2' : ''} {klass}">
@@ -114,7 +114,7 @@
 					{name}
 					{rows}
 					{autocomplete}
-					class="{fieldBase} resize-y {mono ? 'font-mono text-sm' : ''} {variant === 'filled' ? 'pt-3' : ''}"
+					class="{fieldBase} resize-y {mono ? 'font-mono text-sm' : 'body-large'} {variant === 'filled' ? 'pt-3' : ''}"
 					bind:value
 					{placeholder}
 					{required}
@@ -135,7 +135,7 @@
 					{id}
 					{name}
 					{type}
-					class="{fieldBase} h-full {mono ? 'font-mono text-sm' : ''} {variant === 'filled' ? 'pt-4' : ''}"
+					class="{fieldBase} h-full {mono ? 'font-mono text-sm' : 'body-large'} {variant === 'filled' ? 'pt-4' : ''}"
 					bind:value
 					{placeholder}
 					{required}

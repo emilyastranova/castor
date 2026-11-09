@@ -25,6 +25,7 @@ class FakeHost:
         self.server = None
         self.port = 0
         self.conns: list = []
+        self.forwarded: list[tuple[str, int]] = []  # as a jump host: where it forwarded to
         threading.Thread(target=self.loop.run_forever, daemon=True).start()
 
     def _call(self, coro):
@@ -45,6 +46,10 @@ class FakeHost:
 
             def validate_public_key(self, username, key):
                 return key.export_public_key().decode().split()[1] in {k.split()[1] for k in host.authorized}
+
+            def connection_requested(self, dest_host, dest_port, orig_host, orig_port):
+                host.forwarded.append((dest_host, dest_port))
+                return True  # as sshd allows (ssh -J / ProxyJump)
 
         async def process(proc: asyncssh.SSHServerProcess) -> None:
             local = await asyncio.create_subprocess_exec(
@@ -289,3 +294,51 @@ def test_container_command_line():
     assert "--network host" not in run._command([]) and "--network=bridge" in run._command([])
     host_job = JobRun(link, {"id": "1", "command": "id"})
     assert host_job._command([]) == "exec /bin/sh -c id"
+
+
+def test_jump_hosts_from_the_ssh_config(client, auth, fake_host, tmp_path_factory):
+    bastion = FakeHost(tmp_path_factory.mktemp("bastion"))
+    bastion.start()
+    try:
+        config = (f"Host bastion\n  HostName 127.0.0.1\n  Port {bastion.port}\n  User jumper\n"
+                  f"Host lab-target\n  HostName 127.0.0.1\n  Port {fake_host.port}\n  User castor\n  ProxyJump bastion\n"
+                  "Host *\n  IdentityFile ~/.ssh/id_ed25519\n")
+        bad = client.put("/api/ssh-config", json={"text": config + "  ProxyCommand nc %h %p\n"}, headers=auth)
+        assert bad.status_code == 422 and "ProxyCommand" in bad.text
+        saved = client.put("/api/ssh-config", json={"text": config}, headers=auth)
+        assert saved.status_code == 200, saved.text
+        assert saved.json()["warnings"] and "IdentityFile" in saved.json()["warnings"][0]
+
+        tag = uuid.uuid4().hex[:6]
+        host = _add(client, auth, fake_host, tag, host="lab-target", port=None, username="")
+        assert host["route"] == [f"jumper@127.0.0.1:{bastion.port}", f"castor@127.0.0.1:{fake_host.port}"]
+        fake_host.authorized.add(host["public_key"])
+        bastion.authorized.add(host["public_key"])  # every hop signs in with the host's key
+        client.post(f"/api/ssh-hosts/{host['id']}/reconnect", headers=auth)
+        live = _wait(lambda: (h := _host(client, auth, host["id"]))["state"] == "connected" and h)
+        assert ("127.0.0.1", fake_host.port) in bastion.forwarded  # it went through the bastion
+        assert live["jump_host_keys"] == {f"jumper@127.0.0.1:{bastion.port}": bastion.host_key.get_fingerprint()}
+        assert live["host_key_fingerprint"] == fake_host.host_key.get_fingerprint()
+
+        _, job_id = _run(client, auth, _project(client, auth), tag, "echo through the bastion")
+        assert _finished(client, auth, job_id)["status"] == "succeeded"
+        assert "through the bastion" in client.get(f"/api/jobs/{job_id}/output", headers=auth).text
+
+        # The bastion is replaced: Castor stops at it until an admin accepts its new key.
+        bastion.stop()
+        bastion.host_key = asyncssh.generate_private_key("ssh-ed25519")
+        bastion.start()
+        _wait(lambda: not _host(client, auth, host["id"])["connected"], timeout=60)
+        client.post(f"/api/ssh-hosts/{host['id']}/reconnect", headers=auth)
+        changed = _wait(lambda: (h := _host(client, auth, host["id"]))["state"] == "host_key_changed" and h)
+        assert "jump host jumper@127.0.0.1" in changed["error"]
+        label = f"jumper@127.0.0.1:{bastion.port}"
+        assert changed["jump_host_keys_pending"] == {label: bastion.host_key.get_fingerprint()}
+        accepted = client.post(f"/api/ssh-hosts/{host['id']}/accept-host-key", headers=auth).json()
+        assert accepted["jump_host_keys"][label] == bastion.host_key.get_fingerprint() and not accepted["jump_host_keys_pending"]
+        _wait(lambda: _host(client, auth, host["id"])["state"] == "connected")
+    finally:
+        client.put("/api/ssh-config", json={"text": ""}, headers=auth)
+        for h in client.get("/api/ssh-hosts", headers=auth).json():
+            client.delete(f"/api/ssh-hosts/{h['id']}", headers=auth)
+        bastion.stop()
