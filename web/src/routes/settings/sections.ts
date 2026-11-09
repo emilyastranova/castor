@@ -3,6 +3,7 @@
 export const SECTIONS = [
 	{ href: '/settings/general', icon: 'tune', label: 'General', detail: 'Limits and defaults' },
 	{ href: '/settings/users', icon: 'group', label: 'Users', detail: 'Accounts and roles' },
+	{ href: '/settings/groups', icon: 'groups', label: 'Groups', detail: 'Teams to mention and share with' },
 	{ href: '/settings/sso', icon: 'login', label: 'Sign-on', detail: 'Single sign-on and passwords' },
 	{ href: '/settings/tokens', icon: 'key', label: 'API tokens', detail: "Everyone's personal tokens" },
 	{ href: '/settings/alerts', icon: 'campaign', label: 'Alerts', detail: 'Chat and webhook channels' },

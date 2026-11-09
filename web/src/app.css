@@ -326,6 +326,17 @@ select optgroup {
 	text-align: center;
 	letter-spacing: 0;
 }
+/* A group's chip: a groups icon in place of a picture (sized in its own em: 1.4 / 0.85). */
+.prose-m3 .mention-group span.mention-face {
+	width: 1.647em;
+	height: 1.647em;
+	vertical-align: -0.41em;
+	font-size: 0.85em;
+	font-weight: 400;
+	line-height: 1.647em;
+	background: var(--md-sys-color-tertiary-container);
+	color: var(--md-sys-color-on-tertiary-container);
+}
 /* The @username over a hovered chip (people.svelte.ts showMentionTip): a top-layer popover. */
 .mention-tip {
 	position: fixed;

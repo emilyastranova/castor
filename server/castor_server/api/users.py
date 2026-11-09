@@ -40,6 +40,8 @@ async def create_user(body: UserIn, db: DB, admin: Admin):
     taken = await db.execute(select(m.User.id).where(func.lower(m.User.username) == body.username.lower()))
     if taken.first() is not None:
         raise HTTPException(409, f"The username {body.username} is taken")
+    if (await db.execute(select(m.Group.id).where(func.lower(m.Group.slug) == body.username.lower()))).first():
+        raise HTTPException(409, f"@{body.username} is a group's handle; pick another username")
     user = m.User(
         username=body.username,
         display_name=body.display_name.strip() or body.username,

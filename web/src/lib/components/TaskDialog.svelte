@@ -423,8 +423,8 @@
 	const newCommentTarget: DraftTarget = { get: () => newComment, set: (v) => (newComment = v) };
 	const editTarget: DraftTarget = { get: () => editDraft, set: (v) => (editDraft = v) };
 	// @mention suggestions: the people who can see this card's project.
-	const newSuggest = new MentionSuggest(() => people.list(task.project_id), newCommentTarget);
-	const editSuggest = new MentionSuggest(() => people.list(task.project_id), editTarget);
+	const newSuggest = new MentionSuggest(() => people.mentionables(task.project_id), newCommentTarget);
+	const editSuggest = new MentionSuggest(() => people.mentionables(task.project_id), editTarget);
 
 	async function upload(files: FileList | File[] | null) {
 		if (!files || files.length === 0) return;

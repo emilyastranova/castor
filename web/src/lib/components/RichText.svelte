@@ -13,6 +13,10 @@
 	/** A mention chip opens that person's page; an image opens the viewer. */
 	function onclick(e: MouseEvent) {
 		const chip = (e.target as HTMLElement).closest<HTMLElement>('.mention');
+		if (chip?.dataset.group) {
+			e.preventDefault(); // a group has no page
+			return;
+		}
 		if (chip?.dataset.username) {
 			e.preventDefault();
 			e.stopPropagation();
@@ -22,7 +26,7 @@
 		openImagesIn(e);
 	}
 	let html = $derived(renderMarkdown(text));
-	let who = $derived(people.list(projectId));
+	let who = $derived(people.mentionables(projectId));
 	$effect(() => {
 		void html; // re-chip whenever the rendered text (or the people) change
 		if (root) chipMentions(root, who, me()?.id);

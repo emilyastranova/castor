@@ -94,6 +94,10 @@ RULES: list[tuple[str, str, str]] = [
     ("*", "/api/auth/logout", PUBLIC),
     ("GET", "/api/auth/sso", PUBLIC),  # sign-in options and the provider round trip
     ("GET", "/api/auth/sso/**", PUBLIC),
+    ("GET", "/api/groups", "projects:read"),  # for @mentions
+    ("GET", "/api/groups/*", "projects:read"),
+    ("*", "/api/groups", "admin"),
+    ("*", "/api/groups/**", "admin"),
     ("*", "/api/sso-providers", "admin"),
     ("*", "/api/sso-providers/**", "admin"),
     ("POST", "/api/jobs/*/artifacts", PUBLIC),  # the agent, with the job's one-off token

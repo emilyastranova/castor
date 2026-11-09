@@ -1,7 +1,7 @@
 <script lang="ts">
 	import PersonName from '$lib/components/PersonName.svelte';
 	import type { MentionSuggest } from '$lib/mentionSuggest.svelte';
-	import { Avatar } from '$lib/m3';
+	import { Avatar, Icon } from '$lib/m3';
 
 	/** The suggestion list under a text box (its parent must be `relative`). */
 	let { suggest }: { suggest: MentionSuggest } = $props();
@@ -22,8 +22,13 @@
 					}}
 					onmouseenter={() => (suggest.index = i)}
 				>
-					<Avatar name={u.display_name} src={u.avatar_url} size={24} />
-					<span class="min-w-0 flex-1 truncate body-medium"><PersonName name={u.display_name} /></span>
+					{#if u.group}
+						<span class="flex size-6 shrink-0 items-center justify-center rounded-full bg-tertiary-container text-on-tertiary-container"><Icon name="groups" size={14} /></span>
+						<span class="min-w-0 flex-1 truncate body-medium">{u.display_name} <span class="body-small text-on-surface-variant">· {u.group.member_count} {u.group.member_count === 1 ? 'person' : 'people'}</span></span>
+					{:else}
+						<Avatar name={u.display_name} src={u.avatar_url} size={24} />
+						<span class="min-w-0 flex-1 truncate body-medium"><PersonName name={u.display_name} /></span>
+					{/if}
 					<span class="shrink-0 body-small text-on-surface-variant">@{u.username}</span>
 				</button>
 			</li>

@@ -184,6 +184,40 @@ class ProjectMember(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
+class Group(Base, TimestampMixin):
+    """People put together (a team, a client's testers, on-call): `@slug` mentions them all,
+    and a project can be shared with the whole group (project_groups)."""
+
+    __tablename__ = "groups"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    # The @handle: same rules as usernames, and no username or other group may share it.
+    slug: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    description: Mapped[str] = mapped_column(Text, default="")
+    # A sign-on provider's group this follows: at each SSO sign-in, people in that provider
+    # group are added and people not in it are removed. Empty: managed by hand only.
+    sso_group: Mapped[str] = mapped_column(String(255), default="", server_default="")
+
+
+class GroupMember(Base):
+    __tablename__ = "group_members"
+
+    group_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class ProjectGroup(Base):
+    """A group whose members can all see a project, as if each were a member."""
+
+    __tablename__ = "project_groups"
+
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True)
+    group_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
 class Client(Base, TimestampMixin):
     __tablename__ = "clients"
 

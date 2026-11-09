@@ -9,7 +9,7 @@
  *   </div>
  */
 import { tick } from 'svelte';
-import type { UserBrief } from '$lib/api';
+import type { Mentionable } from '$lib/people.svelte';
 import type { DraftTarget } from '$lib/pastedImages.svelte';
 
 export class MentionSuggest {
@@ -20,13 +20,13 @@ export class MentionSuggest {
 	private textarea: HTMLTextAreaElement | null = null;
 
 	constructor(
-		private people: () => UserBrief[],
+		private people: () => Mentionable[],
 		private target: DraftTarget
 	) {}
 
-	get matches(): UserBrief[] {
+	get matches(): Mentionable[] {
 		const q = this.query.toLowerCase();
-		const score = (u: UserBrief) => {
+		const score = (u: Mentionable) => {
 			const name = u.username.toLowerCase();
 			const words = u.display_name.toLowerCase().split(/\s+/);
 			if (name.startsWith(q)) return 0;
@@ -86,7 +86,7 @@ export class MentionSuggest {
 		this.open = false;
 	};
 
-	pick(user: UserBrief) {
+	pick(user: Mentionable) {
 		const ta = this.textarea;
 		const text = this.target.get();
 		const caret = ta?.selectionStart ?? text.length;

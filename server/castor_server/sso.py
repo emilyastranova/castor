@@ -232,10 +232,35 @@ async def _free_username(db: AsyncSession, wanted: str) -> str:
     if not base[0].isalnum():
         base = "u" + base
     name, n = base, 1
-    while (await db.execute(select(m.User.id).where(func.lower(m.User.username) == name.lower()))).first():
+    while (await db.execute(select(m.User.id).where(func.lower(m.User.username) == name.lower()))).first() or \
+            (await db.execute(select(m.Group.id).where(func.lower(m.Group.slug) == name.lower()))).first():
         n += 1
         name = f"{base}-{n}"
     return name
+
+
+async def sync_groups(db: AsyncSession, user: m.User, provider_groups: set[str]) -> bool:
+    """Castor groups that follow a provider group (`sso_group`): in them exactly when the
+    provider says so. Only when the provider sent groups at all. Returns whether it changed."""
+    following = (await db.execute(select(m.Group).where(m.Group.sso_group != ""))).scalars().all()
+    if not following:
+        return False
+    current = set((await db.execute(select(m.GroupMember.group_id).where(m.GroupMember.user_id == user.id))).scalars())
+    changed = False
+    for group in following:
+        should = group.sso_group in provider_groups
+        if should and group.id not in current:
+            db.add(m.GroupMember(group_id=group.id, user_id=user.id))
+            changed = True
+        elif not should and group.id in current:
+            await db.delete(await db.get(m.GroupMember, (group.id, user.id)))
+            changed = True
+    if changed:
+        from .events import bus
+
+        bus.publish("project.members", None, {"user_ids": [str(user.id)]})
+        bus.publish("groups.changed", None, {})
+    return changed
 
 
 async def resolve_user(db: AsyncSession, provider: m.SsoProvider, claims: dict[str, Any]) -> m.User:
@@ -288,6 +313,8 @@ async def resolve_user(db: AsyncSession, provider: m.SsoProvider, claims: dict[s
             user.role = role
     if not user.email and await email_free():
         user.email = email
+    if provider.groups_claim and provider.groups_claim in claims:
+        await sync_groups(db, user, set(groups))
     identity.email = email
     identity.last_login_at = m.utcnow()
     if how != "signed in":

@@ -1,5 +1,6 @@
 """Who can see which project. Admins see every project; everyone else sees the projects
-they're a member of (project_members). Anything belonging to a project (its board, cards,
+they're a member of (project_members), directly or through a group the project is shared
+with (project_groups + group_members). Anything belonging to a project (its board, cards,
 jobs, attachments, playbook runs, activity) follows the project.
 
 Lookups of something the user can't see answer 404, not 403, so ids of other projects'
@@ -18,14 +19,24 @@ from .api_tokens import project_limit
 from .deps import ROLE_ERRORS
 
 
+def member_project_ids(user_id: uuid.UUID):
+    """A query of the projects someone is in: as a member, or through one of their groups."""
+    direct = select(m.ProjectMember.project_id).where(m.ProjectMember.user_id == user_id)
+    by_group = (
+        select(m.ProjectGroup.project_id)
+        .join(m.GroupMember, m.GroupMember.group_id == m.ProjectGroup.group_id)
+        .where(m.GroupMember.user_id == user_id)
+    )
+    return direct.union(by_group)
+
+
 async def visible_project_ids(db: AsyncSession, user: m.User) -> set[uuid.UUID] | None:
     """The projects the user can see, or None for all of them (admins). An API token
     limited to some projects narrows this to those."""
     limit = project_limit(user)
     if user.is_admin:
         return None if limit is None else {uuid.UUID(p) for p in limit}
-    rows = await db.execute(select(m.ProjectMember.project_id).where(m.ProjectMember.user_id == user.id))
-    ids = set(rows.scalars())
+    ids = set((await db.execute(member_project_ids(user.id))).scalars())
     return ids if limit is None else {i for i in ids if str(i) in limit}
 
 
@@ -37,12 +48,7 @@ async def can_see(db: AsyncSession, user: m.User, project_id: uuid.UUID | None) 
         return False
     if user.is_admin:
         return True
-    found = await db.execute(
-        select(m.ProjectMember.project_id).where(
-            m.ProjectMember.project_id == project_id, m.ProjectMember.user_id == user.id
-        )
-    )
-    return found.first() is not None
+    return project_id in set((await db.execute(member_project_ids(user.id))).scalars())
 
 
 def require_writer(user: m.User) -> None:

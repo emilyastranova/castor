@@ -11,13 +11,11 @@ Single sign-on works with OpenID Connect (Settings → Sign-on). SAML would add 
 providers that only speak it. A provider's groups should also be able to put people in
 [groups](#groups), not only set their role.
 
-### Groups
-Put people in groups (a team, a client's testers, on-call):
-- **Mentions:** `@group` mentions everyone in it, and cards can be assigned to a group.
-- **Access:** project membership by group, so adding someone to a group gives them its projects.
-- **Alerts and approvals:** a group can receive an alert or approve a waiting trigger.
-
-Groups can also be kept in step with the SSO provider's groups.
+### More for groups
+Groups (Settings → Groups) can already be mentioned, share projects, and follow a sign-on
+provider's groups. Still to come:
+- **Assignment:** cards assigned to a group.
+- **Alerts and approvals:** a group receiving an alert, or approving a waiting trigger.
 
 ## Running work
 

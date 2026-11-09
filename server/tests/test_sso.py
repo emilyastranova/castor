@@ -224,3 +224,23 @@ def test_password_sign_in_can_be_turned_off_safely(client, auth, idp, provider):
         client.cookies.clear()
     assert client.post("/api/auth/login", json={"username": "admin", "password": "secret"}).status_code == 200
     client.cookies.clear()
+
+
+def test_groups_follow_the_providers_groups(client, auth, idp, provider):
+    w = uuid.uuid4().hex[:6]
+    g = client.post("/api/groups", json={"slug": f"ops-{w}", "name": "Ops", "sso_group": f"castor-ops-{w}"}, headers=auth).json()
+    manual = client.post("/api/groups", json={"slug": f"hand-{w}", "name": "By hand"}, headers=auth).json()
+    sub = uuid.uuid4().hex
+    claims = {"sub": sub, "email": f"o-{w}@example.com", "email_verified": True, "preferred_username": f"o-{w}"}
+    _sign_in(client, idp, provider, {**claims, "groups": [f"castor-ops-{w}"]})
+    me = _me(client)
+    members = lambda gid: {u["id"] for u in client.get(f"/api/groups/{gid}", headers=auth).json()["members"]}
+    assert me["id"] in members(g["id"])
+    client.put(f"/api/groups/{manual['id']}/members", json=[me["id"]], headers=auth)
+    _sign_in(client, idp, provider, {**claims, "groups": ["something-else"]})
+    assert me["id"] not in members(g["id"])  # left the provider group: out
+    assert me["id"] in members(manual["id"])  # groups managed by hand are left alone
+    _sign_in(client, idp, provider, claims)  # no groups sent at all: nothing changes
+    assert me["id"] in members(manual["id"])
+    client.delete(f"/api/groups/{g['id']}", headers=auth)
+    client.delete(f"/api/groups/{manual['id']}", headers=auth)

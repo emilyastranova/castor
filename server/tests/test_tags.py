@@ -49,7 +49,7 @@ def test_rename_and_merge_card_tags_in_one_project(client, auth):
                     headers=auth)
     assert r.status_code == 200, r.text
     assert r.json()["changed"] == {"cards": 2}
-    tags = lambda t: client.get(f"/api/tasks/{t['id']}", headers=auth).json()["tags"]  # noqa: E731
+    tags = lambda t: client.get(f"/api/tasks/{t['id']}", headers=auth).json()["tags"]
     assert tags(a) == [f"smb-signing-{w}", "keep"]  # renamed in place
     assert tags(b) == [f"smb-signing-{w}"]  # merged: one, not two
     assert tags(c) == [f"smbsign-{w}"]  # another project's cards are left alone

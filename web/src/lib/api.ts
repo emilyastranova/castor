@@ -1102,6 +1102,14 @@ export function api(fetchFn: Fetch = fetch) {
 			/** What the sign-in page offers: providers to sign in with, and whether passwords work. */
 			signInOptions: () => get<{ providers: { id: string; name: string }[]; password_login: boolean }>('/auth/sso')
 		},
+		groups: {
+			list: () => get<Group[]>('/groups'),
+			get: (id: UUID) => get<GroupDetail>(`/groups/${id}`),
+			create: (body: GroupIn) => post<GroupDetail>('/groups', body),
+			update: (id: UUID, body: GroupIn) => request<GroupDetail>(fetchFn, 'PUT', `/groups/${id}`, body),
+			setMembers: (id: UUID, userIds: UUID[]) => request<GroupDetail>(fetchFn, 'PUT', `/groups/${id}/members`, userIds),
+			remove: (id: UUID) => del(`/groups/${id}`)
+		},
 		sso: {
 			list: () => get<SsoProvider[]>('/sso-providers'),
 			create: (body: SsoProviderIn) => post<SsoProvider>('/sso-providers', body),
@@ -1133,6 +1141,9 @@ export function api(fetchFn: Fetch = fetch) {
 			/** Everyone who can see the project (members and admins): assignees, @mentions. */
 			people: (id: UUID) => get<UserBrief[]>(`/projects/${id}/people`),
 			setMembers: (id: UUID, userIds: UUID[]) => request<UserBrief[]>(fetchFn, 'PUT', `/projects/${id}/members`, userIds),
+			/** The groups the project is shared with (everyone in them can see it). */
+			groups: (id: UUID) => get<Group[]>(`/projects/${id}/groups`),
+			setGroups: (id: UUID, groupIds: UUID[]) => request<Group[]>(fetchFn, 'PUT', `/projects/${id}/groups`, groupIds),
 			list: () => get<ProjectSummary[]>('/projects'),
 			get: (id: UUID) => get<Project>(`/projects/${id}`),
 			create: (body: Partial<Project> & { codename: string; name: string }) =>
@@ -1570,6 +1581,25 @@ export interface AppSettings {
 	/** Signing in with a password; off means single sign-on only (while a provider is on). */
 	password_login: boolean;
 }
+
+/** People put together: @slug mentions them all; a project shared with it is theirs to see. */
+export interface Group {
+	id: UUID;
+	slug: string;
+	name: string;
+	description: string;
+	/** A sign-on provider group this follows at each SSO sign-in; empty: by hand only. */
+	sso_group: string;
+	member_count: number;
+	project_count: number;
+	member_ids: UUID[];
+}
+
+export interface GroupDetail extends Group {
+	members: UserBrief[];
+}
+
+export type GroupIn = Pick<Group, 'slug' | 'name' | 'description' | 'sso_group'>;
 
 /** An OpenID Connect provider people can sign in with (Settings → Sign-on). */
 export interface SsoProvider {

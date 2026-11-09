@@ -281,6 +281,10 @@ async def _project_bundle(db: AsyncSession, project: m.Project, opts: ExportOpti
         "asset_triggers": [row_of(t) for t in triggers],
         "asset_trigger_fires": [row_of(f) for f in await _rows(db, select(m.AssetTriggerFire).where(m.AssetTriggerFire.trigger_id.in_([t.id for t in triggers])))],
         "members": [str(u) for u in (await db.execute(select(m.ProjectMember.user_id).where(m.ProjectMember.project_id == pid))).scalars()],
+        # Groups travel by @handle: the importing instance shares the project with its own
+        # groups of the same handle, if it has them.
+        "groups": list((await db.execute(select(m.Group.slug).join(m.ProjectGroup, m.ProjectGroup.group_id == m.Group.id)
+                                         .where(m.ProjectGroup.project_id == pid))).scalars()),
     }
     if opts.jobs:
         jobs = await _rows(db, select(m.Job).where(m.Job.task_id.in_(task_ids)))
@@ -898,6 +902,9 @@ async def _import_project(
         members.add(user.id)
     for uid in members:
         await add_member(db, project_id, uid)
+    if bundle.get("groups"):
+        for gid in (await db.execute(select(m.Group.id).where(m.Group.slug.in_([str(s) for s in bundle["groups"]])))).scalars():
+            db.add(m.ProjectGroup(project_id=project_id, group_id=gid))
     source = archive.manifest.get("created_by") or "another Castor"
     await record_activity(db, type="project.imported", message=f"Imported project {codename} (exported by {source})",
                           project_id=project_id, payload={"from": archive.manifest.get("castor_version")}, **actor_of(user))

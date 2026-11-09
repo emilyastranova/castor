@@ -19,11 +19,16 @@ _CODE = re.compile(r"```.*?```|`[^`\n]*`", re.DOTALL)
 
 
 async def project_people(db: AsyncSession, project_id: uuid.UUID) -> list[m.User]:
-    """Active users who can see the project: admins and its members."""
+    """Active users who can see the project: admins, its members, and people in its groups."""
     members = select(m.ProjectMember.user_id).where(m.ProjectMember.project_id == project_id)
+    via_groups = (
+        select(m.GroupMember.user_id)
+        .join(m.ProjectGroup, m.ProjectGroup.group_id == m.GroupMember.group_id)
+        .where(m.ProjectGroup.project_id == project_id)
+    )
     rows = await db.execute(
         select(m.User)
-        .where(m.User.disabled_at.is_(None), (m.User.role == m.UserRole.admin) | m.User.id.in_(members))
+        .where(m.User.disabled_at.is_(None), (m.User.role == m.UserRole.admin) | m.User.id.in_(members) | m.User.id.in_(via_groups))
         .order_by(m.User.display_name)
     )
     return list(rows.scalars())
@@ -38,11 +43,26 @@ def mention_names(text: str) -> set[str]:
 
 
 async def mentioned(db: AsyncSession, project_id: uuid.UUID, text: str) -> list[m.User]:
-    """The people a comment mentions who can see the project (others are just text)."""
+    """The people a comment mentions who can see the project (others are just text): by
+    @username, or everyone in an @group."""
     names = mention_names(text)
     if not names:
         return []
-    return [u for u in await project_people(db, project_id) if u.username.lower() in names]
+    groups = select(m.Group.id).where(m.Group.slug.in_(names))
+    in_groups = set((await db.execute(select(m.GroupMember.user_id).where(m.GroupMember.group_id.in_(groups)))).scalars())
+    return [u for u in await project_people(db, project_id) if u.username.lower() in names or u.id in in_groups]
+
+
+async def handle_taken(db: AsyncSession, handle: str, *, group_id: uuid.UUID | None = None, user_id: uuid.UUID | None = None) -> str | None:
+    """Usernames and group slugs share one @namespace: what already uses this one, if anything."""
+    from sqlalchemy import func
+
+    h = handle.lower()
+    user = (await db.execute(select(m.User.username).where(func.lower(m.User.username) == h, m.User.id != user_id))).first()
+    if user:
+        return f"the user @{user[0]}"
+    group = (await db.execute(select(m.Group.slug).where(func.lower(m.Group.slug) == h, m.Group.id != group_id))).first()
+    return f"the group @{group[0]}" if group else None
 
 
 async def check_assignees(db: AsyncSession, project_id: uuid.UUID, values: Iterable[str]) -> list[str]:

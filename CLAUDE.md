@@ -169,6 +169,11 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   Command usage (board cards you can see, playbooks) is `command_library.usage` and
   `GET /api/commands/{id}/usage`.
 - People (Phase 3b): `people.py` (who can see a project, `@mention` parsing, assignee checks).
+  Groups: `api/groups.py`, `groups`/`group_members`/`project_groups`. Visibility is
+  `access.member_project_ids` (direct members plus groups), so use it, not `project_members`
+  alone. `@group` expands to members; handles share a namespace with usernames
+  (`people.handle_taken`). SSO keeps `sso_group` groups in step (`sso.sync_groups`). Web:
+  `routes/settings/groups`, `GroupDialog`, groups in `MembersDialog`, `people.mentionables`.
   `tasks.assignees` and `comments.mentions` hold user ids as strings. Personal notifications
   (`task.assigned`, `comment.mention`) use `notify(user_ids=..., webhooks=False)`. Web:
   `lib/people.svelte.ts` (per-project people + mention chips), `mentionSuggest.svelte.ts`.

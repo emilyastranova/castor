@@ -7,13 +7,18 @@ import { isAstra } from '$lib/components/PersonName.svelte';
  *   people.user(projectId, id)
  */
 import { browser } from '$app/environment';
-import type { UserBrief, UUID } from '$lib/api';
+import type { Group, UserBrief, UUID } from '$lib/api';
 import { api } from '$lib/api';
 import { realtime } from '$lib/realtime.svelte';
 import { initials } from '$lib/format';
 
+/** Someone (or a group) an @mention can name: a group is a UserBrief-shaped entry with `group`. */
+export type Mentionable = UserBrief & { group?: Group };
+
 class PeopleStore {
 	byProject = $state<Record<string, UserBrief[]>>({});
+	groupList = $state<Group[] | null>(null);
+	private groupsLoading = false;
 	private loading = new Set<string>();
 
 	constructor() {
@@ -23,6 +28,7 @@ class PeopleStore {
 			if (e.name === 'project.members' || e.name === 'user.changed') {
 				for (const id of Object.keys(this.byProject)) void this.fetch(id);
 			}
+			if (e.name === 'groups.changed' && this.groupList) void this.fetchGroups();
 		});
 	}
 
@@ -30,6 +36,28 @@ class PeopleStore {
 		if (!projectId) return [];
 		if (!(projectId in this.byProject) && !this.loading.has(projectId)) void this.fetch(projectId);
 		return this.byProject[projectId] ?? [];
+	}
+
+	/** Every group, as @mention entries (mentioning one reaches its people who can see the project). */
+	groups(): Mentionable[] {
+		if (this.groupList === null && !this.groupsLoading && browser) void this.fetchGroups();
+		return (this.groupList ?? []).map((g) => ({ id: `group:${g.id}`, username: g.slug, display_name: g.name, role: 'viewer', avatar_url: null, group: g }));
+	}
+
+	/** People who can see the project, then groups: what @ can name there. */
+	mentionables(projectId: UUID | null | undefined): Mentionable[] {
+		return [...this.list(projectId), ...this.groups()];
+	}
+
+	private async fetchGroups() {
+		this.groupsLoading = true;
+		try {
+			this.groupList = await api().groups.list();
+		} catch {
+			this.groupList = [];
+		} finally {
+			this.groupsLoading = false;
+		}
 	}
 
 	user(projectId: UUID | null | undefined, id: string): UserBrief | undefined {
@@ -84,7 +112,8 @@ export function hideMentionTip() {
 
 /** A mention chip: the person's picture (or initials) and display name; `@username` shows on
  *  hover (showMentionTip) so the text never shifts. */
-function mentionChip(user: UserBrief, isMe: boolean): HTMLElement {
+function mentionChip(user: Mentionable, isMe: boolean): HTMLElement {
+	if (user.group) return groupChip(user.group, isMe);
 	const chip = document.createElement('span');
 	chip.className = `mention${isMe ? ' mention-me' : ''}`;
 	chip.dataset.username = `@${user.username}`;
@@ -108,11 +137,29 @@ function mentionChip(user: UserBrief, isMe: boolean): HTMLElement {
 	return chip;
 }
 
+/** A group's chip: a groups icon and its name; `@handle · N people` on hover. */
+function groupChip(group: Group, isMe: boolean): HTMLElement {
+	const chip = document.createElement('span');
+	chip.className = `mention mention-group${isMe ? ' mention-me' : ''}`;
+	chip.dataset.username = `@${group.slug} · ${group.member_count} ${group.member_count === 1 ? 'person' : 'people'}`;
+	chip.dataset.group = group.slug;
+	chip.setAttribute('aria-label', `@${group.slug} (group ${group.name})`);
+	const face = document.createElement('span');
+	face.className = 'mention-face material-symbols-rounded';
+	face.setAttribute('aria-hidden', 'true');
+	face.textContent = 'groups';
+	const name = document.createElement('span');
+	name.className = 'mention-name';
+	name.textContent = group.name;
+	chip.append(face, name);
+	return chip;
+}
+
 /**
  * Wrap @mentions of people who can see the project in chips, inside rendered markdown
  * (not in code, preformatted text or links). Yours get a stronger chip.
  */
-export function chipMentions(root: HTMLElement, who: UserBrief[], meId: string | undefined) {
+export function chipMentions(root: HTMLElement, who: Mentionable[], meId: string | undefined) {
 	if (!who.length) return;
 	const byName = new Map(who.map((u) => [u.username.toLowerCase(), u]));
 	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
@@ -131,7 +178,7 @@ export function chipMentions(root: HTMLElement, who: UserBrief[], meId: string |
 			if (!user) continue;
 			const at = match.index!;
 			parts.push(text.slice(last, at));
-			parts.push(mentionChip(user, user.id === meId));
+			parts.push(mentionChip(user, user.group ? !!meId && user.group.member_ids.includes(meId) : user.id === meId));
 			last = at + 1 + name.length;
 		}
 		if (!parts.length) continue;

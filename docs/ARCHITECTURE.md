@@ -524,6 +524,14 @@ read access; importing needs an operator.
 
 ## People
 
+**Groups** (`groups`, `group_members`, `project_groups`; `api/groups.py`; Settings → Groups):
+- **Handles:** a group's `slug` is its `@handle`. Handles and usernames share one namespace (`people.handle_taken`).
+- **Mentions:** `@group` in a comment mentions the group's people who can see the project (`people.mentioned`).
+- **Access:** a project shared with groups is visible to their members as if each were a member (`access.member_project_ids`, `people.project_people`).
+- **Sign-on:** a group with `sso_group` follows that provider group at each SSO sign-in (`sso.sync_groups`), but only when the provider sent groups.
+- **Realtime:** changes publish `groups.changed` and `project.members`, and sockets reload what they may see.
+- **Export:** a project export carries its groups' handles, and an import shares the project with the local groups of the same handle.
+
 `GET /api/people` lists everyone active with their open assigned cards and last activity;
 `GET /api/people/{username}` adds their projects, 30-day numbers, assigned cards and the
 comments mentioning them. Both count only what's in projects the viewer can see; the web
