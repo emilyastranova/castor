@@ -359,7 +359,7 @@ class Resolved:
         return text
 
     def _shown(self, name: str, in_container: bool) -> str | None:
-        if name == "CASTOR_WORK":  # {{work}}: known in a container; elsewhere the agent decides
+        if name == "CASTOR_WORK":  # {{ work }}: known in a container; elsewhere the agent decides
             return "/work" if in_container else None
         text = self.display.get(name)
         if text is not None and name in self._file_vars and in_container:

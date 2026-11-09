@@ -15,9 +15,9 @@ args:
     description: Wordlist path inside the container (the ffuf tool ships SecLists common.txt)
     required: true
     default: /usr/share/wordlists/common.txt
-command: ffuf -u {{ url }}FUZZ -w {{ wordlist }} -of json -o {{work}}/ffuf.json
+command: ffuf -u {{ url }}FUZZ -w {{ wordlist }} -of json -o {{ work }}/ffuf.json
 outputs:
   - name: paths
     type: list<url>
     parser: ffuf.results
-    source: "{{work}}/ffuf.json"
+    source: "{{ work }}/ffuf.json"

@@ -248,30 +248,32 @@ def test_command_usage_counts_visible_cards_and_playbooks(client, auth):
 
 
 def test_work_placeholder_follows_the_job_wherever_it_runs():
-    """{{work}} is the job's work directory: /work in a container, the job directory in a
+    """{{ work }} is the job's work directory: /work in a container, the job directory in a
     host shell or over SSH. It renders as a reference every runtime sets."""
     spec = parse_spec("""
 id: work-demo
 name: Work demo
 args:
   - name: target
-command: nmap -oX {{work}}/scan.xml {{ target }} && cp {{ work }}/scan.xml {{work}}/artifacts/
+command: nmap -oX {{ work }}/scan.xml {{ target }} && cp {{work}}/scan.xml {{ work }}/artifacts/  # {{work}} works too
 outputs:
   - name: hosts
     parser: nmap.hosts
-    source: "{{work}}/scan.xml"
+    source: "{{ work }}/scan.xml"
   - name: raw
     source: /work/other.txt
+  - name: compact
+    source: "{{work}}/third.txt"
 """)
     rendered = render_command(spec, {"target": "10.0.0.1"})
     assert rendered == 'nmap -oX "${CASTOR_WORK}"/scan.xml 10.0.0.1 && cp "${CASTOR_WORK}"/scan.xml "${CASTOR_WORK}"/artifacts/'
-    assert [o.source for o in spec.outputs] == ["/work/scan.xml", "/work/other.txt"]  # one job-relative form
+    assert [o.source for o in spec.outputs] == ["/work/scan.xml", "/work/other.txt", "/work/third.txt"]  # one job-relative form
 
     with pytest.raises(ValueError, match="work is reserved"):
         parse_spec("id: x\nname: x\nargs:\n  - name: work\ncommand: echo {{ work }}\n")
     with pytest.raises(ValueError, match="can only start"):
-        parse_spec('id: x\nname: x\ncommand: echo\noutputs:\n  - name: o\n    source: "out/{{work}}.txt"\n')
-    assert not any("/work/" in p.read_text() for p in COMMANDS_DIR.glob("*.yaml"))  # the built-ins use {{work}}
+        parse_spec('id: x\nname: x\ncommand: echo\noutputs:\n  - name: o\n    source: "out/{{ work }}.txt"\n')
+    assert not any("/work/" in p.read_text() for p in COMMANDS_DIR.glob("*.yaml"))  # the built-ins use {{ work }}
 
 
 def test_display_line_shows_where_work_is():

@@ -22,13 +22,13 @@ command: |
   status=$?
   cat nxc.txt
   # "host share permissions" for every share the account can read or write.
-  awk '$1=="SMB" {for (i=6; i<=NF; i++) if ($i ~ /^(READ|WRITE)(,(READ|WRITE))?$/) {print $2, $5, $i; break}}' nxc.txt > {{work}}/shares.txt
+  awk '$1=="SMB" {for (i=6; i<=NF; i++) if ($i ~ /^(READ|WRITE)(,(READ|WRITE))?$/) {print $2, $5, $i; break}}' nxc.txt > {{ work }}/shares.txt
   exit $status
 outputs:
   - name: accessible
     type: list<string>
     parser: lines
-    source: "{{work}}/shares.txt"
+    source: "{{ work }}/shares.txt"
   - name: smb_hosts
     type: list<smb_host>
     parser: netexec.smb

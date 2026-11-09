@@ -20,9 +20,9 @@ args:
     description: Hosts or ranges to skip (pick an exclusion list)
     regex: '^[0-9a-zA-Z./:_-]+$'
     flag: --exclude
-command: nmap -sn -oX {{work}}/ping-sweep.xml {{ targets }} {{ exclude }}
+command: nmap -sn -oX {{ work }}/ping-sweep.xml {{ targets }} {{ exclude }}
 outputs:
   - name: hosts
     type: list<host>
     parser: nmap.hosts
-    source: "{{work}}/ping-sweep.xml"
+    source: "{{ work }}/ping-sweep.xml"

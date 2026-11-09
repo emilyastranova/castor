@@ -194,7 +194,7 @@ def test_run_card_over_mcp_chooses_the_agents(client, auth):
 
 
 def test_container_jobs_get_their_work_directory(client, auth):
-    """{{work}} renders as "${CASTOR_WORK}": the server sets it to /work for a container job
+    """{{ work }} renders as "${CASTOR_WORK}": the server sets it to /work for a container job
     (so any agent passes it in), and leaves it to the agent for a host job."""
     tag = f"work-{uuid.uuid4().hex[:5]}"
     ws = client.websocket_connect("/ws/agent")

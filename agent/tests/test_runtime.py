@@ -141,7 +141,7 @@ def test_token_is_preferred_over_the_secret():
 
 
 def test_work_directory_reference_reaches_the_job(tmp_path):
-    """{{work}} renders as "${CASTOR_WORK}": a container gets it by name from the job's env
+    """{{ work }} renders as "${CASTOR_WORK}": a container gets it by name from the job's env
     (/work, set by the server); a host job gets its own directory."""
     import asyncio
 

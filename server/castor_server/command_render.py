@@ -146,7 +146,7 @@ def render_command(spec: CommandSpec, values: dict[str, Any]) -> str:
     """Return the command line with every placeholder replaced by its quoted value."""
     resolved = resolve_args(spec, values)
     by_name = {a.name: a for a in spec.args}
-    # {{work}} first: it's no argument, and it stays a reference the runtime fills in.
+    # {{ work }} first: it's no argument, and it stays a reference the runtime fills in.
     rendered = WORK_PLACEHOLDER.sub(lambda _: WORK_REF, spec.command)
     rendered = PLACEHOLDER.sub(lambda m: _shell_words(by_name[m.group(1)], resolved[m.group(1)]), rendered)
     # Variable fields become references to environment variables the agent sets at run

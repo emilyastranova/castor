@@ -15,9 +15,9 @@ args:
     type: boolean
     description: Use every source (slower, finds more)
     flag: -all
-command: subfinder -d {{ domain }} -silent {{ all_sources }} -o {{work}}/subdomains.txt
+command: subfinder -d {{ domain }} -silent {{ all_sources }} -o {{ work }}/subdomains.txt
 outputs:
   - name: subdomains
     type: list<string>
     parser: lines
-    source: "{{work}}/subdomains.txt"
+    source: "{{ work }}/subdomains.txt"

@@ -9,10 +9,10 @@ Later in Phase 2 these become playbook blocks, with `outputs` wired into the nex
 Every argument value is inserted **shell-quoted**, so a value is always a single word: a
 target like `10.0.0.0/24; id` is passed to the tool literally, never run. List arguments are
 inserted as one word per item, or as one joined word when `separator` is set (e.g. `","`).
-Each job runs in its own work directory. Write files there as `{{work}}/name`: it is `/work` in
+Each job runs in its own work directory. Write files there as `{{ work }}/name`: it is `/work` in
 a container and the job's own directory in a host shell or on an SSH host (it renders as
 `"${CASTOR_WORK}"`, which every runtime sets), so never write a literal `/work`. Files listed as
-output `source`s and anything under `{{work}}/artifacts/` are uploaded back to the card when the
+output `source`s and anything under `{{ work }}/artifacts/` are uploaded back to the card when the
 job finishes. `work` can't be an argument name.
 
 ```yaml
@@ -34,12 +34,12 @@ args:
     example: 192.168.0.0/24
     regex: '^[0-9a-zA-Z./,:-]+$' # optional validation (full match)
     # separator: ","               # list args only: join items into one word
-command: nmap -sn -oX {{work}}/ping-sweep.xml {{ targets }}   # placeholders are filled from args
+command: nmap -sn -oX {{ work }}/ping-sweep.xml {{ targets }}   # placeholders are filled from args
 outputs:                          # files collected from the work directory after the job
   - name: hosts
     parser: nmap.hosts            # turns the file into a typed value (see below)
     type: list<host>              # optional; defaults to the parser's type
-    source: "{{work}}/ping-sweep.xml"  # path or glob in the work directory (quote it: YAML); omit for stdout
+    source: "{{ work }}/ping-sweep.xml"  # path or glob in the work directory (quote it: YAML); omit for stdout
     options:                      # optional parser options
       include_down: false
 ```

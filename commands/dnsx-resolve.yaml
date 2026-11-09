@@ -11,20 +11,20 @@ args:
     required: true
     example: www.example.com,mail.example.com
 command: |
-  printf '%s\n' {{ names }} | tr ',' '\n' | sed '/^$/d' > {{work}}/names.txt
-  dnsx -l {{work}}/names.txt -silent -nc -a -resp -o {{work}}/resolved.txt
+  printf '%s\n' {{ names }} | tr ',' '\n' | sed '/^$/d' > {{ work }}/names.txt
+  dnsx -l {{ work }}/names.txt -silent -nc -a -resp -o {{ work }}/resolved.txt
 outputs:
   - name: resolved
     type: list<string>
     parser: regex
-    source: "{{work}}/resolved.txt"
+    source: "{{ work }}/resolved.txt"
     options:
       pattern: '^(\S+) \[A\]'
       group: 1
   - name: ips
     type: list<string>
     parser: regex
-    source: "{{work}}/resolved.txt"
+    source: "{{ work }}/resolved.txt"
     options:
       pattern: '\[([0-9]{1,3}(?:\.[0-9]{1,3}){3})\]'
       group: 1

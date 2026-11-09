@@ -276,7 +276,7 @@ argv: with an image it runs
 (the entrypoint is overridden because tool images such as `instrumentisto/nmap` set it to the
 tool itself; images therefore need `/bin/sh`),
 otherwise `/bin/sh -c cmd` on the host in the job dir (if `--allow-host`). Commands write there as
-`{{work}}` (rendered `"${CASTOR_WORK}"`: `/work` in a container, set by the dispatcher; the job dir on
+`{{ work }}` (rendered `"${CASTOR_WORK}"`: `/work` in a container, set by the dispatcher; the job dir on
 a host, set by the agent or SSH host); never hard-code `/work` in a command. After the job,
 `artifacts.py` collects declared outputs and `/work/artifacts/**` (skipping symlinks and
 anything outside the job dir) and uploads them with stdlib `urllib` before `job.finished`. Processes start in their own

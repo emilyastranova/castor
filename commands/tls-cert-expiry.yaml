@@ -19,10 +19,10 @@ args:
     default: "443,465,636,993,995,3389,8443"
     regex: '^[0-9,-]+$'
 command: |
-  nmap -Pn -p {{ ports }} --open --script ssl-cert -oN {{work}}/ssl-cert.txt {{ targets }} > /dev/null
-  awk '/^Nmap scan report for /{h=$NF; gsub(/[()]/,"",h)} /^[0-9]+\/tcp/{split($1,p,"/"); port=p[1]} /Subject: /{sub(/.*Subject: /,""); subj=$0} /Not valid after:/{sub(/.*Not valid after: */,""); print h ":" port " expires " $0 " (" subj ")"}' {{work}}/ssl-cert.txt | sort -k3 | tee {{work}}/cert-expiry.txt
+  nmap -Pn -p {{ ports }} --open --script ssl-cert -oN {{ work }}/ssl-cert.txt {{ targets }} > /dev/null
+  awk '/^Nmap scan report for /{h=$NF; gsub(/[()]/,"",h)} /^[0-9]+\/tcp/{split($1,p,"/"); port=p[1]} /Subject: /{sub(/.*Subject: /,""); subj=$0} /Not valid after:/{sub(/.*Not valid after: */,""); print h ":" port " expires " $0 " (" subj ")"}' {{ work }}/ssl-cert.txt | sort -k3 | tee {{ work }}/cert-expiry.txt
 outputs:
   - name: certificates
     type: list<string>
     parser: lines
-    source: "{{work}}/cert-expiry.txt"
+    source: "{{ work }}/cert-expiry.txt"

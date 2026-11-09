@@ -578,7 +578,7 @@ export interface OutputSpec {
 	name: string;
 	type: string | null;
 	parser: string | null;
-	/** Path or glob in the job's work directory, as /work/… ({{work}}/… in YAML); null: stdout. */
+	/** Path or glob in the job's work directory, as /work/… ({{ work }}/… in YAML); null: stdout. */
 	source: string | null;
 	/** Parser options (see the Parsers page). */
 	options?: Record<string, unknown>;
