@@ -36,24 +36,33 @@ def tool_ready(conn: AgentConnection, tool: ToolSpec | None) -> bool:
     return way is None or way["kind"] != "build" or way["ref"] in (conn.capabilities.get("tools") or [])
 
 
-def agent_matches(conn: AgentConnection, job: m.Job, selector: dict[str, Any], tool: ToolSpec | None = None) -> bool:
-    if conn.free_slots <= 0:
-        return False
+def agent_can_run(conn: AgentConnection, job: m.Job, tool: ToolSpec | None = None) -> bool:
+    """Whether the agent could run the job at all (runtime, tool, terminal), busy or not."""
     if getattr(job, "tty", False) and not conn.capabilities.get("tty"):
         return False  # an agent from before interactive jobs would run it without a terminal
     if tool is not None:
-        if tool_way(conn, tool) is None:
-            return False
-    elif job.image:
-        if not (conn.runtimes & {"podman", "docker"}):
-            return False
-    elif "host" not in conn.runtimes and not (conn.runtimes & {"podman", "docker"}):
-        return False
+        return tool_way(conn, tool) is not None
+    if job.image:
+        return bool(conn.runtimes & {"podman", "docker"})
+    return "host" in conn.runtimes or bool(conn.runtimes & {"podman", "docker"})
+
+
+def selector_matches(conn: AgentConnection, selector: dict[str, Any]) -> bool:
+    """{agent_id}, or {tags}: the agent has every tag (`all` decides how many agents run it,
+    not which)."""
     wanted_agent = selector.get("agent_id")
     if wanted_agent and str(conn.agent_id) != str(wanted_agent):
         return False
     wanted_tags = set(selector.get("tags") or [])
     return not wanted_tags or wanted_tags.issubset(set(conn.tags))
+
+
+def agent_matches(conn: AgentConnection, job: m.Job, selector: dict[str, Any], tool: ToolSpec | None = None) -> bool:
+    if conn.free_slots <= 0:
+        return False
+    if getattr(job, "target_agent_id", None) is not None:  # one of a batch: that agent only
+        return conn.agent_id == job.target_agent_id and agent_can_run(conn, job, tool)
+    return agent_can_run(conn, job, tool) and selector_matches(conn, selector)
 
 
 class Dispatcher:

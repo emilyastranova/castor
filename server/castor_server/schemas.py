@@ -299,6 +299,9 @@ class JobOut(ORM):
     id: uuid.UUID
     task_id: uuid.UUID
     agent_id: uuid.UUID | None
+    # One of a run on several agents at once: the batch, and the agent it must go to.
+    batch_id: uuid.UUID | None = None
+    target_agent_id: uuid.UUID | None = None
     command: str
     image: str | None
     tool: str | None = None
@@ -318,6 +321,18 @@ class JobOut(ORM):
     tty_size: dict[str, Any] | None = None
     waiting_input: str | None = None
     input_by: uuid.UUID | None = None
+
+
+class BatchSummary(BaseModel):
+    """A card's latest run when it ran on several agents at once (one job each)."""
+
+    total: int
+    active: int  # queued, dispatched or running
+    succeeded: int
+    failed: int  # failed, lost or cancelled
+    # running while any job is; then failed if any job didn't succeed, else succeeded
+    status: str
+    job_ids: list[uuid.UUID]
 
 
 class RunSummary(BaseModel):
@@ -368,6 +383,7 @@ class TaskOut(ORM):
     alerts: dict[str, Any] | None = None
     tty: bool = False
     latest_job: JobOut | None = None
+    batch: BatchSummary | None = None
     # Set on a playbook run's card: where the run is.
     run: RunSummary | None = None
     comment_count: int = 0
@@ -595,6 +611,9 @@ class PlaybookRunIn(BaseModel):
     project_id: uuid.UUID
     inputs: dict[str, Any] = Field(default_factory=dict)
     alerts: AlertRules | None = None
+    # Where its steps run: {agent_id}, {tags} (one agent with them), or {tags, all: true}
+    # (one run per connected agent with them).
+    agent_selector: dict[str, Any] = Field(default_factory=dict)
 
 
 class PlaybookRunOut(ORM):
@@ -616,6 +635,9 @@ class PlaybookRunOut(ORM):
     # The run's card on the board.
     card_id: uuid.UUID | None = None
     tasks: list[TaskOut] = Field(default_factory=list)
+    agent_selector: dict[str, Any] = Field(default_factory=dict)
+    # Started together with it on other agents (agent_selector all: one run per agent).
+    sibling_run_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
 

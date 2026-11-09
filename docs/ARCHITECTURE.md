@@ -42,7 +42,9 @@ User *──* Project (project_members; admins see every project)
   On success, if the project setting `auto_advance` is on and a `review` column exists,
   the task is moved there.
 * **Task.kind** is `manual` or `command`. Command tasks carry `command`, optional
-  `image` (container image), and an `agent_selector` (`{agent_id}` or `{tags: [...]}`).
+  `image` (container image), and an `agent_selector`: `{}` (any agent), `{agent_id}`,
+  `{tags: [...]}` (any one agent with all of them) or `{tags, all: true}` (every connected
+  agent with them; see Dispatcher), normalised by `services.check_selector`.
 * **Job.status** flows `queued → dispatched → running → succeeded | failed | cancelled | lost`.
   `lost` means the agent disconnected mid-run.
 * Logs are stored as ordered `JobLogChunk` rows (`stdout`/`stderr`/`system`) so the UI can
@@ -559,6 +561,19 @@ the required runtime (a job with an `image` needs a container runtime; a job wit
 needs an agent that has a way to provide it; an interactive job needs an agent that
 advertises `tty`). It sends `job.run`
 and marks the job `dispatched`. Jobs with no eligible agent stay `queued`.
+
+**Every agent with some tags.** A card with `agent_selector: {tags, all: true}` gets, from
+`enqueue_job`, one job per connected agent that has the tags and can run it
+(`broadcast_targets`, using `dispatcher.agent_can_run`). Its jobs share a `batch_id`, and each
+has a `target_agent_id` the dispatcher holds it to. With one such agent (or none connected) it
+is an ordinary job that any agent with the tags may take. `TaskOut.batch` sums the latest
+batch up (running while any job is; then failed if any didn't succeed). The card moves to
+Review once every job succeeded, checked in `gateway._advance_batch` after each job's result
+is committed, so the last of several jobs finishing at the same time sees the others.
+Playbook step cards never fan out. A run takes an `agent_selector` (stored on
+`playbook_runs.agent_selector` and given to every step and item card), and `{tags, all}`
+there starts one run per connected agent, pinned to it with `{agent_id}` and titled
+"<playbook> · <agent>". The response is the first run, with the others in `sibling_run_ids`.
 
 ## Dashboard
 

@@ -89,6 +89,9 @@ export interface Job {
 	id: UUID;
 	task_id: UUID;
 	agent_id: UUID | null;
+	/** Shared by the jobs of one run on several agents; each goes to its target agent. */
+	batch_id?: UUID | null;
+	target_agent_id?: UUID | null;
 	command: string;
 	image: string | null;
 	tool?: string | null;
@@ -566,6 +569,9 @@ export interface PlaybookRun {
 	/** The run's card on the board. */
 	card_id: UUID | null;
 	tasks: Task[];
+	agent_selector?: AgentSelector;
+	/** Started with it on the other agents (run on every agent with some tags). */
+	sibling_run_ids?: UUID[];
 }
 
 export interface OutputSpec {
@@ -809,7 +815,9 @@ export interface Task {
 	image: string | null;
 	tool?: string | null;
 	container_flags?: string[];
-	agent_selector: { agent_id?: UUID; tags?: string[] };
+	agent_selector: AgentSelector;
+	/** The latest run went to several agents at once (one job each). */
+	batch?: BatchSummary | null;
 	run_on_move: boolean;
 	timeout_s: number | null;
 	priority: number;
@@ -922,6 +930,23 @@ export interface ApiScope {
 	group: string;
 	/** The least role that can use it. */
 	role: UserRole;
+}
+
+/** Where a card or a playbook run's steps go: any agent ({}), one agent, any one agent with
+ *  the tags, or (all) every connected agent with them. */
+export interface AgentSelector {
+	agent_id?: UUID;
+	tags?: string[];
+	all?: boolean;
+}
+
+export interface BatchSummary {
+	total: number;
+	active: number;
+	succeeded: number;
+	failed: number;
+	status: 'running' | 'succeeded' | 'failed';
+	job_ids: UUID[];
 }
 
 export interface Agent {
@@ -1188,8 +1213,8 @@ export function api(fetchFn: Fetch = fetch) {
 			update: (id: string, yaml: string) =>
 				request<PlaybookDefinition>(fetchFn, 'PUT', `/playbooks/${id}`, { yaml }),
 			remove: (id: string) => del(`/playbooks/${id}`),
-			run: (id: string, projectId: UUID, inputs: Record<string, unknown> = {}, alerts: AlertRules | null = null) =>
-				post<PlaybookRun>(`/playbooks/${id}/run`, { project_id: projectId, inputs, ...(alerts ? { alerts } : {}) }),
+			run: (id: string, projectId: UUID, inputs: Record<string, unknown> = {}, alerts: AlertRules | null = null, agentSelector: AgentSelector = {}) =>
+				post<PlaybookRun>(`/playbooks/${id}/run`, { project_id: projectId, inputs, agent_selector: agentSelector, ...(alerts ? { alerts } : {}) }),
 			validate: (yaml: string) => post<PlaybookCheck>('/playbooks/validate', { yaml }),
 			/** The editor's spec as YAML, validated (YAML is returned even when invalid). */
 			toYaml: (spec: PlaybookSpec) => post<PlaybookCheck & { yaml: string }>('/playbooks/to-yaml', { spec })

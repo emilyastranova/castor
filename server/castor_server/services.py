@@ -35,6 +35,7 @@ from .playbook_spec import (
 )
 from .playbook_transforms import TransformError, as_items, run_transform
 from .schemas import (
+    BatchSummary,
     ColumnOut,
     JobOut,
     ParserProposalOut,
@@ -159,16 +160,40 @@ async def tasks_out(db: AsyncSession, tasks: list[m.Task]) -> list[TaskOut]:
     comments, attachments = await counts_for(db, ids)
     # Only cards that don't belong to a step can be a run's card.
     runs = await run_summaries(db, [t.id for t in tasks if t.playbook_step_id is None and t.kind == m.TaskKind.manual])
+    batches = await batch_summaries(db, [j.batch_id for j in latest.values() if j.batch_id])
     result = []
     for task in tasks:
         out = TaskOut.model_validate(task)
         job = latest.get(task.id)
         out.latest_job = JobOut.model_validate(job) if job else None
+        out.batch = batches.get(job.batch_id) if job and job.batch_id else None
         out.comment_count = comments.get(task.id, 0)
         out.attachment_count = attachments.get(task.id, 0)
         out.run = runs.get(task.id)
         result.append(out)
     return result
+
+
+async def batch_summaries(db: AsyncSession, batch_ids: list[uuid.UUID]) -> dict[uuid.UUID, BatchSummary]:
+    if not batch_ids:
+        return {}
+    rows = (await db.execute(
+        select(m.Job.batch_id, m.Job.id, m.Job.status).where(m.Job.batch_id.in_(set(batch_ids))).order_by(m.Job.queued_at)
+    )).all()
+    grouped: dict[uuid.UUID, list[tuple[uuid.UUID, m.JobStatus]]] = {}
+    for batch_id, job_id, status in rows:
+        grouped.setdefault(batch_id, []).append((job_id, status))
+    out = {}
+    for batch_id, jobs in grouped.items():
+        statuses = [s for _, s in jobs]
+        active = sum(not s.is_terminal for s in statuses)
+        succeeded = sum(s == m.JobStatus.succeeded for s in statuses)
+        failed = len(statuses) - active - succeeded
+        out[batch_id] = BatchSummary(
+            total=len(statuses), active=active, succeeded=succeeded, failed=failed,
+            status="running" if active else "failed" if failed else "succeeded", job_ids=[j for j, _ in jobs],
+        )
+    return out
 
 
 async def run_summaries(db: AsyncSession, card_ids: list[uuid.UUID]) -> dict[uuid.UUID, RunSummary]:
@@ -271,38 +296,99 @@ async def _spec_wants_tty(db: AsyncSession, task: m.Task) -> bool:
 async def enqueue_job(
     db: AsyncSession, task: m.Task, user: m.User | None, *, reason: str = "manual"
 ) -> m.Job:
-    """Create a queued Job for a command task. Caller must commit and then pump the dispatcher."""
+    """Create a queued Job for a command task. Caller must commit and then pump the dispatcher.
+
+    A card set to run on every agent with some tags (`agent_selector: {tags, all: true}`) gets
+    one job per connected agent that has them and can run it, as one batch; the first is
+    returned. With none connected it queues one job for the first such agent to come."""
     from .command_render import ArgumentError
 
     try:
         await refresh_list_refs(db, task)
     except ArgumentError:
         pass  # a list that no longer exists: the job runs with the last rendered command
-    job = m.Job(
-        task_id=task.id,
-        command=task.command,
-        image=task.image,
-        tool=task.tool,
-        container_flags=list(task.container_flags or []),
-        timeout_s=task.timeout_s,
-        env={},
-        var_bindings=dict(task.var_bindings or {}),
-        created_by=user.id if user else None,
-        tty=task.tty or await _spec_wants_tty(db, task),
-    )
-    db.add(job)
+
+    def new_job(**extra: Any) -> m.Job:
+        return m.Job(
+            task_id=task.id,
+            command=task.command,
+            image=task.image,
+            tool=task.tool,
+            container_flags=list(task.container_flags or []),
+            timeout_s=task.timeout_s,
+            env={},
+            var_bindings=dict(task.var_bindings or {}),
+            created_by=user.id if user else None,
+            tty=tty,
+            **extra,
+        )
+
+    tty = task.tty or await _spec_wants_tty(db, task)
+    targets = await broadcast_targets(db, task, new_job()) if is_broadcast(task) else []
+    if len(targets) > 1:
+        batch = uuid.uuid4()
+        jobs = [new_job(batch_id=batch, target_agent_id=conn.agent_id) for conn in targets]
+        names = ", ".join(c.name for c in targets)
+        detail = f"on {len(jobs)} agents: {names}"
+    else:  # one agent (or none yet): an ordinary job for whichever agent with the tags is free
+        jobs = [new_job()]
+        detail = ""
+    for job in jobs:
+        db.add(job)
     await db.flush()
     await record_activity(
         db,
         type="job.queued",
-        message=f"Queued “{task.title}” ({reason})",
+        message=f"Queued “{task.title}” ({reason})" + (f" {detail}" if detail else ""),
         project_id=task.project_id,
         task_id=task.id,
-        payload={"job_id": str(job.id)},
+        payload={"job_id": str(jobs[0].id), **({"job_ids": [str(j.id) for j in jobs]} if len(jobs) > 1 else {})},
         **actor_of(user),
     )
-    publish_job(job, task.project_id)
-    return job
+    for job in jobs:
+        publish_job(job, task.project_id)
+    return jobs[0]
+
+
+class SelectorError(ValueError):
+    pass
+
+
+async def check_selector(db: AsyncSession, selector: dict[str, Any] | None) -> dict[str, Any]:
+    """An agent selector as stored: {} (any agent), {agent_id} (one that exists), {tags} (any
+    one agent with all of them) or {tags, all: true} (every connected agent with them)."""
+    selector = selector or {}
+    if selector.get("agent_id"):
+        try:
+            agent_id = uuid.UUID(str(selector["agent_id"]))
+        except ValueError:
+            agent_id = None
+        if agent_id is None or await db.get(m.Agent, agent_id) is None:
+            raise SelectorError("agent_selector: no such agent")
+        return {"agent_id": str(agent_id)}
+    tags = sorted({str(t).strip() for t in selector.get("tags") or [] if str(t).strip()})
+    if selector.get("all") and not tags:
+        raise SelectorError("agent_selector: running on every agent needs tags")
+    return {"tags": tags, **({"all": True} if selector.get("all") else {})} if tags else {}
+
+
+def is_broadcast(task: m.Task) -> bool:
+    """Set to run on every agent with its tags (not for playbook step cards: a run picks
+    one agent per run instead)."""
+    selector = task.agent_selector or {}
+    return bool(selector.get("all") and selector.get("tags")) and task.playbook_step_id is None
+
+
+async def broadcast_targets(db: AsyncSession, task: m.Task, job: m.Job) -> list:
+    """The connected agents a broadcast card runs on: every one with the tags that can run it."""
+    from .orchestrator.dispatcher import agent_can_run, selector_matches
+    from .orchestrator.gateway import gateway
+    from .tool_library import tools_by_id
+
+    tool = (await tools_by_id(db)).get(task.tool) if task.tool else None
+    selector = {"tags": (task.agent_selector or {}).get("tags") or []}
+    found = [c for c in gateway.connections.values() if selector_matches(c, selector) and agent_can_run(c, job, tool)]
+    return sorted(found, key=lambda c: c.name)
 
 
 async def move_task(
@@ -554,6 +640,7 @@ async def playbook_run_out(db: AsyncSession, run: m.PlaybookRun) -> PlaybookRunO
         created_at=run.created_at,
         card_id=run.card_id,
         tasks=tasks_o,
+        agent_selector=run.agent_selector or {},
     )
 
 
@@ -575,10 +662,15 @@ async def start_playbook_run(
     project_id: uuid.UUID,
     inputs: dict[str, Any],
     user: m.User | None,
+    agent_selector: dict[str, Any] | None = None,
+    title: str | None = None,
 ) -> tuple[m.PlaybookRun, list[m.Job]]:
     """Instantiate a playbook: one card per command step (transform steps have no card),
-    then run every step whose dependencies are already met. Caller commits."""
+    then run every step whose dependencies are already met. Caller commits.
+    `agent_selector` ({agent_id} or {tags}) is where every step runs."""
+    selector = {k: v for k, v in (agent_selector or {}).items() if k in ("agent_id", "tags") and v}
     run = m.PlaybookRun(
+        agent_selector=selector,
         playbook_id=spec.id,
         playbook_name=spec.name,
         project_id=project_id,
@@ -611,7 +703,7 @@ async def start_playbook_run(
         project_id=project_id,
         column_id=run_col.id,
         position=await next_position(db, run_col.id),
-        title=spec.name,
+        title=title or spec.name,
         description=spec.description,
         kind=m.TaskKind.manual,
         created_by=user.id if user else None,
@@ -637,6 +729,7 @@ async def start_playbook_run(
             depends_on=list(step.depends_on),
             command_ref=step.command_ref,
             created_by=user.id if user else None,
+            agent_selector=dict(selector),
         )
         db.add(task)
         await db.flush()  # next_position must see this card
@@ -1033,6 +1126,7 @@ async def _advance(
                 depends_on=list(step.depends_on),
                 command_ref=step.command_ref,
                 created_by=run.created_by,
+                agent_selector=dict(run.agent_selector or {}),
             )
             db.add(card)
             await db.flush()

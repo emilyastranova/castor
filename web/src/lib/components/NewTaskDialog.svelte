@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { selectorFrom, selectorOptions } from '$lib/agentSelector';
 	import type { Agent, ArgErrors, Column, CommandDefinition, Task, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, TextField, Select, Chip, Switch } from '$lib/m3';
@@ -96,7 +97,7 @@
 				command_args: fromLibrary ? commandArgs : {},
 				var_bindings: fromLibrary ? varBindings : {},
 				column_id: columnId,
-				agent_selector: agentId ? { agent_id: agentId } : {},
+				agent_selector: selectorFrom(agentId),
 				tags: tagsText.split(',').map((t) => t.trim()).filter(Boolean),
 				priority: Number(priority),
 				run_on_move: runOnMove
@@ -130,15 +131,7 @@
 				keywords: [c.id, ...c.tags, c.spec.tool ?? '', c.spec.image ?? ''].join(' ')
 			}))
 	);
-	let agentOptions = $derived([
-		{ value: '', label: 'Any available agent' },
-		...agents.map((a) => ({
-			value: a.id,
-			label: `${a.name}${a.connected ? '' : ' (offline)'}`,
-			description: [a.hostname, a.os, a.tags.length ? a.tags.join(', ') : ''].filter(Boolean).join(' · '),
-			keywords: a.tags.join(' ')
-		}))
-	]);
+	let agentOptions = $derived(selectorOptions(agents));
 </script>
 
 <Dialog bind:open title="New card" size="md">

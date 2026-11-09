@@ -1,5 +1,6 @@
 <script lang="ts">
-	import type { AlertRules, PlaybookInputSpec, PlaybookSpec, PlaybookRun, Project, VariableKind, VariableSet } from '$lib/api';
+	import type { Agent, AlertRules, PlaybookInputSpec, PlaybookSpec, PlaybookRun, Project, VariableKind, VariableSet } from '$lib/api';
+	import { describeSelector, selectorFrom, selectorOptions } from '$lib/agentSelector';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, Select, Switch, TextField } from '$lib/m3';
 	import { snackbar } from '$lib/snackbar.svelte';
@@ -55,6 +56,30 @@
 	});
 
 	let selectedProjectId = $state<string>('');
+	// Where its steps run: any agent, one agent, one agent with a tag, or every agent with it
+	// (one run each).
+	let agents = $state<Agent[]>([]);
+	let agentChoice = $state('');
+	$effect(() => {
+		if (!open) return;
+		api()
+			.agents.list()
+			.then((a) => (agents = a))
+			.catch(() => (agents = []));
+	});
+	let agentOptions = $derived(selectorOptions(agents));
+	/** With "every agent tagged …": the connected agents it would start a run on. */
+	let fanOut = $derived.by(() => {
+		const s = selectorFrom(agentChoice);
+		return s.all ? agents.filter((a) => a.connected && s.tags!.every((t) => a.tags.includes(t))) : null;
+	});
+	let agentHelp = $derived(
+		!fanOut
+			? `Every step of the run goes to ${describeSelector(selectorFrom(agentChoice), agents)}.`
+			: fanOut.length
+				? `One run on each of ${fanOut.map((a) => a.name).join(', ')}; each run's steps stay on its agent.`
+				: 'No agent with that tag is connected now.'
+	);
 	let inputValues = $state<Record<string, unknown>>({});
 	let running = $state(false);
 	let alertRules = $state<AlertRules>({ channels: [], on: 'failure', long_minutes: null, decisions: true });
@@ -95,8 +120,9 @@
 		running = true;
 		error = null;
 		try {
-			const run = await api().playbooks.run(spec.id, selectedProjectId, inputValues, alertRules.channels.length ? alertRules : null);
-			snackbar.show(`Started playbook “${spec.name}”`);
+			const run = await api().playbooks.run(spec.id, selectedProjectId, inputValues, alertRules.channels.length ? alertRules : null, selectorFrom(agentChoice));
+			const count = 1 + (run.sibling_run_ids?.length ?? 0);
+			snackbar.show(count > 1 ? `Started “${spec.name}” on ${count} agents` : `Started playbook “${spec.name}”`);
 			open = false;
 			onRun?.(run);
 		} catch (err) {
@@ -136,6 +162,13 @@
 					Tasks and cards created by this playbook will run on this project board.
 				</p>
 			</div>
+
+			<Select
+				label="Agent"
+				options={agentOptions}
+				bind:value={agentChoice}
+				supporting={agentHelp}
+			/>
 
 			{#if spec.inputs && spec.inputs.length > 0}
 				<div class="flex flex-col gap-3 border-t border-outline-variant/60 pt-3">
@@ -222,7 +255,7 @@
 			icon="play_arrow"
 			onclick={handleSubmit}
 			loading={running}
-			disabled={!selectedProjectId || running}
+			disabled={!selectedProjectId || running || fanOut?.length === 0}
 		>
 			Launch Playbook
 		</Button>

@@ -25,8 +25,10 @@ from ..schemas import (
     TaskPatch,
 )
 from ..services import (
+    SelectorError,
     active_job_for,
     actor_of,
+    check_selector,
     column_with_role,
     duplicate_task,
     enqueue_job,
@@ -97,6 +99,7 @@ async def create_task(project_id: str, body: TaskIn, db: DB, user: CurrentUser):
             raise HTTPException(409, "Project has no columns")
     data = body.model_dump(exclude={"column_id", "command_ref", "command_args", "var_bindings"})
     data["assignees"] = await people.check_assignees(db, project.id, body.assignees)
+    data["agent_selector"] = await _selector(db, body.agent_selector)
     task = m.Task(
         project_id=project.id,
         column_id=column.id,
@@ -143,6 +146,8 @@ async def update_task(task_id: str, body: TaskPatch, db: DB, user: CurrentUser):
     task = await _task_or_404(db, user, task_id, write=True)
     changes = body.model_dump(exclude_unset=True)
     bindings = changes.pop("var_bindings", None)
+    if "agent_selector" in changes:
+        changes["agent_selector"] = await _selector(db, changes["agent_selector"])
     if "alerts" in changes:
         changes.pop("alerts")
         if body.alerts and body.alerts.people:
@@ -413,3 +418,10 @@ async def delete_comment(task_id: str, comment_id: str, db: DB, user: CurrentUse
     await db.commit()
     bus.publish("comment.deleted", task.project_id, {"id": comment.id, "task_id": task.id})
     await publish_task(db, task)
+
+
+async def _selector(db, selector: dict | None) -> dict:
+    try:
+        return await check_selector(db, selector)
+    except SelectorError as exc:
+        raise HTTPException(422, str(exc)) from exc

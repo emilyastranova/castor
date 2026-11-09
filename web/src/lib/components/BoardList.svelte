@@ -114,7 +114,7 @@
 			<Icon name={run.icon} size={14} class={t.run?.status === 'running' && !t.run.attention ? 'motion-safe:animate-spin' : ''} />{run.label}
 		</span>
 	{:else if t.latest_job}
-		<StatusChip job={t.latest_job} />
+		<StatusChip job={t.latest_job} batch={t.batch} />
 	{:else if t.kind === 'command'}
 		<span class="label-small text-on-surface-variant">Not run yet</span>
 	{/if}

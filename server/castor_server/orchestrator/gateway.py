@@ -498,6 +498,9 @@ class AgentGateway:
                 await self._maybe_advance(db, task, job)
                 await alerts.job_finished(db, task, job, conn.name)
             await db.commit()
+            if task is not None and job.batch_id is not None and job.status == m.JobStatus.succeeded:
+                await self._advance_batch(job.batch_id, task.id)
+                await db.refresh(task)  # it may have moved
             if task is not None:
                 publish_job(job, task.project_id)
                 await publish_task(db, task)
@@ -516,9 +519,25 @@ class AgentGateway:
                     dispatcher.wake()
         self._notify()
 
-    async def _maybe_advance(self, db, task: m.Task, job: m.Job) -> None:
-        """Auto-move the card to the Review column on success if the project asks for it."""
-        if job.status != m.JobStatus.succeeded:
+    async def _advance_batch(self, batch_id: uuid.UUID, task_id: uuid.UUID) -> None:
+        """A batch on several agents moves its card on once every job of it has succeeded.
+        Checked after each job's result is committed, in a session of its own, so the last
+        job to finish sees all the others (they finish at the same time on other agents)."""
+        async with SessionLocal() as db:
+            statuses = (await db.execute(select(m.Job.status).where(m.Job.batch_id == batch_id))).scalars().all()
+            if not statuses or any(s != m.JobStatus.succeeded for s in statuses):
+                return
+            task = await db.get(m.Task, task_id)
+            if task is None:
+                return
+            await self._maybe_advance(db, task, None)
+            await db.commit()
+            await publish_task(db, task)
+
+    async def _maybe_advance(self, db, task: m.Task, job: m.Job | None) -> None:
+        """Auto-move the card to the Review column on success if the project asks for it.
+        `job` None: a batch on several agents that all succeeded (_advance_batch)."""
+        if job is not None and (job.status != m.JobStatus.succeeded or job.batch_id is not None):
             return
         project = await db.get(m.Project, task.project_id)
         if project is None or not (project.settings or {}).get("auto_advance", True):

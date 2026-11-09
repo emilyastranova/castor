@@ -68,6 +68,9 @@ def _s(description: str, **extra: Any) -> dict[str, Any]:
     return {"type": "string", "description": description, **extra}
 
 
+_SELECTOR = {"type": "object", "description": 'Where it runs (agent ids and tags from list_agents): {} any agent, '
+             '{"agent_id": "..."}, {"tags": [...]} any one agent with all the tags, or {"tags": [...], "all": true} '
+             "every connected agent with them, at once."}
 _SSH_HOST = {
     "name": _s("How it's listed with the agents (letters, digits, . _ -)"),
     "host": _s("Address, hostname, or a Host alias from the SSH config"),
@@ -102,7 +105,7 @@ TOOLS: list[Tool] = [
           "command_ref": _s("Library command id (from list_commands)"),
           "command_args": {"type": "object", "description": "Arguments for command_ref"},
           "column_id": _s("Column id (from get_board)"), "tags": {"type": "array", "items": {"type": "string"}},
-          "agent_selector": {"type": "object", "description": '{"tags": [...]} or {"agent_id": "..."}'}},
+          "agent_selector": _SELECTOR},
          ("project_id", "title")),
     Tool("move_card", "Move a card to another column (top of it unless position is given). Moving a command card into the active column runs it.",
          "POST", "/api/tasks/{task_id}/move",
@@ -146,7 +149,9 @@ TOOLS: list[Tool] = [
          {"command_id": _s("Command id")}, ("command_id",)),
     Tool("list_playbooks", "The playbook library: ids, inputs and steps.", "GET", "/api/playbooks"),
     Tool("run_playbook", "Start a playbook run in a project.", "POST", "/api/playbooks/{playbook_id}/run",
-         {"playbook_id": _s("Playbook id"), "project_id": ID["project_id"], "inputs": {"type": "object"}},
+         {"playbook_id": _s("Playbook id"), "project_id": ID["project_id"], "inputs": {"type": "object"},
+          "agent_selector": {**_SELECTOR, "description": _SELECTOR["description"] + " With all, one run per agent (the "
+                             "result's sibling_run_ids are the others)."}},
          ("playbook_id", "project_id")),
     Tool("get_run", "A playbook run: status, inputs, each step's status, steps waiting for a decision.", "GET",
          "/api/playbook-runs/{run_id}", {"run_id": ID["run_id"]}, ("run_id",)),

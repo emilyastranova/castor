@@ -408,6 +408,8 @@ class PlaybookRun(Base, TimestampMixin):
     # (skipped, or failed to render). {step_id: {status, outputs, type, count, error, ...}}
     step_results: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     spec_snapshot: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    # Where its steps run ({agent_id} or {tags}); every step card gets it.
+    agent_selector: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
@@ -443,7 +445,7 @@ class Agent(Base, TimestampMixin):
     )
     last_seen_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
-    jobs: Mapped[list[Job]] = relationship(back_populates="agent")
+    jobs: Mapped[list[Job]] = relationship(back_populates="agent", foreign_keys="Job.agent_id")
 
 
 class SshHost(Base, TimestampMixin):
@@ -498,6 +500,12 @@ class Job(Base):
     # secrets decrypted) only at dispatch and never stored on the job.
     var_bindings: Mapped[dict[str, str]] = mapped_column(JSONType, default=dict)
     timeout_s: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # A card set to run on every agent with some tags gets one job per agent: they share a
+    # batch, and each must go to its own agent (target_agent_id).
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True, index=True)
+    target_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
+    )
     status: Mapped[JobStatus] = mapped_column(
         Enum(JobStatus, name="job_status", native_enum=False, length=16),
         default=JobStatus.queued,
@@ -529,7 +537,7 @@ class Job(Base):
     )
 
     task: Mapped[Task] = relationship(back_populates="jobs")
-    agent: Mapped[Agent | None] = relationship(back_populates="jobs")
+    agent: Mapped[Agent | None] = relationship(back_populates="jobs", foreign_keys="Job.agent_id")
     log_chunks: Mapped[list[JobLogChunk]] = relationship(
         back_populates="job", cascade="all, delete-orphan", order_by="JobLogChunk.seq"
     )

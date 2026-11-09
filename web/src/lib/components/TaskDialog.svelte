@@ -36,6 +36,7 @@
 	import { goto } from '$app/navigation';
 	import { canEdit as roleCanEdit } from '$lib/session';
 	import { isListRef, lists } from '$lib/lists.svelte';
+	import { describeSelector, selectorFrom, selectorOptions, selectorValue } from '$lib/agentSelector';
 
 	interface Props {
 		task: Task;
@@ -89,7 +90,7 @@
 		command = task.command;
 		image = task.image ?? '';
 		containerFlagsText = (task.container_flags ?? []).join(' ');
-		agentId = task.agent_selector.agent_id ?? '';
+		agentId = selectorValue(task.agent_selector);
 		runOnMove = task.run_on_move;
 		timeout = task.timeout_s ? String(task.timeout_s) : '';
 		priority = String(task.priority);
@@ -586,15 +587,8 @@
 		if (task.kind === 'command' && task.latest_job && matchMedia('(max-width: 639px)').matches) formOpen = false;
 	});
 	let columnMenu = $state(false);
-	let agentOptions = $derived([
-		{ value: '', label: 'Any available agent' },
-		...agents.map((a) => ({
-			value: a.id,
-			label: `${a.name}${a.connected ? '' : ' (offline)'}`,
-			description: [a.hostname, a.os, a.tags.length ? a.tags.join(', ') : ''].filter(Boolean).join(' · '),
-			keywords: a.tags.join(' ')
-		}))
-	]);
+	// A playbook step runs where its run does: one agent per run, never a batch.
+	let agentOptions = $derived(selectorOptions(agents, task.agent_selector, !task.playbook_step_id));
 	let agentName = (id: UUID | null) => agents.find((a) => a.id === id)?.name ?? '—';
 	let runFiles = $derived(attachments.filter((a) => a.job_id && a.job_id === selectedJob?.id));
 	let screenshots = $derived(attachments.filter((a) => a.content_type.startsWith('image/')));
@@ -625,7 +619,7 @@
 					aria-label="Title"
 				/>
 				<div class="mt-1 flex flex-wrap items-center gap-2 body-small text-on-surface-variant">
-					<StatusChip job={task.latest_job} />
+					<StatusChip job={task.latest_job} batch={task.batch} />
 					<span><span class="hidden sm:inline">created {relativeTime(task.created_at)} · </span>updated {relativeTime(task.updated_at)}</span>
 				</div>
 				<!-- Phones and narrow windows: where it is and who has it, in one row (the side
@@ -722,7 +716,7 @@
 					</div>
 					<dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 body-small text-on-surface-variant">
 						<dt>Runs in</dt><dd class="truncate font-mono text-on-surface">{task.tool ? `the ${task.tool} tool` : task.image || 'the agent’s shell'}{task.container_flags?.length ? ` ${task.container_flags.join(' ')}` : ''}</dd>
-						<dt>Agent</dt><dd class="text-on-surface">{agentId ? agentName(agentId) : 'any available agent'}</dd>
+						<dt>Agent</dt><dd class="text-on-surface">{describeSelector(selectorFrom(agentId), agents)}</dd>
 						<dt>Timeout</dt><dd class="text-on-surface">{task.timeout_s ? `${task.timeout_s}s` : 'none'}</dd>
 						<dt>On move</dt><dd class="text-on-surface">{task.run_on_move ? 'runs when moved to In Progress' : 'doesn’t run on move'}</dd>
 					</dl>
@@ -768,7 +762,7 @@
 						{:else}
 							<TextField label="Container image" bind:value={image} mono placeholder="run in agent shell" oninput={() => edited('image')} onblur={() => (image.trim() || null) !== task.image && commit('image', { image: image.trim() || null })} />
 						{/if}
-						<Select label="Agent" bind:value={agentId} options={agentOptions} onchange={(v) => save({ agent_selector: v ? { agent_id: v } : {} })} />
+						<Select label="Agent" bind:value={agentId} options={agentOptions} onchange={(v) => save({ agent_selector: selectorFrom(v) })} />
 					</div>
 					{#if image.trim()}
 						<TextField
@@ -823,7 +817,7 @@
 						<div class="flex flex-wrap gap-1">
 							{#each jobs as j (j.id)}
 								<span class="inline-flex" in:pop={{ enabled: liveSide }} animate:glide={{ enabled: liveSide }}><Chip variant="filter" selected={selectedJobId === j.id} onclick={() => (selectedJobId = j.id)}>
-									{relativeTime(j.queued_at)} · {j.status}{j.started_at ? ` · ${duration(j.started_at, j.finished_at)}` : ''}
+									{j.batch_id ? `${agentName(j.target_agent_id ?? j.agent_id)} · ` : ''}{relativeTime(j.queued_at)} · {j.status}{j.started_at ? ` · ${duration(j.started_at, j.finished_at)}` : ''}
 								</Chip></span>
 							{/each}
 						</div>
