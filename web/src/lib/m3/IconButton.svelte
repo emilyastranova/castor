@@ -29,7 +29,7 @@
 		outlined: 'border border-outline text-on-surface-variant'
 	};
 	let cls = $derived(
-		`state-layer focus-ring inline-flex shrink-0 items-center justify-center rounded-full transition-colors disabled:pointer-events-none disabled:opacity-40 ${size === 'sm' ? 'size-8' : 'size-10'} ${variants[variant]} ${selected ? 'text-primary' : ''} ${klass}`
+		`state-layer touch-target focus-ring inline-flex shrink-0 items-center justify-center rounded-full transition-colors disabled:pointer-events-none disabled:opacity-40 ${size === 'sm' ? 'size-8' : 'size-10'} ${variants[variant]} ${selected ? 'text-primary' : ''} ${klass}`
 	);
 	let iconSize = $derived(size === 'sm' ? 20 : 24);
 </script>

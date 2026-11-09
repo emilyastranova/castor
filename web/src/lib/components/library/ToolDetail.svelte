@@ -209,7 +209,7 @@
 			<div class="flex flex-wrap items-center gap-1">
 				<span class="mr-1 label-large text-on-surface-variant">Tags</span>
 				{#each t.spec.tags as tag (tag)}
-					<button type="button" class="state-layer rounded-sm border border-outline-variant px-2 py-0.5 label-medium text-on-surface-variant" title="Show everything tagged {tag}" onclick={() => ontag(tag)}>{tag}</button>
+					<button type="button" class="state-layer touch-target rounded-sm border border-outline-variant px-2 py-0.5 label-medium text-on-surface-variant" title="Show everything tagged {tag}" onclick={() => ontag(tag)}>{tag}</button>
 				{/each}
 			</div>
 		{/if}

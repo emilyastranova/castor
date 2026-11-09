@@ -26,7 +26,7 @@
 
 <button
 	type="button"
-	class="state-layer focus-ring inline-flex h-8 max-w-full items-center gap-2 rounded-sm px-3 label-large transition-colors disabled:opacity-40 {selected
+	class="state-layer touch-target focus-ring inline-flex h-8 max-w-full items-center gap-2 rounded-sm px-3 label-large transition-colors disabled:opacity-40 {selected
 		? 'bg-secondary-container text-on-secondary-container'
 		: elevated
 			? 'bg-surface-container-low text-on-surface shadow-e1'
@@ -44,7 +44,7 @@
 		<span
 			role="button"
 			tabindex="-1"
-			class="-mr-1 inline-flex size-5 items-center justify-center rounded-full hover:bg-on-surface/10"
+			class="touch-target -mr-1 inline-flex size-5 items-center justify-center rounded-full hover:bg-on-surface/10"
 			aria-label="Remove"
 			onclick={(e) => {
 				e.stopPropagation();

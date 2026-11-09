@@ -146,7 +146,7 @@
 				<dt class="label-large text-on-surface-variant">Tags</dt>
 				<dd class="flex flex-wrap gap-1">
 					{#each c.tags as t (t)}
-						<button type="button" class="state-layer rounded-sm border border-outline-variant px-2 py-0.5 label-medium text-on-surface-variant" title="Show everything tagged {t}" onclick={() => ontag(t)}>{t}</button>
+						<button type="button" class="state-layer touch-target rounded-sm border border-outline-variant px-2 py-0.5 label-medium text-on-surface-variant" title="Show everything tagged {t}" onclick={() => ontag(t)}>{t}</button>
 					{/each}
 				</dd>
 			{/if}

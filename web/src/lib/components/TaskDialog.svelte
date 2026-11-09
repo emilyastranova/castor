@@ -31,7 +31,7 @@
 	import { enter, leave, pop, glide } from '$lib/motion';
 	import CommandArgsForm from './CommandArgsForm.svelte';
 	import VarBindings from './VarBindings.svelte';
-	import { tick } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { canEdit as roleCanEdit } from '$lib/session';
@@ -580,6 +580,12 @@
 	}
 
 	let column = $derived(columns.find((c) => c.id === task.column_id));
+	// Phones: a command card that has run opens with its form folded, so its output is in view.
+	let formOpen = $state(true);
+	onMount(() => {
+		if (task.kind === 'command' && task.latest_job && matchMedia('(max-width: 639px)').matches) formOpen = false;
+	});
+	let columnMenu = $state(false);
 	let agentOptions = $derived([
 		{ value: '', label: 'Any available agent' },
 		...agents.map((a) => ({
@@ -605,7 +611,7 @@
 
 <Dialog bind:open size="lg" initialFocus="dialog" onclose={onclose}>
 	{#snippet header()}
-		<div class="flex items-start gap-3 px-6 pt-5 pb-3">
+		<div class="flex items-start gap-2 px-4 pt-4 pb-3 sm:gap-3 sm:px-6 sm:pt-5">
 			<Icon name={task.run ? 'account_tree' : task.kind === 'command' ? 'terminal' : 'person'} class="mt-2 {task.run || task.kind === 'command' ? 'text-primary' : 'text-on-surface-variant'}" />
 			<div class="min-w-0 flex-1">
 				<input
@@ -620,15 +626,36 @@
 				/>
 				<div class="mt-1 flex flex-wrap items-center gap-2 body-small text-on-surface-variant">
 					<StatusChip job={task.latest_job} />
-					<span>created {relativeTime(task.created_at)} · updated {relativeTime(task.updated_at)}</span>
+					<span><span class="hidden sm:inline">created {relativeTime(task.created_at)} · </span>updated {relativeTime(task.updated_at)}</span>
 				</div>
+				<!-- Phones and narrow windows: where it is and who has it, in one row (the side
+				     column with the full controls is at the bottom there). -->
+				{#if !task.playbook_step_id}
+					<div class="mt-2 flex flex-wrap items-center gap-2 lg:hidden">
+						<Menu bind:open={columnMenu}>
+							{#snippet anchor()}
+								<button type="button" class="state-layer flex h-8 items-center gap-1.5 rounded-sm border border-outline-variant px-2 label-large text-on-surface" disabled={!editable} aria-haspopup="menu" aria-expanded={columnMenu}>
+									<ColumnGlyph role={column?.role} size={18} />{column?.name ?? 'Column'}{#if editable}<Icon name="arrow_drop_down" size={18} />{/if}
+								</button>
+							{/snippet}
+							{#each columns as c (c.id)}
+								<MenuItem onclick={() => moveTo(c.id)}><span class="flex items-center gap-2"><ColumnGlyph role={c.role} size={18} />{c.name}</span></MenuItem>
+							{/each}
+						</Menu>
+						{#if task.priority > 0}<span class="flex h-8 items-center gap-1 rounded-sm border border-outline-variant px-2 label-large text-on-surface-variant"><PriorityGlyph level={task.priority} />{priorityOptions[task.priority]?.label}</span>{/if}
+						{#if task.assignees.length}<span class="flex h-8 items-center gap-1 label-large text-on-surface-variant"><Icon name="person" size={18} />{task.assignees.length}</span>{/if}
+					</div>
+				{/if}
 			</div>
 			{#if task.kind === 'command' && editable}
-				{#if activeJob}
-					<Button variant="tonal" icon="stop_circle" onclick={() => cancel(activeJob!)}>Cancel</Button>
-				{:else}
-					<Button icon="play_arrow" onclick={run} disabled={!command.trim() || libDirty}>{task.latest_job?.status === 'failed' ? 'Re-run' : 'Run'}</Button>
-				{/if}
+				<!-- On phones Run is in a bar at the bottom instead. -->
+				<span class="hidden sm:contents">
+					{#if activeJob}
+						<Button variant="tonal" icon="stop_circle" onclick={() => cancel(activeJob!)}>Cancel</Button>
+					{:else}
+						<Button icon="play_arrow" onclick={run} disabled={!command.trim() || libDirty}>{task.latest_job?.status === 'failed' ? 'Re-run' : 'Run'}</Button>
+					{/if}
+				</span>
 			{/if}
 			<Menu>
 				{#snippet anchor()}<IconButton icon="more_vert" label="Card menu" />{/snippet}
@@ -664,7 +691,16 @@
 				<StepDecision run={stepRun} step={stepSpec} result={stepResult} onresolved={(r) => (stepRun = r)} />
 			{/if}
 			<StepDecisions result={stepResult} />
-			{#if task.kind === 'command' && !editable}
+			{#if task.kind === 'command' && !formOpen}
+				<button type="button" class="state-layer flex w-full items-center gap-3 rounded-md bg-surface-container p-3 text-left" onclick={() => (formOpen = true)}>
+					<Icon name={task.command_ref ? 'menu_book' : 'terminal'} size={20} class="shrink-0 text-primary" />
+					<span class="min-w-0 flex-1">
+						<span class="block label-medium text-on-surface-variant">{task.command_ref ? (libraryDef?.name ?? task.command_ref) : 'Command'}</span>
+						<code class="block truncate font-mono text-[12.5px] text-on-surface">{task.command || '—'}</code>
+					</span>
+					<span class="shrink-0 label-large text-primary">{editable ? 'Edit' : 'Show'}</span>
+				</button>
+			{:else if task.kind === 'command' && !editable}
 				<div class="flex flex-col gap-3 rounded-md bg-surface-container p-4">
 					{#if task.command_ref}
 						<div class="flex items-center gap-2">
@@ -1038,6 +1074,16 @@
 			</div>
 		</aside>
 	</div>
+	{#if task.kind === 'command' && editable}
+		<!-- Phones: Run within thumb's reach, always in view. -->
+		<div class="sticky bottom-0 -mx-4 flex gap-2 border-t border-outline-variant bg-surface-container-high px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:hidden">
+			{#if activeJob}
+				<Button variant="tonal" icon="stop_circle" class="flex-1" onclick={() => cancel(activeJob!)}>Cancel run</Button>
+			{:else}
+				<Button icon="play_arrow" class="flex-1" onclick={run} disabled={!command.trim() || libDirty}>{task.latest_job?.status === 'failed' ? 'Re-run' : 'Run'}</Button>
+			{/if}
+		</div>
+	{/if}
 </Dialog>
 
 {#if images.pending[0]}

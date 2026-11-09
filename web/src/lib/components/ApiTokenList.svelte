@@ -47,8 +47,8 @@
 <div class="flex flex-col gap-3">
 	{#each tokens as t (t.id)}
 		{@const st = state(t)}
-		<Card variant="outlined" class="flex items-center gap-4 p-4 {st ? 'opacity-60' : ''}">
-			<span class="flex size-10 shrink-0 items-center justify-center rounded-md bg-secondary-container text-on-secondary-container"><Icon name="key" /></span>
+		<Card variant="outlined" class="flex items-center gap-3 p-4 sm:gap-4 {st ? 'opacity-60' : ''}">
+			<span class="flex size-10 shrink-0 items-center justify-center rounded-md bg-secondary-container max-sm:hidden text-on-secondary-container"><Icon name="key" /></span>
 			<div class="min-w-0 flex-1">
 				<span class="flex flex-wrap items-center gap-2">
 					<span class="truncate title-small text-on-surface">{t.name}</span>
@@ -70,7 +70,8 @@
 			{#if t.revoked_at || st}
 				<IconButton icon="delete" label="Remove from the list" onclick={() => remove(t)} />
 			{:else}
-				<Button variant="text" icon="block" onclick={() => revoke(t)}>Revoke</Button>
+				<Button variant="text" icon="block" class="max-sm:hidden" onclick={() => revoke(t)}>Revoke</Button>
+				<IconButton icon="block" label="Revoke" class="sm:hidden" onclick={() => revoke(t)} />
 			{/if}
 		</Card>
 	{:else}

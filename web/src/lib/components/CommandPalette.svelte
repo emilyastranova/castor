@@ -203,7 +203,7 @@
 				spellcheck="false"
 			/>
 			{#if loading}<Icon name="progress_activity" size={20} class="animate-spin text-on-surface-variant" />{/if}
-			<kbd class="rounded-xs border border-outline-variant px-1.5 py-0.5 font-mono text-[11px] text-on-surface-variant">Esc</kbd>
+			<kbd class="pointer-coarse:hidden rounded-xs border border-outline-variant px-1.5 py-0.5 font-mono text-[11px] text-on-surface-variant">Esc</kbd>
 		</div>
 
 		<div class="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-outline-variant/60 px-4 py-2">
@@ -264,7 +264,7 @@
 			{/each}
 		</div>
 
-		<div class="flex shrink-0 items-center gap-4 border-t border-outline-variant/60 px-4 py-2 body-small text-on-surface-variant">
+		<div class="flex shrink-0 items-center gap-4 pointer-coarse:hidden border-t border-outline-variant/60 px-4 py-2 body-small text-on-surface-variant">
 			<span><kbd class="kbd">↑</kbd> <kbd class="kbd">↓</kbd> to move</span>
 			<span><kbd class="kbd">Enter</kbd> to open</span>
 			<span class="ml-auto"><kbd class="kbd">Ctrl</kbd> <kbd class="kbd">K</kbd> anywhere</span>

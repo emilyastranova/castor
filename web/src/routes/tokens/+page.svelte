@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { ApiToken } from '$lib/api';
 	import { api } from '$lib/api';
-	import { Button, TopAppBar } from '$lib/m3';
+	import { Button, IconButton, TopAppBar } from '$lib/m3';
 	import ApiTokenDialog from '$lib/components/ApiTokenDialog.svelte';
 	import ApiTokenList from '$lib/components/ApiTokenList.svelte';
 	import McpConnect from '$lib/components/McpConnect.svelte';
@@ -20,7 +20,8 @@
 
 <TopAppBar title="API tokens" subtitle="Use Castor from scripts, CI and other tools, as you, with only the access you pick">
 	{#snippet actions()}
-		<Button variant="text" icon="description" href="/api/docs" external>API reference</Button>
+		<Button variant="text" icon="description" href="/api/docs" external class="max-sm:hidden">API reference</Button>
+		<IconButton icon="description" label="API reference" href="/api/docs" class="sm:hidden" />
 		<Button icon="add" onclick={() => (dialogOpen = true)}>New token</Button>
 	{/snippet}
 </TopAppBar>

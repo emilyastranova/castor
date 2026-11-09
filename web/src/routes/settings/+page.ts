@@ -1,4 +1,2 @@
-import { redirect } from '@sveltejs/kit';
-import type { PageLoad } from './$types';
-
-export const load: PageLoad = () => redirect(307, '/settings/general');
+// /settings: the list of sections on phones; wider windows go on to General (+page.svelte).
+export const load = () => ({});

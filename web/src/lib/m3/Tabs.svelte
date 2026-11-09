@@ -14,13 +14,14 @@
 	let { tabs, value = $bindable(), onchange, class: klass = '' }: Props = $props();
 </script>
 
-<div class="flex border-b border-outline-variant {klass}" role="tablist">
+<!-- Too many tabs for the width (phones): the row scrolls by itself, not the page. -->
+<div class="flex overflow-x-auto border-b border-outline-variant [scrollbar-width:none] [&::-webkit-scrollbar]:hidden {klass}" role="tablist">
 	{#each tabs as tab (tab.id)}
 		<button
 			type="button"
 			role="tab"
 			aria-selected={value === tab.id}
-			class="state-layer relative flex h-12 items-center gap-2 px-4 title-small transition-colors {value === tab.id ? 'text-primary' : 'text-on-surface-variant'}"
+			class="state-layer relative flex h-12 shrink-0 items-center gap-2 px-4 title-small whitespace-nowrap transition-colors {value === tab.id ? 'text-primary' : 'text-on-surface-variant'}"
 			onclick={() => {
 				value = tab.id;
 				onchange?.(tab.id);

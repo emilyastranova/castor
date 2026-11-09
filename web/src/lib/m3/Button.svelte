@@ -28,7 +28,7 @@
 	}: Props = $props();
 
 	const base =
-		'state-layer focus-ring inline-flex h-10 items-center justify-center gap-2 rounded-full px-6 label-large transition-[box-shadow,background-color] duration-150 select-none disabled:pointer-events-none disabled:opacity-40 whitespace-nowrap';
+		'state-layer touch-target focus-ring inline-flex h-10 items-center justify-center gap-2 rounded-full px-6 label-large transition-[box-shadow,background-color] duration-150 select-none disabled:pointer-events-none disabled:opacity-40 whitespace-nowrap';
 	const variants: Record<Variant, string> = {
 		filled: 'bg-primary text-on-primary hover:shadow-e1',
 		tonal: 'bg-secondary-container text-on-secondary-container hover:shadow-e1',

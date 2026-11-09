@@ -5,16 +5,7 @@
 
 	let { children }: { children: Snippet } = $props();
 
-	/** Admin settings, one section per page; add new ones here. */
-	const SECTIONS = [
-		{ href: '/settings/general', icon: 'tune', label: 'General', detail: 'Limits and defaults' },
-		{ href: '/settings/users', icon: 'group', label: 'Users', detail: 'Accounts and roles' },
-		{ href: '/settings/tokens', icon: 'key', label: 'API tokens', detail: "Everyone's personal tokens" },
-		{ href: '/settings/alerts', icon: 'campaign', label: 'Alerts', detail: 'Chat and webhook channels' },
-		{ href: '/settings/ai', icon: 'auto_awesome', label: 'AI', detail: 'Providers, models and fallbacks' },
-		{ href: '/settings/activity', icon: 'history', label: 'Activity log', detail: 'Everything, across projects' },
-		{ href: '/settings/transfer', icon: 'sync_alt', label: 'Import and export', detail: 'Archives of projects and libraries' }
-	];
+	import { SECTIONS } from './sections';
 </script>
 
 <div class="flex min-h-0 min-w-0 flex-1">
@@ -36,6 +27,12 @@
 		{/each}
 	</nav>
 	<div class="flex min-h-0 min-w-0 flex-1 flex-col">
+		{#if page.url.pathname !== '/settings'}
+			<!-- Phones: the sections are a list at /settings; this goes back to it. -->
+			<a href="/settings" class="state-layer flex items-center gap-1 self-start rounded-full py-2 pr-3 pl-2 label-large text-primary md:hidden">
+				<Icon name="arrow_back" size={20} />Settings
+			</a>
+		{/if}
 		{@render children()}
 	</div>
 </div>

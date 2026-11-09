@@ -3,6 +3,7 @@
 	import { api, ApiError } from '$lib/api';
 	import { Button, Icon, TextField } from '$lib/m3';
 	import { snackbar } from '$lib/snackbar.svelte';
+	import { confirmAction } from '$lib/confirm.svelte';
 	import { aiStatus } from '$lib/ai.svelte';
 	import ParserFix from './ParserFix.svelte';
 
@@ -56,6 +57,24 @@
 		{ action: 'fail', label: 'Fail', icon: 'close', hint: 'Fail it: the steps after it are blocked, unless a branch handles the failure', variant: 'outlined' }
 	]);
 
+	let choice = $state<ResolveAction | null>(null);
+	/** Skip and Fail change what runs next and can't be taken back: ask first. */
+	async function apply() {
+		const action = choice;
+		if (!action) return;
+		if (action === 'skip' || action === 'fail') {
+			const c = CHOICES.find((x) => x.action === action)!;
+			const ok = await confirmAction({
+				title: action === 'skip' ? `Skip “${step.name}” and what needs it?` : `Fail “${step.name}”?`,
+				message: c.hint + '. This can’t be undone.',
+				confirmLabel: c.label,
+				danger: action === 'fail'
+			});
+			if (!ok) return;
+		}
+		await resolve(action);
+	}
+
 	async function resolve(action: ResolveAction) {
 		busy = action;
 		try {
@@ -102,15 +121,24 @@
 	{:else if result?.ai?.note}
 		<p class="flex items-center gap-1.5 body-small text-on-surface-variant"><Icon name="auto_awesome" size={16} />{result.ai.note}</p>
 	{/if}
-	<TextField label="Note (optional)" bind:value={note} placeholder="Why you chose this, for the run's history" />
-	<div class="flex flex-wrap gap-2">
+	<fieldset class="flex flex-col gap-1.5">
+		<legend class="mb-1.5 label-large text-on-surface">What should happen?</legend>
 		{#each CHOICES as c (c.action)}
-			<span title={c.hint}>
-				<Button variant={c.variant} icon={c.icon} loading={busy === c.action} disabled={busy !== null} onclick={() => resolve(c.action)}>{c.label}</Button>
-			</span>
+			<label class="flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2.5 transition-colors {choice === c.action ? 'border-primary bg-primary-container/40' : 'border-outline-variant hover:bg-on-surface/5'}">
+				<input type="radio" name="decision-{step.id}" value={c.action} class="mt-1 size-4 shrink-0 accent-primary" bind:group={choice} disabled={busy !== null} />
+				<Icon name={c.icon} size={20} class="mt-0.5 shrink-0 {choice === c.action ? 'text-primary' : 'text-on-surface-variant'}" />
+				<span class="min-w-0">
+					<span class="block label-large text-on-surface">{c.label}</span>
+					<span class="block body-small text-on-surface-variant">{c.hint}</span>
+				</span>
+			</label>
 		{/each}
+	</fieldset>
+	<TextField label="Note (optional)" bind:value={note} placeholder="Why you chose this, for the run's history" />
+	<div class="flex flex-wrap items-center gap-2">
+		<Button icon="check" class="max-sm:flex-1" loading={busy !== null && busy === choice} disabled={!choice || busy !== null} onclick={apply}>Apply decision</Button>
 		{#if aiStatus.resolver}
-			<span title="Ask the AI what it would do (it only suggests)" class="ml-auto">
+			<span title="Ask the AI what it would do (it only suggests)" class="sm:ml-auto">
 				<Button variant="text" icon="auto_awesome" loading={busy === 'ask-ai'} disabled={busy !== null} onclick={askAi}>{suggestion ? 'Ask AI again' : 'Ask AI'}</Button>
 			</span>
 		{/if}

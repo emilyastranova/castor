@@ -274,7 +274,7 @@
 	);
 </script>
 
-<div class="mx-auto flex w-full max-w-7xl flex-col gap-6 px-6 pt-6 pb-10">
+<div class="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 pt-4 pb-10 sm:px-6 sm:pt-6">
 	<!-- greeting -->
 	<header class="flex flex-wrap items-end justify-between gap-4">
 		<div>
@@ -313,7 +313,7 @@
 				<Icon name={s.icon} class={s.bad ? 'text-error' : 'text-on-surface-variant'} />
 				<div class="min-w-0">
 					<p class="headline-small leading-none {s.bad ? 'text-error' : 'text-on-surface'}">{s.value}</p>
-					<p class="mt-1 truncate body-small text-on-surface-variant">{s.label}</p>
+					<p class="mt-1 line-clamp-2 body-small leading-tight text-on-surface-variant">{s.label}</p>
 				</div>
 			</div>
 		{/each}
@@ -322,11 +322,12 @@
 	<div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
 		<!-- timeline -->
 		<section class="min-w-0">
-			<div class="mb-3 flex flex-wrap items-center gap-2">
-				<h2 class="mr-2 title-large text-on-surface">What's been happening</h2>
+			<h2 class="mb-2 title-large text-on-surface sm:hidden">What's been happening</h2>
+			<div class="mb-3 flex items-center gap-2 max-sm:-mx-4 max-sm:overflow-x-auto max-sm:px-4 max-sm:[scrollbar-width:none] sm:flex-wrap">
+				<h2 class="mr-2 title-large text-on-surface max-sm:hidden">What's been happening</h2>
 				<button
 					type="button"
-					class="flex items-center gap-1 rounded-full border px-2.5 py-1 label-medium transition-colors {mine
+					class="touch-target flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 label-medium transition-colors {mine
 						? 'border-transparent bg-primary text-on-primary'
 						: 'border-outline-variant text-on-surface-variant hover:bg-surface-container-high'}"
 					aria-pressed={mine}
@@ -335,11 +336,11 @@
 				>
 					<Icon name={mine ? 'check' : 'person'} size={14} />Mine
 				</button>
-				<span class="h-5 w-px bg-outline-variant"></span>
+				<span class="h-5 w-px shrink-0 bg-outline-variant"></span>
 				{#each kindOptions as k (k.kind)}
 					<button
 						type="button"
-						class="flex items-center gap-1 rounded-full border px-2.5 py-1 label-medium transition-colors {kinds.has(k.kind)
+						class="touch-target flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 label-medium whitespace-nowrap transition-colors {kinds.has(k.kind)
 							? 'border-transparent bg-secondary-container text-on-secondary-container'
 							: 'border-outline-variant text-on-surface-variant hover:bg-surface-container-high'}"
 						aria-pressed={kinds.has(k.kind)}
@@ -349,9 +350,9 @@
 					</button>
 				{/each}
 				{#if isDefault}
-					<button type="button" class="label-medium text-primary hover:underline" onclick={() => setKinds(new Set(kindOptions.map((k) => k.kind)))}>Show everything</button>
+					<button type="button" class="touch-target shrink-0 label-medium whitespace-nowrap text-primary hover:underline" onclick={() => setKinds(new Set(kindOptions.map((k) => k.kind)))}>Show everything</button>
 				{:else}
-					<button type="button" class="label-medium text-primary hover:underline" onclick={() => setKinds(new Set(WORK))}>Just the work</button>
+					<button type="button" class="touch-target shrink-0 label-medium whitespace-nowrap text-primary hover:underline" onclick={() => setKinds(new Set(WORK))}>Just the work</button>
 				{/if}
 			</div>
 			{#if !loaded}

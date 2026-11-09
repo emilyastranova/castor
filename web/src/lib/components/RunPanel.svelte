@@ -41,6 +41,7 @@
 	let statuses = $derived(run?.step_status ?? {});
 	let values = $derived(Object.values(statuses));
 	let done = $derived(values.filter((s) => s === 'succeeded' || s === 'skipped' || s === 'not_taken').length);
+	let graphOpen = $state(false);
 	let waiting = $derived(spec ? spec.steps.filter((s) => statuses[s.id] === 'attention') : []);
 	let items = $derived.by(() => {
 		const map: Record<string, Task[]> = {};
@@ -90,6 +91,11 @@
 	<p class="body-medium text-on-surface-variant">Loading the run…</p>
 {:else}
 	<div class="flex flex-col gap-4">
+		<!-- decisions waiting on a person: first, so they're what you see -->
+		{#each waiting as step (step.id)}
+			<StepDecision {run} {step} result={run.step_results[step.id] ?? null} onresolved={(r) => (run = r)} />
+		{/each}
+
 		<!-- where the run is -->
 		<div class="flex flex-wrap items-center gap-x-4 gap-y-2">
 			{#if runState}
@@ -118,13 +124,11 @@
 			</div>
 		{/if}
 
-		<!-- decisions waiting on a person -->
-		{#each waiting as step (step.id)}
-			<StepDecision {run} {step} result={run.step_results[step.id] ?? null} onresolved={(r) => (run = r)} />
-		{/each}
-
-		<!-- the graph -->
-		<div class="overflow-hidden rounded-md border border-outline-variant/60">
+		<!-- the graph (on phones, one tap away: the step list below says the same at a readable size) -->
+		<button type="button" class="state-layer flex items-center gap-2 self-start rounded-sm px-2 py-1.5 label-large text-primary sm:hidden" aria-expanded={graphOpen} onclick={() => (graphOpen = !graphOpen)}>
+			<Icon name="account_tree" size={18} />{graphOpen ? 'Hide the graph' : 'Show the graph'}
+		</button>
+		<div class="overflow-hidden rounded-md border border-outline-variant/60 {graphOpen ? '' : 'max-sm:hidden'}">
 			<PlaybookVisualizer spec={spec} {run} selectedStepId={selected} onStepSelect={select} />
 		</div>
 

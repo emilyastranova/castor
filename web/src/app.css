@@ -156,6 +156,23 @@
 @utility label-medium { font: 500 0.75rem/1rem var(--md-sys-typescale-font); letter-spacing: 0.03rem; }
 @utility label-small { font: 500 0.6875rem/1rem var(--md-sys-typescale-font); letter-spacing: 0.03rem; }
 
+/* ---------- Touch target: on touch screens a small control answers to a 44px square around it,
+   without looking any bigger (the ::after is invisible; state-layer uses ::before). ---------- */
+@utility touch-target {
+	@media (pointer: coarse) {
+		position: relative;
+		&::after {
+			content: '';
+			position: absolute;
+			left: 50%;
+			top: 50%;
+			width: max(100%, 44px);
+			height: max(100%, 44px);
+			transform: translate(-50%, -50%);
+		}
+	}
+}
+
 /* ---------- State layer: any element with .state-layer gets hover/focus/press tint ---------- */
 @utility state-layer {
 	position: relative;
@@ -180,6 +197,23 @@
 
 /* Floating things (FABs, snackbars) on phones sit above the bottom navigation bar (PhoneNav:
    4rem tall, plus the home-indicator inset) with a 1rem gap; add md:bottom-* for wider screens. */
+/* ---------- Arranging the board on a touch screen (lib/arrange.svelte.ts) ---------- */
+@utility touch-callout-none {
+	-webkit-touch-callout: none;
+	-webkit-user-select: none;
+	user-select: none;
+}
+@keyframes wiggle {
+	0%, 100% { rotate: -0.8deg; }
+	50% { rotate: 0.8deg; }
+}
+@utility wiggle {
+	animation: wiggle 0.28s ease-in-out infinite;
+	&:nth-child(even) { animation-delay: -0.14s; animation-duration: 0.3s; }
+	& > * { outline: 1px dashed color-mix(in srgb, var(--color-primary) 55%, transparent); outline-offset: 2px; }
+	@media (prefers-reduced-motion: reduce) { animation: none; }
+}
+
 @utility bottom-above-nav {
 	bottom: calc(5rem + env(safe-area-inset-bottom));
 }

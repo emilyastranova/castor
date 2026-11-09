@@ -33,19 +33,19 @@
 	<div class="flex items-center gap-2">
 		<span class="flex-1 label-large text-on-surface-variant">Assignees</span>
 		{#if editable && myId && !value.includes(myId)}
-			<button type="button" class="label-medium text-primary hover:underline" onclick={() => onchange([...value, myId!])}>Assign to me</button>
+			<button type="button" class="touch-target label-medium text-primary hover:underline" onclick={() => onchange([...value, myId!])}>Assign to me</button>
 		{/if}
 		{#if editable}
 			<Menu>
 				{#snippet anchor()}
-					<button type="button" class="state-layer flex size-7 items-center justify-center rounded-full text-on-surface-variant" aria-label="Choose assignees" title="Choose assignees"><Icon name="person_add" size={18} /></button>
+					<button type="button" class="state-layer touch-target flex size-7 items-center justify-center rounded-full text-on-surface-variant" aria-label="Choose assignees" title="Choose assignees"><Icon name="person_add" size={18} /></button>
 				{/snippet}
 				<div class="w-64" role="presentation" onclick={(e) => e.stopPropagation()}>
 					<input class="mx-3 mb-1 h-9 w-[calc(100%-1.5rem)] rounded-xs border border-outline-variant bg-transparent px-2 body-medium text-on-surface outline-none focus:border-primary" placeholder="Find someone" bind:value={filter} />
 					<ul class="max-h-64 overflow-y-auto">
 						{#each shown as u (u.id)}
 							<li>
-								<button type="button" role="menuitemcheckbox" aria-checked={value.includes(u.id)} class="state-layer flex w-full items-center gap-2 px-3 py-1.5 text-left" onclick={() => toggle(u.id)}>
+								<button type="button" role="menuitemcheckbox" aria-checked={value.includes(u.id)} class="state-layer flex w-full items-center gap-2 px-3 py-1.5 text-left pointer-coarse:py-3" onclick={() => toggle(u.id)}>
 									<Avatar name={u.display_name} src={u.avatar_url} size={24} />
 									<span class="min-w-0 flex-1 truncate body-medium text-on-surface"><PersonName name={u.display_name} />{u.id === myId ? ' (you)' : ''}</span>
 									{#if value.includes(u.id)}<Icon name="check" size={18} class="text-primary" />{/if}
@@ -66,7 +66,7 @@
 					<Avatar name={u.display_name} src={u.avatar_url} size={24} />
 					{#if u.username}<a href="/people/{u.username}" class="max-w-36 truncate label-large text-on-surface hover:underline"><PersonName name={u.display_name} /></a>{:else}<span class="max-w-36 truncate label-large text-on-surface"><PersonName name={u.display_name} /></span>{/if}
 					{#if editable}
-						<button type="button" class="state-layer flex size-6 items-center justify-center rounded-full text-on-surface-variant" aria-label="Unassign {u.display_name}" title="Unassign" onclick={() => toggle(u.id)}><Icon name="close" size={16} /></button>
+						<button type="button" class="state-layer touch-target flex size-6 items-center justify-center rounded-full text-on-surface-variant" aria-label="Unassign {u.display_name}" title="Unassign" onclick={() => toggle(u.id)}><Icon name="close" size={16} /></button>
 					{/if}
 				</li>
 			{/each}

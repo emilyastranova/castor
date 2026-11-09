@@ -7,7 +7,7 @@
 	import LibraryTransfer from '$lib/components/LibraryTransfer.svelte';
 	import AiGenerateDialog from '$lib/components/AiGenerateDialog.svelte';
 	import { aiStatus } from '$lib/ai.svelte';
-	import { Button, Card, Chip, Dialog, Icon, IconButton, Tabs, TextField, TopAppBar } from '$lib/m3';
+	import { Button, Card, Chip, Dialog, Icon, IconButton, Menu, MenuItem, Tabs, TextField, TopAppBar } from '$lib/m3';
 	import { confirmAction } from '$lib/confirm.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { realtime } from '$lib/realtime.svelte';
@@ -58,6 +58,9 @@
 	// The runs tab is the current project's runs (the library is shared).
 	let projectRuns = $derived(runs.filter((r) => !currentProject.id || r.project_id === currentProject.id));
 	// svelte-ignore state_referenced_locally
+	// Phones: the list, then the picked playbook or run on its own (with a way back).
+	let phonePane = $state<'list' | 'detail'>('list');
+	let newOpen = $state(false);
 	let selectedRunId = $state<string>(data.runs.find((r) => !currentProject.id || r.project_id === currentProject.id)?.id || '');
 	let selectedRun = $derived(runs.find((r) => r.id === selectedRunId) || null);
 
@@ -102,6 +105,7 @@
 		}
 		activeTab = 'runs';
 		selectedRunId = run.id;
+		phonePane = 'detail';
 		const step = run.spec_snapshot.steps.find((st) => st.id === stepId);
 		if (step) handleStepSelect(step, taskFor(run, step.id));
 		else selectFirstStep(run);
@@ -412,30 +416,35 @@ steps:
 <TopAppBar
 	title="Playbooks"
 	subtitle="Multi-step command automation · dependency chaining & parallel execution"
+	class="max-sm:[&_p]:hidden"
 >
 	{#snippet actions()}
 		<LibraryTransfer noun="playbooks" request={{ playbooks: mine, label: 'castor-playbooks' }} count={mine.length} onimported={async () => (playbooks = await api().playbooks.list())} />
 		{#if canEdit()}
-			{#if aiStatus.enabled}<Button variant="text" icon="auto_awesome" onclick={() => { aiFromEditor = false; aiOpen = true; }}>Generate</Button>{/if}
-			<Button variant="text" icon="code" onclick={openNewEditor}>New from YAML</Button>
-			<Button variant="filled" icon="add" onclick={() => goto('/playbooks/edit/new')}>
-				New Playbook
-			</Button>
+			<Menu bind:open={newOpen} align="right">
+				{#snippet anchor()}<Button icon="add" trailingIcon="arrow_drop_down" class="ml-2" aria-haspopup="menu" aria-expanded={newOpen}>New</Button>{/snippet}
+				<MenuItem icon="account_tree" onclick={() => goto('/playbooks/edit/new')}>Playbook</MenuItem>
+				<MenuItem icon="code" onclick={openNewEditor}>From YAML</MenuItem>
+				{#if aiStatus.enabled}
+					<div class="my-1 border-t border-outline-variant/60"></div>
+					<MenuItem icon="auto_awesome" onclick={() => { aiFromEditor = false; aiOpen = true; }}>Generate a playbook…</MenuItem>
+				{/if}
+			</Menu>
 		{/if}
 	{/snippet}
 </TopAppBar>
 
 <div class="flex flex-1 flex-col overflow-hidden bg-surface">
 	<!-- Tab Bar -->
-	<div class="px-6 pt-1 bg-surface border-b border-outline-variant/60">
-		<Tabs {tabs} bind:value={activeTab} />
+	<div class="px-4 pt-1 bg-surface border-b border-outline-variant/60 md:px-6">
+		<Tabs {tabs} bind:value={activeTab} onchange={() => (phonePane = 'list')} />
 	</div>
 
 	<!-- TAB 1: Playbook Library -->
 	{#if activeTab === 'library'}
-		<div class="flex flex-1 overflow-hidden p-6 gap-6">
+		<div class="flex flex-1 overflow-hidden p-4 gap-4 md:p-6 md:gap-6">
 			<!-- Left Column: Playbook List & Search -->
-			<div class="flex w-96 flex-col gap-4 shrink-0 pt-1">
+			<div class="flex w-full flex-col gap-4 shrink-0 pt-1 md:w-96 {phonePane === 'detail' ? 'max-md:hidden' : ''}">
 				<TextField
 					label="Filter playbooks"
 					placeholder="Search by name or tag..."
@@ -451,6 +460,7 @@ steps:
 							class="cursor-pointer transition-all duration-150 p-4 border {isSelected ? 'border-primary ring-2 ring-primary/20 bg-primary-container/20' : 'hover:border-outline'}"
 							onclick={() => {
 								selectedPlaybookId = pb.id;
+								phonePane = 'detail';
 								if (pb.spec.steps[0]) handleStepSelect(pb.spec.steps[0]);
 							}}
 						>
@@ -510,10 +520,11 @@ steps:
 			</div>
 
 			<!-- Right Column: Visualizer Preview & Details -->
-			<div class="flex flex-1 flex-col overflow-y-auto gap-5 rounded-2xl bg-surface-container-lowest p-6 border border-outline-variant/60">
+			<div class="flex min-w-0 flex-1 flex-col overflow-y-auto gap-5 rounded-2xl bg-surface-container-lowest p-4 border border-outline-variant/60 md:p-6 {phonePane === 'list' ? 'max-md:hidden' : ''}">
+				<Button variant="text" icon="arrow_back" class="-ml-3 -mt-2 self-start md:hidden" onclick={() => (phonePane = 'list')}>Playbooks</Button>
 				{#if selectedPlaybook}
-					<div class="flex items-start justify-between gap-4">
-						<div>
+					<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+						<div class="min-w-0">
 							<div class="flex items-center gap-3">
 								<h2 class="title-large font-bold text-on-surface">
 									{selectedPlaybook.name}
@@ -527,7 +538,7 @@ steps:
 							</p>
 						</div>
 
-						<div class="flex items-center gap-2 shrink-0">
+						<div class="flex flex-wrap items-center gap-2 sm:shrink-0">
 							<Button
 								variant="text"
 								icon="code"
@@ -556,7 +567,7 @@ steps:
 					<div class="flex flex-col gap-2">
 						<div class="flex items-center justify-between">
 							<span class="label-large text-on-surface">Execution Graph</span>
-							<span class="body-small text-on-surface-variant">
+							<span class="body-small text-on-surface-variant max-sm:hidden">
 								Zoomable & draggable canvas · Drag cards to reposition · Click to inspect
 							</span>
 						</div>
@@ -662,9 +673,9 @@ steps:
 
 	<!-- TAB 2: Runs & Visualizer -->
 	{#if activeTab === 'runs'}
-		<div class="flex flex-1 overflow-hidden p-6 gap-6">
+		<div class="flex flex-1 overflow-hidden p-4 gap-4 md:p-6 md:gap-6">
 			<!-- Left Column: Runs History List -->
-			<div class="flex w-96 flex-col gap-3 overflow-hidden shrink-0">
+			<div class="flex w-full flex-col gap-3 overflow-hidden shrink-0 md:w-96 {phonePane === 'detail' ? 'max-md:hidden' : ''}">
 				<div class="flex items-center justify-between px-1">
 					<span class="title-small font-medium text-on-surface">Execution History</span>
 					<span class="body-small text-on-surface-variant">{projectRuns.length} runs in this project</span>
@@ -680,6 +691,7 @@ steps:
 							class="cursor-pointer transition-all duration-150 p-3.5 border {isSelected ? 'border-primary ring-2 ring-primary/20 bg-primary-container/20' : 'hover:border-outline'}"
 							onclick={() => {
 								selectedRunId = run.id;
+								phonePane = 'detail';
 								selectFirstStep(run);
 							}}
 						>
@@ -734,12 +746,13 @@ steps:
 			</div>
 
 			<!-- Right Column: Live Run Graphical Visualizer -->
-			<div class="flex flex-1 flex-col overflow-y-auto gap-5 rounded-2xl bg-surface-container-lowest p-6 border border-outline-variant/60">
+			<div class="flex min-w-0 flex-1 flex-col overflow-y-auto gap-5 rounded-2xl bg-surface-container-lowest p-4 border border-outline-variant/60 md:p-6 {phonePane === 'list' ? 'max-md:hidden' : ''}">
+				<Button variant="text" icon="arrow_back" class="-ml-3 -mt-2 self-start md:hidden" onclick={() => (phonePane = 'list')}>Runs</Button>
 				{#if selectedRun}
 					{@const project = projects.find((p) => p.id === selectedRun.project_id)}
 					<!-- Run Header Banner -->
-					<div class="flex items-start justify-between gap-4 border-b border-outline-variant/60 pb-4">
-						<div>
+					<div class="flex flex-col gap-3 border-b border-outline-variant/60 pb-4 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+						<div class="min-w-0">
 							<div class="flex items-center gap-3">
 								<h2 class="title-large font-bold text-on-surface">
 									{selectedRun.playbook_name}
@@ -782,7 +795,7 @@ steps:
 							</div>
 						</div>
 
-						<div class="flex items-center gap-2">
+						<div class="flex flex-wrap items-center gap-2">
 							{#if project}
 								<Button
 									variant="outlined"
@@ -809,7 +822,7 @@ steps:
 					<div class="flex flex-col gap-2">
 						<div class="flex items-center justify-between">
 							<span class="label-large text-on-surface">DAG Execution Visualizer</span>
-							<span class="body-small text-on-surface-variant">
+							<span class="body-small text-on-surface-variant max-sm:hidden">
 								Live DAG canvas · Pan & zoom · Drag cards to reposition · Click to inspect outputs
 							</span>
 						</div>

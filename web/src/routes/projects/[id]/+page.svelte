@@ -22,6 +22,7 @@
 	import { canEdit, isAdmin, me } from '$lib/session';
 	import { people } from '$lib/people.svelte';
 	import ActivityFeed from '$lib/components/ActivityFeed.svelte';
+	import { arrange } from '$lib/arrange.svelte';
 
 	let { data } = $props();
 
@@ -41,6 +42,32 @@
 
 	// svelte-ignore state_referenced_locally
 	let agents = $state<Agent[]>(data.agents);
+
+	// Phones see one column at a time: open a board on the first column with cards in it
+	// (or the active one when nothing's there yet) rather than on an empty Backlog.
+	let columnsEl = $state<HTMLDivElement>();
+	// Arrange mode belongs to this board view: leave it with the page, the project or the layout.
+	$effect(() => {
+		void page.params.id;
+		void layout;
+		return () => arrange.stop();
+	});
+	/** A tap on empty board (not a card, not a control) ends arranging, like on a home screen. */
+	function tapBoard(e: MouseEvent) {
+		if (arrange.on && !(e.target as HTMLElement).closest('[data-card], button, a, input')) arrange.stop();
+	}
+	let scrolledFor = '';
+	$effect(() => {
+		const el = columnsEl;
+		const id = page.params.id ?? '';
+		if (!el || scrolledFor === id || !matchMedia('(max-width: 639px)').matches) return;
+		scrolledFor = id;
+		const cols = store.columns;
+		const withCards = cols.findIndex((c) => filtered(c).length > 0);
+		const i = withCards >= 0 ? withCards : Math.max(0, cols.findIndex((c) => c.role === 'active'));
+		const target = el.children[i] as HTMLElement | undefined;
+		if (target) el.scrollLeft = target.offsetLeft - el.offsetLeft - 16;
+	});
 	// svelte-ignore state_referenced_locally
 	let loadedAgents = data.agents;
 	$effect(() => {
@@ -300,7 +327,13 @@
 		{#if !editable}<Chip variant="assist" icon="visibility">View only</Chip>{/if}
 	</div>
 {/if}
-{#if editable}
+{#if editable && arrange.on && layout === 'board'}
+	<div class="fixed inset-x-4 bottom-above-nav z-30 flex items-center gap-3 rounded-full bg-inverse-surface py-2 pr-2 pl-5 text-inverse-on-surface shadow-e3">
+		<Icon name="drag_pan" size={20} />
+		<span class="flex-1 body-medium">Drag cards to move them</span>
+		<Button variant="filled" icon="check" onclick={() => arrange.stop()}>Done</Button>
+	</div>
+{:else if editable}
 	<Fab
 		icon="add"
 		label="New card"
@@ -308,6 +341,7 @@
 		onclick={() => { newColumn = null; newOpen = true; }}
 	/>
 {/if}
+<svelte:window onkeydown={(e) => e.key === 'Escape' && arrange.on && !page.url.searchParams.has('task') && arrange.stop()} />
 
 <div class="flex min-h-0 flex-1">
 	{#if layout === 'list'}
@@ -315,7 +349,8 @@
 			<BoardList columns={store.columns} tasksIn={filtered} readonly={!editable} onopen={openTask} onadd={(c) => { newColumn = c; newOpen = true; }} onmoveto={moveTo} />
 		</div>
 	{:else}
-		<div class="flex min-h-0 flex-1 gap-3 overflow-x-auto px-4 pb-4">
+		<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (Escape and Done also end arranging) -->
+		<div bind:this={columnsEl} onclick={tapBoard} class="flex min-h-0 flex-1 gap-3 overflow-x-auto px-4 pb-4 max-sm:scroll-px-4 {arrange.on ? 'max-sm:pb-20' : 'max-sm:snap-x max-sm:snap-mandatory'}">
 			{#each store.columns as column (column.id)}
 				<BoardColumn {column} tasks={filtered(column)} readonly={!editable} onopen={openTask} onadd={(c) => { newColumn = c; newOpen = true; }} onmove={move} />
 			{/each}
