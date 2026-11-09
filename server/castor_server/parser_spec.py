@@ -1,4 +1,4 @@
-"""Parsers people and the AI write: declarative, never code.
+"""Parsers people and the AI write: declarative formats, or JavaScript in a sandbox.
 
 A parser definition (YAML, like commands and tools) names a format and maps what the tool
 printed onto one of Castor's output types:
@@ -13,8 +13,10 @@ printed onto one of Castor's output types:
 
 Formats: `lines` (one record per non-empty line), `regex` (one record per match; named
 groups are its fields), `json` / `jsonl` (objects, found with a dot path), `csv` (rows, by
-column name or index) and `xml` (elements, with `@attr` and `child/path` fields). They run
-on the same guarded pieces as the built-ins: regexes with a time limit and XML through
+column name or index), `xml` (elements, with `@attr` and `child/path` fields) and
+`javascript`: `code` defines `parse(text)` returning the records, run in a V8 isolate with no
+files, network or imports, a time limit and a memory cap (js_sandbox.py). The others run on
+the same guarded pieces as the built-ins: regexes with a time limit and XML through
 defusedxml. `fields` maps an output field to where it comes from in a record (by default a
 field of the same name), `values` sets constants. Records missing a required field (a host's
 ip, a URL's url…) are left out.
@@ -38,7 +40,7 @@ from .parsers import OUTPUT_TYPES, ParseError
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,62}$")
 MAX_RECORDS = 100_000
-FORMATS = ("lines", "regex", "json", "jsonl", "csv", "xml")
+FORMATS = ("lines", "regex", "json", "jsonl", "csv", "xml", "javascript")
 
 # The fields of each output type's items: kind, and whether a record needs it.
 SHAPES: dict[str, dict[str, tuple[str, bool]]] = {
@@ -78,12 +80,13 @@ class ParserSpec(BaseModel):
     name: str
     description: str = ""
     type: str
-    format: Literal["lines", "regex", "json", "jsonl", "csv", "xml"]
+    format: Literal["lines", "regex", "json", "jsonl", "csv", "xml", "javascript"]
     pattern: str | None = Field(None, description="regex: one record per match, named groups are fields; lines: keep matching lines")
     ignore_case: bool = False
     records: str | None = Field(None, description="json: dot path to the records; xml: element path, e.g. .//host")
     delimiter: str = ","
     header: bool = True
+    code: str | None = Field(None, description="javascript: defines parse(text), returning the records (objects) or values")
     fields: dict[str, str] = Field(default_factory=dict)
     values: dict[str, Any] = Field(default_factory=dict)
     unique: bool = True
@@ -113,6 +116,17 @@ class ParserSpec(BaseModel):
             raise ValueError(f"{', '.join(unknown)}: not a field of {item_type(self.type)} (fields: {', '.join(shape)})")
         if self.format == "regex" and not self.pattern:
             raise ValueError("format regex needs a pattern")
+        if self.format == "javascript":
+            if not (self.code or "").strip():
+                raise ValueError("format javascript needs code defining parse(text)")
+            from .js_sandbox import JsError, check
+
+            try:
+                check(self.code or "")
+            except JsError as exc:
+                raise ValueError(f"code: {exc}") from exc
+        elif self.code:
+            raise ValueError("code is for format javascript")
         if self.pattern:
             try:
                 parsers._compile(self.pattern, self.ignore_case)
@@ -158,6 +172,16 @@ def _dig(value: Any, path: str) -> Any:
 
 
 def _records(spec: ParserSpec, text: str) -> list[dict[str, Any]]:
+    if spec.format == "javascript":
+        from .js_sandbox import JsError
+        from .js_sandbox import run as run_js
+
+        try:
+            found = run_js(spec.code or "", text)
+        except JsError as exc:
+            raise ParseError(str(exc)) from exc
+        items = found if isinstance(found, list) else [] if found is None else [found]
+        return [i if isinstance(i, dict) else {"value": i} for i in items]
     if spec.format == "lines":
         pattern = parsers._compile(spec.pattern, spec.ignore_case) if spec.pattern else None
         out = []

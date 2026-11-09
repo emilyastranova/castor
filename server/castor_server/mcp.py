@@ -127,14 +127,16 @@ TOOLS: list[Tool] = [
          {"project_id": ID["project_id"], "type": _s("Asset type, e.g. host, service, url"), "where": _s("Filter"),
           "limit": {"type": "integer", "minimum": 1, "maximum": 200}}, ("project_id",), untrusted=True),
     # Parsers: an assistant can read what a job's parser couldn't, write a parser for it and
-    # check it on that output before keeping it (a parser is declarative YAML, never code).
+    # check it on that output before keeping it (declarative YAML, or sandboxed JavaScript).
     Tool("list_parsers", "Parsers commands can use: built-ins and the library's, with their output type and (for the library's) YAML.",
          "GET", "/api/parsers"),
     Tool("get_output_input", "What a job output's parser read (its files or stdout): the sample to write a parser against.",
          "GET", "/api/jobs/{job_id}/outputs/{name}/input", {"job_id": ID["job_id"], "name": _s("Output name")}, ("job_id", "name"), untrusted=True),
     Tool("check_parser", "Check a parser definition and run it on some output without saving it. YAML keys: id, name, type (e.g. list<host>, "
-         "list<service>, list<url>, list<smb_host>, list<string>), format (lines|regex|json|jsonl|csv|xml), pattern (regex, named groups are "
-         "fields), records (json dot path / xml element path), delimiter, header, fields {output field: source}, values {field: constant}.",
+         "list<service>, list<url>, list<smb_host>, list<string>), format (lines|regex|json|jsonl|csv|xml|javascript), pattern (regex, named "
+         "groups are fields), records (json dot path / xml element path), delimiter, header, fields {output field: source}, values "
+         "{field: constant}; for javascript, code defining function parse(text) that returns an array of objects (sandboxed: no require, "
+         "files or network).",
          "POST", "/api/parsers/validate", {"yaml": _s("The parser definition"), "input": _s("Output to try it on (default: its sample)")},
          ("yaml",), untrusted=True),
     Tool("create_parser", "Add a parser to the library (YAML as for check_parser; include `sample:` with the output it was written for). "

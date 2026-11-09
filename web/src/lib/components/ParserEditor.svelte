@@ -31,8 +31,25 @@
 name: My parser
 description: What it reads
 type: list<host>
-format: regex          # lines | regex | json | jsonl | csv | xml
+format: regex          # lines | regex | json | jsonl | csv | xml | javascript
 pattern: '^Host: (?P<ip>\\S+)'
+`;
+	const JS_TEMPLATE = `id: my-parser
+name: My parser
+description: What it reads
+type: list<service>    # each result needs host and port
+format: javascript
+code: |
+  // text is everything the tool printed. Return an array of results.
+  // Plain JavaScript only: no require, files, network or timers.
+  function parse(text) {
+    const out = [];
+    for (const line of text.split('\\n')) {
+      const m = line.match(/^open (\\w+) (\\d+) (\\S+)/);
+      if (m) out.push({ proto: m[1], port: Number(m[2]), host: m[3] });
+    }
+    return out;
+  }
 `;
 	/** The sample lives in its own box here; on save it goes back in as the last key. */
 	const withoutSample = (text: string) => text.replace(/^sample:[\s\S]*$/m, '').trimEnd() + '\n';
@@ -41,6 +58,10 @@ pattern: '^Host: (?P<ip>\\S+)'
 	let yaml = $state(original);
 	// svelte-ignore state_referenced_locally
 	let sample = $state(initialSample || parser?.sample || '');
+	// The test input goes into the definition as its sample (unless you say otherwise).
+	let keepSample = $state(true);
+	let isTemplate = $derived(!parser && (yaml === withoutSample(TEMPLATE) || yaml === withoutSample(JS_TEMPLATE)));
+	let isJs = $derived(/^format:\s*javascript\b/m.test(yaml));
 	let readOnly = $derived(!editable);
 	$effect(() => {
 		dirty = yaml !== original;
@@ -78,7 +99,7 @@ pattern: '^Host: (?P<ip>\\S+)'
 	async function draftWithAi() {
 		drafting = true;
 		try {
-			const d = await api().parsers.draft({ sample, type: draftType || null, hint, current: parser || yaml !== TEMPLATE ? yaml : '' });
+			const d = await api().parsers.draft({ sample, type: draftType || null, hint, current: parser || !isTemplate ? yaml : '' });
 			// Keep the id of an existing parser; a new one takes the AI's.
 			yaml = parser ? d.yaml.replace(/^id:.*$/m, `id: ${parser.name}`) : d.yaml;
 			draftNote = d.problems.length ? `The AI's draft still has a problem: ${d.problems[0]}` : `${d.notes ? d.notes + ' ' : ''}(${d.model})`;
@@ -95,7 +116,7 @@ pattern: '^Host: (?P<ip>\\S+)'
 	/** The sample goes into the definition (the Parsers page and later edits use it). */
 	function withSample(text: string): string {
 		const body = withoutSample(text).trimEnd();
-		const s = sample.trim() ? sample.slice(0, 8000).trimEnd() : '';
+		const s = keepSample && sample.trim() ? sample.slice(0, 8000).trimEnd() : '';
 		return s ? `${body}\nsample: |\n${s.split('\n').map((l) => `  ${l}`).join('\n')}\n` : `${body}\n`;
 	}
 	async function save() {
@@ -138,7 +159,7 @@ pattern: '^Host: (?P<ip>\\S+)'
 					{parser.title || parser.description} · produces <code class="font-mono">{parser.type}</code>
 					{#if parser.used_by.length} · used by {parser.used_by.join(', ')}{/if}
 				{:else}
-					A definition of the output’s format and its fields. Declarative, never code.
+					The output’s format and its fields, or JavaScript that reads it (run in a sandbox).
 				{/if}
 			</p>
 		</div>
@@ -155,18 +176,27 @@ pattern: '^Host: (?P<ip>\\S+)'
 				<Select label="As" value={draftType} options={[{ value: '', label: 'Let it choose' }, ...TYPES.map((t) => ({ value: t, label: t }))]} onchange={(v) => (draftType = v)} />
 			</div>
 			<Button variant="tonal" type="submit" icon="auto_awesome" loading={drafting} disabled={!sample.trim()} title={sample.trim() ? 'The AI writes a parser and it’s tried on the sample' : 'Paste some output first'}>
-				{parser || yaml !== TEMPLATE ? 'Change with AI' : 'Draft from the sample'}
+				{parser || !isTemplate ? 'Change with AI' : 'Draft from the sample'}
 			</Button>
 			{#if draftNote}<p class="w-full pl-7 body-small text-on-surface-variant">{draftNote}</p>{/if}
 		</form>
 	{/if}
 
-	<div class="grid min-h-0 gap-4 xl:grid-cols-2">
+	<div class="grid min-h-0 gap-4 lg:grid-cols-2">
 		<div class="flex min-w-0 flex-col gap-2">
+			{#if isTemplate && editable}
+				<div class="flex flex-wrap items-center gap-2 body-small text-on-surface-variant" role="group" aria-label="Start from">
+					<span>Start from</span>
+					<Button variant={isJs ? 'text' : 'tonal'} icon="data_object" onclick={() => (yaml = withoutSample(TEMPLATE))}>A pattern and fields</Button>
+					<Button variant={isJs ? 'tonal' : 'text'} icon="javascript" onclick={() => (yaml = withoutSample(JS_TEMPLATE))}>JavaScript</Button>
+				</div>
+			{/if}
 			<YamlPane bind:value={yaml} readonly={readOnly} {error} label="Parser definition (YAML)" onsave={save} />
 			{#if editable}
 				<div class="flex flex-wrap items-center justify-end gap-2">
-					<span class="mr-auto body-small text-on-surface-variant">Formats: lines, regex, json, jsonl, csv, xml. Ctrl+S saves.</span>
+					<span class="mr-auto body-small text-on-surface-variant">
+						{isJs ? 'JavaScript runs in a sandbox: no files, network or imports, 3 s and 256 MB at most.' : 'Formats: lines, regex, json, jsonl, csv, xml, javascript.'} Ctrl+S saves.
+					</span>
 					{#if parser}
 						<Button variant="text" disabled={!dirty} onclick={() => { yaml = original; error = null; }}>Discard changes</Button>
 					{:else if oncancel}
@@ -182,19 +212,25 @@ pattern: '^Host: (?P<ip>\\S+)'
 		<div class="flex min-w-0 flex-col gap-3">
 			<section class="flex min-w-0 flex-col overflow-hidden rounded-lg border border-outline-variant bg-surface">
 				<header class="flex min-h-11 items-center gap-2 border-b border-outline-variant py-1 pr-2 pl-4">
-					<span class="title-small text-on-surface">Sample output</span>
-					{#if sampleFrom}<span class="truncate body-small text-on-surface-variant">from {sampleFrom}</span>{/if}
+					<span class="title-small text-on-surface">Test input</span>
+					<span class="truncate body-small text-on-surface-variant">{sampleFrom ? `from ${sampleFrom}` : 'results update as you type'}</span>
 				</header>
 				<textarea
-					class="min-h-48 resize-y bg-transparent p-4 font-mono text-[12.5px] leading-5 whitespace-pre text-on-surface outline-none placeholder:text-on-surface-variant"
-					placeholder="Paste what the tool prints (it's saved with the parser as its sample)"
+					class="min-h-64 resize-y bg-transparent p-4 font-mono text-[12.5px] leading-5 whitespace-pre text-on-surface outline-none placeholder:text-on-surface-variant"
+					placeholder="Paste what the tool prints. The parser runs on it as you type, and the results show below."
 					spellcheck="false"
 					autocomplete="off"
 					wrap="off"
-					aria-label="Sample output"
+					aria-label="Test input"
 					bind:value={sample}
 				></textarea>
 			</section>
+			{#if editable}
+				<label class="flex items-center gap-2 body-small text-on-surface-variant">
+					<input type="checkbox" class="size-4 accent-primary" bind:checked={keepSample} />
+					Save this input with the parser as its sample
+				</label>
+			{/if}
 			<div class="flex h-6 items-center gap-2 label-medium text-on-surface-variant">
 				{#if checking}<Progress variant="circular" size={14} /> Checking…
 				{:else if check?.ok && check.count}<Icon name="check_circle" size={16} class="text-primary" /> Reads {check.count} result{check.count === 1 ? '' : 's'}

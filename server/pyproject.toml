@@ -21,6 +21,7 @@ dependencies = [
   "regex>=2024.4",
   "cryptography>=42",
   "httpx>=0.27",
+  "mini-racer>=0.14",  # JavaScript parsers, in a V8 isolate (js_sandbox.py)
 ]
 
 [project.optional-dependencies]

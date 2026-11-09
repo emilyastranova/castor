@@ -163,7 +163,7 @@
 			</button>
 			{#if showYaml}
 				<pre class="overflow-x-auto rounded-sm bg-surface-container-highest p-3 font-mono text-[12px] leading-5 whitespace-pre text-on-surface">{current.yaml}</pre>
-				<p class="body-small text-on-surface-variant">A parser is a declarative definition (format and fields), never code.</p>
+				<p class="body-small text-on-surface-variant">A parser is a format and its fields, or JavaScript run in a sandbox with no files, network or imports.</p>
 			{/if}
 			{#if editable}
 				{#if keeping}

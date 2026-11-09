@@ -226,3 +226,54 @@ async def test_keeping_a_draft_can_point_your_command_at_it(client, auth):
     r = client.post(f"/api/parser-proposals/{proposal_id}/apply", json={"save_as": other, "use_in_command": True}, headers=auth)
     assert "built in" in r.json()["command_note"]
     assert client.get("/api/commands/nmap-ping-sweep", headers=auth).json()["spec"]["outputs"][0]["parser"] == "nmap.hosts"
+
+
+JS = """id: {id}
+name: masscan (js)
+type: list<service>
+format: javascript
+code: |
+  function parse(text) {{
+    return text.split('\\n')
+      .filter(l => l.startsWith('open '))
+      .map(l => {{ const [, proto, port, host] = l.split(/\\s+/); return {{ host, port, proto }}; }});
+  }}
+"""
+
+
+def _js(body: str) -> str:
+    return "id: js\nname: js\ntype: list<string>\nformat: javascript\ncode: |\n" + "".join(f"  {line}\n" for line in body.splitlines())
+
+
+def test_javascript_parsers_run_sandboxed():
+    services = run(parse_parser_spec(JS.format(id="m")), b"open tcp 80 10.0.0.1 1\nopen udp 53 10.0.0.2 1\n")
+    assert services[0] == {"host": "10.0.0.1", "port": 80, "proto": "tcp", "state": "open", "name": "", "product": "", "version": ""}
+    assert run(parse_parser_spec(_js("function parse(t) { return t.trim().split(',') }")), b"a,b") == ["a", "b"]
+    from castor_server.parsers import ParseError
+
+    # Nothing to reach: no require, process, fetch or timers.
+    for body in ("function parse(t) { return [require('fs').readFileSync('/etc/passwd', 'utf8')] }",
+                 "function parse(t) { return [process.env.HOME] }", "function parse(t) { return [fetch('http://x')] }"):
+        with pytest.raises(ParseError, match="is not defined"):
+            run(parse_parser_spec(_js(body)), b"x")
+    with pytest.raises(ParseError, match="took longer"):
+        run(parse_parser_spec(_js("function parse(t) { while (true) {} }")), b"x")
+    with pytest.raises(ParseError, match="memory"):
+        run(parse_parser_spec(_js("function parse(t) { const a = []; while (true) a.push(new Array(1e6).fill(t)) }")), b"x")
+    with pytest.raises(ValueError, match="define a function parse"):
+        parse_parser_spec(_js("function read(t) { return [] }"))
+    with pytest.raises(ValueError, match="SyntaxError"):
+        parse_parser_spec(_js("function parse(t) { return t."))
+    with pytest.raises(ValueError, match="code is for format javascript"):
+        parse_parser_spec("id: a\nname: a\ntype: list<string>\nformat: lines\ncode: 'function parse(t) {}'\n")
+
+
+def test_javascript_parsers_through_the_api(client, auth):
+    pid = f"js-{uuid.uuid4().hex[:6]}"
+    r = client.post("/api/parsers", json={"yaml": JS.format(id=pid)}, headers=auth)
+    assert r.status_code == 201, r.text
+    tried = client.post(f"/api/parsers/{pid}/test", json={"input": "open tcp 22 10.9.9.9 1\n"}, headers=auth).json()
+    assert tried["value"] == [{"host": "10.9.9.9", "port": 22, "proto": "tcp", "state": "open", "name": "", "product": "", "version": ""}]
+    check = client.post("/api/parsers/validate", json={"yaml": _js("function parse(t) { throw new Error('nope') }"), "input": "x"}, headers=auth).json()
+    assert not check["ok"] and "nope" in check["errors"][0]
+    assert client.delete(f"/api/parsers/{pid}", headers=auth).status_code == 204

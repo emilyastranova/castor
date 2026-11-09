@@ -129,11 +129,16 @@ untrusted content.
 
 #### Parsers in the library
 
-People and the AI add parsers as **declarative definitions**, never code
+People and the AI add parsers as **declarative definitions**, or as JavaScript in a sandbox
 (`parser_spec.py`, table `parser_definitions`, YAML like commands and tools): a `type`, a
 `format` (`lines`, `regex`, `json`, `jsonl`, `csv`, `xml`) with `pattern` / `records` /
 `delimiter`, and `fields` mapping each field of the type's items to where it comes from
-(`values` sets constants). They run on the same guarded pieces as the built-ins, carry a
+(`values` sets constants). With `format: javascript`, `code` defines `parse(text)` returning
+the records; `js_sandbox.py` runs it in a fresh V8 isolate (mini-racer) with no file system,
+network, `require`, `process` or timers, a 3 s limit and 256 MB, and the result comes back as
+JSON then goes through the same field typing. Code parsers are JavaScript because Python can't
+be sandboxed in-process: a parser could read the vault key and the database. The declarative
+formats run on the same guarded pieces as the built-ins. All parsers carry a
 `sample`, and are registered next to them (`parsers.USER`, filled at startup and on every
 change by `parser_library.py`) so commands name them like built-ins; a parser a command uses
 can't be deleted or change type. Their results become assets by type (`assets.mapping_for`).

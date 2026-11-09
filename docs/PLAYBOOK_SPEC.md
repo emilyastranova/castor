@@ -459,8 +459,8 @@ expected), a step with `on_failure: ask` or `ai` pauses instead of carrying on w
 If an AI model is set up, Castor drafts a parser for that output at once and checks it on the
 real output (it must read results of the right type). With `ask` the draft waits on the step:
 using it is one click. With `ai` and `draft_parsers` on, the run uses it and carries on; turn
-it off to have a person look first. A drafted parser is a declarative definition (see the
-Parsers page), never code, and it's only used for that run: keeping it in the library is
+it off to have a person look first. A drafted parser is a declarative definition or sandboxed
+JavaScript (see the Parsers page), and it's only used for that run: keeping it in the library is
 always a person's choice. Steps with `on_failure: stop` or `continue` don't pause; their card's
 results offer the same draft.
 

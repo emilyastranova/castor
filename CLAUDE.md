@@ -114,7 +114,9 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `test_every_sample_parses` rely on it).
   `outputs.py` runs them after `job.finished` in a background task using the job's
   `output_specs` snapshot and stores `JobOutput` rows, publishing `job.outputs`.
-  Parsers in the library: declarative YAML (`parser_spec.py`: format + field map, never code),
+  Parsers in the library: YAML (`parser_spec.py`: format + field map, or `format: javascript` with
+  `code` defining `parse(text)`, run by `js_sandbox.py` in a V8 isolate with no files, network or
+  imports, 3 s and 256 MB; never run user code as Python on the server),
   `parser_definitions`, registered next to the built-ins by `parser_library.py`
   (`parsers.get` / `all_parsers`, not `PARSERS`, when the library's count). Output its parser
   couldn't read (`outputs.is_mismatch`) gets an AI draft as a `ParserProposal`
