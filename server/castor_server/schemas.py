@@ -27,6 +27,8 @@ class UserOut(ORM):
     id: uuid.UUID
     username: str
     display_name: str
+    # Set by admins (or verified by a sign-on provider); how single sign-on links accounts.
+    email: str = ""
     role: UserRole
     is_admin: bool
     disabled_at: datetime | None = None
@@ -65,6 +67,7 @@ class UserIn(BaseModel):
     display_name: str = Field("", max_length=128)
     role: UserRole = UserRole.operator
     password: str = Field(min_length=8, max_length=256)
+    email: str = Field("", max_length=254)
     # Make them a member of every project that exists now.
     all_projects: bool = False
 
@@ -75,6 +78,7 @@ class UserPatch(BaseModel):
     disabled: bool | None = None
     # An admin setting a new password for them.
     password: str | None = Field(None, min_length=8, max_length=256)
+    email: str | None = Field(None, max_length=254)
 
 
 class PasswordChange(BaseModel):

@@ -6,12 +6,10 @@ and, for how it works, [ARCHITECTURE.md](ARCHITECTURE.md#milestones).
 
 ## People and access
 
-### Single sign-on
-Sign in with an identity provider instead of a Castor password: OpenID Connect first (Okta,
-Entra ID, Google, Keycloak, Authentik…), then SAML. Accounts are created on first sign-in, and a
-provider's groups or claims can set a person's role and [group](#groups). Local accounts stay
-for the first admin and for recovery (`castor-admin`), and an instance can turn password
-sign-in off.
+### SAML sign-on
+Single sign-on works with OpenID Connect (Settings → Sign-on). SAML would add identity
+providers that only speak it. A provider's groups should also be able to put people in
+[groups](#groups), not only set their role.
 
 ### Groups
 Put people in groups (a team, a client's testers, on-call):

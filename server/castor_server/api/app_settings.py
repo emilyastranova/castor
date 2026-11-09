@@ -26,6 +26,17 @@ async def update(body: dict[str, Any], db: DB, user: Admin):
     unknown = set(body) - set(AppSettings.model_fields)
     if unknown:
         raise HTTPException(422, f"Unknown setting: {', '.join(sorted(unknown))}")
+    if body.get("password_login") is False:
+        # Never lock everyone out: a provider must be on, and the admin turning passwords off
+        # must have signed in through one (so they know it works for them).
+        from sqlalchemy import select
+
+        from .. import models as m
+
+        if not (await db.execute(select(m.SsoProvider.id).where(m.SsoProvider.enabled.is_(True)))).first():
+            raise HTTPException(422, "password_login: turn on a sign-on provider first")
+        if not (await db.execute(select(m.UserIdentity.id).where(m.UserIdentity.user_id == user.id))).first():
+            raise HTTPException(422, "password_login: sign in with single sign-on yourself first, so you know it works")
     try:
         settings = await app_settings.save(db, body, user.id)
     except ValidationError as exc:

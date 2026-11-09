@@ -23,6 +23,9 @@ class AppSettings(BaseModel):
     # LLM models per purpose, tried in order (later ones are fallbacks): "default" for
     # generating things, "resolver" for deciding paused playbook steps (empty: use default).
     ai_chains: dict[str, list[ModelChoice]] = Field(default_factory=dict)
+    # Signing in with a username and password. Off (with a sign-on provider enabled): only
+    # single sign-on; `castor-admin password-login on` turns it back on from the shell.
+    password_login: bool = True
 
 
 async def load(db: AsyncSession) -> AppSettings:

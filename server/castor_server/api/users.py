@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Annotated
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -44,6 +45,7 @@ async def create_user(body: UserIn, db: DB, admin: Admin):
         display_name=body.display_name.strip() or body.username,
         role=body.role,
         password_hash=hash_password(body.password),
+        email=await _email(db, body.email),
     )
     db.add(user)
     await db.flush()
@@ -56,6 +58,20 @@ async def create_user(body: UserIn, db: DB, admin: Admin):
     )
     await db.commit()
     return UserOut.model_validate(user)
+
+
+async def _email(db: DB, value: str, user_id=None) -> str:
+    """An email for an account: one account per email, since single sign-on links by it.
+    Only admins set them (a person choosing their own could claim someone else's sign-on)."""
+    email = value.strip()
+    if not email:
+        return ""
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise HTTPException(422, "email: that doesn't look like an email address")
+    taken = (await db.execute(select(m.User.username).where(func.lower(m.User.email) == email.lower(), m.User.id != user_id))).first()
+    if taken:
+        raise HTTPException(409, f"{taken[0]} already has that email")
+    return email
 
 
 async def _admins_left(db: DB, excluding) -> int:
@@ -88,6 +104,9 @@ async def update_user(user_id: str, body: UserPatch, db: DB, admin: Admin):
     if body.password:
         user.password_hash = hash_password(body.password)
         changes.append("password reset")
+    if body.email is not None and body.email.strip() != user.email:
+        user.email = await _email(db, body.email, user.id)
+        changes.append(f"email {user.email or 'removed'}")
     if changes:
         await record_activity(
             db, type="user.updated", message=f"User {user.username}: {', '.join(changes)}",

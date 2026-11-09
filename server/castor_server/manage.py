@@ -68,6 +68,13 @@ async def run(args: argparse.Namespace) -> None:
             await db.commit()
             print(f"Created admin {args.username}" + (f" with password: {password}" if generated else ""))
             return
+        if args.command == "password-login":
+            from .app_settings import save
+
+            await save(db, {"password_login": args.state == "on"}, None)
+            await db.commit()
+            print("Password sign-in is " + ("on" if args.state == "on" else "off (single sign-on only, while a provider is enabled)"))
+            return
         user = await _user(db, args.username)
         if args.command == "reset-password":
             password, generated = _password(args.password)
@@ -100,6 +107,8 @@ def main(argv: list[str] | None = None) -> None:
         c.add_argument("--password", help="the new password (default: prompt, or generate one)")
     for name, text in (("enable", "re-enable a disabled account"), ("promote", "make a user an admin (and enable them)")):
         sub.add_parser(name, help=text).add_argument("username")
+    sub.add_parser("password-login", help="turn signing in with a password on or off (e.g. when single sign-on is broken)") \
+        .add_argument("state", choices=["on", "off"])
     asyncio.run(run(p.parse_args(argv)))
 
 

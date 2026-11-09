@@ -92,6 +92,10 @@ RULES: list[tuple[str, str, str]] = [
     ("*", "/api/health", PUBLIC),
     ("*", "/api/auth/login", PUBLIC),
     ("*", "/api/auth/logout", PUBLIC),
+    ("GET", "/api/auth/sso", PUBLIC),  # sign-in options and the provider round trip
+    ("GET", "/api/auth/sso/**", PUBLIC),
+    ("*", "/api/sso-providers", "admin"),
+    ("*", "/api/sso-providers/**", "admin"),
     ("POST", "/api/jobs/*/artifacts", PUBLIC),  # the agent, with the job's one-off token
     ("GET", "/api/auth/me", ANY),
     ("*", "/api/mcp", ANY),  # each tool call is checked against its own endpoint's scope

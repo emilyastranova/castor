@@ -10,6 +10,8 @@ export interface User {
 	id: UUID;
 	username: string;
 	display_name: string;
+	/** Set by admins (or verified by a sign-on provider); single sign-on links accounts by it. */
+	email?: string;
 	/** viewer: read-only; operator: works in their projects; admin: everything. */
 	role: UserRole;
 	is_admin: boolean;
@@ -1096,14 +1098,23 @@ export function api(fetchFn: Fetch = fetch) {
 			me: () => get<User>('/auth/me'),
 			updateMe: (body: { display_name?: string; theme_seed?: string }) => patch<User>('/auth/me', body),
 			changePassword: (current_password: string, new_password: string) =>
-				post<void>('/auth/password', { current_password, new_password })
+				post<void>('/auth/password', { current_password, new_password }),
+			/** What the sign-in page offers: providers to sign in with, and whether passwords work. */
+			signInOptions: () => get<{ providers: { id: string; name: string }[]; password_login: boolean }>('/auth/sso')
+		},
+		sso: {
+			list: () => get<SsoProvider[]>('/sso-providers'),
+			create: (body: SsoProviderIn) => post<SsoProvider>('/sso-providers', body),
+			update: (id: string, body: SsoProviderIn) => request<SsoProvider>(fetchFn, 'PUT', `/sso-providers/${id}`, body),
+			remove: (id: string) => del(`/sso-providers/${id}`),
+			test: (issuer: string) => post<{ ok: boolean; error: string | null; issuer: string | null; authorization_endpoint: string | null }>('/sso-providers/test', { issuer })
 		},
 		users: {
 			list: () => get<User[]>('/users'),
 			directory: () => get<UserBrief[]>('/users/directory'),
-			create: (body: { username: string; display_name?: string; role: UserRole; password: string; all_projects?: boolean }) =>
+			create: (body: { username: string; display_name?: string; role: UserRole; password: string; email?: string; all_projects?: boolean }) =>
 				post<User>('/users', body),
-			update: (id: UUID, body: { display_name?: string; role?: UserRole; disabled?: boolean; password?: string }) =>
+			update: (id: UUID, body: { display_name?: string; role?: UserRole; disabled?: boolean; password?: string; email?: string }) =>
 				patch<User>(`/users/${id}`, body),
 			setAvatar: (id: UUID, body: { kind: AvatarKind; url?: string; gravatar_email?: string }) =>
 				request<User>(fetchFn, 'PUT', `/users/${id}/avatar`, body),
@@ -1556,7 +1567,32 @@ export interface AppSettings {
 	notes_per_project: number;
 	/** LLM models per purpose ("default", "resolver"), in order: later ones are fallbacks. */
 	ai_chains: Record<string, { provider: UUID; model: string }[]>;
+	/** Signing in with a password; off means single sign-on only (while a provider is on). */
+	password_login: boolean;
 }
+
+/** An OpenID Connect provider people can sign in with (Settings → Sign-on). */
+export interface SsoProvider {
+	id: string;
+	name: string;
+	issuer: string;
+	client_id: string;
+	has_secret: boolean;
+	scopes: string;
+	enabled: boolean;
+	default_role: UserRole;
+	allowed_domains: string[];
+	allowed_groups: string[];
+	groups_claim: string;
+	role_map: { group: string; role: UserRole }[];
+	link_by_email: boolean;
+	/** Register this at the provider as the redirect URI. */
+	redirect_uri: string;
+	/** People who have signed in through it. */
+	users: number;
+}
+
+export type SsoProviderIn = Omit<SsoProvider, 'has_secret' | 'redirect_uri' | 'users'> & { client_secret?: string };
 
 export interface AiField {
 	name: string;

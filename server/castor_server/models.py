@@ -121,6 +121,9 @@ class User(Base, TimestampMixin):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(128))
+    # Their email: shown to admins, and how single sign-on finds an existing account to link
+    # (only when the provider vouches for it). Empty when unknown.
+    email: Mapped[str] = mapped_column(String(254), default="", server_default="", index=True)
     password_hash: Mapped[str] = mapped_column(String(256))
     role: Mapped[UserRole] = mapped_column(
         Enum(UserRole, name="user_role", native_enum=False, length=16),
@@ -478,6 +481,45 @@ class SshHost(Base, TimestampMixin):
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     agent: Mapped[Agent] = relationship()
+
+
+class SsoProvider(Base, TimestampMixin):
+    """An OpenID Connect provider people can sign in with (Settings → Sign-on; sso.py)."""
+
+    __tablename__ = "sso_providers"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)  # slug, in the callback URL
+    name: Mapped[str] = mapped_column(String(64))  # on the sign-in button
+    issuer: Mapped[str] = mapped_column(String(500))
+    client_id: Mapped[str] = mapped_column(String(255))
+    client_secret: Mapped[str] = mapped_column(Text, default="")  # vault token; empty: public client (PKCE)
+    scopes: Mapped[str] = mapped_column(String(255), default="openid email profile")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # New accounts: their role unless a group maps to one; who may sign in at all.
+    default_role: Mapped[str] = mapped_column(String(16), default="viewer")
+    allowed_domains: Mapped[list[str]] = mapped_column(JSONType, default=list)
+    allowed_groups: Mapped[list[str]] = mapped_column(JSONType, default=list)
+    groups_claim: Mapped[str] = mapped_column(String(64), default="groups")
+    # [{"group": "castor-admins", "role": "admin"}, …]: with any, the role follows the groups
+    # at every sign-in (the highest mapped role wins; no match: default_role).
+    role_map: Mapped[list[dict[str, str]]] = mapped_column(JSONType, default=list)
+    # Link to an existing account with the same email, if the provider says it's verified.
+    link_by_email: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class UserIdentity(Base):
+    """A person's account at a provider (its `sub`), linked to a Castor user."""
+
+    __tablename__ = "user_identities"
+    __table_args__ = (UniqueConstraint("provider_id", "subject"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    provider_id: Mapped[str] = mapped_column(ForeignKey("sso_providers.id", ondelete="CASCADE"))
+    subject: Mapped[str] = mapped_column(String(255))
+    email: Mapped[str] = mapped_column(String(254), default="")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    last_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
 
 class Job(Base):

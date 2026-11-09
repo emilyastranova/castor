@@ -635,6 +635,28 @@ The client keeps page state in sync by applying these to its stores.
 accepted as `Authorization: Bearer`. The first admin is created from
 `CASTOR_ADMIN_USERNAME` / `CASTOR_ADMIN_PASSWORD` when the database has no users.
 
+**Single sign-on** (`sso.py`, `api/sso.py`): OpenID Connect providers in `sso_providers`,
+added by admins in Settings → Sign-on (client secret as a vault token). `GET /api/auth/sso`
+lists them for the sign-in page. `…/{id}/start` redirects to the provider with `state`, `nonce`
+and a PKCE challenge, kept in a signed `castor_sso` cookie (10 minutes, path `/api/auth/sso`).
+`…/{id}/callback` checks the state, swaps the code at the token endpoint (`client_secret_basic`
+unless only `_post` is offered), and verifies the `id_token` against the provider's JWKS:
+asymmetric algorithms only, issuer, audience, expiry and nonce. It fills in email or groups
+from UserInfo if the token lacks them, then `resolve_user` picks the account:
+1. A linked `user_identities` row (provider + `sub`).
+2. Otherwise, with `link_by_email` and a verified email, the one account with that email.
+3. Otherwise a new account with `default_role`.
+
+Allowed email domains (verified emails only) and groups are checked first. With a
+`role_map`, the role follows the groups at every sign-in, but the last active admin is never
+demoted. On failure the person goes back to `/login?sso_error=…`; on success the usual session
+cookie is set and they go to a same-site `next`.
+
+`users.email` is set by admins only, one account per address, so nobody can point their own
+account at someone else's sign-on. `AppSettings.password_login` turns password sign-in off,
+but only while a provider is enabled, and only by an admin who has signed in through one.
+`castor-admin password-login on` turns it back on.
+
 **API tokens** (`api_tokens.py`, `api/tokens.py`, `api_tokens` table): personal
 `castor_pat_…` tokens (SHA-256 stored) sent as `Authorization: Bearer`. `deps.current_user`
 recognises the prefix, checks revocation and expiry, and checks the request against the

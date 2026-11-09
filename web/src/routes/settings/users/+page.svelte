@@ -30,11 +30,11 @@
 
 	// ---- add ----
 	let addOpen = $state(false);
-	let form = $state({ username: '', display_name: '', role: 'operator' as UserRole, password: '', all_projects: false });
+	let form = $state({ username: '', display_name: '', email: '', role: 'operator' as UserRole, password: '', all_projects: false });
 	let saving = $state(false);
 	let error = $state<string | null>(null);
 	function openAdd() {
-		form = { username: '', display_name: '', role: 'operator', password: '', all_projects: false };
+		form = { username: '', display_name: '', email: '', role: 'operator', password: '', all_projects: false };
 		error = null;
 		addOpen = true;
 	}
@@ -55,10 +55,10 @@
 
 	// ---- edit ----
 	let editing = $state<User | null>(null);
-	let edit = $state({ display_name: '', role: 'operator' as UserRole, disabled: false, password: '' });
+	let edit = $state({ display_name: '', email: '', role: 'operator' as UserRole, disabled: false, password: '' });
 	function openEdit(u: User) {
 		editing = u;
-		edit = { display_name: u.display_name, role: u.role, disabled: !!u.disabled_at, password: '' };
+		edit = { display_name: u.display_name, email: u.email ?? '', role: u.role, disabled: !!u.disabled_at, password: '' };
 		error = null;
 	}
 	async function saveEdit() {
@@ -68,6 +68,7 @@
 		try {
 			const updated = await api().users.update(editing.id, {
 				display_name: edit.display_name,
+				email: edit.email,
 				role: edit.role,
 				disabled: edit.disabled,
 				...(edit.password ? { password: edit.password } : {})
@@ -125,7 +126,7 @@
 								<Avatar name={u.display_name} src={u.avatar_url} size={32} />
 								<span>
 									<a href="/people/{u.username}" class="block text-on-surface hover:underline"><PersonName name={u.display_name} />{u.id === self?.id ? ' (you)' : ''}</a>
-									<span class="block body-small text-on-surface-variant">@{u.username}</span>
+									<span class="block body-small text-on-surface-variant">@{u.username}{u.email ? ` · ${u.email}` : ''}</span>
 								</span>
 							</span>
 						</td>
@@ -145,6 +146,7 @@
 		<div class="grid gap-3 sm:grid-cols-2">
 			<TextField label="Username" bind:value={form.username} required autocomplete="off" supporting="letters, digits, . _ -" />
 			<TextField label="Display name" bind:value={form.display_name} placeholder={form.username} />
+			<TextField label="Email (optional)" type="email" bind:value={form.email} autocomplete="off" class="sm:col-span-2" supporting="Single sign-on can link to this account by it, when the provider vouches for the email." />
 		</div>
 		<Select label="Role" bind:value={form.role} options={roleOptions} />
 		<TextField label="Password" type="password" bind:value={form.password} required autocomplete="new-password" supporting="At least 8 characters. They can change it after signing in." />
@@ -170,6 +172,7 @@
 			/>
 		{/if}
 		<TextField label="Display name" bind:value={edit.display_name} />
+		<TextField label="Email" type="email" bind:value={edit.email} autocomplete="off" supporting="Single sign-on can link to this account by it, when the provider vouches for the email." />
 		<Select label="Role" bind:value={edit.role} options={roleOptions} disabled={lastAdmin} />
 		<TextField label="New password (optional)" type="password" bind:value={edit.password} autocomplete="new-password" supporting="Leave empty to keep their password." />
 		<Switch

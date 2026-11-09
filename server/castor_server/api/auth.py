@@ -21,6 +21,10 @@ async def login(body: LoginRequest, response: Response, db: DB):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid username or password")
     if user.disabled_at is not None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "This account is disabled")
+    from .sso import password_login_allowed
+
+    if not await password_login_allowed(db):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Password sign-in is turned off: use single sign-on")
     token = create_session_token(user.id)
     response.set_cookie(
         settings.cookie_name,
