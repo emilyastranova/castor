@@ -156,3 +156,38 @@ def test_a_playbook_runs_on_a_chosen_agent_or_once_per_agent(client, auth):
             client.post(f"/api/playbook-runs/{run_id}/cancel", headers=auth)
         for ws in (a_ws, b_ws):
             ws.__exit__(None, None, None)
+
+
+def test_run_card_over_mcp_chooses_the_agents(client, auth):
+    tag = f"mcp-{uuid.uuid4().hex[:5]}"
+    a_ws, a = _agent(client, f"{tag}-a", [tag])
+    b_ws, b = _agent(client, f"{tag}-b", [tag])
+    try:
+        p = _project(client, auth)
+        made = client.post("/api/tokens", json={"name": "runner", "scopes": ["projects:write", "jobs:write"]}, headers=auth).json()
+        bearer = {"Authorization": f"Bearer {made['token']}"}
+        task = client.post(f"/api/projects/{p['id']}/tasks", json={"title": "Both", "kind": "command", "command": "id"}, headers=auth).json()
+
+        def run_card(**args):
+            r = client.post("/api/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                              "params": {"name": "run_card", "arguments": {"task_id": task["id"], **args}}}, headers=bearer)
+            return r.json()["result"]
+
+        bad = run_card(agent_selector={"all": True})
+        assert bad["isError"] and "needs tags" in bad["content"][0]["text"]
+        out = run_card(agent_selector={"tags": [tag], "all": True})
+        assert not out["isError"], out
+        assert client.get(f"/api/tasks/{task['id']}", headers=auth).json()["agent_selector"] == {"tags": [tag], "all": True}
+        ids = {j["id"] for j in client.get(f"/api/tasks/{task['id']}/jobs", headers=auth).json()}
+        assert len(ids) == 2
+        for agent in (a, b):
+            _finish(agent, _take(agent, ids))
+        card = _wait(lambda: (t := client.get(f"/api/tasks/{task['id']}", headers=auth).json())["batch"]["active"] == 0 and t)
+        assert card["batch"]["status"] == "succeeded"
+
+        # Without agent_selector it runs as the card says (here: both again).
+        assert not run_card()["isError"]
+        assert len(client.get(f"/api/tasks/{task['id']}/jobs", headers=auth).json()) == 4
+    finally:
+        for ws in (a_ws, b_ws):
+            ws.__exit__(None, None, None)

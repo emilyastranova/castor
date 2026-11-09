@@ -118,7 +118,9 @@ TOOLS: list[Tool] = [
          {"task_id": ID["task_id"], "filename": _s("File name, e.g. login-page.png"),
           "content_base64": _s("The file's bytes, base64-encoded"), "content_type": _s("MIME type, e.g. image/png (guessed from the name if left out)")},
          ("task_id", "filename", "content_base64"), upload=True),
-    Tool("run_card", "Run a command card now.", "POST", "/api/tasks/{task_id}/run", {"task_id": ID["task_id"]}, ("task_id",)),
+    Tool("run_card", "Run a command card now. agent_selector (optional) sets where it runs first, and stays on the card; "
+         "with all, it runs on every connected agent with the tags at once (one job each, listed by list_jobs).",
+         "POST", "/api/tasks/{task_id}/run", {"task_id": ID["task_id"], "agent_selector": _SELECTOR}, ("task_id",)),
     Tool("list_alert_channels", "Chat and webhook channels alerts can go to (Slack, ntfy, a webhook…): ids, names and kinds.",
          "GET", "/api/alert-channels/brief"),
     Tool("list_people", "Everyone who can see a project (ids, usernames, names): for alert people and @mentions.",

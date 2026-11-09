@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -244,13 +245,21 @@ async def move(task_id: str, body: TaskMove, db: DB, user: CurrentUser):
     return out
 
 
+class RunIn(BaseModel):
+    # Set where the card runs first (kept on the card), as its agent_selector.
+    agent_selector: dict[str, Any] | None = None
+
+
 @router.post("/tasks/{task_id}/run", response_model=JobOut, status_code=201)
-async def run(task_id: str, db: DB, user: CurrentUser):
+async def run(task_id: str, db: DB, user: CurrentUser, body: RunIn | None = None):
+    """Run a command card now. With `agent_selector`, the card's is set to it first."""
     task = await _task_or_404(db, user, task_id, write=True)
     if task.kind != m.TaskKind.command or not task.command.strip():
         raise HTTPException(400, "This card has no command to run")
     if await active_job_for(db, task.id) is not None:
         raise HTTPException(409, "A job for this card is already queued or running")
+    if body is not None and body.agent_selector is not None:
+        task.agent_selector = await _selector(db, body.agent_selector)
     job, moved = await start_run(db, task, user)
     await db.commit()
     await publish_task(db, task, "task.moved" if moved else "task.updated")
