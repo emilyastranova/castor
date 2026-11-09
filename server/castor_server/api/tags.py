@@ -11,15 +11,17 @@ import uuid
 from collections import Counter
 from collections.abc import Iterable
 
-from fastapi import APIRouter
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from .. import models as m
-from ..access import visible_project_ids
-from ..deps import DB, CurrentUser, parse_uuid
+from ..access import project_or_404, visible_project_ids
+from ..deps import DB, Admin, CurrentUser, parse_uuid
+from ..services import TagError, rename_tags
 
 router = APIRouter(prefix="/tags", tags=["tags"])
+project_router = APIRouter(tags=["tags"])
 
 
 class TagCount(BaseModel):
@@ -67,3 +69,41 @@ async def library_tags(db: DB, _: CurrentUser):
     commands = (await db.execute(select(m.CommandDefinition.tags))).scalars().all()
     playbooks = (await db.execute(select(m.PlaybookDefinition.tags))).scalars().all()
     return _ranked(t for tags in [*commands, *playbooks] for t in tags or [])
+
+
+class RenameIn(BaseModel):
+    # One tag to rename, or several to merge; onto an existing tag merges too.
+    from_: list[str] = Field(alias="from", min_length=1)
+    to: str
+
+    model_config = {"populate_by_name": True}
+
+
+class RenameOut(BaseModel):
+    # How many of each changed: cards; or agents, tokens, cards and runs.
+    changed: dict[str, int]
+
+
+@project_router.post("/projects/{project_id}/tags/rename", response_model=RenameOut)
+async def rename_card_tags(project_id: str, body: RenameIn, db: DB, user: CurrentUser):
+    """Rename a tag on this project's cards, or merge several into one."""
+    project = await project_or_404(db, user, parse_uuid(project_id), write=True)
+    try:
+        changed = await rename_tags(db, "cards", body.from_, body.to, user, project.id)
+    except TagError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    await db.commit()
+    return RenameOut(changed=changed)
+
+
+@router.post("/agents/rename", response_model=RenameOut)
+async def rename_agent_tags(body: RenameIn, db: DB, user: Admin):
+    """Rename an agent tag, or merge several, on agents and SSH hosts, enrollment tokens, and
+    every card and run that targets agents by it. An agent started with --tags brings its own
+    tags back when it reconnects; change them there too."""
+    try:
+        changed = await rename_tags(db, "agents", body.from_, body.to, user)
+    except TagError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    await db.commit()
+    return RenameOut(changed=changed)

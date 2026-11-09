@@ -338,7 +338,9 @@ dependency; keep it that way so the agent stays trivially installable on target 
 - Tags: edit them with `m3/TagInput` (pills; Enter, comma, space or Tab adds; an existing tag
   is reused whatever its case; Backspace selects then removes), fed by `lib/tags.ts` `loadTags`
   from `GET /api/tags/cards|agents|library` (`api/tags.py`: in use, most used first, a project's
-  own first). Don't add comma-separated tag text fields.
+  own first). Don't add comma-separated tag text fields. Renaming or merging (`services.rename_tags`,
+  `TagManagerDialog`): a project's card tags, or agent tags, which also rewrite the `agent_selector`
+  of cards and runs and the live `AgentConnection.tags`.
 - Motion: `lib/motion.ts` (`enter`/`leave` for list rows, `pop` for grid cards, `glide` for
   reorders). Use it for anything that appears or disappears live, and pass
   `{ enabled: false }` while a list (re)loads so page loads and filter changes don't cascade.

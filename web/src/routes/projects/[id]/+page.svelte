@@ -16,6 +16,7 @@
 	import TaskDialog from '$lib/components/TaskDialog.svelte';
 	import ProjectDialog from '$lib/components/ProjectDialog.svelte';
 	import MembersDialog from '$lib/components/MembersDialog.svelte';
+	import TagManagerDialog from '$lib/components/TagManagerDialog.svelte';
 	import ExportDialog from '$lib/components/ExportDialog.svelte';
 	import ProjectSwitcher from '$lib/components/ProjectSwitcher.svelte';
 	import { currentProject } from '$lib/currentProject.svelte';
@@ -119,6 +120,7 @@
 	let newColumn = $state<Column | null>(null);
 	let editOpen = $state(false);
 	let membersOpen = $state(false);
+	let tagsOpen = $state(false);
 	let exportOpen = $state(false);
 	let editable = $derived(canEdit());
 	let activityOpen = $state(false);
@@ -305,6 +307,7 @@
 				<MenuItem icon={mineOnly ? 'check_box' : 'check_box_outline_blank'} onclick={toggleMine}>Only cards assigned to me</MenuItem>
 			</div>
 			<MenuItem icon="group" onclick={() => (membersOpen = true)}>Members</MenuItem>
+			{#if editable}<MenuItem icon="sell" onclick={() => (tagsOpen = true)}>Manage tags…</MenuItem>{/if}
 			{#if editable}<MenuItem icon="edit" onclick={() => (editOpen = true)}>Edit project</MenuItem>{/if}
 			<MenuItem icon="download" onclick={() => (exportOpen = true)}>Export project…</MenuItem>
 			<MenuItem icon="refresh" onclick={() => invalidateAll()}>Reload board</MenuItem>
@@ -369,6 +372,7 @@
 
 <NewTaskDialog bind:open={newOpen} projectId={store.project.id} columns={store.columns} column={newColumn} {agents} oncreated={(t) => { store.upsertTask(t); snackbar.show(`Created “${t.title}”`); }} />
 <MembersDialog bind:open={membersOpen} projectId={store.project.id} projectName={store.project.name} />
+<TagManagerDialog bind:open={tagsOpen} kind="cards" projectId={store.project.id} />
 <ExportDialog
 	bind:open={exportOpen}
 	title="Export {store.project.codename}"

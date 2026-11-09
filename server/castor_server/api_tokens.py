@@ -122,6 +122,7 @@ RULES: list[tuple[str, str, str]] = [
     ("GET", "/api/transfer/history", "admin"),
     ("*", "/api/export", "transfer"),
     ("*", "/api/import/**", "transfer"),
+    ("POST", "/api/tags/agents/rename", "admin"),
     ("GET", "/api/tags/cards", "projects:read"),
     ("GET", "/api/tags/agents", "agents:read"),
     ("GET", "/api/tags/library", "library:read"),

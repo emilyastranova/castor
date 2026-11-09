@@ -442,6 +442,10 @@ TOOLS += [
     _auto("card_tags", "GET", "/api/tags/cards", "Tags in use on cards, most used first (in project_id first, if given): reuse them."),
     _auto("agent_tags", "GET", "/api/tags/agents", "Tags in use on agents and SSH hosts, most used first."),
     _auto("library_tags", "GET", "/api/tags/library", "Tags in use on library commands and playbooks, most used first."),
+    _auto("rename_card_tags", "POST", "/api/projects/{project_id}/tags/rename",
+          "Rename a tag on a project's cards (from: [old], to: new), or merge several into one (from: [a, b], to: a)."),
+    _auto("rename_agent_tags", "POST", "/api/tags/agents/rename",
+          "Rename or merge agent tags on agents, tokens, and the cards and runs that target agents by them.", destructive=True),
 ]
 BY_NAME = {t.name: t for t in TOOLS}
 

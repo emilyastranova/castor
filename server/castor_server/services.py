@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -348,6 +349,107 @@ async def enqueue_job(
     for job in jobs:
         publish_job(job, task.project_id)
     return jobs[0]
+
+
+class TagError(ValueError):
+    pass
+
+
+TAG_MAX = 40
+
+
+def clean_tag(raw: str) -> str:
+    """A tag as stored (as the web's TagInput makes them): no spaces or commas, no leading #."""
+    tag = re.sub(r"[\s,]+", "", str(raw).strip().lstrip("#"))[:TAG_MAX]
+    if not tag:
+        raise TagError("a tag can't be empty")
+    return tag
+
+
+def _retag(tags: list[str] | None, sources: set[str], target: str) -> list[str] | None:
+    """The tags with every source replaced by the target, in place and without duplicates;
+    None when nothing changes."""
+    tags = list(tags or [])
+    if not sources & set(tags):
+        return None
+    out: list[str] = []
+    for tag in tags:
+        tag = target if tag in sources else tag
+        if tag not in out:
+            out.append(tag)
+    return out
+
+
+async def rename_tags(
+    db: AsyncSession, kind: str, sources: list[str], target: str, user: m.User, project_id: uuid.UUID | None = None
+) -> dict[str, int]:
+    """Rename a tag, or merge several into one (renaming onto an existing tag merges them).
+    kind "cards": the cards of one project. kind "agents": agents and SSH hosts, enrollment
+    tokens, and every card, step card and run that targets agents by those tags (so they keep
+    matching). Returns how many of each changed. Caller commits; events are published here."""
+    target = clean_tag(target)
+    names = {str(t) for t in sources if str(t)} - {target}
+    if not names:
+        raise TagError("choose a tag to rename (other than the new name)")
+    counts: dict[str, int] = {}
+    changed_tasks: list[m.Task] = []
+    if kind == "cards":
+        rows = (await db.execute(select(m.Task).where(m.Task.project_id == project_id))).scalars().all()
+        for task in rows:
+            if (new := _retag(task.tags, names, target)) is not None:
+                task.tags = new
+                changed_tasks.append(task)
+        counts["cards"] = len(changed_tasks)
+    elif kind == "agents":
+        from .orchestrator.gateway import gateway
+
+        agents = (await db.execute(select(m.Agent))).scalars().all()
+        changed_agents = []
+        for agent in agents:
+            if (new := _retag(agent.tags, names, target)) is not None:
+                agent.tags = new
+                changed_agents.append(agent)
+                if conn := gateway.get(agent.id):
+                    conn.tags = new
+        tokens = (await db.execute(select(m.AgentToken))).scalars().all()
+        changed_tokens = 0
+        for token in tokens:
+            if (new := _retag(token.tags, names, target)) is not None:
+                token.tags = new
+                changed_tokens += 1
+        for task in (await db.execute(select(m.Task))).scalars().all():
+            selector = task.agent_selector or {}
+            if (new := _retag(selector.get("tags"), names, target)) is not None:
+                task.agent_selector = {**selector, "tags": new}
+                changed_tasks.append(task)
+        runs = 0
+        for run in (await db.execute(select(m.PlaybookRun))).scalars().all():
+            selector = run.agent_selector or {}
+            if (new := _retag(selector.get("tags"), names, target)) is not None:
+                run.agent_selector = {**selector, "tags": new}
+                runs += 1
+        counts = {"agents": len(changed_agents), "tokens": changed_tokens, "cards": len(changed_tasks), "runs": runs}
+    else:
+        raise TagError(f"unknown kind of tag {kind!r}")
+
+    what = ", ".join(sorted(names))
+    verb = "Merged" if len(names) > 1 else "Renamed"
+    await record_activity(
+        db, type="tags.renamed", message=f"{verb} {kind[:-1]} tag{'s' if len(names) > 1 else ''} {what} → {target}",
+        project_id=project_id, payload={"kind": kind, "from": sorted(names), "to": target, "counts": counts},
+        **actor_of(user),
+    )
+    await db.flush()
+    for task in changed_tasks:
+        await publish_task(db, task)
+    if kind == "agents":
+        from .orchestrator.gateway import gateway
+
+        for agent in changed_agents:
+            bus.publish("agent.updated", None, await gateway.agent_out(agent))
+        bus.publish("agent_tokens.changed", None, {})
+        gateway._notify()  # queued jobs may match differently now
+    return counts
 
 
 class SelectorError(ValueError):

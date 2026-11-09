@@ -1307,7 +1307,12 @@ export function api(fetchFn: Fetch = fetch) {
 			/** Card tags in the projects you can see, this project's first. */
 			cards: (projectId?: UUID) => get<TagSuggestion[]>(`/tags/cards${projectId ? `?project_id=${projectId}` : ''}`),
 			agents: () => get<TagSuggestion[]>('/tags/agents'),
-			library: () => get<TagSuggestion[]>('/tags/library')
+			library: () => get<TagSuggestion[]>('/tags/library'),
+			/** Rename a tag on a project's cards, or merge several (onto an existing tag merges). */
+			renameCards: (projectId: UUID, body: { from: string[]; to: string }) =>
+				post<{ changed: Record<string, number> }>(`/projects/${projectId}/tags/rename`, body),
+			/** Agents, tokens, and the cards and runs that target agents by the tags (admins). */
+			renameAgents: (body: { from: string[]; to: string }) => post<{ changed: Record<string, number> }>('/tags/agents/rename', body)
 		},
 		sshHosts: {
 			list: () => get<SshHost[]>('/ssh-hosts'),

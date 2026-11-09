@@ -15,6 +15,7 @@
 	import AgentTokenDialog from '$lib/components/AgentTokenDialog.svelte';
 	import SshHostDialog from '$lib/components/SshHostDialog.svelte';
 	import SshConfigDialog from '$lib/components/SshConfigDialog.svelte';
+	import TagManagerDialog from '$lib/components/TagManagerDialog.svelte';
 
 	let { data } = $props();
 	// svelte-ignore state_referenced_locally
@@ -51,6 +52,7 @@
 	const sshOf = (a: Agent) => (a.ssh_host_id ? sshHosts.find((h) => h.id === a.ssh_host_id) : undefined);
 	let sshOpen = $state(false);
 	let sshConfigOpen = $state(false);
+	let agentTagsOpen = $state(false);
 	let sshEditing = $state<SshHost | null>(null);
 	function addSshHost() {
 		sshEditing = null;
@@ -239,6 +241,7 @@
 	{#snippet actions()}
 		<IconButton icon="refresh" label="Refresh" onclick={() => invalidateAll()} />
 		{#if isAdmin()}
+			<IconButton icon="sell" label="Agent tags: rename or merge" onclick={() => (agentTagsOpen = true)} />
 			<Button variant="text" icon="route" onclick={() => (sshConfigOpen = true)}>SSH config</Button>
 			<Button variant="text" icon="terminal" onclick={addSshHost}>Add SSH host</Button>
 			<Button variant="tonal" icon="add" onclick={() => { revealed = null; enrollOpen = true; }}>Enroll agent</Button>
@@ -416,6 +419,7 @@
 </Dialog>
 
 <SshConfigDialog bind:open={sshConfigOpen} onsaved={() => void reloadSshHosts()} />
+<TagManagerDialog bind:open={agentTagsOpen} kind="agents" onchanged={() => void reloadTokens()} />
 <SshHostDialog bind:open={sshOpen} host={sshEditing} hosts={sshHosts} onsaved={sshSaved} />
 
 <AgentTokenDialog bind:open={enrollOpen} {wsUrl} {revealed} {sharedSecretAllowed} oncreated={() => void reloadTokens()} />
