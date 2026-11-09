@@ -38,6 +38,51 @@ record per host, service or URL that every tool adds to, with triggers that act 
 transform steps reshape one tool's results into the next tool's input, and a run shows
 on the board as one card that opens into its live graph, decisions and steps.
 
+## Features
+
+**Run the work**
+- **Command cards that run themselves.** Drag a card into *In Progress* and an agent runs it in a
+  container or the host shell, streaming output live into the card. ([Cards](https://github.com/emilyastranova/castor/wiki/Cards))
+- **Interactive terminals.** Take control of a running job and type into it (tmux, vim, sudo
+  prompts); Castor alerts people when an unattended job stops at a prompt. ([Jobs and Output](https://github.com/emilyastranova/castor/wiki/Jobs-and-Output))
+- **Playbooks.** Chain commands into a graph with parallel branches, transforms between steps,
+  conditions, and steps that pause for a decision. A run is one card with a live graph. ([Playbooks](https://github.com/emilyastranova/castor/wiki/Playbooks))
+- **Lightweight agents.** One Python dependency; tools are pulled or built on demand, per-agent
+  tokens, tags to route work to the right machine. ([Agents](https://github.com/emilyastranova/castor/wiki/Agents))
+
+**Make sense of the output**
+- **Parsed results.** nmap, NetExec, ffuf, httpx and more become typed tables you can filter
+  (`signing:false`), sort and copy as CSV. ([Jobs and Output](https://github.com/emilyastranova/castor/wiki/Jobs-and-Output))
+- **Your own parsers.** Write one in YAML (regex, JSON, CSV, XML…) or sandboxed JavaScript, with
+  live test input and a built-in reference. ([Parsers](https://github.com/emilyastranova/castor/wiki/Parsers))
+- **Assets.** Every host, service, URL and credential your jobs find, merged into one inventory,
+  with triggers that act on new ones and lists you feed back into commands. ([Assets](https://github.com/emilyastranova/castor/wiki/Assets))
+
+**A library, not a pile of scripts**
+- **Ready-made commands** for nmap, NetExec, httpx, Nuclei, ffuf, testssl.sh, ssh-audit,
+  subfinder, dnsx, Trivy and curl, plus five built-in playbooks. ([Commands](https://github.com/emilyastranova/castor/wiki/Commands))
+- **Safe by construction.** Arguments are shell-quoted; credentials live in an encrypted vault and
+  reach jobs only as environment variables and files, with secrets masked if a tool prints them. ([Variables and the Vault](https://github.com/emilyastranova/castor/wiki/Variables-and-the-Vault))
+- **Import and export** projects and library items between instances. ([Import and Export](https://github.com/emilyastranova/castor/wiki/Import-and-Export))
+
+**AI where it helps** ([AI](https://github.com/emilyastranova/castor/wiki/AI))
+- Any LLM provider, with fallback chains. AI can resolve a failed step, draft a parser for output
+  nobody has seen before (even mid-playbook), explain failures and generate commands and playbooks.
+  Changes it makes to commands wait for a person by default.
+
+**Work as a team**
+- **Roles and projects.** Viewers, operators and admins; members per project. ([People and Notifications](https://github.com/emilyastranova/castor/wiki/People-and-Notifications))
+- **@mentions, assignees and an inbox**, plus chat and webhook **alerts** for finished runs,
+  decisions and long-running jobs. ([Alerts](https://github.com/emilyastranova/castor/wiki/Alerts))
+- **A project Home** with pinned notes, today's numbers and what needs you. ([Projects and Boards](https://github.com/emilyastranova/castor/wiki/Projects-and-Boards))
+- **Board or list view**, search everything with Ctrl/Cmd+K, and a phone layout good enough to
+  check a run and answer a decision one-handed. ([Using Castor on a Phone](https://github.com/emilyastranova/castor/wiki/Using-Castor-on-a-Phone))
+
+**Connect other software**
+- **REST API with scoped tokens** and a reference at `/api/docs`. ([API and Tokens](https://github.com/emilyastranova/castor/wiki/API-and-Tokens))
+- **Built-in MCP server** so Claude, Gemini CLI, VS Code and other assistants can work with your
+  boards, runs and assets. ([MCP Server](https://github.com/emilyastranova/castor/wiki/MCP-Server))
+
 ## A look around
 
 <p align="center">
