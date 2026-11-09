@@ -464,6 +464,8 @@ class ParserProposalOut(ORM):
     applied_by: str
     saved_as: str
     automatic: bool = False
+    # After applying: what happened to the card's command (see use_in_command).
+    command_note: str = ""
     created_at: datetime
     updated_at: datetime
 

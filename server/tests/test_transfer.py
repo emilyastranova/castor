@@ -194,3 +194,28 @@ def test_everything_creates_missing_people(client, auth):
     result = _import(client, auth, preview, create_users=True, choices={i["key"]: "skip" for i in preview["items"]})
     assert result["created_users"] == [stranger]
     assert any(u["username"] == stranger for u in client.get("/api/users", headers=auth).json())
+
+
+def test_commands_travel_with_their_library_parsers(client, auth):
+    """A command that names a library parser imports with it, even where that parser doesn't
+    exist yet: the archive's parsers are known while its commands are checked."""
+    pid = f"tr-ports-{uuid.uuid4().hex[:6]}"
+    cid = f"tr-cmd-{uuid.uuid4().hex[:6]}"
+    parser_yaml = f"id: {pid}\nname: Ports\ntype: list<service>\nformat: regex\npattern: '^(?P<host>\\S+):(?P<port>\\d+)$'\n"
+    assert client.post("/api/parsers", json={"yaml": parser_yaml}, headers=auth).status_code == 201
+    cmd_yaml = f"id: {cid}\nname: Ports\ncommand: echo 10.0.0.1:22\noutputs:\n  - name: services\n    parser: {pid}\n"
+    assert client.post("/api/commands", json={"yaml": cmd_yaml}, headers=auth).status_code == 201
+    data = _export(client, auth, commands=[cid], parsers=[pid])
+    client.delete(f"/api/commands/{cid}", headers=auth)
+    client.delete(f"/api/parsers/{pid}", headers=auth)
+    assert client.get(f"/api/parsers/{pid}", headers=auth).status_code == 404
+
+    preview = _preview(client, auth, data).json()
+    kinds = {i["kind"]: i for i in preview["items"]}
+    assert kinds["parser"]["state"] == "new" and kinds["command"]["state"] == "new" and not preview["warnings"]
+    _import(client, auth, preview)
+    assert client.get(f"/api/parsers/{pid}", headers=auth).json()["used_by"] == [cid]
+    tried = client.post(f"/api/parsers/{pid}/test", json={"input": "10.0.0.9:443\n"}, headers=auth).json()
+    assert tried["value"][0]["port"] == 443  # registered as soon as the import committed
+    client.delete(f"/api/commands/{cid}", headers=auth)
+    client.delete(f"/api/parsers/{pid}", headers=auth)

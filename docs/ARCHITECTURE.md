@@ -146,15 +146,20 @@ but the parser couldn't read it" from "there was nothing to read" (no file, empt
 For such an output a `ParserProposal` (table `parser_proposals`, per job and output) holds a
 parser the AI drafted for that job's real input, checked on it; `job.parser_proposal` events
 report it. `POST /api/jobs/{id}/outputs/{name}/parser-proposal` asks for one (in the
-background), `POST /api/parser-proposals/{id}/apply` (`{save_as?}`) re-reads the job with it
-(carried inline on the job's `output_specs` as `parser_spec`, or saved to the library under
-`save_as`, a person's choice), `…/dismiss` puts it aside, and
+background), `POST /api/parser-proposals/{id}/apply` (`{save_as?, use_in_command?}`) re-reads
+the job with it (carried inline on the job's `output_specs` as `parser_spec`, or saved to the
+library under `save_as`, a person's choice; `use_in_command` also points the card's command at
+it when the command is the user's, editing its YAML in place, `parser_library.point_output_at`),
+`…/dismiss` puts it aside, and
 `GET /api/jobs/{id}/outputs/{name}/input` returns what the parser read. In a playbook, a
 step with `on_failure: ask|ai` whose job succeeded but whose output the playbook uses couldn't
 be read pauses (`step_results[step].parse`), and a draft is requested at once. With `ai` and
 the step's `ai.draft_parsers` (default on), `ai.auto_parser` applies it for the run and
 resolves the step `continue`; with `ask` it waits on the step, one click away. Nothing is
-added to the library without a person.
+added to the library without a person. Parsers travel in exports (`library/parsers/*.yaml`,
+before commands, and an archive's parsers are known while its commands are checked); the
+Library page's export carries the parsers your commands name. MCP tools: `list_parsers`,
+`get_output_input`, `check_parser`, `create_parser`, `list_parser_drafts`, `use_parser_draft`.
 
 Each parser has an options model (pydantic, `extra="forbid"`); an output's `options` are
 validated when the definition is saved. User-supplied regular expressions run with the

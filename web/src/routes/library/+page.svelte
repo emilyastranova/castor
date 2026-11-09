@@ -293,6 +293,10 @@ build:
 	let commandCount = $derived(commands.length);
 	let mineCommands = $derived(commands.filter((c) => c.origin === 'user').map((c) => c.id));
 	let mineTools = $derived(tools.filter((t) => t.origin === 'user').map((t) => t.id));
+	// Your commands travel with the library parsers they name (built-in names just don't match one).
+	let parsersOfMine = $derived([
+		...new Set(commands.filter((c) => c.origin === 'user').flatMap((c) => c.spec.outputs.map((o) => o.parser).filter((p): p is string => !!p)))
+	]);
 	const dot: Record<string, string> = {
 		ready: 'bg-primary',
 		partial: 'bg-primary/50',
@@ -317,7 +321,7 @@ build:
 <TopAppBar title="Library" subtitle="{tools.length} tools · {commandCount} commands · what cards and playbooks run">
 	{#snippet actions()}
 		<IconButton icon="keyboard" label="Keyboard shortcuts (?)" onclick={() => (shortcutsOpen = true)} />
-		<LibraryTransfer noun="library items" request={{ commands: mineCommands, tools: mineTools, label: 'castor-library' }} count={mineCommands.length + mineTools.length} onimported={async () => {
+		<LibraryTransfer noun="library items" request={{ commands: mineCommands, tools: mineTools, parsers: parsersOfMine, label: 'castor-library' }} count={mineCommands.length + mineTools.length} onimported={async () => {
 			[commands, tools] = await Promise.all([api().commands.list(), api().tools.list()]);
 		}} />
 		{#if editable}

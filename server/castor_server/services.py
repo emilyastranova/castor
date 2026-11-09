@@ -1432,10 +1432,12 @@ async def publish_parser_proposal(db: AsyncSession, p: m.ParserProposal) -> None
 
 
 async def apply_parser_proposal(db: AsyncSession, p: m.ParserProposal, user: m.User | None, *, actor: str | None = None,
-                                save_as: str | None = None) -> list[m.Job]:
+                                save_as: str | None = None, use_in_command: bool = False) -> tuple[list[m.Job], str]:
     """Read the job's output again with the drafted parser; with `save_as`, also keep it in
     the library under that id (a person's choice). A playbook step that paused on this
-    output carries on with what it reads now. Commits; returns the jobs that queued."""
+    output carries on with what it reads now. With `use_in_command` (and `save_as`), the card's
+    library command reads that output with it from now on, if the command is yours. Commits;
+    returns the jobs that queued and a note about the command."""
     import yaml
 
     from . import parser_library
@@ -1472,6 +1474,9 @@ async def apply_parser_proposal(db: AsyncSession, p: m.ParserProposal, user: m.U
     else:
         target.update(parser=spec.id, type=spec.type, options={}, parser_spec=spec.model_dump(mode="json"))
     job.output_specs = specs
+    command_note = ""
+    if save_as and use_in_command:
+        command_note = await _use_in_command(db, job, p.output_name, save_as)
     p.status = "applied"
     p.applied_by = actor or (user.display_name or user.username if user else "castor")
     p.saved_as = save_as or ""
@@ -1488,7 +1493,28 @@ async def apply_parser_proposal(db: AsyncSession, p: m.ParserProposal, user: m.U
                                       actor=actor, extra={"parser": save_as or "draft", "model": p.model})
     await db.refresh(p)
     await publish_parser_proposal(db, p)
-    return jobs
+    return jobs, command_note
+
+
+async def _use_in_command(db: AsyncSession, job: m.Job, output: str, parser_id: str) -> str:
+    """Point the card's library command at the parser; a note says what happened."""
+    from .command_library import definition_from_spec
+    from .command_spec import parse_spec
+    from .parser_library import point_output_at
+
+    task = await db.get(m.Task, job.task_id)
+    row = await db.get(m.CommandDefinition, task.command_ref) if task and task.command_ref else None
+    if row is None:
+        return "The card doesn't run a library command, so only this job uses it."
+    if row.origin == "builtin":
+        return f"{row.name} is built in: duplicate it in the Library to use {parser_id} from now on."
+    try:
+        text = point_output_at(row.source_yaml, output, parser_id)
+        spec = parse_spec(text)
+    except ValueError as exc:
+        return f"Couldn't change {row.name}: {exc}"
+    definition_from_spec(row, spec, text)
+    return f"{row.name} reads {output} with {parser_id} from now on."
 
 
 async def _proposal_sample(db: AsyncSession, job: m.Job, output_name: str) -> tuple[list[bytes], list[str]]:

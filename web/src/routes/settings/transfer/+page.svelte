@@ -22,7 +22,7 @@
 				<h2 class="title-medium text-on-surface">Export everything</h2>
 			</div>
 			<p class="body-medium text-on-surface-variant">
-				Every project, your commands, tools, playbooks and variable kinds, variable sets, clients and people (names, roles and pictures; never passwords or tokens). Built-ins aren't included: every Castor ships them.
+				Every project, your commands, tools, parsers, playbooks and variable kinds, variable sets, clients and people (names, roles and pictures; never passwords or tokens). Built-ins aren't included: every Castor ships them.
 			</p>
 			<Button icon="download" class="mt-auto self-start" onclick={() => (exportOpen = true)}>Export everything…</Button>
 		</Card>

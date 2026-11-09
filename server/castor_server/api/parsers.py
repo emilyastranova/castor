@@ -89,6 +89,8 @@ class DraftIn(BaseModel):
 class ApplyIn(BaseModel):
     # Keep it in the library under this id (otherwise it's used for this job only).
     save_as: str | None = Field(None, max_length=64)
+    # With save_as: the card's command (if it's yours) reads this output with it from now on.
+    use_in_command: bool = False
 
 
 def _out(p: parsers.Parser, row: m.ParserDefinition | None = None, used_by: list[str] | None = None) -> ParserOut:
@@ -310,13 +312,15 @@ async def apply_proposal(proposal_id: str, body: ApplyIn, db: DB, user: Operator
 
     p = await _proposal(db, user, proposal_id, write=True)
     try:
-        jobs = await apply_parser_proposal(db, p, user, save_as=body.save_as or None)
+        jobs, note = await apply_parser_proposal(db, p, user, save_as=body.save_as or None, use_in_command=body.use_in_command)
     except ValueError as exc:
         await db.rollback()
         raise HTTPException(409, str(exc)) from exc
     if jobs:
         dispatcher.wake()
-    return proposal_out(p)
+    out = proposal_out(p)
+    out.command_note = note
+    return out
 
 
 @proposals.post("/parser-proposals/{proposal_id}/dismiss", response_model=ParserProposalOut)

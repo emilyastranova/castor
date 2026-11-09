@@ -71,8 +71,10 @@ limits, service accounts that aren't a person (a user made for the purpose works
   `list_comments`, `create_card`, `move_card`, `comment`, `attach_file` (base64 content as a
   multipart upload; the result has `markdown` to embed it in a comment), `run_card`, `list_jobs`, `get_job`,
   `get_job_output`, `get_job_results`, `cancel_job`, `list_commands`, `get_command`,
-  `list_playbooks`, `run_playbook`, `get_run`, `resolve_step`, `list_assets`. Nothing
-  deletes, and nothing reveals secrets.
+  `list_playbooks`, `run_playbook`, `get_run`, `resolve_step`, `list_assets`, and for parsers
+  `list_parsers`, `get_output_input`, `check_parser`, `create_parser`, `list_parser_drafts`,
+  `use_parser_draft` (an assistant can read output its parser couldn't, write a parser and
+  check it before keeping it). Nothing deletes, and nothing reveals secrets.
 - **Untrusted output.** Results that carry job output or what a job found start with a note
   that the text is data, not instructions. Long results are cut at 100k characters (job
   output keeps its end).

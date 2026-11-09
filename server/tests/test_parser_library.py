@@ -168,3 +168,61 @@ def test_new_routes_need_their_scopes():
     assert required_scope("POST", "/api/parsers") == "library:write"
     assert required_scope("POST", "/api/parser-proposals/x/apply") == "jobs:write"
     assert required_scope("POST", "/api/jobs/x/outputs/y/parser-proposal") == "jobs:write"
+
+
+def test_point_output_at_edits_only_that_output():
+    from castor_server.parser_library import point_output_at
+
+    src = ("id: x\nname: X\nargs:\n  - name: hosts\n    type: list\ncommand: run {{ hosts }}  # keep me\noutputs:\n"
+           "  - name: hosts   # what it found\n    parser: nmap.hosts\n    options:\n      include_down: false\n    source: /work/a.xml\n"
+           "  - name: other\n    parser: lines\n")
+    out = point_output_at(src, "hosts", "plain-hosts")
+    assert "args:\n  - name: hosts\n    type: list\n" in out  # the argument of the same name is untouched
+    assert "  - name: hosts   # what it found\n    parser: plain-hosts\n    source: /work/a.xml\n" in out
+    assert "include_down" not in out and "# keep me" in out and "  - name: other\n    parser: lines" in out
+    flow = point_output_at("id: x\nname: X\ncommand: r\noutputs: [{name: hosts, parser: lines}]\n", "hosts", "p")
+    assert "parser: p" in flow
+
+
+async def _job_with_unread_output(client, auth, command_ref):
+    from castor_server import models as m
+    from castor_server.db import SessionLocal
+
+    p = client.post("/api/projects", json={"codename": f"PU-{uuid.uuid4().hex[:6]}", "name": "PU", "kind": "internal"}, headers=auth).json()
+    args = {"targets": "10.0.0.0/24"} if command_ref == "nmap-ping-sweep" else {}
+    task = client.post(f"/api/projects/{p['id']}/tasks", json={"title": "Sweep", "kind": "command", "command_ref": command_ref, "command_args": args}, headers=auth)
+    assert task.status_code == 201, task.text
+    async with SessionLocal() as db:
+        job = m.Job(task_id=uuid.UUID(task.json()["id"]), command="x", status=m.JobStatus.succeeded, exit_code=0,
+                    output_specs=[{"name": "hosts", "type": "list<host>", "parser": "nmap.hosts", "source": None, "options": {}}])
+        db.add(job)
+        await db.flush()
+        db.add(m.JobLogChunk(job_id=job.id, seq=0, stream="stdout", data="10.50.0.1\n"))
+        spec = parse_parser_spec("id: plain-hosts\nname: Plain hosts\ntype: list<host>\nformat: lines\nfields: {ip: line}\n")
+        proposal = m.ParserProposal(job_id=job.id, project_id=uuid.UUID(p["id"]), output_name="hosts", failed_parser="nmap.hosts", status="ready",
+                                    spec=spec.model_dump(mode="json"), yaml="id: plain-hosts\nname: Plain hosts\ntype: list<host>\nformat: lines\nfields: {ip: line}\n", count=1)
+        db.add(proposal)
+        await db.commit()
+        return proposal.id
+
+
+@pytest.mark.asyncio
+async def test_keeping_a_draft_can_point_your_command_at_it(client, auth):
+    cid = f"pu-sweep-{uuid.uuid4().hex[:6]}"
+    yaml_cmd = f"id: {cid}\nname: Sweep\ncommand: sweep  # prints hosts\noutputs:\n  - name: hosts\n    parser: nmap.hosts\n"
+    assert client.post("/api/commands", json={"yaml": yaml_cmd}, headers=auth).status_code == 201
+    proposal_id = await _job_with_unread_output(client, auth, cid)
+    kept = f"plain-hosts-{uuid.uuid4().hex[:6]}"
+    r = client.post(f"/api/parser-proposals/{proposal_id}/apply", json={"save_as": kept, "use_in_command": True}, headers=auth)
+    assert r.status_code == 200, r.text
+    assert r.json()["command_note"] == f"Sweep reads hosts with {kept} from now on."
+    cmd = client.get(f"/api/commands/{cid}", headers=auth).json()
+    assert cmd["spec"]["outputs"][0]["parser"] == kept and "# prints hosts" in cmd["source_yaml"]
+    assert client.get(f"/api/parsers/{kept}", headers=auth).json()["used_by"] == [cid]
+
+    # A built-in command stays as it is; the note says how to use the parser with it.
+    proposal_id = await _job_with_unread_output(client, auth, "nmap-ping-sweep")
+    other = f"plain-hosts-{uuid.uuid4().hex[:6]}"
+    r = client.post(f"/api/parser-proposals/{proposal_id}/apply", json={"save_as": other, "use_in_command": True}, headers=auth)
+    assert "built in" in r.json()["command_note"]
+    assert client.get("/api/commands/nmap-ping-sweep", headers=auth).json()["spec"]["outputs"][0]["parser"] == "nmap.hosts"

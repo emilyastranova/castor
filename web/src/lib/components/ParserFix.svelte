@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { ParserProposal, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
-	import { Button, Icon, Progress, TextField } from '$lib/m3';
+	import { Button, Icon, Progress, Switch, TextField } from '$lib/m3';
 	import { realtime } from '$lib/realtime.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { aiStatus } from '$lib/ai.svelte';
@@ -59,6 +59,7 @@
 	let busy = $state<'draft' | 'use' | 'keep' | 'dismiss' | null>(null);
 	let keeping = $state(false);
 	let keepId = $state('');
+	let useInCommand = $state(true);
 	let showYaml = $state(false);
 
 	async function draft() {
@@ -76,10 +77,11 @@
 		if (!current) return;
 		busy = saveAs ? 'keep' : 'use';
 		try {
-			const p = await api().parserProposals.apply(current.id, saveAs);
+			const p = await api().parserProposals.apply(current.id, saveAs, !!saveAs && useInCommand);
 			proposals = [...proposals.filter((x) => x.id !== p.id), p];
 			keeping = false;
-			snackbar.show(saveAs ? `Kept as ${saveAs} and read ${output} with it` : `Read ${output} with the drafted parser`);
+			const done = saveAs ? `Kept as ${saveAs} and read ${output} with it` : `Read ${output} with the drafted parser`;
+			snackbar.show(p.command_note ? `${done}. ${p.command_note}` : done);
 		} catch (err) {
 			snackbar.error(err instanceof ApiError ? err.message : 'Could not use it');
 		} finally {
@@ -169,6 +171,10 @@
 						<TextField label="Keep as parser" mono bind:value={keepId} class="min-w-56 flex-1" supporting="Commands can name it in their outputs" />
 						<Button type="submit" icon="bookmark_add" loading={busy === 'keep'} disabled={!keepId.trim()}>Keep it</Button>
 						<Button variant="text" onclick={() => (keeping = false)}>Cancel</Button>
+						<div class="w-full">
+							<Switch bind:checked={useInCommand} label="Read {output} with it in this card’s command from now on" />
+							<p class="pl-16 body-small text-on-surface-variant">Only for commands you made; a built-in stays as it is (duplicate it in the Library first).</p>
+						</div>
 					</form>
 				{:else}
 					<div class="flex flex-wrap gap-2">

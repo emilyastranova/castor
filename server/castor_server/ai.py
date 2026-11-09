@@ -618,7 +618,7 @@ async def auto_parser(proposal_id: uuid.UUID, run_id: uuid.UUID | None, step_id:
             await _note(db, run_id, step_id, f"Waiting for a person: the AI drafted a parser that reads {proposal.count} result(s), but may not use it on its own here.")
             return
         try:
-            jobs = await apply_parser_proposal(db, proposal, None, actor=f"AI ({proposal.model})")
+            jobs, _ = await apply_parser_proposal(db, proposal, None, actor=f"AI ({proposal.model})")
         except Exception as exc:  # noqa: BLE001 - leaves the step for a person
             log.warning("using the drafted parser failed: %s", exc)
             return

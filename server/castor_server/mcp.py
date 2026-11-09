@@ -126,6 +126,24 @@ TOOLS: list[Tool] = [
          "GET", "/api/projects/{project_id}/assets",
          {"project_id": ID["project_id"], "type": _s("Asset type, e.g. host, service, url"), "where": _s("Filter"),
           "limit": {"type": "integer", "minimum": 1, "maximum": 200}}, ("project_id",), untrusted=True),
+    # Parsers: an assistant can read what a job's parser couldn't, write a parser for it and
+    # check it on that output before keeping it (a parser is declarative YAML, never code).
+    Tool("list_parsers", "Parsers commands can use: built-ins and the library's, with their output type and (for the library's) YAML.",
+         "GET", "/api/parsers"),
+    Tool("get_output_input", "What a job output's parser read (its files or stdout): the sample to write a parser against.",
+         "GET", "/api/jobs/{job_id}/outputs/{name}/input", {"job_id": ID["job_id"], "name": _s("Output name")}, ("job_id", "name"), untrusted=True),
+    Tool("check_parser", "Check a parser definition and run it on some output without saving it. YAML keys: id, name, type (e.g. list<host>, "
+         "list<service>, list<url>, list<smb_host>, list<string>), format (lines|regex|json|jsonl|csv|xml), pattern (regex, named groups are "
+         "fields), records (json dot path / xml element path), delimiter, header, fields {output field: source}, values {field: constant}.",
+         "POST", "/api/parsers/validate", {"yaml": _s("The parser definition"), "input": _s("Output to try it on (default: its sample)")},
+         ("yaml",), untrusted=True),
+    Tool("create_parser", "Add a parser to the library (YAML as for check_parser; include `sample:` with the output it was written for). "
+         "Commands then name it in an output's `parser:`.", "POST", "/api/parsers", {"yaml": _s("The parser definition")}, ("yaml",)),
+    Tool("list_parser_drafts", "Parsers Castor's AI drafted for a job's outputs that their parser couldn't read, with their status and preview.",
+         "GET", "/api/jobs/{job_id}/parser-proposals", {"job_id": ID["job_id"]}, ("job_id",), untrusted=True),
+    Tool("use_parser_draft", "Read a job's output again with a drafted parser (a playbook step waiting on it carries on). With save_as, "
+         "also keep it in the library under that id.", "POST", "/api/parser-proposals/{proposal_id}/apply",
+         {"proposal_id": _s("Draft id (from list_parser_drafts)"), "save_as": _s("Library id to keep it as (optional)")}, ("proposal_id",)),
 ]
 BY_NAME = {t.name: t for t in TOOLS}
 

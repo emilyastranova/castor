@@ -6,6 +6,7 @@
 	import { untrack } from 'svelte';
 	import OutputCard from '$lib/components/OutputCard.svelte';
 	import ParserEditor from '$lib/components/ParserEditor.svelte';
+	import LibraryTransfer from '$lib/components/LibraryTransfer.svelte';
 	import { canEdit } from '$lib/session';
 	import { confirmAction } from '$lib/confirm.svelte';
 	import { onMount } from 'svelte';
@@ -250,7 +251,8 @@
 
 <TopAppBar title="Parsers" subtitle="Turn tool output into typed results · try them live on sample data">
 	{#snippet actions()}
-		{#if editable}<Button icon="add" onclick={startNew}>New parser</Button>{/if}
+		<LibraryTransfer noun="parsers" request={{ parsers: library.map((p) => p.name), label: 'castor-parsers' }} count={library.length} onimported={async () => (parsers = await api().parsers.list())} />
+		{#if editable}<Button icon="add" class="ml-2" onclick={startNew}>New parser</Button>{/if}
 	{/snippet}
 </TopAppBar>
 

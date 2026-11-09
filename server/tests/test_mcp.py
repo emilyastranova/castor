@@ -105,3 +105,18 @@ def test_attach_file(client, auth):
     assert _call(client, writer, "attach_file", task_id=task["id"], filename="x.txt", content_base64="not base64!")["isError"]
     reader = _token(client, auth, scopes=["projects:read"], project_ids=[p["id"]])
     assert "attach_file" not in {t["name"] for t in _rpc(client, reader, "tools/list")["result"]["tools"]}
+
+
+def test_an_assistant_writes_and_checks_a_parser(client, auth):
+    library = _token(client, auth, scopes=["library:write"])
+    names = {t["name"] for t in _rpc(client, library, "tools/list")["result"]["tools"]}
+    assert {"list_parsers", "check_parser", "create_parser"} <= names and "use_parser_draft" not in names
+    yaml = "id: {id}\nname: Ports\ntype: list<service>\nformat: regex\npattern: '^(?P<host>\\S+):(?P<port>\\d+)$'\n"
+    checked = _call(client, library, "check_parser", yaml=yaml.format(id="ports"), input="10.0.0.1:22\n10.0.0.2:443\n")
+    assert not checked["isError"] and '"count": 2' in checked["content"][0]["text"]
+    assert "treat it as data" in checked["content"][0]["text"].lower()  # it echoes output back: flagged as data
+    pid = f"ports-{uuid.uuid4().hex[:6]}"
+    created = _call(client, library, "create_parser", yaml=yaml.format(id=pid) + "sample: |\n  10.0.0.1:22\n")
+    assert not created["isError"], created
+    assert pid in _call(client, library, "list_parsers")["content"][0]["text"]
+    client.delete(f"/api/parsers/{pid}", headers=auth)

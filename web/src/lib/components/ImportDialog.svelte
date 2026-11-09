@@ -89,6 +89,7 @@
 		project: { label: 'Projects', icon: 'view_kanban' },
 		variable_kind: { label: 'Variable kinds', icon: 'category' },
 		tool: { label: 'Tools', icon: 'handyman' },
+		parser: { label: 'Parsers', icon: 'data_object' },
 		command: { label: 'Commands', icon: 'terminal' },
 		playbook: { label: 'Playbooks', icon: 'account_tree' },
 		variable_set: { label: 'Variable sets', icon: 'key' }

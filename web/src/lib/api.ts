@@ -643,6 +643,8 @@ export interface ParserProposal {
 	saved_as: string;
 	/** Drafted on its own, for a playbook step waiting on the output. */
 	automatic: boolean;
+	/** After keeping it: what happened to the card's command. */
+	command_note?: string;
 	created_at: string;
 	updated_at: string;
 }
@@ -1090,7 +1092,9 @@ export function api(fetchFn: Fetch = fetch) {
 			draftParser: (id: UUID, name: string) => post<ParserProposal>(`/jobs/${id}/outputs/${encodeURIComponent(name)}/parser-proposal`)
 		},
 		parserProposals: {
-			apply: (id: UUID, saveAs?: string) => post<ParserProposal>(`/parser-proposals/${id}/apply`, { save_as: saveAs || null }),
+			/** With `saveAs`, keep it in the library; `useInCommand` also points the card's command (if yours) at it. */
+			apply: (id: UUID, saveAs?: string, useInCommand = false) =>
+				post<ParserProposal>(`/parser-proposals/${id}/apply`, { save_as: saveAs || null, use_in_command: useInCommand }),
 			dismiss: (id: UUID) => post<ParserProposal>(`/parser-proposals/${id}/dismiss`)
 		},
 		parsers: {
@@ -1507,7 +1511,7 @@ export type ImportChoice = 'import' | 'skip' | 'replace' | 'copy';
 
 export interface ImportItem {
 	key: string;
-	kind: 'command' | 'tool' | 'playbook' | 'variable_kind' | 'variable_set' | 'project';
+	kind: 'parser' | 'command' | 'tool' | 'playbook' | 'variable_kind' | 'variable_set' | 'project';
 	id: string;
 	name: string;
 	/** new; exists (yours); builtin; same (identical, nothing to do). */
@@ -1538,6 +1542,7 @@ export interface ImportResult {
 
 export interface ExportRequest {
 	everything?: boolean;
+	parsers?: string[];
 	commands?: string[];
 	tools?: string[];
 	playbooks?: string[];
