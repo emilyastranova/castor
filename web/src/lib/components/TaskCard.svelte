@@ -4,6 +4,7 @@
 	import { people } from '$lib/people.svelte';
 	import StatusChip from './StatusChip.svelte';
 	import PriorityGlyph, { priorityLabels } from './PriorityGlyph.svelte';
+	import { isRunning, kindIcon, runState as runStateOf } from '$lib/taskStatus';
 
 	interface Props {
 		task: Task;
@@ -11,17 +12,9 @@
 	}
 	let { task, onopen }: Props = $props();
 	let assignees = $derived(task.assignees.map((id) => people.user(task.project_id, id)).filter((u) => !!u));
-	let running = $derived(task.latest_job?.status === 'running' || task.latest_job?.status === 'dispatched' || task.run?.status === 'running');
+	let running = $derived(isRunning(task));
 	/** A playbook run's card: its state in a word, and how far along it is. */
-	let runState = $derived.by(() => {
-		const r = task.run;
-		if (!r) return null;
-		if (r.attention) return { label: 'Needs you', icon: 'front_hand', tone: 'bg-tertiary-container text-on-tertiary-container' };
-		if (r.status === 'running') return { label: `Running · ${r.done}/${r.total}`, icon: 'progress_activity', tone: 'bg-primary-container text-on-primary-container' };
-		if (r.status === 'succeeded') return { label: 'Done', icon: 'check_circle', tone: 'bg-primary-container text-on-primary-container' };
-		if (r.status === 'failed') return { label: `Failed · ${r.failed} step${r.failed === 1 ? '' : 's'}`, icon: 'error', tone: 'bg-error-container text-on-error-container' };
-		return { label: 'Cancelled', icon: 'cancel', tone: 'bg-surface-container-highest text-on-surface-variant' };
-	});
+	let runState = $derived(runStateOf(task));
 </script>
 
 <div
@@ -33,7 +26,7 @@
 >
 	<div class="flex items-start gap-2">
 		<Icon
-			name={task.run ? 'account_tree' : task.kind === 'command' ? 'terminal' : 'person'}
+			name={kindIcon(task)}
 			size={18}
 			class="mt-0.5 {task.run || task.kind === 'command' ? 'text-primary' : 'text-on-surface-variant'}"
 		/>

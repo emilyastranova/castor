@@ -11,6 +11,7 @@
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { confirmAction } from '$lib/confirm.svelte';
 	import BoardColumn from '$lib/components/BoardColumn.svelte';
+	import BoardList from '$lib/components/BoardList.svelte';
 	import NewTaskDialog from '$lib/components/NewTaskDialog.svelte';
 	import TaskDialog from '$lib/components/TaskDialog.svelte';
 	import ProjectDialog from '$lib/components/ProjectDialog.svelte';
@@ -173,6 +174,29 @@
 		}
 	}
 
+	// Board (columns) or list (rows grouped by column); remembered per browser.
+	let layout = $state<'board' | 'list'>('board');
+	$effect(() => {
+		try {
+			if (localStorage.getItem('castor.board.layout') === 'list') layout = 'list';
+		} catch {
+			/* storage unavailable */
+		}
+	});
+	function setLayout(next: 'board' | 'list') {
+		layout = next;
+		try {
+			localStorage.setItem('castor.board.layout', next);
+		} catch {
+			/* storage unavailable */
+		}
+	}
+	/** The list view moves a card to the end of another column. */
+	function moveTo(taskId: UUID, columnId: UUID) {
+		const last = store.tasksIn(columnId).filter((t) => t.id !== taskId).at(-1);
+		void move(taskId, columnId, (last?.position ?? 0) + 1024);
+	}
+
 	// Only the cards assigned to you; remembered per browser.
 	let mineOnly = $state(false);
 	$effect(() => {
@@ -223,6 +247,10 @@
 <TopAppBar>
 	<ProjectSwitcher project={store.project} />
 	{#snippet actions()}
+		<div class="mr-1 flex items-center rounded-full bg-surface-container-high p-0.5" role="group" aria-label="Layout">
+			<IconButton icon="view_kanban" label="Board" size="sm" selected={layout === 'board'} aria-pressed={layout === 'board'} onclick={() => setLayout('board')} />
+			<IconButton icon="view_list" label="List" size="sm" selected={layout === 'list'} aria-pressed={layout === 'list'} onclick={() => setLayout('list')} />
+		</div>
 		<!-- Narrower screens move these out: the status chips below xl, search and Activity below
 		     lg; on phones "Assigned to me" is in the menu and New card is a FAB. -->
 		<div class="mr-2 hidden items-center gap-2 xl:flex">
@@ -282,11 +310,17 @@
 {/if}
 
 <div class="flex min-h-0 flex-1">
-	<div class="flex min-h-0 flex-1 gap-3 overflow-x-auto px-4 pb-4">
-		{#each store.columns as column (column.id)}
-			<BoardColumn {column} tasks={filtered(column)} readonly={!editable} onopen={openTask} onadd={(c) => { newColumn = c; newOpen = true; }} onmove={move} />
-		{/each}
-	</div>
+	{#if layout === 'list'}
+		<div class="flex min-h-0 min-w-0 flex-1 flex-col px-4 pb-4">
+			<BoardList columns={store.columns} tasksIn={filtered} readonly={!editable} onopen={openTask} onadd={(c) => { newColumn = c; newOpen = true; }} onmoveto={moveTo} />
+		</div>
+	{:else}
+		<div class="flex min-h-0 flex-1 gap-3 overflow-x-auto px-4 pb-4">
+			{#each store.columns as column (column.id)}
+				<BoardColumn {column} tasks={filtered(column)} readonly={!editable} onopen={openTask} onadd={(c) => { newColumn = c; newOpen = true; }} onmove={move} />
+			{/each}
+		</div>
+	{/if}
 	{#if activityOpen}
 		<aside class="hidden w-80 shrink-0 flex-col border-l border-outline-variant bg-surface lg:flex">
 			<div class="flex h-12 items-center justify-between px-4">
