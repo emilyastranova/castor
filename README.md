@@ -58,10 +58,11 @@ on the board as one card that opens into its live graph, decisions and steps.
 - **Assets.** Every host, service, URL and credential your jobs find, merged into one inventory,
   with triggers that act on new ones and lists you feed back into commands. ([Assets](https://github.com/emilyastranova/castor/wiki/Assets))
 
-**A library, not a pile of scripts**
+**The command library**
 - **Ready-made commands** for nmap, NetExec, httpx, Nuclei, ffuf, testssl.sh, ssh-audit,
-  subfinder, dnsx, Trivy and curl, plus five built-in playbooks. ([Commands](https://github.com/emilyastranova/castor/wiki/Commands))
-- **Safe by construction.** Arguments are shell-quoted; credentials live in an encrypted vault and
+  subfinder, dnsx, Trivy and curl, plus five built-in playbooks. Each command is a YAML file that
+  wraps a command line with typed arguments, the tool it runs in, and the outputs to parse. ([Commands](https://github.com/emilyastranova/castor/wiki/Commands))
+- **Quoted arguments, vaulted secrets.** Argument values are shell-quoted into the command line; credentials live in an encrypted vault and
   reach jobs only as environment variables and files, with secrets masked if a tool prints them. ([Variables and the Vault](https://github.com/emilyastranova/castor/wiki/Variables-and-the-Vault))
 - **Import and export** projects and library items between instances. ([Import and Export](https://github.com/emilyastranova/castor/wiki/Import-and-Export))
 
