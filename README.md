@@ -6,11 +6,13 @@
 </p>
 
 <p align="center">
-  <a href="docs/ARCHITECTURE.md"><b>Architecture</b></a>
+  <a href="https://github.com/emilyastranova/castor/wiki"><b>Documentation</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/emilyastranova/castor/wiki/Installation">Install</a>
   &nbsp;·&nbsp;
   <a href="docs/PLAYBOOK_SPEC.md">Playbook spec</a>
   &nbsp;·&nbsp;
-  <a href="commands/README.md">Commands</a>
+  <a href="docs/ARCHITECTURE.md">Architecture</a>
   &nbsp;·&nbsp;
   <a href="docs/ARCHITECTURE.md#roadmap">Roadmap</a>
   &nbsp;·&nbsp;
@@ -104,12 +106,9 @@ decisions, failed runs, jobs at a prompt). The Inbox covers every project.
    **parses** them (nmap XML, NetExec, ffuf JSON, lines, regex) into typed
    results that show on the card.
 
-Castor shell-quotes every argument value when it renders the command line, so a value
-stays one shell word and can't inject shell syntax.
-
-Mark a card **Interactive terminal** and its job runs under a real terminal: you can take
-control from the card and type into it (tmux, vim and sudo prompts work), and Castor alerts
-people when an unattended run stops at a prompt.
+Argument values are shell-quoted when the command line is rendered, credentials reach the
+job as environment variables and files rather than in the command, and a card can run under a
+real terminal you take control of. The [wiki](https://github.com/emilyastranova/castor/wiki) covers all of it.
 
 ## Playbooks
 
@@ -120,47 +119,12 @@ people when an unattended run stops at a prompt.
   </picture>
 </p>
 
-A playbook is a YAML graph of steps. **Command steps** become cards and run on
-agents. **Transform steps** run on the server between commands: they filter,
-pluck, format, de-duplicate, sort or limit the previous step's results. A step
-that references another step's output waits for it, and steps that don't depend
-on each other run at the same time.
-
-```yaml
-steps:
-  - id: sweep
-    name: Ping sweep
-    command_ref: nmap-ping-sweep
-    args: { targets: "{{ inputs.targets }}" }
-
-  - id: live
-    name: Live hosts
-    transform:
-      input: "{{ steps.sweep.outputs.hosts }}"
-      ops:
-        - filter: { field: status, equals: up }
-        - pluck: ip
-      output: { name: ips }
-
-  - id: services
-    name: Service scan
-    command_ref: nmap-service-scan
-    skip_if_empty: true
-    args: { targets: "{{ steps.live.outputs.ips }}" }
-```
-
-The Playbooks page draws the graph live: step status, item counts on each edge,
-and the parsed results of every step. If a step fails, only the steps that
-depend on it are blocked; the other branches finish. Re-run the failed card to
-continue the run.
-
-- [docs/PLAYBOOK_SPEC.md](docs/PLAYBOOK_SPEC.md) is the complete authoring spec.
-  It is self-contained, so you can give it to an agent that writes playbooks.
-- `POST /api/playbooks/validate` checks a playbook against the command library
-  without saving it.
-- Built-in playbooks: **Network baseline** (live hosts, open ports, web services,
-  certificate expiry), **Web attack surface** (subdomains, live sites, Nuclei findings,
-  security headers), **TLS review**, **SMB signing discovery** and **SSH version discovery**.
+A playbook is a YAML graph of steps. **Command steps** run on agents; **transform steps** run
+on the server and reshape one step's results into the next step's input. Steps that don't
+depend on each other run at the same time, branches can depend on conditions, and a step can
+pause for a person (or AI) to decide what happens next. Read the
+[Playbooks guide](https://github.com/emilyastranova/castor/wiki/Playbooks), or [docs/PLAYBOOK_SPEC.md](docs/PLAYBOOK_SPEC.md), the
+self-contained authoring spec you can hand to an agent that writes playbooks.
 
 ### What's included
 
@@ -176,43 +140,9 @@ needed, so agents stay bare.
 | Windows / SMB | SMB signing and host info, authenticated checks over any protocol, share listing (NetExec) |
 | Containers and ops | Image vulnerability scan (Trivy) |
 
-Parsed results (hosts, services, URLs from nmap, httpx, ffuf and NetExec) become the
-project's assets.
-
-## Variables
-
-Credentials, SSH keys, listener addresses and API keys live on the **Variables** page as
-typed *sets* (one *kind* per shape of data; make your own kinds for anything else). A
-command declares what it needs:
-
-```yaml
-vars:
-  - name: creds
-    kind: credential
-command: nxc smb {{ targets }} -u {{ creds.username }} -p {{ creds.password }}
-```
-
-and the card or playbook run picks a set. Values stay out of the command line and the job
-history: Castor encrypts secrets and files at rest, sends them only to the agent running
-the job (as environment variables and 0600 files it deletes afterwards), and masks them in
-the output if the tool prints them. See [commands/README.md](commands/README.md#variable-sets-credentials-keys-listeners-).
-
-## API
-
-The UI uses the same REST API you can. Make a personal token under your account menu
-(**API tokens**), pick its scopes and, if you like, the projects it may touch, then send it
-as `Authorization: Bearer castor_pat_…`. A token acts as you with only the access you gave
-it, and it can't make other tokens or change your password. Every endpoint, with the scope
-it needs, is in the reference at `/api/docs`.
-
-```bash
-curl -H "Authorization: Bearer $CASTOR_TOKEN" https://castor.example.internal/api/projects
-```
-
-AI assistants that speak MCP (Claude, Gemini CLI, VS Code…) connect to `/api/mcp` with the
-same kind of token and get the tools its scopes allow: search, boards, cards, runs, job
-output, playbooks and assets. The API tokens page has the setup for each. Clients that only
-speak stdio (Claude Desktop) use `castor-mcp`, which `pip install ./agent` installs.
+Built-in playbooks: **Network baseline**, **Web attack surface**, **TLS review**, **SMB signing
+discovery** and **SSH version discovery**. Add your own [commands](https://github.com/emilyastranova/castor/wiki/Commands),
+[tools](https://github.com/emilyastranova/castor/wiki/Tools) and [parsers](https://github.com/emilyastranova/castor/wiki/Parsers) in the Library.
 
 ## Quick start
 
@@ -223,111 +153,31 @@ cp .env.example .env     # edit the secrets
 docker compose up -d --build
 ```
 
-Open <http://localhost:8080> and log in with the admin credentials from `.env`.
-Add `--profile agent` to also run an agent inside the stack.
+Open <http://localhost:8080> and sign in with the admin credentials from `.env`. Add
+`--profile agent` to also run an agent inside the stack; [Agents](https://github.com/emilyastranova/castor/wiki/Agents) shows how to connect one on
+another host. [Installation](https://github.com/emilyastranova/castor/wiki/Installation) covers upgrades, backups, a lost admin
+password and running from source.
 
-Add more people under **Users** (admins only). Each person is a **viewer** (read-only),
-**operator** (works in their projects and edits the command, playbook and variable
-libraries) or **admin** (everything). Admins see every project; everyone else sees the
-projects they're a member of (a project's **Members**). Everyone can set a profile picture
-(upload, image URL or Gravatar) under their account menu; admins can set anyone's.
+## Documentation
 
-### Locked out?
+The [wiki](https://github.com/emilyastranova/castor/wiki) is the manual:
 
-Castor always keeps one active admin: the last one can't be demoted or disabled, and if a
-database ever has none, the server makes its longest-standing user an admin when it
-starts. A lost password is reset from the server's shell:
+- **Running Castor:** [Installation](https://github.com/emilyastranova/castor/wiki/Installation), [Agents](https://github.com/emilyastranova/castor/wiki/Agents),
+  [Configuration](https://github.com/emilyastranova/castor/wiki/Configuration), [Security](https://github.com/emilyastranova/castor/wiki/Security),
+  [Troubleshooting](https://github.com/emilyastranova/castor/wiki/Troubleshooting)
+- **Using it:** [Projects and Boards](https://github.com/emilyastranova/castor/wiki/Projects-and-Boards), [Cards](https://github.com/emilyastranova/castor/wiki/Cards),
+  [Jobs and Output](https://github.com/emilyastranova/castor/wiki/Jobs-and-Output), [People and Notifications](https://github.com/emilyastranova/castor/wiki/People-and-Notifications),
+  [Assets](https://github.com/emilyastranova/castor/wiki/Assets), [Search and Shortcuts](https://github.com/emilyastranova/castor/wiki/Search-and-Shortcuts),
+  [On a phone](https://github.com/emilyastranova/castor/wiki/Using-Castor-on-a-Phone)
+- **The library:** [Commands](https://github.com/emilyastranova/castor/wiki/Commands), [Tools](https://github.com/emilyastranova/castor/wiki/Tools),
+  [Parsers](https://github.com/emilyastranova/castor/wiki/Parsers), [Variables and the Vault](https://github.com/emilyastranova/castor/wiki/Variables-and-the-Vault)
+- **Automation:** [Playbooks](https://github.com/emilyastranova/castor/wiki/Playbooks), [AI](https://github.com/emilyastranova/castor/wiki/AI), [Alerts](https://github.com/emilyastranova/castor/wiki/Alerts),
+  [API and Tokens](https://github.com/emilyastranova/castor/wiki/API-and-Tokens), [MCP Server](https://github.com/emilyastranova/castor/wiki/MCP-Server),
+  [Import and Export](https://github.com/emilyastranova/castor/wiki/Import-and-Export)
 
-```bash
-docker compose exec server castor-admin reset-password admin    # compose
-.venv/bin/castor-admin reset-password admin                     # dev checkout
-```
-
-`castor-admin` also has `list-users`, `enable`, `promote` and `create-admin`.
-
-### Upgrading
-
-The server applies database migrations when it starts. Back up first:
-
-```bash
-# Compose (Postgres)
-docker compose exec -T db pg_dump -U castor castor > castor-$(date +%F).sql
-git pull && docker compose up -d --build
-# to restore: docker compose exec -T db psql -U castor castor < castor-YYYY-MM-DD.sql
-```
-
-The server copies a SQLite database to `data/backups/` before it runs migrations.
-Upgrading to roles keeps everyone's access: users who were admins stay admins, everyone
-else becomes an operator, and every existing user becomes a member of every existing
-project.
-
-## Development
-
-Python 3.12+ and Node 22+. One virtualenv at the repository root serves both
-Python packages.
-
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -e "./server[dev]" -e "./agent[dev]"
-(cd web && npm install)
-```
-
-Run the three parts in separate terminals. Start the API first:
-
-```bash
-.venv/bin/castor-server                 # API on :8000, SQLite in ./data
-```
-
-```bash
-cd web && npm run dev                   # UI on :5173, proxies /api and /ws to :8000
-```
-
-```bash
-.venv/bin/castor-agent --secret change-me-agent-secret --name dev-agent \
-                       --allow-host --max-concurrency 4
-```
-
-Log in as `admin` / `castor` (from `CASTOR_ADMIN_*`, created on first start).
-The server applies database migrations on startup. Server settings are
-environment variables prefixed `CASTOR_` (see `server/castor_server/config.py`).
-Agent flags are listed by `castor-agent --help`.
-
-| Check | Command |
-|---|---|
-| Server tests | `.venv/bin/python -m pytest server/tests` |
-| Agent tests | `.venv/bin/python -m pytest agent/tests` |
-| Lint | `.venv/bin/ruff check server/castor_server agent/castor_agent` |
-| Type check (UI) | `cd web && npm run check` |
-| Production build (UI) | `cd web && npm run build` |
-
-## Run an agent on a real host
-
-Create a token for it on the **Agents** page (**Enroll agent**). It's shown once, and the
-dialog gives you the command:
-
-```bash
-pip install ./agent
-castor-agent --server wss://castor.example.internal/ws/agent \
-             --token <token> --name jumpbox-1 --tags internal,linux \
-             --workdir /opt/castor-work
-```
-
-You can rotate or revoke each agent's token on its own, which disconnects that agent at
-once. The shared `--secret <CASTOR_AGENT_SECRET>` still works for quick setups until you set
-`CASTOR_ALLOW_SHARED_AGENT_SECRET=false`.
-
-The agent's only dependency is `websockets`, so it installs on almost any host
-with Python 3.10 or later.
-
-- With podman or docker present, command cards that name an `image` or a `tool` run
-  inside that image with `--network host`. The agent pulls or builds tool images on
-  demand, so the agent itself stays bare.
-- Each job gets its own directory under `--workdir` (a temp directory by
-  default), mounted at `/work`. The agent uploads files under `/work/artifacts/` and
-  the command's declared outputs to the card.
-- Cards without an image run in the agent's shell. Disable that with
-  `--no-allow-host`.
-- `--tags` lets a card send its work to specific agents.
+Contributors: [running from source](https://github.com/emilyastranova/castor/wiki/Installation#running-from-source-development) has the
+dev setup, tests and checks; [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the data model, events and the agent
+protocol.
 
 ## Repository
 
