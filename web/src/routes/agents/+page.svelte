@@ -5,7 +5,8 @@
 	import { page } from '$app/state';
 	import type { Agent, AgentToken, Job, SshHost } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
-	import { TopAppBar, Card, Icon, IconButton, Chip, Dialog, Button, TextField } from '$lib/m3';
+	import { TopAppBar, Card, Icon, IconButton, Chip, Dialog, Button, TextField, TagInput } from '$lib/m3';
+	import { loadTags, type TagSuggestion } from '$lib/tags';
 	import StatusChip from '$lib/components/StatusChip.svelte';
 	import { realtime } from '$lib/realtime.svelte';
 	import { relativeTime, absoluteTime, duration } from '$lib/format';
@@ -181,20 +182,22 @@
 	);
 
 	let editing = $state<Agent | null>(null);
-	let tagsText = $state('');
+	let tags = $state<string[]>([]);
+	let tagSuggestions = $state<TagSuggestion[]>([]);
 	let concurrency = $state('1');
 	let enrollOpen = $state(false);
 
 	function edit(a: Agent) {
 		editing = a;
-		tagsText = a.tags.join(', ');
+		tags = [...a.tags];
+		void loadTags('agents').then((t) => (tagSuggestions = t));
 		concurrency = String(a.max_concurrency);
 	}
 	async function saveAgent() {
 		if (!editing) return;
 		try {
 			const a = await api().agents.update(editing.id, {
-				tags: tagsText.split(',').map((t) => t.trim()).filter(Boolean),
+				tags,
 				max_concurrency: Number(concurrency) || 1
 			});
 			agents = agents.map((x) => (x.id === a.id ? a : x));
@@ -403,7 +406,7 @@
 
 <Dialog open={editing !== null} title="Edit agent {editing?.name ?? ''}" onclose={() => (editing = null)}>
 	<div class="flex flex-col gap-5 pt-2 pb-2">
-		<TextField label="Tags" bind:value={tagsText} supporting="Comma separated. Cards can target agents by tag." />
+		<TagInput label="Tags" bind:value={tags} suggestions={tagSuggestions} noun="agents" placeholder="Add a tag" supporting="Cards and playbooks can target agents by tag." />
 		<TextField label="Max concurrent jobs" bind:value={concurrency} type="number" />
 	</div>
 	{#snippet actions()}

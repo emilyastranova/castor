@@ -1,7 +1,8 @@
 <script lang="ts">
 	import type { AgentToken } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
-	import { Button, Dialog, Icon, TextField } from '$lib/m3';
+	import { Button, Dialog, Icon, TagInput, TextField } from '$lib/m3';
+	import { loadTags, type TagSuggestion } from '$lib/tags';
 	import { snackbar } from '$lib/snackbar.svelte';
 
 	/** Enroll an agent (create a token), or show a token just made by rotating one. The
@@ -18,7 +19,8 @@
 	let { open = $bindable(false), wsUrl, revealed = null, sharedSecretAllowed = false, oncreated }: Props = $props();
 
 	let label = $state('');
-	let tagsText = $state('');
+	let tags = $state<string[]>([]);
+	let tagSuggestions = $state<TagSuggestion[]>([]);
 	let creating = $state(false);
 	let created = $state<(AgentToken & { token: string }) | null>(null);
 	let copied = $state<string | null>(null);
@@ -29,7 +31,8 @@
 		openedFor = open;
 		if (open) {
 			label = '';
-			tagsText = '';
+			tags = [];
+			void loadTags('agents').then((t) => (tagSuggestions = t));
 			created = revealed;
 			copied = null;
 		}
@@ -48,7 +51,7 @@
 		try {
 			created = await api().agentTokens.create({
 				label: label.trim(),
-				tags: tagsText.split(',').map((t) => t.trim()).filter(Boolean)
+				tags
 			});
 			oncreated?.(created);
 		} catch (err) {
@@ -76,7 +79,7 @@
 				Each agent gets its own token, so it can be revoked on its own. The first agent that connects with this token becomes its agent.
 			</p>
 			<TextField label="Agent name" bind:value={label} placeholder="e.g. kali-lab-01" supporting="Used in the command below and to recognise the token. The agent's --name decides its name." />
-			<TextField label="Tags (optional)" bind:value={tagsText} supporting="Comma separated; given to the agent when it enrolls." />
+			<TagInput label="Tags (optional)" bind:value={tags} suggestions={tagSuggestions} noun="agents" placeholder="Add a tag" supporting="Given to the agent when it enrolls." />
 		{:else}
 			<div class="flex items-start gap-2 rounded-md bg-tertiary-container/50 px-3 py-2 body-small text-on-surface">
 				<Icon name="warning" size={18} class="mt-px shrink-0 text-tertiary" />

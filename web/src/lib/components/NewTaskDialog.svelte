@@ -2,7 +2,8 @@
 	import { selectorFrom, selectorOptions } from '$lib/agentSelector';
 	import type { Agent, ArgErrors, Column, CommandDefinition, Task, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
-	import { Button, Dialog, TextField, Select, Chip, Switch } from '$lib/m3';
+	import { Button, Dialog, TextField, Select, Chip, Switch, TagInput } from '$lib/m3';
+	import { loadTags, type TagSuggestion } from '$lib/tags';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import ColumnGlyph from './ColumnGlyph.svelte';
 	import PriorityGlyph, { priorityOptions } from './PriorityGlyph.svelte';
@@ -27,7 +28,8 @@
 	let containerFlagsText = $state('');
 	let columnId = $state('');
 	let agentId = $state('');
-	let tagsText = $state('');
+	let tags = $state<string[]>([]);
+	let tagSuggestions = $state<TagSuggestion[]>([]);
 	let priority = $state('0');
 	let runOnMove = $state(true);
 	let busy = $state(false);
@@ -65,6 +67,7 @@
 	$effect(() => {
 		if (open) {
 			columnId = column?.id ?? columns.find((c) => c.role === 'todo')?.id ?? columns[0]?.id ?? '';
+			void loadTags('cards', projectId).then((t) => (tagSuggestions = t));
 		}
 	});
 
@@ -73,7 +76,8 @@
 		commandArgs = {};
 		varBindings = {};
 		argErrors = {};
-		title = description = command = image = containerFlagsText = agentId = tagsText = '';
+		title = description = command = image = containerFlagsText = agentId = '';
+		tags = [];
 		priority = '0';
 		runOnMove = true;
 	}
@@ -98,7 +102,7 @@
 				var_bindings: fromLibrary ? varBindings : {},
 				column_id: columnId,
 				agent_selector: selectorFrom(agentId),
-				tags: tagsText.split(',').map((t) => t.trim()).filter(Boolean),
+				tags,
 				priority: Number(priority),
 				run_on_move: runOnMove
 			});
@@ -180,14 +184,14 @@
 			</div>
 		{/if}
 		<TextField label="Description" bind:value={description} multiline rows={3} supporting="Markdown supported" />
-		<div class="grid gap-4 sm:grid-cols-3">
+		<div class="grid gap-4 sm:grid-cols-2">
 			<Select label="Column" bind:value={columnId} options={columns.map((c) => ({ value: c.id, label: c.name }))}>
 				{#snippet leading(id)}<ColumnGlyph role={columns.find((c) => c.id === id)?.role} />{/snippet}
 			</Select>
 			<Select label="Priority" bind:value={priority} options={priorityOptions}>
 				{#snippet leading(level)}<PriorityGlyph {level} />{/snippet}
 			</Select>
-			<TextField label="Tags" bind:value={tagsText} placeholder="automation, web" />
+			<TagInput label="Tags" bind:value={tags} suggestions={tagSuggestions} noun="cards" placeholder="Add a tag" class="sm:col-span-2" />
 		</div>
 		{#if kind === 'command' && targetColumn?.role === 'active' && runOnMove}
 			<p class="rounded-sm bg-tertiary-container px-3 py-2 body-small text-on-tertiary-container">This card will be dispatched to an agent as soon as it is created.</p>

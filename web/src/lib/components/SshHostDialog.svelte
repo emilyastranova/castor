@@ -1,7 +1,8 @@
 <script lang="ts">
 	import type { SshHost, SshHostIn } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
-	import { Button, Dialog, Icon, Switch, TextField } from '$lib/m3';
+	import { Button, Dialog, Icon, Switch, TagInput, TextField } from '$lib/m3';
+	import { loadTags, type TagSuggestion } from '$lib/tags';
 	import { snackbar } from '$lib/snackbar.svelte';
 
 	/** Add or edit an SSH host: a machine Castor connects to and runs jobs on. After adding
@@ -23,7 +24,8 @@
 	let username = $state('');
 	let workdir = $state('castor-jobs');
 	let network = $state('host');
-	let tagsText = $state('');
+	let tags = $state<string[]>([]);
+	let tagSuggestions = $state<TagSuggestion[]>([]);
 	let concurrency = $state('1');
 	let allowHost = $state(true);
 	let allowInstall = $state(false);
@@ -48,7 +50,8 @@
 		username = h?.username ?? '';
 		workdir = h?.workdir ?? 'castor-jobs';
 		network = h?.network ?? 'host';
-		tagsText = h?.tags.join(', ') ?? '';
+		tags = [...(h?.tags ?? [])];
+		void loadTags('agents').then((t) => (tagSuggestions = t));
 		concurrency = String(h?.max_concurrency ?? 1);
 		allowHost = h?.allow_host ?? true;
 		allowInstall = h?.allow_host_install ?? false;
@@ -79,7 +82,7 @@
 			allow_host: allowHost,
 			allow_host_install: allowInstall,
 			enabled,
-			tags: tagsText.split(',').map((t) => t.trim()).filter(Boolean),
+			tags,
 			max_concurrency: Number(concurrency) || 1,
 			generate_key: keyMode === 'generate',
 			...(keyMode === 'paste' ? { private_key: privateKey, passphrase: passphrase || undefined } : {})
@@ -196,7 +199,7 @@
 			</fieldset>
 
 			<div class="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_10rem]">
-				<TextField label="Tags" bind:value={tagsText} supporting="Comma separated. Cards can target hosts by tag." />
+				<TagInput label="Tags" bind:value={tags} suggestions={tagSuggestions} noun="agents" placeholder="Add a tag" supporting="Cards and playbooks can target hosts by tag." />
 				<TextField label="Max concurrent jobs" bind:value={concurrency} type="number" />
 			</div>
 

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { PlaybookInputSpec, PlaybookSpec, VariableKind } from '$lib/api';
-	import { Icon, IconButton, Select, Switch, TextField } from '$lib/m3';
+	import { Icon, IconButton, Select, Switch, TagInput, TextField } from '$lib/m3';
+	import { loadTags, type TagSuggestion } from '$lib/tags';
 
 	/** The playbook's own fields and the inputs asked for when a run starts. */
 	interface Props {
@@ -12,6 +13,11 @@
 		onchange: (spec: PlaybookSpec) => void;
 	}
 	let { spec, idEditable, kinds, errors = [], onchange }: Props = $props();
+
+	let tagSuggestions = $state<TagSuggestion[]>([]);
+	$effect(() => {
+		void loadTags('library').then((t) => (tagSuggestions = t));
+	});
 
 	const TYPES = ['string', 'number', 'boolean', 'list', 'varset'].map((t) => ({ value: t, label: t }));
 
@@ -50,12 +56,7 @@
 		oninput={(e) => set('id', (e.currentTarget as HTMLInputElement).value)}
 	/>
 	<TextField label="Description" multiline rows={3} value={spec.description} oninput={(e) => set('description', (e.currentTarget as HTMLTextAreaElement).value)} />
-	<TextField
-		label="Tags"
-		value={spec.tags.join(', ')}
-		supporting="comma separated"
-		oninput={(e) => set('tags', (e.currentTarget as HTMLInputElement).value.split(',').map((t) => t.trim()).filter(Boolean))}
-	/>
+	<TagInput label="Tags" value={spec.tags} suggestions={tagSuggestions} noun="uses" placeholder="Add a tag" onchange={(next) => set('tags', next)} />
 
 	<div class="mt-2 flex items-center gap-2 border-t border-outline-variant/60 pt-3">
 		<Icon name="input" size={18} class="text-on-surface-variant" />

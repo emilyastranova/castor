@@ -85,10 +85,11 @@ Turn a project's findings into a deliverable:
 - **Review:** draft, review and final, with comments.
 - **Export:** to Markdown, HTML and PDF.
 
-### Tag autocomplete
-Suggest existing tags as you type them on cards, assets, agents and playbooks, most used first,
-so tags don't drift into near-duplicates (`smb`, `SMB`, `smb-signing`). Admins can rename or
-merge a tag across a project.
+### Renaming and merging tags
+Tags are suggested as you type (most used first, and an existing tag is reused whatever its
+case), which keeps them from drifting apart. What's left: renaming a tag, or merging two
+(`smb-signing` and `smbsigning`), across a project's cards in one go, and the same for agent
+and library tags.
 
 ### Themes
 Beyond the colour seed each person can pick, a few complete looks: high contrast, a denser

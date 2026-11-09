@@ -1,3 +1,5 @@
+import type { TagSuggestion } from './tags';
+
 /** Typed client for the Castor API. Works in the browser and in SvelteKit load functions. */
 
 export type UUID = string;
@@ -1300,6 +1302,12 @@ export function api(fetchFn: Fetch = fetch) {
 			update: (id: UUID, body: { tags?: string[]; max_concurrency?: number }) =>
 				patch<Agent>(`/agents/${id}`, body),
 			remove: (id: UUID) => del(`/agents/${id}`)
+		},
+		tags: {
+			/** Card tags in the projects you can see, this project's first. */
+			cards: (projectId?: UUID) => get<TagSuggestion[]>(`/tags/cards${projectId ? `?project_id=${projectId}` : ''}`),
+			agents: () => get<TagSuggestion[]>('/tags/agents'),
+			library: () => get<TagSuggestion[]>('/tags/library')
 		},
 		sshHosts: {
 			list: () => get<SshHost[]>('/ssh-hosts'),

@@ -439,6 +439,9 @@ TOOLS += [
     _auto("list_everyone", "GET", "/api/people", "People in the projects you can see."),
     _auto("get_person", "GET", "/api/people/{username}", "A person's profile, cards and recent activity.", **_UNTRUSTED),
     _auto("get_settings", "GET", "/api/settings", "Instance settings (notes per project, AI chains)."),
+    _auto("card_tags", "GET", "/api/tags/cards", "Tags in use on cards, most used first (in project_id first, if given): reuse them."),
+    _auto("agent_tags", "GET", "/api/tags/agents", "Tags in use on agents and SSH hosts, most used first."),
+    _auto("library_tags", "GET", "/api/tags/library", "Tags in use on library commands and playbooks, most used first."),
 ]
 BY_NAME = {t.name: t for t in TOOLS}
 

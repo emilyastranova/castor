@@ -2,6 +2,7 @@
 	import PersonName from '$lib/components/PersonName.svelte';
 	import type { Agent, ArgErrors, Attachment, Column, Comment, CommandDefinition, Job, PlaybookRun, PlaybookSpec, Project, Task, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
+	import { loadTags, type TagSuggestion } from '$lib/tags';
 	import { realtime } from '$lib/realtime.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { confirmAction } from '$lib/confirm.svelte';
@@ -9,7 +10,7 @@
 	import { lightbox, openImagesIn } from '$lib/lightbox.svelte';
 	import { PastedImages, type DraftTarget } from '$lib/pastedImages.svelte';
 	import { relativeTime, absoluteTime, bytes, duration } from '$lib/format';
-	import { Button, Chip, Dialog, Icon, IconButton, Menu, MenuItem, Select, Switch, Tabs, TextField, Avatar } from '$lib/m3';
+	import { Button, Chip, Dialog, Icon, IconButton, Menu, MenuItem, Select, Switch, Tabs, TextField, Avatar, TagInput } from '$lib/m3';
 	import StatusChip from './StatusChip.svelte';
 	import JobConsole from './JobConsole.svelte';
 	import JobResults from './JobResults.svelte';
@@ -74,7 +75,8 @@
 	let runOnMove = $state(true);
 	let timeout = $state('');
 	let priority = $state('0');
-	let tagsText = $state('');
+	let tags = $state<string[]>([]);
+	let tagSuggestions = $state<TagSuggestion[]>([]);
 	let editingDescription = $state(false);
 	let loadedFor = $state<UUID | null>(null);
 
@@ -94,7 +96,8 @@
 		runOnMove = task.run_on_move;
 		timeout = task.timeout_s ? String(task.timeout_s) : '';
 		priority = String(task.priority);
-		tagsText = task.tags.join(', ');
+		tags = [...task.tags];
+		void loadTags('cards', task.project_id).then((t) => (tagSuggestions = t));
 		editingDescription = false;
 		// A notification about a comment (?comment=<id>) opens the card on it.
 		// Search results link straight to a tab, a run and its results (?tab=&job=&view=). With
@@ -1054,7 +1057,7 @@
 					</p>
 				</div>
 			{/if}
-			<TextField label="Tags" bind:value={tagsText} readonly={!editable} supporting={editable ? 'Comma separated' : ''} oninput={() => edited('tags')} onblur={() => { const tags = tagsText.split(',').map((t) => t.trim()).filter(Boolean); if (tags.join() !== task.tags.join()) commit('tags', { tags }); }} />
+			<TagInput label="Tags" bind:value={tags} suggestions={tagSuggestions} noun="cards" readonly={!editable} placeholder={editable ? 'Add a tag' : ''} onchange={(next) => void save({ tags: next })} />
 			<div class="rounded-md bg-surface-container p-4 body-small text-on-surface-variant">
 				<p class="mb-2 title-small text-on-surface">Details</p>
 				<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">

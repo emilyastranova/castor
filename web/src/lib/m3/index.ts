@@ -6,6 +6,7 @@ export { default as Card } from './Card.svelte';
 export { default as Chip } from './Chip.svelte';
 export { default as TextField } from './TextField.svelte';
 export { default as Select } from './Select.svelte';
+export { default as TagInput } from './TagInput.svelte';
 export { default as Switch } from './Switch.svelte';
 export { default as Dialog } from './Dialog.svelte';
 export { default as Menu } from './Menu.svelte';
