@@ -571,7 +571,7 @@ async def _plan(db: AsyncSession, user: m.User, archive: Archive, passphrase: st
                     notes.append(f"uses the tool {spec.tool}, which isn't here")
             if folder == "playbooks":
                 for step in getattr(spec, "steps", []):
-                    ref = getattr(step, "command", None)
+                    ref = getattr(step, "command_ref", None)
                     if ref and f"library/commands/{ref}.yaml" not in archive.names and await db.get(m.CommandDefinition, ref) is None:
                         notes.append(f"step {step.id} runs {ref}, which isn't here")
             if folder == "commands":

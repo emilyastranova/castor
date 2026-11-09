@@ -219,3 +219,20 @@ def test_commands_travel_with_their_library_parsers(client, auth):
     assert tried["value"][0]["port"] == 443  # registered as soon as the import committed
     client.delete(f"/api/commands/{cid}", headers=auth)
     client.delete(f"/api/parsers/{pid}", headers=auth)
+
+
+def test_playbook_import_notes_missing_commands(client, auth):
+    pid = f"tr-pb-{uuid.uuid4().hex[:6]}"
+    text = f"""id: {pid}
+name: Transfer playbook
+steps:
+  - id: sweep
+    name: Sweep
+    command_ref: nmap-ping-sweep
+  - id: gone
+    name: Gone
+    command_ref: no-such-command-{pid}
+"""
+    preview = _preview(client, auth, text.encode(), name=f"{pid}.yaml").json()
+    notes = preview["items"][0]["notes"]
+    assert notes == [f"step gone runs no-such-command-{pid}, which isn't here"]

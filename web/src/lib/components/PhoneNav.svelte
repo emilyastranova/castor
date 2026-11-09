@@ -6,7 +6,7 @@
 	import { realtime } from '$lib/realtime.svelte';
 	import NotificationBell from './NotificationBell.svelte';
 
-	/** The phone's navigation (below md): a bottom bar with Home, Projects, Search, Inbox and
+	/** The phone's navigation (below md): a bottom bar with Home, Board, Search, Inbox and
 	 *  More, where More is a sheet with every other destination and the account. */
 	interface Props {
 		items: NavItem[];
