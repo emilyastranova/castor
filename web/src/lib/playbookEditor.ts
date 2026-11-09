@@ -114,6 +114,9 @@ export interface Wiring {
 	arg: ArgSpec;
 	/** A single-value argument fed a list: one card per item (`for_each`). */
 	each: boolean;
+	/** Lower is a better fit: a direct binding before one card per item, then how well the
+	 *  argument's name matches the output's type. */
+	rank: number;
 }
 
 /** How `cmd` would take `from`'s output, if it obviously can: the first output whose items
@@ -121,7 +124,7 @@ export interface Wiring {
 export function wiringFor(from: PlaybookStepSpec, cmd: CommandDefinition, commands: Map<string, CommandDefinition>): Wiring | null {
 	for (const output of outputsOf(from, commands)) {
 		const names = ACCEPTS[elementType(output.type) ?? ''] ?? [];
-		for (const want of names) {
+		for (const [i, want] of names.entries()) {
 			const [name, mention] = want.split('?');
 			const arg = cmd.spec.args.find(
 				(a) =>
@@ -129,7 +132,10 @@ export function wiringFor(from: PlaybookStepSpec, cmd: CommandDefinition, comman
 					(a.type === 'list' || a.type === 'string') &&
 					(!mention || a.description.toLowerCase().includes(mention))
 			);
-			if (arg) return { output, arg, each: arg.type === 'string' && !/s$/.test(arg.name) };
+			if (arg) {
+				const each = arg.type === 'string' && !/s$/.test(arg.name);
+				return { output, arg, each, rank: (each ? 100 : 0) + i };
+			}
 		}
 	}
 	return null;
@@ -146,6 +152,30 @@ export function wireStep(step: PlaybookStepSpec, fromId: string, w: Wiring): Pla
 		if (w.arg.required) next.skip_if_empty = true;
 	}
 	return next;
+}
+
+/** A step nothing feeds yet: its required text and list arguments come from the playbook's
+ *  inputs (asked for when a run starts), reusing an input of the same name or adding one. So a
+ *  first step is valid as soon as it's added, and the run form asks for the targets. */
+export function bindToInputs(spec: PlaybookSpec, step: PlaybookStepSpec, cmd: CommandDefinition): { spec: PlaybookSpec; step: PlaybookStepSpec } {
+	const inputs = [...(spec.inputs ?? [])];
+	const next = clone(step);
+	for (const a of cmd.spec.args) {
+		const empty = a.default === null || a.default === undefined || a.default === '';
+		if (!a.required || !empty || (a.type !== 'string' && a.type !== 'list') || next.args?.[a.name] !== undefined) continue;
+		if (!inputs.some((i) => i.name === a.name))
+			inputs.push({
+				name: a.name,
+				type: 'string',
+				description: a.description,
+				required: true,
+				default: null,
+				example: a.example ?? null,
+				choices: a.choices ?? null
+			});
+		next.args = { ...next.args, [a.name]: `{{ inputs.${a.name} }}` };
+	}
+	return { spec: inputs.length === (spec.inputs ?? []).length ? spec : { ...spec, inputs }, step: next };
 }
 
 /** A transform fed by `fromId`'s first output. */

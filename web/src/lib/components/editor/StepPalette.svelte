@@ -2,7 +2,7 @@
 	import type { CommandDefinition, PlaybookSpec, PlaybookStepSpec, ToolDefinition } from '$lib/api';
 	import { Icon } from '$lib/m3';
 	import { BLOCK_MIME } from '$lib/playbook';
-	import { commandMatches, folders, NO_FILTERS } from '$lib/library';
+	import { commandMatches, folders, NO_FILTERS, usageCount } from '$lib/library';
 	import { outputsOf, wiringFor, type Wiring } from '$lib/playbookEditor';
 	import CommandRow from '$lib/components/library/CommandRow.svelte';
 
@@ -43,34 +43,63 @@
 		title: string;
 		hint?: string;
 		rows: Row[];
+		/** Tool sections fold (remembered in this browser); a search unfolds them all. */
+		fold?: string;
 	}
+
+	let folded = $state<Set<string>>(loadFolded());
+	function loadFolded(): Set<string> {
+		try {
+			return new Set(JSON.parse(localStorage.getItem('castor.palette.folded') ?? '[]'));
+		} catch {
+			return new Set();
+		}
+	}
+	function toggleFold(id: string) {
+		const next = new Set(folded);
+		if (!next.delete(id)) next.add(id);
+		folded = next;
+		try {
+			localStorage.setItem('castor.palette.folded', JSON.stringify([...next]));
+		} catch {
+			/* only for this tab */
+		}
+	}
+	const isFolded = (s: Section) => !!s.fold && !query.trim() && folded.has(s.fold);
 
 	let canFollow = $derived(!!selected && outputsOf(selected, byId).length > 0);
 	let sections = $derived.by((): Section[] => {
 		const out: Section[] = [];
 		if (selected && canFollow) {
-			const rows: Row[] = [];
+			// Best fit first: a direct binding before one card per item, the closer argument name,
+			// then what the team uses most. Transform comes last: it's never the obvious next step.
+			const rows: Row[] = commands
+				.filter((c) => c.id !== selected.command_ref && matches(c)) // feeding a step into itself is rarely the next move
+				.map((c) => ({ c, w: wiringFor(selected, c, byId) }))
+				.filter((x): x is { c: CommandDefinition; w: Wiring } => !!x.w)
+				.sort((a, b) => a.w.rank - b.w.rank || usageCount(b.c) - usageCount(a.c) || a.c.name.localeCompare(b.c.name))
+				.map(({ c, w }) => ({ key: `after:${c.id}`, block: `command:${c.id}`, command: c, wiring: w, connect: true }));
 			if (transformMatches) rows.push({ key: 'after:transform', block: 'transform', connect: true });
-			for (const c of commands) {
-				if (c.id === selected.command_ref) continue; // feeding a step into itself is rarely the next move
-				const w = wiringFor(selected, c, byId);
-				if (w && matches(c)) rows.push({ key: `after:${c.id}`, block: `command:${c.id}`, command: c, wiring: w, connect: true });
-			}
-			if (rows.length) out.push({ title: `After ${selected.name}`, hint: 'Enter adds it and connects it', rows });
+			if (rows.length) out.push({ title: `After ${selected.name}`, hint: 'Enter adds the highlighted one and connects it', rows });
 		}
+		const after = new Set(out[0]?.rows.map((r) => r.command?.id).filter(Boolean));
 		const used = [...new Set(spec.steps.map((st) => st.command_ref).filter((x): x is string => !!x))]
+			.filter((id) => !after.has(id))
 			.map((id) => byId.get(id))
 			.filter((c): c is CommandDefinition => !!c && matches(c));
 		if (used.length) out.push({ title: 'In this playbook', rows: used.map((c) => ({ key: `used:${c.id}`, block: `command:${c.id}`, command: c, connect: false })) });
-		if (transformMatches) out.push({ title: 'On the server', rows: [{ key: 'transform', block: 'transform', connect: false }] });
 		for (const f of folders(commands, tools)) {
 			const rows = f.commands.filter(matches).map((c) => ({ key: `${f.id}:${c.id}`, block: `command:${c.id}`, command: c, connect: false }));
-			if (rows.length) out.push({ title: f.name, rows });
+			if (rows.length) out.push({ title: f.name, rows, fold: f.id || '_none' });
 		}
+		if (transformMatches) out.push({ title: 'Reshape results', rows: [{ key: 'transform', block: 'transform', connect: false }] });
 		return out;
 	});
-	let rows = $derived(sections.flatMap((s) => s.rows));
 	let cursor = $state<string | null>(null);
+	let rows = $derived(sections.flatMap((s) => (isFolded(s) ? [] : s.rows)));
+	/** The row Enter adds: the one the arrows reached, else the first. */
+	let target = $derived(cursor ?? rows[0]?.key ?? null);
+	let focused = $state(false);
 	// Keep the cursor on a row that exists.
 	$effect(() => {
 		if (cursor && !rows.some((r) => r.key === cursor)) cursor = null;
@@ -123,7 +152,11 @@
 	const describe = (w: Wiring) => (w.each ? `one card per item of ${w.output.name} → ${w.arg.name}` : `${w.output.name} → ${w.arg.name}`);
 </script>
 
-<div class="flex min-h-0 flex-1 flex-col gap-2">
+<div
+	class="flex min-h-0 flex-1 flex-col gap-2"
+	onfocusin={() => (focused = true)}
+	onfocusout={(e) => (focused = !!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node))}
+>
 	<div class="flex items-baseline justify-between gap-2">
 		<p class="label-large text-on-surface">Add a step</p>
 		<p class="body-small text-on-surface-variant">drag, click or Enter</p>
@@ -153,20 +186,36 @@
 		role="listbox"
 		tabindex="0"
 		aria-label="Steps to add"
-		aria-activedescendant={cursor ? rowId(cursor) : undefined}
+		aria-activedescendant={focused && target ? rowId(target) : undefined}
 		onkeydown={listKey}
 	>
 		{#each sections as s (s.title)}
 			<div class="flex flex-col gap-px pt-2" role="group" aria-label={s.title}>
-				<p class="px-2 pb-1 label-medium {s.hint ? 'text-primary' : 'text-on-surface-variant'}">
-					<span class="block truncate">{s.title}</span>
-					{#if s.hint}<span class="block body-small text-on-surface-variant">{s.hint}</span>{/if}
-				</p>
-				{#each s.rows as row (row.key)}
+				{#if s.fold}
+					{@const shut = isFolded(s)}
+					<button
+						type="button"
+						tabindex="-1"
+						class="state-layer flex items-center gap-1 rounded-sm px-1 py-0.5 text-left label-medium text-on-surface-variant"
+						aria-expanded={!shut}
+						onclick={() => s.fold && toggleFold(s.fold)}
+					>
+						<Icon name="chevron_right" size={16} class="transition-transform duration-150 {shut ? '' : 'rotate-90'}" />
+						<span class="min-w-0 flex-1 truncate">{s.title}</span>
+						{#if shut}<span class="pr-1 tabular-nums">{s.rows.length}</span>{/if}
+					</button>
+				{:else}
+					<p class="px-2 pb-1 label-medium {s.hint ? 'text-primary' : 'text-on-surface-variant'}">
+						<span class="block truncate">{s.title}</span>
+						{#if s.hint}<span class="block body-small text-on-surface-variant">{s.hint}</span>{/if}
+					</p>
+				{/if}
+				{#each isFolded(s) ? [] : s.rows as row (row.key)}
+					{@const isTarget = focused && target === row.key}
 					<!-- svelte-ignore a11y_no_static_element_interactions (the row inside is the option) -->
 					<div
 						draggable="true"
-						class="rounded-md {cursor === row.key ? 'bg-surface-container-high' : ''}"
+						class="relative rounded-md {isTarget ? 'bg-surface-container-highest ring-1 ring-primary/50' : ''}"
 						title={row.wiring ? `Adds it after ${selected?.name}: ${describe(row.wiring)}` : (row.command?.description ?? '')}
 						ondragstart={(e) => e.dataTransfer?.setData(BLOCK_MIME, row.block)}
 					>
@@ -202,6 +251,9 @@
 						{/if}
 						{#if row.wiring}
 							<p class="-mt-1 truncate pb-1.5 pl-3 font-mono text-[11.5px] text-primary">{describe(row.wiring)}</p>
+						{/if}
+						{#if isTarget}
+							<kbd class="pointer-events-none absolute right-2 bottom-1.5 rounded-xs border border-outline-variant bg-surface-container px-1 font-mono text-[11px] text-on-surface-variant" aria-hidden="true">Enter</kbd>
 						{/if}
 					</div>
 				{/each}

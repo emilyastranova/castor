@@ -141,6 +141,49 @@
 	let expectLog = $derived(typeof step.expect?.log?.not_matches === 'string' ? (step.expect.log.not_matches as string) : '');
 
 	const otherSteps = $derived(spec.steps.filter((s) => s.id !== step.id).map((s) => ({ value: s.id, label: s.name })));
+
+	// The sections that change how a step behaves fold to one line saying what's set, so the
+	// arguments stay in view. Which are open is remembered in this browser, for every step.
+	let open = $state<Set<string>>(loadOpen());
+	function loadOpen(): Set<string> {
+		try {
+			return new Set(JSON.parse(localStorage.getItem('castor.inspector.open') ?? '[]'));
+		} catch {
+			return new Set();
+		}
+	}
+	function toggle(key: string) {
+		const next = new Set(open);
+		if (!next.delete(key)) next.add(key);
+		open = next;
+		try {
+			localStorage.setItem('castor.inspector.open', JSON.stringify([...next]));
+		} catch {
+			/* only for this tab */
+		}
+	}
+	const stepName = (id: string) => spec.steps.find((s) => s.id === id)?.name ?? id;
+	let whenSummary = $derived.by(() => {
+		let text =
+			cond.kind === 'complex'
+				? `if ${describeCondition(step.when)}`
+				: cond.kind === 'value'
+					? `if ${shortRef(cond.value)} ${VALUE_TESTS.find((t) => t.value === cond.test)?.label ?? cond.test}${cond.arg ? ` ${cond.arg}` : ''}`
+					: cond.kind === 'status'
+						? `if ${stepName(cond.step)} ${cond.status.replace('_', ' ')}`
+						: 'Always';
+		if (step.join === 'any') text += ', when one input worked';
+		if (step.join === 'always') text += ', whatever happened before';
+		if (step.depends_on?.length) text += ` · after ${step.depends_on.map(stepName).join(', ')}`;
+		return text;
+	});
+	let failureSummary = $derived.by(() => {
+		const parts = [{ stop: 'Stop', continue: 'Continue', ask: 'Ask a person', ai: 'AI decides' }[step.on_failure ?? 'stop']];
+		if (step.skip_if_empty) parts.push('skips when empty');
+		if (expectOutputs.length || expectLog) parts.push('has expectations');
+		return parts.join(' · ');
+	});
+	let eachSummary = $derived(step.for_each ? `one card per item of ${shortRef(step.for_each.items)}` : 'Off');
 </script>
 
 {#snippet section(title: string, icon: string)}
@@ -148,6 +191,23 @@
 		<Icon name={icon} size={18} class="text-on-surface-variant" />
 		<span class="label-large text-on-surface">{title}</span>
 	</div>
+{/snippet}
+
+{#snippet fold(key: string, title: string, icon: string, summary: string)}
+	{@const isOpen = open.has(key)}
+	<button
+		type="button"
+		class="state-layer -mx-2 mt-1 flex items-center gap-2 rounded-md border-t border-outline-variant/60 px-2 pt-3 pb-1.5 text-left"
+		aria-expanded={isOpen}
+		onclick={() => toggle(key)}
+	>
+		<Icon name={icon} size={18} class="shrink-0 text-on-surface-variant" />
+		<span class="min-w-0 flex-1">
+			<span class="block label-large text-on-surface">{title}</span>
+			{#if !isOpen}<span class="block truncate body-small text-on-surface-variant">{summary}</span>{/if}
+		</span>
+		<Icon name="expand_more" size={20} class="shrink-0 text-on-surface-variant transition-transform duration-150 {isOpen ? 'rotate-180' : ''}" />
+	</button>
 {/snippet}
 
 <div class="flex flex-col gap-3">
@@ -168,16 +228,19 @@
 	{/if}
 
 	<TextField label="Name" value={step.name} oninput={(e) => set('name', (e.currentTarget as HTMLInputElement).value)} />
-	<TextField
-		label="Id"
-		mono
-		bind:value={idDraft}
-		error={idError}
-		supporting={idError ? '' : 'used in references; renaming updates them'}
-		onblur={commitId}
-		onkeydown={(e) => e.key === 'Enter' && commitId()}
-	/>
-	<TextField label="Description" multiline rows={2} value={step.description} oninput={(e) => set('description', (e.currentTarget as HTMLTextAreaElement).value)} />
+	{@render fold('details', 'Id and description', 'badge', `${step.id}${step.description ? ` · ${step.description}` : ''}`)}
+	{#if open.has('details') || idError}
+		<TextField
+			label="Id"
+			mono
+			bind:value={idDraft}
+			error={idError}
+			supporting={idError ? '' : 'used in references; renaming updates them'}
+			onblur={commitId}
+			onkeydown={(e) => e.key === 'Enter' && commitId()}
+		/>
+		<TextField label="Description" multiline rows={2} value={step.description} oninput={(e) => set('description', (e.currentTarget as HTMLTextAreaElement).value)} />
+	{/if}
 
 	{#if step.transform}
 		{@render section('Transform', 'filter_alt')}
@@ -241,7 +304,8 @@
 			{/each}
 		{/if}
 
-		{@render section('Run once per item', 'stacks')}
+		{@render fold('each', 'Run once per item', 'stacks', eachSummary)}
+		{#if open.has('each')}
 		<Switch
 			checked={!!step.for_each}
 			label={step.for_each ? 'One card and job per item' : 'Off'}
@@ -255,9 +319,11 @@
 			</div>
 			<p class="body-small text-on-surface-variant">Use “Current item” for the argument each card should get.</p>
 		{/if}
+		{/if}
 	{/if}
 
-	{@render section('When it runs', 'alt_route')}
+	{@render fold('when', 'When it runs', 'alt_route', whenSummary)}
+	{#if open.has('when')}
 	{#if cond.kind === 'complex'}
 		<p class="rounded-md bg-surface-container px-3 py-2 font-mono text-[12px] text-on-surface">if {describeCondition(step.when)}</p>
 		<div class="flex gap-2">
@@ -327,8 +393,10 @@
 			{/each}
 		</div>
 	{/if}
+	{/if}
 
-	{@render section('If something goes wrong', 'report')}
+	{@render fold('failure', 'If something goes wrong', 'report', failureSummary)}
+	{#if open.has('failure')}
 	<Select
 		label="On failure"
 		value={step.on_failure ?? 'stop'}
@@ -387,6 +455,7 @@
 		{:else}
 			<p class="body-small text-on-surface-variant">This step's <span class="font-mono">expect</span> is edited in the YAML tab.</p>
 		{/if}
+	{/if}
 	{/if}
 
 	{#if step.for_each}

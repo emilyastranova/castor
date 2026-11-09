@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { beforeNavigate, goto } from '$app/navigation';
+	import { tick } from 'svelte';
 	import type { PlaybookSpec, PlaybookStepSpec } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, Icon, IconButton, Tabs, TextField } from '$lib/m3';
@@ -10,6 +11,7 @@
 	import PlaybookSettings from '$lib/components/editor/PlaybookSettings.svelte';
 	import StepPalette from '$lib/components/editor/StepPalette.svelte';
 	import {
+		bindToInputs,
 		connectOptions,
 		deleteStep,
 		disconnect,
@@ -132,8 +134,8 @@
 	/** Add a step where it was dropped, or (clicked in the palette) to the right of the
 	 *  selected step, or the last one added. Everything else keeps its place, and the view pans
 	 *  to the new step rather than zooming out to fit them all. */
-	function addStep(step: PlaybookStepSpec, at?: { x: number; y: number }) {
-		const frozen = { ...(viz?.positions() ?? {}), ...spec.layout };
+	function addStep(step: PlaybookStepSpec, at?: { x: number; y: number }, base: PlaybookSpec = spec) {
+		const frozen = { ...(viz?.positions() ?? {}), ...base.layout };
 		const anchor = frozen[selectedId ?? ''] ?? frozen[spec.steps.at(-1)?.id ?? ''];
 		let pos: { x: number; y: number };
 		if (at) pos = { x: at.x - 130, y: at.y - 50 };
@@ -145,7 +147,7 @@
 			const c = viz?.visibleCenter() ?? { x: 200, y: 150 };
 			pos = { x: c.x - 130, y: c.y - 50 };
 		}
-		update({ ...spec, steps: [...spec.steps, step], layout: { ...frozen, [step.id]: { x: Math.round(pos.x), y: Math.round(pos.y) } } });
+		update({ ...base, steps: [...base.steps, step], layout: { ...frozen, [step.id]: { x: Math.round(pos.x), y: Math.round(pos.y) } } });
 		selectedId = step.id;
 		if (!at) setTimeout(() => viz?.reveal(step.id), 30);
 	}
@@ -161,7 +163,12 @@
 		if (!cmd) return;
 		const step = newCommandStep(spec, cmd);
 		const wiring = from ? wiringFor(from, cmd, commandsById) : null;
-		addStep(from && wiring ? wireStep(step, from.id, wiring) : step, at);
+		if (from && wiring) return addStep(wireStep(step, from.id, wiring), at);
+		// Nothing feeds it: its required targets (and the like) come from the run's inputs.
+		const bound = bindToInputs(spec, step, cmd);
+		addStep(bound.step, at, bound.spec);
+		const added = (bound.spec.inputs ?? []).filter((i) => !(spec.inputs ?? []).some((x) => x.name === i.name)).map((i) => i.name);
+		if (added.length) snackbar.show(`Added playbook input${added.length === 1 ? '' : 's'} ${added.join(', ')}: a run asks for ${added.length === 1 ? 'it' : 'them'}`);
 	}
 
 	function removeSelected() {
@@ -234,6 +241,29 @@
 		}
 	}
 
+	// Side panels fold away to give the canvas room ([ and ]); remembered in this browser.
+	let panels = $state(loadPanels());
+	function loadPanels(): { left: boolean; right: boolean } {
+		try {
+			return { left: true, right: true, ...JSON.parse(localStorage.getItem('castor.editor.panels') ?? '{}') };
+		} catch {
+			return { left: true, right: true };
+		}
+	}
+	function togglePanel(side: 'left' | 'right', open = !panels[side]) {
+		panels = { ...panels, [side]: open };
+		try {
+			localStorage.setItem('castor.editor.panels', JSON.stringify(panels));
+		} catch {
+			/* only for this tab */
+		}
+	}
+	async function openPalette() {
+		if (!panels.left) togglePanel('left', true);
+		await tick();
+		palette?.focusSearch();
+	}
+
 	let shortcutsOpen = $state(false);
 	const SHORTCUTS: [string[], string][] = [
 		[['/'], 'Search the steps to add'],
@@ -248,6 +278,8 @@
 		[['Ctrl', 'Shift', 'Z'], 'Redo'],
 		[['Ctrl', 'S'], 'Save'],
 		[['F'], 'Fit the graph in view'],
+		[['['], 'Show or hide the step list'],
+		[[']'], 'Show or hide the step’s settings'],
 		[['?'], 'This list']
 	];
 	function onKey(e: KeyboardEvent) {
@@ -283,7 +315,10 @@
 			return;
 		} else if (e.key === '/') {
 			e.preventDefault();
-			palette?.focusSearch();
+			void openPalette();
+		} else if (e.key === '[' || e.key === ']') {
+			e.preventDefault();
+			togglePanel(e.key === '[' ? 'left' : 'right');
 		} else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
 			e.preventDefault();
 			removeSelected();
@@ -382,7 +417,7 @@
 				{savedId ? 'Editing' : data.playbook?.origin === 'builtin' ? 'Copy of a built-in playbook' : 'New playbook'} · <span class="font-mono">{spec.id}</span>
 			</p>
 		</div>
-		<span class="ml-2 flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 label-medium {errors.length ? 'bg-error-container text-on-error-container' : 'bg-surface-container-high text-on-surface-variant'}">
+		<span class="ml-2 flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 label-medium {!checking && errors.length ? 'bg-error-container text-on-error-container' : 'bg-surface-container-high text-on-surface-variant'}">
 			{#if checking}
 				<Icon name="progress_activity" size={16} class="animate-spin" />Checking
 			{:else if errors.length}
@@ -391,12 +426,14 @@
 				<Icon name="check_circle" size={16} class="text-primary" />Valid
 			{/if}
 		</span>
-		<div class="ml-auto flex items-center gap-2">
+		<div class="ml-auto hidden items-center gap-2 md:flex">
 			{#if tab === 'visual'}
 				<span class="flex items-center">
 					<IconButton icon="undo" label="Undo (Ctrl+Z)" disabled={!past.length} onclick={undo} />
 					<IconButton icon="redo" label="Redo (Ctrl+Shift+Z)" disabled={!future.length} onclick={redo} />
 					<IconButton icon="keyboard" label="Keyboard shortcuts (?)" onclick={() => (shortcutsOpen = true)} />
+					<IconButton icon={panels.left ? 'left_panel_close' : 'left_panel_open'} label="{panels.left ? 'Hide' : 'Show'} the step list ([)" onclick={() => togglePanel('left')} />
+					<IconButton icon={panels.right ? 'right_panel_close' : 'right_panel_open'} label="{panels.right ? 'Hide' : 'Show'} the settings (])" onclick={() => togglePanel('right')} />
 				</span>
 			{/if}
 			<Tabs
@@ -407,7 +444,13 @@
 				bind:value={tab}
 				class="border-b-0"
 			/>
-			<Button icon="save" loading={saving} disabled={!dirty && !!savedId} onclick={save}>{savedId ? 'Save' : 'Create'}</Button>
+			<Button
+				icon="save"
+				loading={saving}
+				disabled={(!dirty && !!savedId) || (!checking && errors.length > 0)}
+				title={!checking && errors.length ? `Fix the ${errors.length === 1 ? 'problem' : `${errors.length} problems`} first` : 'Ctrl+S'}
+				onclick={save}>{savedId ? 'Save' : 'Create'}</Button
+			>
 		</div>
 	</header>
 
@@ -423,11 +466,27 @@
 	{/if}
 
 	{#if tab === 'visual'}
-		<div class="grid min-h-0 flex-1 grid-cols-[18rem_minmax(0,1fr)_24rem]">
+		<!-- Phones: the graph to look at; editing needs the room of a laptop. -->
+		<div class="flex min-h-0 flex-1 flex-col gap-2 p-3 md:hidden">
+			<p class="flex items-center gap-2 rounded-md bg-surface-container-high px-3 py-2 body-small text-on-surface-variant">
+				<Icon name="desktop_windows" size={18} />Editing playbooks needs a larger screen. Here you can look at the graph.
+			</p>
+			<div class="min-h-0 flex-1"><PlaybookVisualizer spec={drawn} commands={data.commands} fill /></div>
+		</div>
+		<div
+			class="hidden min-h-0 flex-1 md:grid"
+			style:grid-template-columns="{panels.left ? '18rem' : '3.5rem'} minmax(0,1fr) {panels.right ? '24rem' : '3.5rem'}"
+		>
 			<!-- palette -->
-			<aside class="flex min-h-0 flex-col border-r border-outline-variant p-3">
-				<StepPalette bind:this={palette} {spec} commands={data.commands} tools={data.tools} {selected} onadd={(block, connect) => addBlock(block, undefined, connect)} />
-			</aside>
+			{#if panels.left}
+				<aside class="flex min-h-0 flex-col border-r border-outline-variant p-3">
+					<StepPalette bind:this={palette} {spec} commands={data.commands} tools={data.tools} {selected} onadd={(block, connect) => addBlock(block, undefined, connect)} />
+				</aside>
+			{:else}
+				<aside class="flex flex-col items-center gap-1 border-r border-outline-variant py-3">
+					<IconButton icon="add" label="Add a step (/)" onclick={openPalette} />
+				</aside>
+			{/if}
 
 			<!-- canvas -->
 			<section class="relative min-h-0 p-3">
@@ -437,6 +496,7 @@
 					commands={data.commands}
 					editable
 					fill
+					minFit={0.65}
 					errors={problems.byStep}
 					selectedStepId={selectedId}
 					onStepSelect={(st) => (selectedId = st.id)}
@@ -450,12 +510,20 @@
 					<div class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-center text-on-surface-variant">
 						<Icon name="add_box" size={40} class="opacity-50" />
 						<p class="title-medium text-on-surface">Start by adding a step</p>
-						<p class="max-w-sm body-small">Drag commands from the left. Connect steps by dragging from a step's <Icon name="add" size={14} /> handle onto another step.</p>
+						<p class="max-w-sm body-small">
+							Press <kbd class="rounded-xs border border-outline-variant px-1 font-mono">/</kbd>, type a command and press <kbd class="rounded-xs border border-outline-variant px-1 font-mono">Enter</kbd>.
+							Each Enter after that adds the next step, already connected. Or drag commands from the left.
+						</p>
 					</div>
 				{/if}
 			</section>
 
 			<!-- properties -->
+			{#if !panels.right}
+				<aside class="flex flex-col items-center gap-1 border-l border-outline-variant py-3">
+					<IconButton icon="tune" label="Show the settings (])" onclick={() => togglePanel('right', true)} />
+				</aside>
+			{:else}
 			<aside class="min-h-0 overflow-auto border-l border-outline-variant p-4">
 				{#if selected}
 					{#key selected.id}
@@ -476,6 +544,7 @@
 					<PlaybookSettings {spec} idEditable={!savedId} kinds={data.kinds} errors={problems.general} onchange={(next) => update(next, 'settings')} />
 				{/if}
 			</aside>
+			{/if}
 		</div>
 	{:else}
 		<div class="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_22rem] gap-4 p-4">
@@ -501,7 +570,9 @@
 				{#each [...yamlErrors, ...(yamlErrors.length ? [] : errors)] as e (e)}
 					<p class="flex gap-1.5 rounded-md bg-error-container/40 px-3 py-2 body-small text-on-surface"><Icon name="error" size={16} class="mt-px shrink-0 text-error" />{e}</p>
 				{:else}
-					<p class="body-small text-on-surface-variant">None. See docs/PLAYBOOK_SPEC.md for the format.</p>
+					<p class="body-small text-on-surface-variant">
+							None. The format is in the <a class="text-primary underline underline-offset-4" href="https://github.com/emilyastranova/castor/blob/main/docs/PLAYBOOK_SPEC.md" target="_blank" rel="noopener noreferrer">playbook spec</a>.
+						</p>
 				{/each}
 			</aside>
 		</div>

@@ -3,7 +3,7 @@
 	import { page } from '$app/state';
 	import type { CommandDefinition, ToolDefinition } from '$lib/api';
 	import { api } from '$lib/api';
-	import { Button, Chip, Icon, Menu, MenuItem, TopAppBar } from '$lib/m3';
+	import { Button, Chip, Dialog, Icon, IconButton, Menu, MenuItem, TopAppBar } from '$lib/m3';
 	import { canEdit } from '$lib/session';
 	import { aiStatus } from '$lib/ai.svelte';
 	import { realtime } from '$lib/realtime.svelte';
@@ -55,7 +55,14 @@
 	let all = $derived(folders(commands, tools));
 	let shown = $derived(filterFolders(all, filters));
 	let collapsed = $state<Set<string>>(loadCollapsed());
-	const isOpen = (id: string) => filtering(filters) || !collapsed.has(id);
+	// While filtering every matching folder opens; folding one then lasts until the filters change.
+	let filterFolded = $state<Set<string>>(new Set());
+	let filterKey = $derived(JSON.stringify(filters));
+	$effect(() => {
+		void filterKey;
+		filterFolded = new Set();
+	});
+	const isOpen = (id: string) => (filtering(filters) ? !filterFolded.has(id) : !collapsed.has(id));
 
 	function loadCollapsed(): Set<string> {
 		try {
@@ -65,6 +72,13 @@
 		}
 	}
 	function toggle(id: string, open?: boolean) {
+		if (filtering(filters)) {
+			const next = new Set(filterFolded);
+			if (open ?? next.has(id)) next.delete(id);
+			else next.add(id);
+			filterFolded = next;
+			return;
+		}
 		const next = new Set(collapsed);
 		if (open ?? next.has(id)) next.delete(id);
 		else next.add(id);
@@ -220,7 +234,7 @@ build:
 			if (cursor.startsWith('c:') && e.key === 'ArrowLeft') {
 				cursor = f === NO_TOOL ? 'f:' : `t:${f}`;
 				if (f !== NO_TOOL) void select(cursor);
-			} else if (!cursor.startsWith('c:') && !filtering(filters)) toggle(f, e.key === 'ArrowRight');
+			} else if (!cursor.startsWith('c:')) toggle(f, e.key === 'ArrowRight');
 		} else if (e.key === 'Enter' && cursor) {
 			if (cursor === 'f:') toggle(NO_TOOL);
 			else {
@@ -242,7 +256,9 @@ build:
 		const el = e.target as HTMLElement;
 		const typing = el.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]');
 		if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
-		if (e.key === '/') {
+		if (e.key === '?') {
+			shortcutsOpen = true;
+		} else if (e.key === '/') {
 			e.preventDefault();
 			search?.focus();
 			search?.select();
@@ -254,7 +270,17 @@ build:
 		}
 	}
 	function searchKey(e: KeyboardEvent) {
-		if (e.key === 'ArrowDown' || e.key === 'Enter') {
+		if (e.key === 'Enter') {
+			// Searching is usually for a command: open the first one that matches (or the first row).
+			e.preventDefault();
+			list?.focus();
+			const first = rows.find((r) => r.startsWith('c:')) ?? rows[0];
+			if (first) {
+				cursor = first;
+				document.getElementById(rowId(first))?.scrollIntoView({ block: 'nearest' });
+				void select(first, true);
+			}
+		} else if (e.key === 'ArrowDown') {
 			e.preventDefault();
 			list?.focus();
 			if (!cursor || !rows.includes(cursor)) move(1);
@@ -277,6 +303,11 @@ build:
 		'no-agents': 'bg-outline-variant'
 	};
 	let newOpen = $state(false);
+	let shortcutsOpen = $state(false);
+	// Readiness worth a glance: per folder only when something needs doing, plus one line above the list.
+	let unprepared = $derived(tools.filter((t) => ['unprepared', 'partial', 'failed'].includes(readiness(t).state)).length);
+	let noAgents = $derived(tools.length > 0 && tools.every((t) => readiness(t).state === 'no-agents'));
+	const NOTEWORTHY = new Set(['failed', 'preparing', 'partial']);
 	let toolName = (id: string | null | undefined) => tools.find((t) => t.id === id)?.name ?? null;
 </script>
 
@@ -285,6 +316,7 @@ build:
 
 <TopAppBar title="Library" subtitle="{tools.length} tools · {commandCount} commands · what cards and playbooks run">
 	{#snippet actions()}
+		<IconButton icon="keyboard" label="Keyboard shortcuts (?)" onclick={() => (shortcutsOpen = true)} />
 		<LibraryTransfer noun="library items" request={{ commands: mineCommands, tools: mineTools, label: 'castor-library' }} count={mineCommands.length + mineTools.length} onimported={async () => {
 			[commands, tools] = await Promise.all([api().commands.list(), api().tools.list()]);
 		}} />
@@ -326,11 +358,23 @@ build:
 			</label>
 			<div class="flex flex-wrap gap-1.5" role="group" aria-label="Filters">
 				<Chip variant="filter" selected={filters.mine} onclick={() => (filters.mine = !filters.mine)}>Yours</Chip>
-				<Chip variant="filter" icon={filters.credentials ? undefined : 'key'} selected={filters.credentials} onclick={() => (filters.credentials = !filters.credentials)}>Credentials</Chip>
+				<Chip variant="filter" selected={filters.credentials} onclick={() => (filters.credentials = !filters.credentials)}>Credentials</Chip>
 				<Chip variant="filter" selected={filters.unused} onclick={() => (filters.unused = !filters.unused)}>Unused</Chip>
 				<Chip variant="filter" selected={filters.notReady} onclick={() => (filters.notReady = !filters.notReady)}>Not ready</Chip>
 				{#if filters.tag}<Chip variant="input" icon="sell" onremove={() => (filters.tag = null)}>{filters.tag}</Chip>{/if}
 			</div>
+			{#if noAgents}
+				<p class="flex items-center gap-1.5 px-1 body-small text-on-surface-variant"><Icon name="dns" size={16} />No agents are connected, so nothing is prepared.</p>
+			{:else if unprepared}
+				<button
+					type="button"
+					class="flex items-center gap-1.5 self-start rounded-sm px-1 body-small text-on-surface-variant underline-offset-4 hover:underline"
+					title="Agents get a tool the first time a job needs it; preparing does that ahead of time"
+					onclick={() => (filters.notReady = true)}
+				>
+					<span class="size-2 rounded-full bg-outline"></span>{unprepared} of {tools.length} tools aren’t ready on every agent yet
+				</button>
+			{/if}
 		</div>
 
 		<!-- svelte-ignore a11y_no_noninteractive_tabindex (a tree: the arrow keys move through it) -->
@@ -371,7 +415,6 @@ build:
 							tabindex="-1"
 							class="flex size-8 shrink-0 items-center justify-center rounded-full text-on-surface-variant hover:bg-on-surface/8"
 							aria-label={open ? `Fold ${f.name}` : `Unfold ${f.name}`}
-							disabled={filtering(filters)}
 							onclick={(e) => { e.stopPropagation(); toggle(f.id); }}
 						>
 							<Icon name="chevron_right" size={20} class="transition-transform duration-150 {open ? 'rotate-90' : ''}" />
@@ -385,7 +428,7 @@ build:
 								</span>
 							{/if}
 						</span>
-						{#if ready}
+						{#if ready && NOTEWORTHY.has(ready.state)}
 							<span class="flex items-center gap-1.5 label-small text-on-surface-variant" title="On the connected agents">
 								<span class="size-2 rounded-full {dot[ready.state]}"></span>{ready.label}
 							</span>
@@ -487,3 +530,15 @@ build:
 </div>
 
 <AiGenerateDialog bind:open={aiOpen} kind={aiKind} current={aiCurrent} onuse={(d) => aiUse(d.yaml)} />
+
+<Dialog bind:open={shortcutsOpen} title="Keyboard shortcuts" icon="keyboard" size="sm">
+	<dl class="grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-6 gap-y-2 pt-2 body-medium">
+		{#each [[['/'], 'Search; Enter opens the first command that matches'], [['icon:arrow_upward', 'icon:arrow_downward'], 'Move through the list (or j and k)'], [['icon:arrow_back', 'icon:arrow_forward'], 'Fold and unfold a tool'], [['Enter'], 'Open the details'], [['Esc'], 'Back to the list'], ...(editable ? [[['n'], 'New command, in the selected tool']] : []), [['?'], 'This list']] as [keys, what] (what)}
+			<dt class="flex flex-wrap gap-1">
+				{#each keys as k (k)}<kbd class="flex h-6 min-w-6 items-center justify-center rounded-xs border border-outline-variant bg-surface-container px-1.5 font-mono text-[12px] text-on-surface">{#if String(k).startsWith('icon:')}<Icon name={String(k).slice(5)} size={14} /><span class="sr-only">{String(k).slice(5).replace('arrow_', '').replace('ward', '')} arrow</span>{:else}{k}{/if}</kbd>{/each}
+			</dt>
+			<dd class="text-on-surface-variant">{what}</dd>
+		{/each}
+	</dl>
+	{#snippet actions()}<Button variant="text" onclick={() => (shortcutsOpen = false)}>Close</Button>{/snippet}
+</Dialog>

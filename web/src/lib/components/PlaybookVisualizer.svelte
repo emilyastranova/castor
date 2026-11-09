@@ -32,6 +32,9 @@
 		/** A palette block was dropped on the canvas, at canvas coordinates. */
 		ondropblock?: (data: string, at: { x: number; y: number }) => void;
 		oncanvasclick?: () => void;
+		/** The smallest zoom "fit" goes to. Below about 0.6 node text can't be read, so the editor
+		 *  stops there and shows the start of a wide graph (and the selected step) instead. */
+		minFit?: number;
 	}
 
 	let {
@@ -47,7 +50,8 @@
 		onedgedelete,
 		onlayout,
 		ondropblock,
-		oncanvasclick
+		oncanvasclick,
+		minFit = 0.35
 	}: Props = $props();
 
 	// Connecting: a line follows the pointer from an output port until it's dropped on a node.
@@ -399,7 +403,8 @@
 
 		const scaleX = rect.width / contentW;
 		const scaleY = rect.height / contentH;
-		const targetZoom = Math.min(Math.max(Math.min(scaleX, scaleY), 0.35), 1.15);
+		const fits = Math.min(scaleX, scaleY);
+		const targetZoom = Math.min(Math.max(fits, minFit), 1.15);
 
 		const centerX = (minX + maxX) / 2;
 		const centerY = (minY + maxY) / 2;
@@ -407,6 +412,13 @@
 		panX = Math.round(rect.width / 2 - centerX * targetZoom);
 		panY = Math.round(rect.height / 2 - centerY * targetZoom);
 		zoom = targetZoom;
+		if (fits < minFit) {
+			// It doesn't fit at a readable size: start from the beginning of the graph (where a
+			// playbook starts), or from the selected step.
+			if (scaleX < minFit) panX = Math.round(pad * targetZoom - minX * targetZoom);
+			if (scaleY < minFit) panY = Math.round(pad * targetZoom - minY * targetZoom);
+			if (selectedStepId) reveal(selectedStepId);
+		}
 	}
 
 	/** Bring a step into view without changing the zoom (a new step shouldn't shrink the rest). */
@@ -862,31 +874,31 @@
 					{#if editable}
 						<button
 							type="button"
-							class="absolute -top-2 -right-2 size-5 items-center justify-center rounded-full bg-error text-on-error shadow-e1 {selectedStepId === edge.toId || selectedStepId === edge.fromId ? 'flex' : 'hidden group-hover/edge:flex'}"
+							class="absolute -top-3 -right-3 size-7 items-center justify-center rounded-full border border-outline-variant bg-surface-container-high text-on-surface-variant shadow-e1 hover:bg-error-container hover:text-on-error-container {selectedStepId === edge.toId || selectedStepId === edge.fromId ? 'flex' : 'hidden group-hover/edge:flex'}"
 							aria-label="Remove the connection from {edge.fromId} to {edge.toId}"
 							title="Remove this connection"
 							onpointerdown={(e) => e.stopPropagation()}
 							onclick={() => onedgedelete?.(edge.fromId, edge.toId)}
 						>
-							<Icon name="close" size={12} />
+							<Icon name="close" size={16} />
 						</button>
 					{/if}
 					{#if edge.gate}
-						<div class="flex max-w-full items-center gap-1 font-mono text-[10px] font-medium text-tertiary">
+						<div class="flex max-w-full items-center gap-1 font-mono text-[11px] font-medium text-tertiary">
 							<Icon name="alt_route" size={12} class="shrink-0" />
 							<span class="truncate">if {edge.gate}</span>
 						</div>
 					{/if}
 					{#if edge.bindings.length > 0}
 						{#each edge.bindings as b (b.sourceOutput + b.targetArg)}
-							<div class="flex max-w-full items-center gap-1 font-mono text-[10.5px] text-on-surface-variant">
+							<div class="flex max-w-full items-center gap-1 font-mono text-[11px] text-on-surface-variant">
 								<span class="truncate font-medium text-on-surface">{b.sourceOutput}</span>
 								<span class="shrink-0">→</span>
 								<span class="truncate font-medium text-primary">{b.targetArg}</span>
 							</div>
 						{/each}
 						{#if edge.via || edge.count !== null}
-							<div class="flex max-w-full items-center gap-1 font-mono text-[9.5px] text-on-surface-variant">
+							<div class="flex max-w-full items-center gap-1 font-mono text-[11px] text-on-surface-variant">
 								{#if edge.via}
 									<Icon name="data_object" size={11} class="shrink-0 text-tertiary" />
 									<span class="truncate">{edge.via}</span>
@@ -897,7 +909,7 @@
 							</div>
 						{/if}
 					{:else if !edge.gate}
-						<div class="flex items-center gap-1 font-mono text-[9.5px] text-on-surface-variant">
+						<div class="flex items-center gap-1 font-mono text-[11px] text-on-surface-variant">
 							<Icon name="arrow_forward" size={11} class="opacity-70" />
 							<span>after</span>
 						</div>
@@ -977,7 +989,7 @@
 						{#if isTransform && node.step.transform}
 							{@const ops = node.step.transform.ops}
 							{@const shown = ops.length > MAX_OP_LINES ? ops.slice(0, MAX_OP_LINES - 1) : ops}
-							<ol class="mt-1 flex min-w-0 flex-col font-mono text-[10.5px] leading-[14px] text-on-surface-variant" title={ops.map(describeOp).join('\n')}>
+							<ol class="mt-1 flex min-w-0 flex-col font-mono text-[11px] leading-[14px] text-on-surface-variant" title={ops.map(describeOp).join('\n')}>
 								{#each shown as op, i (i)}
 									<li class="flex min-w-0 items-center gap-1.5">
 										<span class="size-1 shrink-0 rounded-full bg-tertiary"></span>
@@ -996,7 +1008,7 @@
 								{#if node.cmdOutputs && node.cmdOutputs.length > 0}
 									{@const primary = node.cmdOutputs[0]}
 									<span
-										class="shrink-0 rounded bg-tertiary-container/40 px-1.5 text-[9.5px] text-on-tertiary-container"
+										class="shrink-0 rounded bg-tertiary-container/40 px-1.5 text-[11px] text-on-tertiary-container"
 										title="Parser: {primary.parser || 'none'} ({primary.name}: {primary.type || 'text'})"
 									>
 										{primary.parser || primary.name}
@@ -1008,7 +1020,7 @@
 							<div class="mt-1 flex min-w-0 gap-1 overflow-hidden">
 								{#each flags as f (f.label)}
 									<span
-										class="flex shrink-0 items-center gap-0.5 rounded px-1.5 text-[9.5px] leading-4 {f.tone === 'gate'
+										class="flex shrink-0 items-center gap-0.5 rounded px-1.5 text-[11px] leading-4 {f.tone === 'gate'
 											? 'bg-tertiary-container text-on-tertiary-container'
 											: f.tone === 'warn'
 												? 'border border-tertiary/60 text-tertiary'

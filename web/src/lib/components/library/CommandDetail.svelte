@@ -171,7 +171,7 @@
 								<tr class="border-t border-outline-variant/60 align-top">
 									<td class="px-3 py-2 whitespace-nowrap">
 										<code class="font-mono text-[12.5px] text-on-surface">{a.name}</code>
-										{#if a.required}<span class="ml-1 text-error" title="Required">*</span>{/if}
+										{#if a.required}<span class="ml-1 text-primary" title="Required">*</span>{/if}
 									</td>
 									<td class="px-3 py-2 whitespace-nowrap text-on-surface-variant">{a.type}{#if a.choices?.length}<span class="block">one of {a.choices.join(', ')}</span>{/if}</td>
 									<td class="px-3 py-2 font-mono text-[12px] text-on-surface-variant">
@@ -183,7 +183,7 @@
 						</tbody>
 					</table>
 				</div>
-				<p class="body-small text-on-surface-variant"><span class="text-error">*</span> required</p>
+				<p class="body-small text-on-surface-variant"><span class="text-primary">*</span> required</p>
 			{:else}
 				<p class="body-small text-on-surface-variant">None: it always runs the same command line.</p>
 			{/if}
