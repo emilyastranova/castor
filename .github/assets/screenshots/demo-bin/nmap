@@ -1,0 +1,70 @@
+#!/bin/sh
+# A stand-in nmap for the demo agent (see showcase.py): prints a believable -sV run, slowly,
+# and writes matching XML for -oX. It never sends a packet.
+out=""; targets=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -oX) out="$2"; shift 2 ;;
+    -p|--exclude|-iL) shift 2 ;;
+    -*) shift ;;
+    *) targets="$targets $(echo "$1" | tr ',' ' ')"; shift ;;
+  esac
+done
+# A range or CIDR (10.20.4.0/24) answers with the same few live hosts every time.
+scanned=0; live=""
+for t in $targets; do
+  case "$t" in
+    */*|*-*) base=${t%.*}; scanned=$((scanned + 256)); for n in 10 12 15 18 20 21 24 30; do live="$live $base.$n"; done ;;
+    *) scanned=$((scanned + 1)); live="$live $t" ;;
+  esac
+done
+set -- $live
+echo "Starting Nmap 7.95 ( https://nmap.org ) at $(date '+%Y-%m-%d %H:%M %Z')"
+sleep 0.6
+echo "Initiating Ping Scan at $(date +%H:%M)"
+echo "Scanning $scanned hosts [4 ports/host]"
+sleep 0.5
+echo "Completed Ping Scan at $(date +%H:%M), 0.41s elapsed ($scanned total hosts)"
+echo "Initiating SYN Stealth Scan at $(date +%H:%M)"
+ports() { n=${1##*.}; p="22"; [ $((n % 2)) = 0 ] && p="$p 80"; [ $((n % 3)) = 0 ] && p="$p 443"; [ $((n % 4)) = 1 ] && p="$p 8080"; [ $((n % 5)) = 0 ] && p="$p 3306"; echo $p; }
+for ip in "$@"; do
+  for p in $(ports "$ip"); do
+    [ "$p" = 3306 ] && continue
+    echo "Discovered open port $p/tcp on $ip"
+    sleep 0.18
+  done
+done
+echo "Completed SYN Stealth Scan at $(date +%H:%M), 2.18s elapsed"
+echo "Initiating Service scan at $(date +%H:%M)"
+sleep 1.2
+svc() { case $1 in 22) echo "ssh     OpenSSH 9.6p1 Ubuntu 3ubuntu13 (Ubuntu Linux; protocol 2.0)";; 80) echo "http    nginx 1.27.0";; 443) echo "ssl/http nginx 1.27.0";; 8080) echo "http    Apache Tomcat 10.1.24";; 3306) echo "mysql   MySQL 8.0.37";; esac; }
+for ip in "$@"; do
+  echo ""
+  echo "Nmap scan report for $ip"
+  echo "Host is up (0.00$(( ${ip##*.} % 9 + 1 ))s latency)."
+  echo "PORT     STATE  SERVICE VERSION"
+  for p in $(ports "$ip"); do
+    state=open; [ "$p" = 3306 ] && state=closed
+    printf "%-8s %-6s %s\n" "$p/tcp" "$state" "$(svc "$p")"
+  done
+  sleep 0.25
+done
+echo ""
+echo "Service detection performed. Please report any incorrect results at https://nmap.org/submit/ ."
+echo "Nmap done: $scanned IP addresses ($# hosts up) scanned in 7.42 seconds"
+if [ -n "$out" ]; then
+  {
+    echo '<?xml version="1.0"?><nmaprun scanner="nmap" args="nmap -sV">'
+    for ip in "$@"; do
+      echo "<host><status state=\"up\"/><address addr=\"$ip\" addrtype=\"ipv4\"/><ports>"
+      for p in $(ports "$ip"); do
+        state=open; [ "$p" = 3306 ] && state=closed
+        set -- $(svc "$p")
+        name=$1; shift; product="$1"; shift; version="$1"
+        echo "<port protocol=\"tcp\" portid=\"$p\"><state state=\"$state\"/><service name=\"${name#ssl/}\" product=\"$product\" version=\"$version\"/></port>"
+      done
+      echo "</ports></host>"
+    done
+    echo '<runstats><finished exit="success"/></runstats></nmaprun>'
+  } > "$out"
+fi

@@ -38,6 +38,28 @@ record per host, service or URL that every tool adds to, with triggers that act 
 transform steps reshape one tool's results into the next tool's input, and a run shows
 on the board as one card that opens into its live graph, decisions and steps.
 
+## See it work
+
+**Drag a command card into In Progress.** An agent picks it up, the output streams into the
+card, and the parser turns it into a table of hosts and services.
+
+<p align="center"><img src=".github/assets/showcase/run-a-card.gif" alt="A command card for an nmap service scan is dragged from To Do into In Progress. It shows Running, the card opens, nmap's output streams into the console, and when it finishes the Results view lists 21 open ports on 8 hosts." width="100%"></p>
+
+**Ask the results a question.** Every parsed table filters and sorts: here, the hosts that don't
+require SMB signing, by name.
+
+<p align="center"><img src=".github/assets/showcase/filter-results.gif" alt="An SMB signing audit's results: typing signing:false into the filter narrows 14 hosts to the 8 that don't require signing, and clicking the NetBIOS name header sorts them." width="100%"></p>
+
+**Chain it into a playbook.** Steps run in parallel where they can, transforms reshape one tool's
+results into the next tool's input, and the graph fills in live.
+
+<p align="center"><img src=".github/assets/showcase/playbook-run.gif" alt="The Internal recon playbook is launched for a subnet. Its graph goes full screen: a sweep fans out into service, SMB and DNS scans, transforms turn services into URLs and keep unsigned SMB hosts, a directory brute force runs per URL, and the branches meet in a report." width="100%"></p>
+
+**Decide when it matters.** A step can stop and ask. Pick what happens, add a note, and the
+playbook takes the branch that handles it.
+
+<p align="center"><img src=".github/assets/showcase/answer-a-decision.gif" alt="A playbook run card marked Needs you opens on a decision: the SMB signing audit failed. Fail is chosen with a note, confirmed, and the run continues down its fallback branch; the step list ends with the audit failed, the dependent branches not taken, and the fallback lookup and report done." width="100%"></p>
+
 ## Features
 
 **Run the work**

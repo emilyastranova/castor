@@ -40,13 +40,14 @@
 			{ key: 'version', label: 'Version' }
 		],
 		'list<smb_host>': [
+			// What you're checking first; the long OS banner late, where it's cut short.
 			{ key: 'host', label: 'Host', mono: true },
-			{ key: 'port', label: 'Port' },
 			{ key: 'name', label: 'NetBIOS name', mono: true },
+			{ key: 'signing', label: 'Signing', format: yes('Required', 'Not required (relayable)') },
+			{ key: 'smbv1', label: 'SMBv1', format: yes('Enabled', 'Disabled') },
 			{ key: 'domain', label: 'Domain', mono: true },
 			{ key: 'os', label: 'OS' },
-			{ key: 'signing', label: 'Signing', format: yes('Required', 'Not required (relayable)') },
-			{ key: 'smbv1', label: 'SMBv1', format: yes('Enabled', 'Disabled') }
+			{ key: 'port', label: 'Port' }
 		],
 		'list<url>': [
 			{ key: 'url', label: 'URL', mono: true },
@@ -103,6 +104,13 @@
 	let all = $derived(base?.rows ?? plain ?? []);
 	let visible = $derived(sortRows(all.filter((r) => matches(r, filter, columns)), sort));
 	let filtering = $derived(query.trim().length > 0);
+	// While a filter is typed the table keeps the height it had unfiltered, so a moment with no
+	// matches (mid-word) doesn't collapse it and make the page around it jump.
+	let tableHeight = $state(0);
+	let restingHeight = $state(0);
+	$effect(() => {
+		if (!filtering) restingHeight = tableHeight;
+	});
 	function sortBy(key: string) {
 		sort = sort?.key !== key ? { key, dir: 1 } : sort.dir === 1 ? { key, dir: -1 } : null;
 	}
@@ -209,7 +217,7 @@
 		{#if base.rows.length === 0}
 			<p class="px-3 py-3 body-medium text-on-surface-variant italic">Nothing found.</p>
 		{:else}
-			<div class="max-h-96 overflow-auto">
+			<div class="max-h-96 overflow-auto" bind:clientHeight={tableHeight} style:min-height={filtering && restingHeight ? `${restingHeight}px` : null}>
 				<table class="w-full border-collapse text-left">
 					<thead class="sticky top-0 bg-surface-container-low">
 						<tr>
@@ -228,8 +236,10 @@
 						{#each visible as row, i (i)}
 							<tr class="border-t border-outline-variant/60 hover:bg-on-surface/4 {DIMMED[type]?.(row) ? 'opacity-55' : ''}">
 								{#each base.columns as c, ci (c.key)}
-									<td class="px-3 py-1.5 align-top body-medium text-on-surface {c.mono ? 'font-mono text-[12.5px]' : ''} {ci < base.columns.length - 1 ? 'whitespace-nowrap' : 'min-w-48 [overflow-wrap:anywhere]'}">
-										{cellOf(c, row)}
+									{@const text = cellOf(c, row)}
+									<!-- Long values (an OS banner) are cut short so the columns after them stay in view. -->
+									<td class="px-3 py-1.5 align-top body-medium text-on-surface {c.mono ? 'font-mono text-[12.5px]' : ''} {ci < base.columns.length - 1 ? `truncate ${c.mono ? 'max-w-80' : 'max-w-56'}` : 'min-w-48 [overflow-wrap:anywhere]'}" title={ci < base.columns.length - 1 && String(text).length > 28 ? String(text) : undefined}>
+										{text}
 									</td>
 								{/each}
 							</tr>
