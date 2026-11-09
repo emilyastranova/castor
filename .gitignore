@@ -35,3 +35,6 @@ uploads/
 
 # Fonts and icons build_assets.py downloads
 .github/assets/.cache/
+
+# Agent hook config the impeccable skill writes (for Copilot); not part of the project
+.github/hooks/
