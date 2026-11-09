@@ -502,6 +502,7 @@ class HostLink:
         self._locks: dict[str, asyncio.Lock] = {}
         self._task: asyncio.Task | None = None
         self._wake = asyncio.Event()
+        self._writes: set[asyncio.Future] = set()
 
     # ----- lifecycle -----
 
@@ -515,6 +516,10 @@ class HostLink:
                 await self._task
             except (asyncio.CancelledError, Exception):
                 log.debug("stopping ssh host %s", self.name, exc_info=True)
+        # Writes that outlive the cancel (marking the agent offline, the last state) finish
+        # before the caller touches the same rows (SQLite has one writer at a time).
+        while self._writes:
+            await asyncio.gather(*list(self._writes), return_exceptions=True)
 
     def drop(self, reason: str) -> None:
         log.info("ssh host %s: dropping the connection: %s", self.name, reason)
@@ -524,13 +529,24 @@ class HostLink:
     def retry_now(self) -> None:
         self._wake.set()
 
+    async def _write(self, coro: Awaitable[Any]) -> Any:
+        """A DB write that a cancel doesn't cut off halfway (stop() waits for it)."""
+        task = asyncio.ensure_future(coro)
+        self._writes.add(task)
+        task.add_done_callback(self._writes.discard)
+        return await asyncio.shield(task)
+
     async def _set(self, state: str, error: str | None = None) -> None:
         self.state, self.error = state, error
-        async with SessionLocal() as db:
-            row = await db.get(m.SshHost, self.host_id)
-            if row is not None and row.last_error != error:
-                row.last_error = error
-                await db.commit()
+
+        async def store() -> None:
+            async with SessionLocal() as db:
+                row = await db.get(m.SshHost, self.host_id)
+                if row is not None and row.last_error != error:
+                    row.last_error = error
+                    await db.commit()
+
+        await self._write(store())
         bus.publish("ssh_hosts.changed", None, {"id": self.host_id})
 
     async def _loop(self) -> None:
@@ -613,7 +629,7 @@ class HostLink:
                 task.cancel()
             connected.close()
             if self.agent is not None:
-                await asyncio.shield(gateway._unregister(self.agent))
+                await self._write(gateway._unregister(self.agent))
                 self.agent = None
             self.jobs.clear()
         raise ConnectionError("the SSH connection closed")

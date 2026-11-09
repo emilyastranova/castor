@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+import shlex
+
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
@@ -21,7 +24,15 @@ router = APIRouter(prefix="/agent-tokens", tags=["agents"])
 async def _out(db: DB, row: m.AgentToken, token: str | None = None) -> AgentTokenOut:
     agent = await db.get(m.Agent, row.agent_id) if row.agent_id else None
     data = {**AgentTokenOut.model_validate(row).model_dump(), "agent_name": agent.name if agent else None}
-    return AgentTokenCreated(**data, token=token) if token else AgentTokenOut(**data)
+    return AgentTokenCreated(**data, token=token, command=_command(row, agent, token)) if token else AgentTokenOut(**data)
+
+
+def _command(row: m.AgentToken, agent: m.Agent | None, token: str) -> str:
+    base = settings.public_url.rstrip("/") or "http://<castor-host>"
+    server = re.sub(r"^http", "ws", base) + "/ws/agent"
+    name = shlex.quote(agent.name if agent else (row.label or "<agent-name>"))
+    tags = f" --tags {shlex.quote(','.join(row.tags))}" if row.tags and not agent else ""
+    return f"castor-agent --server {server} --token {token} --name {name}{tags}"
 
 
 async def _publish_agent(db: DB, agent_id) -> None:

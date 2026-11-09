@@ -544,6 +544,11 @@ as untrusted data. Resources (`resources/list`, `resources/templates/list`, `res
 `castor://projects/{id}/board`, `cards/{id}`, `jobs/{id}/output`, `runs/{id}`) are GETs the same
 way. The in-process calls carry `X-Castor-Via: <api_tokens.MCP_KEY>`, so the activity they
 record has `payload.via = "mcp"`. `castor-mcp` (agent package) bridges stdio clients to it.
+Tools that remove, revoke or rotate something, or trust a changed host key, set
+`destructiveHint` (`Tool.destructive`); a 204 answers "Done.". Admin tools cover agents, agent
+tokens (the result of creating one has a ready `castor-agent` command, from
+`CASTOR_PUBLIC_URL`), SSH hosts (`PATCH /api/ssh-hosts/{id}` changes some fields) and the SSH
+config.
 
 ## Dispatcher
 

@@ -50,6 +50,7 @@ class Tool:
     required: tuple[str, ...] = ()
     untrusted: bool = False
     upload: bool = False  # filename + content_base64 go up as a multipart file
+    destructive: bool = False  # removes or revokes something, or trusts a changed host key
 
     @property
     def scope(self) -> str:
@@ -59,13 +60,27 @@ class Tool:
         return {"name": self.name, "description": self.description,
                 "inputSchema": {"type": "object", "properties": self.properties, "required": list(self.required),
                                 "additionalProperties": False},
-                "annotations": {"readOnlyHint": self.method == "GET"}}
+                "annotations": {"readOnlyHint": self.method == "GET",
+                                **({} if self.method == "GET" else {"destructiveHint": self.destructive})}}
 
 
 def _s(description: str, **extra: Any) -> dict[str, Any]:
     return {"type": "string", "description": description, **extra}
 
 
+_SSH_HOST = {
+    "name": _s("How it's listed with the agents (letters, digits, . _ -)"),
+    "host": _s("Address, hostname, or a Host alias from the SSH config"),
+    "port": {"type": ["integer", "null"], "minimum": 1, "maximum": 65535, "description": "Empty: the SSH config's, else 22"},
+    "username": _s("Empty: the SSH config's User"),
+    "workdir": _s("Where job folders go (relative: under the home directory; default castor-jobs)"),
+    "network": _s("Container network for podman/docker on the host (default host)"),
+    "allow_host": {"type": "boolean", "description": "Run commands in the host's shell, not only containers"},
+    "allow_host_install": {"type": "boolean", "description": "Let tools install themselves on the host"},
+    "enabled": {"type": "boolean", "description": "Off: Castor disconnects and leaves it alone"},
+    "tags": {"type": "array", "items": {"type": "string"}},
+    "max_concurrency": {"type": "integer", "minimum": 1},
+}
 ID = {"project_id": _s("Project id (from list_projects)"), "task_id": _s("Card id"), "job_id": _s("Job id"),
       "run_id": _s("Playbook run id")}
 
@@ -142,6 +157,59 @@ TOOLS: list[Tool] = [
          "GET", "/api/projects/{project_id}/assets",
          {"project_id": ID["project_id"], "type": _s("Asset type, e.g. host, service, url"), "where": _s("Filter"),
           "limit": {"type": "integer", "minimum": 1, "maximum": 200}}, ("project_id",), untrusted=True),
+    # Agents (admin): connected agents, enrollment tokens for new ones, and SSH hosts Castor
+    # connects to itself. Each needs the same scope as its endpoint (agents:*, admin).
+    Tool("list_agents", "Agents and SSH hosts: ids, names, tags, slots, runtimes, whether they're connected and busy "
+         "(ssh_host_id is set for an SSH host).", "GET", "/api/agents"),
+    Tool("update_agent", "Change an agent's tags or how many jobs it runs at once.", "PATCH", "/api/agents/{agent_id}",
+         {"agent_id": _s("Agent id (from list_agents)"), "tags": {"type": "array", "items": {"type": "string"}},
+          "max_concurrency": {"type": "integer", "minimum": 1}}, ("agent_id",)),
+    Tool("forget_agent", "Remove a disconnected agent from the list (its tags and settings go too; an SSH host is "
+         "removed with remove_ssh_host instead).", "DELETE", "/api/agents/{agent_id}",
+         {"agent_id": _s("Agent id")}, ("agent_id",), destructive=True),
+    Tool("list_agent_tokens", "Enrollment tokens (prefixes only, never the secrets), which agent each belongs to, and "
+         "whether agents may still use the shared secret.", "GET", "/api/agent-tokens"),
+    Tool("create_agent_token", "Make a token to add an agent: the result has the token (shown only now) and the "
+         "`command` to run on the new agent's machine (needs `pip install ./agent` from the Castor repository). The "
+         "first agent that connects with it becomes its agent. Treat the token as a password.", "POST", "/api/agent-tokens",
+         {"label": _s("The agent's name, e.g. kali-lab-01"), "tags": {"type": "array", "items": {"type": "string"},
+                                                                       "description": "Tags the agent gets"}}),
+    Tool("rotate_agent_token", "Replace an agent's token: the old one stops working at once (the agent disconnects "
+         "until it restarts with the new one, in the result).", "POST", "/api/agent-tokens/{token_id}/rotate",
+         {"token_id": _s("Token id (from list_agent_tokens)")}, ("token_id",), destructive=True),
+    Tool("revoke_agent_token", "Revoke a token: its agent is disconnected and can't reconnect with it.", "POST",
+         "/api/agent-tokens/{token_id}/revoke", {"token_id": _s("Token id")}, ("token_id",), destructive=True),
+    Tool("delete_agent_token", "Delete a revoked or never-used token.", "DELETE", "/api/agent-tokens/{token_id}",
+         {"token_id": _s("Token id")}, ("token_id",), destructive=True),
+    Tool("list_ssh_hosts", "Hosts Castor connects to over SSH: connection state and error, route (jump hosts), "
+         "public key to authorize, host key fingerprints (and changed ones waiting for approval).", "GET", "/api/ssh-hosts"),
+    Tool("add_ssh_host", "Add a host Castor connects to over SSH and runs jobs on, like an agent. With generate_key, "
+         "the result's public_key must be added to the account's ~/.ssh/authorized_keys on the host (and on any jump "
+         "hosts) before it connects. host can be an alias from the SSH config; empty port/username come from it.",
+         "POST", "/api/ssh-hosts", {**_SSH_HOST, "generate_key": {"type": "boolean", "description": "Make a new ed25519 key pair"},
+                                    "private_key": _s("Or an existing OpenSSH private key"),
+                                    "passphrase": _s("The private key's passphrase, if it has one")},
+         ("name", "host")),
+    Tool("update_ssh_host", "Change some of an SSH host's settings (the rest stay). Changing how it connects reconnects "
+         "it, and a job running there is lost; tags and max_concurrency apply at once.", "PATCH", "/api/ssh-hosts/{host_id}",
+         {"host_id": _s("SSH host id (from list_ssh_hosts)"), **_SSH_HOST,
+          "generate_key": {"type": "boolean", "description": "Replace its key with a new one (authorize it again)"}},
+         ("host_id",)),
+    Tool("reconnect_ssh_host", "Try to connect to an SSH host now (after its key was authorized, say).", "POST",
+         "/api/ssh-hosts/{host_id}/reconnect", {"host_id": _s("SSH host id")}, ("host_id",)),
+    Tool("accept_ssh_host_key", "Trust the new host key an SSH host (or one of its jump hosts) presented. Only do this "
+         "when the person has confirmed why the key changed (a reinstall, regenerated keys): otherwise something else may "
+         "be answering at that address.", "POST", "/api/ssh-hosts/{host_id}/accept-host-key",
+         {"host_id": _s("SSH host id")}, ("host_id",), destructive=True),
+    Tool("remove_ssh_host", "Disconnect from an SSH host and forget it and its key (a job running there is lost).",
+         "DELETE", "/api/ssh-hosts/{host_id}", {"host_id": _s("SSH host id")}, ("host_id",), destructive=True),
+    Tool("get_ssh_config", "The SSH config (ssh_config format) SSH hosts are reached with, its warnings, and each "
+         "host's route.", "GET", "/api/ssh-config"),
+    Tool("check_ssh_config", "Check an SSH config without saving it: errors, warnings and the route each SSH host would "
+         "take. Castor uses Host, HostName (%h), Port, User, ProxyJump, ConnectTimeout and ServerAlive*; ProxyCommand, "
+         "Match and Include are refused.", "POST", "/api/ssh-config/check", {"text": _s("The whole config")}, ("text",)),
+    Tool("save_ssh_config", "Replace the SSH config (the whole text; refused if it has errors). Every SSH host "
+         "reconnects with it.", "PUT", "/api/ssh-config", {"text": _s("The whole config")}, ("text",)),
     # Parsers: an assistant can read what a job's parser couldn't, write a parser for it and
     # check it on that output before keeping it (declarative YAML, or sandboxed JavaScript).
     Tool("list_parsers", "Parsers commands can use: built-ins and the library's, with their output type and (for the library's) YAML.",
@@ -196,6 +264,8 @@ async def call_tool(app: Any, authorization: str, user: User, name: str, args: d
     r = await _rest(app, authorization, tool.method, path, args)
     if r.status_code >= 400:
         return _result(_failure(r), error=True)
+    if not r.content:  # 204: deleted, revoked…
+        return _result("Done.")
     text = r.text if "json" not in r.headers.get("content-type", "") else json.dumps(r.json(), ensure_ascii=False)
     if len(text) > MAX_TEXT:  # output keeps its end (where errors are); JSON its start
         text = ("…(truncated)\n" + text[-MAX_TEXT:]) if name == "get_job_output" else (text[:MAX_TEXT] + "\n…(truncated)")

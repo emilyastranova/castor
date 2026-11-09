@@ -385,7 +385,9 @@ def test_silent_agent_goes_offline(client, auth, monkeypatch):
         assert state()["connected"] is True
         monkeypatch.setattr(settings, "agent_offline_after", 0)
         deadline = time.monotonic() + 5
-        while state()["connected"] and time.monotonic() < deadline:
+        # "connected" drops as soon as the gateway lets go; the offline status is written
+        # just after, so wait for both.
+        while (state()["connected"] or state()["status"] != "offline") and time.monotonic() < deadline:
             time.sleep(0.1)
         agent = state()
         assert agent["connected"] is False and agent["status"] == "offline"

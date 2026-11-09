@@ -523,6 +523,8 @@ class AgentTokenOut(ORM):
 class AgentTokenCreated(AgentTokenOut):
     # The token itself: returned only here, when it's created or rotated.
     token: str
+    # How to start an agent with it (the server URL from CASTOR_PUBLIC_URL, if set).
+    command: str = ""
 
 
 class AgentTokenList(BaseModel):

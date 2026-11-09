@@ -128,7 +128,10 @@ class AgentGateway:
             self._notify()
             while True:
                 raw = await ws.receive_text()
-                await self._on_message(conn, json.loads(raw))
+                # Each message is handled to the end even if this handler is cancelled (the
+                # socket closing right after job.finished): a cancel landing inside a DB
+                # session's cleanup can leave it never finishing.
+                await asyncio.shield(self._on_message(conn, json.loads(raw)))
         except WebSocketDisconnect:
             pass
         except TimeoutError:

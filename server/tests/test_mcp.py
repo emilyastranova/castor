@@ -149,3 +149,47 @@ def test_set_card_alerts(client, auth):
     names = {t["name"] for t in _rpc(client, reader, "tools/list")["result"]["tools"]}
     assert {"list_alert_channels", "list_people"} <= names and "set_card_alerts" not in names
     client.delete(f"/api/alert-channels/{ch['id']}", headers=auth)
+
+
+def test_an_assistant_manages_agents(client, auth):
+    """Agents, enrollment tokens, SSH hosts and the SSH config, through MCP with an admin token."""
+    admin = _token(client, auth, scopes=["admin", "agents:write"])
+    tools = {t["name"]: t for t in _rpc(client, admin, "tools/list")["result"]["tools"]}
+    assert {"create_agent_token", "add_ssh_host", "save_ssh_config", "list_agents"} <= set(tools)
+    assert tools["forget_agent"]["annotations"] == {"readOnlyHint": False, "destructiveHint": True}
+    assert tools["list_agents"]["annotations"] == {"readOnlyHint": True}
+    reader = _token(client, auth, scopes=["projects:read", "agents:read"])
+    seen = {t["name"] for t in _rpc(client, reader, "tools/list")["result"]["tools"]}
+    assert "list_agents" in seen and not seen & {"create_agent_token", "add_ssh_host", "update_agent", "list_ssh_hosts"}
+
+    def call(tool, **args):
+        out = _rpc(client, admin, "tools/call", {"name": tool, "arguments": args})["result"]
+        assert not out["isError"], out
+        text = out["content"][0]["text"]
+        return None if text == "Done." else json.loads(text)
+
+    label = f"mcp-agent-{uuid.uuid4().hex[:6]}"
+    made = call("create_agent_token", label=label, tags=["lab"])
+    assert made["token"].startswith("castor_") and made["token"] in made["command"]
+    assert made["command"].startswith("castor-agent --server ws") and f"--name {label}" in made["command"] and "--tags lab" in made["command"]
+    listed = call("list_agent_tokens")
+    assert made["id"] in {t["id"] for t in listed["tokens"]} and made["token"] not in json.dumps(listed)
+    call("revoke_agent_token", token_id=made["id"])
+    call("delete_agent_token", token_id=made["id"])
+
+    assert "IdentityFile" in call("check_ssh_config", text="Host gw\n  IdentityFile x\n")["warnings"][0]
+    bad = _call(client, admin, "save_ssh_config", text="Host gw\n  ProxyCommand nc %h %p\n")
+    assert bad["isError"] and "ProxyCommand" in bad["content"][0]["text"]
+    call("save_ssh_config", text="Host gw\n  HostName 192.0.2.1\n  User jump\nHost box-*\n  ProxyJump gw\n  User ops\n")
+    name = f"box-{uuid.uuid4().hex[:6]}"
+    host = call("add_ssh_host", name=name, host=name, generate_key=True, enabled=False, tags=["ssh"])
+    assert host["public_key"].startswith("ssh-ed25519 ") and host["route"] == ["jump@192.0.2.1:22", f"ops@{name}:22"]
+    assert "PRIVATE" not in json.dumps(host)
+    changed = call("update_ssh_host", host_id=host["id"], tags=["ssh", "inner"], username="root", port=2222)
+    assert changed["tags"] == ["inner", "ssh"] and changed["route"][-1] == f"root@{name}:2222" and changed["enabled"] is False
+    assert changed["public_key"] == host["public_key"]  # the key stays unless asked for a new one
+    agent = next(a for a in call("list_agents") if a["id"] == host["agent_id"])
+    assert agent["ssh_host_id"] == host["id"]
+    call("remove_ssh_host", host_id=host["id"])
+    assert host["agent_id"] not in {a["id"] for a in call("list_agents")}
+    call("save_ssh_config", text="")

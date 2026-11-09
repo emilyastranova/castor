@@ -179,6 +179,35 @@ async def create_host(body: SshHostIn, db: DB, user: Admin):
     return _out(row, agent, ssh_config.parse(await load_config(db)))
 
 
+class SshHostPatch(BaseModel):
+    """Any of SshHostIn's fields; the rest stay as they are."""
+
+    name: str | None = None
+    host: str | None = Field(default=None, min_length=1, max_length=255)
+    port: int | None = Field(default=None, ge=1, le=65535)
+    username: str | None = Field(default=None, max_length=128)
+    workdir: str | None = Field(default=None, min_length=1, max_length=500)
+    network: str | None = Field(default=None, max_length=64)
+    allow_host: bool | None = None
+    allow_host_install: bool | None = None
+    enabled: bool | None = None
+    tags: list[str] | None = None
+    max_concurrency: int | None = Field(default=None, ge=1, le=64)
+    generate_key: bool = False
+    private_key: str | None = None
+    passphrase: str | None = None
+
+
+@router.patch("/{host_id}", response_model=SshHostOut)
+async def patch_host(host_id: str, body: SshHostPatch, db: DB, user: Admin):
+    """Change some of a host's settings (port: null to take it from the SSH config)."""
+    row, agent = await _row(db, host_id)
+    current = {"name": agent.name, "host": row.host, "port": row.port, "username": row.username, "workdir": row.workdir,
+               "network": row.network, "allow_host": row.allow_host, "allow_host_install": row.allow_host_install,
+               "enabled": row.enabled, "tags": agent.tags or [], "max_concurrency": agent.max_concurrency}
+    return await update_host(host_id, SshHostIn(**{**current, **body.model_dump(exclude_unset=True)}), db, user)
+
+
 @router.put("/{host_id}", response_model=SshHostOut)
 async def update_host(host_id: str, body: SshHostIn, db: DB, _: Admin):
     _check(body)
@@ -243,8 +272,8 @@ async def reconnect(host_id: str, db: DB, _: Admin):
 @router.delete("/{host_id}", status_code=204)
 async def delete_host(host_id: str, db: DB, user: Admin):
     """Disconnect and forget the host (its agent too; jobs it ran keep their output)."""
+    await ssh_hosts.remove(parse_uuid(host_id))  # first: it writes the agent's offline state
     row, agent = await _row(db, host_id)
-    await ssh_hosts.remove(row.id)
     agent_id, name = agent.id, agent.name
     await db.delete(row)
     await db.delete(agent)
@@ -309,8 +338,8 @@ async def save_config(body: SshConfigIn, db: DB, user: Admin):
         row.value, row.updated_by = body.text, user.id
     await record_activity(db, type="ssh_config.changed", message="SSH config changed", project_id=None,
                           actor_type="user", actor_id=str(user.id), actor_name=user.username)
-    await db.commit()
     hosts = (await db.execute(select(m.SshHost.id, m.SshHost.agent_id))).all()
+    await db.commit()  # before reconnecting: a link writes too, and SQLite has one writer
     for host_id, agent_id in hosts:  # reconnect each the new way
         await ssh_hosts.reload(host_id, agent_id)
     bus.publish("ssh_hosts.changed", None, {"config": True})
