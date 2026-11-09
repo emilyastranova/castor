@@ -17,13 +17,13 @@ args:
     default: MEDIUM
     choices: [LOW, MEDIUM, HIGH, CRITICAL]
 command: |
-  mkdir -p /work/artifacts
-  testssl.sh --quiet --color 0 --warnings off --severity {{ severity }} --jsonfile /work/artifacts/testssl.json {{ target }}
+  mkdir -p {{work}}/artifacts
+  testssl.sh --quiet --color 0 --warnings off --severity {{ severity }} --jsonfile {{work}}/artifacts/testssl.json {{ target }}
 outputs:
   - name: issues
     type: list<string>
     parser: regex
-    source: /work/artifacts/testssl.json
+    source: "{{work}}/artifacts/testssl.json"
     options:
       pattern: '"id"\s*:\s*"([^"]+)"[^}]*?"severity"\s*:\s*"(?:LOW|MEDIUM|HIGH|CRITICAL)"'
       group: 1

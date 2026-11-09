@@ -22,6 +22,18 @@ PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 # {{ slot.field }}: a field of the variable set bound to a `vars` slot
 VAR_PLACEHOLDER = re.compile(r"\{\{\s*([a-z][a-z0-9_]*)\.([a-z][a-z0-9_]*)\s*\}\}")
 SLOT_NAME = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+# {{work}}: the job's work directory wherever it runs (/work in a container, the job's own
+# directory in a host shell or over SSH). It renders as "${CASTOR_WORK}", which every
+# runtime sets, so a command doesn't need to know where it will run.
+WORK = "work"
+WORK_PLACEHOLDER = re.compile(r"\{\{\s*work\s*\}\}")
+WORK_REF = '"${CASTOR_WORK}"'
+
+
+def work_path(source: str) -> str:
+    """An output source as the job-relative /work/... path artifact collection uses:
+    {{work}}/scan.xml and /work/scan.xml are the same file."""
+    return WORK_PLACEHOLDER.sub("/work", source, count=1) if WORK_PLACEHOLDER.match(source) else source
 # A command-line option: -k, --dns-server, or --port= (value attached to the flag).
 FLAG = re.compile(r"^--?[A-Za-z0-9][A-Za-z0-9_.-]*=?$")
 
@@ -104,7 +116,9 @@ class OutputSpec(BaseModel):
     # Defaults to the parser's type; without a parser the output is just a collected file.
     type: str | None = None
     parser: str | None = None
-    source: str | None = None  # path or glob under /work, e.g. /work/scan.xml; none = stdout
+    # Path or glob in the job's work directory: {{work}}/scan.xml (or /work/scan.xml, the
+    # same); none = stdout. Stored as /work/... (work_path).
+    source: str | None = None
     options: dict[str, Any] = Field(default_factory=dict)  # parser options (Parsers page)
     # A parser definition carried inline (parser_spec.ParserSpec as JSON): how a job reads an
     # output with a draft that isn't in the library. Only set on a job's output_specs.
@@ -115,6 +129,16 @@ class OutputSpec(BaseModel):
     def check_name(cls, value: str) -> str:
         if not NAME_PATTERN.match(value):
             raise ValueError("output names use letters, digits and underscores")
+        return value
+
+    @field_validator("source")
+    @classmethod
+    def check_source(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = work_path(value.strip())
+        if WORK_PLACEHOLDER.search(value):
+            raise ValueError("{{work}} can only start a source path, as in {{work}}/scan.xml")
         return value
 
     @model_validator(mode="after")
@@ -208,7 +232,9 @@ class CommandSpec(BaseModel):
         outputs = [o.name for o in self.outputs]
         if len(outputs) != len(set(outputs)):
             raise ValueError("output names must be unique")
-        undefined = sorted(set(PLACEHOLDER.findall(self.command)) - set(names))
+        if WORK in names:
+            raise ValueError("work is reserved: {{work}} is the job's work directory")
+        undefined = sorted(set(PLACEHOLDER.findall(self.command)) - set(names) - {WORK})
         if undefined:
             raise ValueError(f"template uses undefined arguments: {', '.join(undefined)}")
         varsets = [a.name for a in self.args if a.type == "varset"]

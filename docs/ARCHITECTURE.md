@@ -109,7 +109,12 @@ Keep the timeout a few heartbeats long.
 
 Each job runs in its own directory on the agent (`<workdir>/<job_id>/`, a temp dir by
 default), mounted at `/work` for container jobs and used as the working directory for host
-jobs (`$CASTOR_WORK`). `job.run` carries a one-off upload token and the paths to collect: the
+jobs. Either way `$CASTOR_WORK` is that directory: the agent (or SSH host) sets it for host
+jobs, and the dispatcher puts `CASTOR_WORK=/work` in a container job's env (so agents that predate
+it pass it in too). Command templates say `{{work}}`, which `command_render` turns into
+`"${CASTOR_WORK}"`; `work` is reserved as an argument name. Output `source:` paths may start with
+`{{work}}/` (quoted in YAML) or `/work/`: `command_spec.work_path` stores both as `/work/...`, the
+job-relative form the collectors and `outputs` match against. `job.run` carries a one-off upload token and the paths to collect: the
 command definition's output `source` paths plus `/work/artifacts/**`. After the process exits
 and before `job.finished`, the agent uploads matching files to
 `POST /api/jobs/{id}/artifacts` (multipart `file` + `path`, header `X-Castor-Job-Token`).

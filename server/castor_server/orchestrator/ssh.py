@@ -294,7 +294,7 @@ class JobRun:
                 f"cd -- {_q(self.dir)} || exit 127\n"
                 "echo $$ > .castor/pid\n"
                 ". ./.castor/env\nrm -f .castor/env\n"
-                + self._command([n for n in env if n != "CASTOR_WORK"])
+                + self._command(list(env))
                 + ("" if self.tty else " </dev/null")
                 + "\n"
             )

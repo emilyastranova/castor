@@ -166,7 +166,7 @@
 					<p class="body-medium text-on-surface-variant">Loading the command library…</p>
 				{/if}
 			{:else}
-				<TextField label="Command" bind:value={command} multiline rows={3} mono required placeholder="nmap -sn 10.0.0.0/24" supporting="Runs in /bin/sh on the agent. Each job gets its own /work directory; files under /work/artifacts come back to the card." />
+				<TextField label="Command" bind:value={command} multiline rows={3} mono required placeholder="nmap -sn 10.0.0.0/24" supporting="Runs in /bin/sh on the agent, in the job's own directory ($CASTOR_WORK: /work in a container). Files under $CASTOR_WORK/artifacts come back to the card." />
 				<TextField label="Container image (optional)" bind:value={image} mono placeholder="docker.io/instrumentisto/nmap" supporting="Leave empty to run in the agent's own shell" />
 				{#if image.trim()}
 					<TextField label="Container flags (optional)" bind:value={containerFlagsText} mono placeholder="--privileged --network=bridge" supporting="Flags passed to docker run / podman run" />

@@ -166,7 +166,8 @@ def test_a_job_runs_over_ssh(client, auth, fake_host):
 
     project = _project(client, auth)
     _, job_id = _run(client, auth, project, tag,
-                        'echo "hello from $(pwd)"; echo oops >&2; mkdir -p artifacts; echo data > artifacts/out.txt; exit 3')
+                        'echo "hello from $(pwd)"; echo oops >&2; mkdir -p "${CASTOR_WORK}"/artifacts; '
+                        'echo data > "${CASTOR_WORK}"/artifacts/out.txt; exit 3')
     job = _finished(client, auth, job_id)
     assert job["status"] == "failed" and job["exit_code"] == 3 and job["agent_id"] == host["agent_id"], job
     out = client.get(f"/api/jobs/{job_id}/output", headers=auth).text

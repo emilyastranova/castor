@@ -138,3 +138,20 @@ def test_token_is_preferred_over_the_secret():
     assert credentials(cfg) == {"token": "castor_t"}
     cfg = AgentConfig.from_args(["--secret", "s", "--name", "a"])
     assert credentials(cfg) == {"secret": "s"}
+
+
+def test_work_directory_reference_reaches_the_job(tmp_path):
+    """{{work}} renders as "${CASTOR_WORK}": a container gets it by name from the job's env
+    (/work, set by the server); a host job gets its own directory."""
+    import asyncio
+
+    command = 'echo hi > "${CASTOR_WORK}"/out.txt'
+    container = {"id": "w1", "command": command, "image": "docker.io/library/alpine", "env": {"CASTOR_WORK": "/work"}}
+    argv, is_container = _runner(container, tmp_path).build_argv()
+    assert is_container and argv[argv.index("CASTOR_WORK") - 1] == "-e" and "/work" not in argv[argv.index("CASTOR_WORK")]
+
+    async def sink(stream, data):
+        pass
+
+    assert asyncio.run(_runner({"id": "w2", "command": command}, tmp_path).run(sink)).exit_code == 0
+    assert (tmp_path / "out.txt").read_text() == "hi\n"

@@ -236,7 +236,7 @@
 			'outputs:',
 			`  - name: ${OUTPUT_NAMES[selected.type] ?? 'result'}`,
 			`    parser: ${selected.name}`,
-			'    source: /work/output.txt   # file the tool writes; omit to parse stdout',
+			'    source: "{{work}}/output.txt"   # file the tool writes; omit to parse stdout',
 			...(opts.length ? ['    options:', ...opts.map(([k, v]) => `      ${k}: ${yamlScalar(v)}`)] : [])
 		].join('\n');
 	});

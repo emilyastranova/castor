@@ -361,7 +361,9 @@ def _generate_system(kind: str) -> str:
             "variable_kind": "a variable kind"}[kind]
     rules = {
         "command": "Arguments are inserted shell-quoted with {{ name }}; name a tool from the list when one fits; "
-                   "declare outputs with a parser when the tool writes something parseable (write files under /work/).",
+                   "declare outputs with a parser when the tool writes something parseable. Write files in the job's work "
+                   "directory as {{work}}/name (never a literal /work: it only exists in containers), and quote a source "
+                   "that starts with it: source: \"{{work}}/scan.xml\".",
         "tool": "A tool is an image to pull, a build recipe, or host binaries; its `check` must exit 0 when it's ready.",
         "playbook": "Only use commands from the list, with their real argument and output names.",
         "variable_kind": "Write it as YAML with id, name, description and fields (name, type, label, required, help). "

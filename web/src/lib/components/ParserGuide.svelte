@@ -295,7 +295,7 @@ Host: 10.0.0.9
 				<pre class="overflow-x-auto rounded-sm bg-surface-container-highest p-2.5 font-mono text-[12px] leading-5 whitespace-pre text-on-surface">{`outputs:
   - name: logins
     parser: ssh-logins
-    source: /work/auth.log   # a file the tool writes; leave out to read stdout`}</pre>
+    source: "{{work}}/auth.log"   # a file the tool writes; leave out to read stdout`}</pre>
 				<p class="max-w-[70ch] body-medium text-on-surface">
 					A parser a command uses can’t be deleted or change its type. When a job’s output doesn’t match its parser, the card offers to draft a new one for that
 					output (and a playbook step asking on failure waits with the draft ready).

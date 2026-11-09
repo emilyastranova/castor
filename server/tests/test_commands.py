@@ -123,7 +123,7 @@ def test_card_from_library_command(client, auth):
     assert r.status_code == 201, r.text
     task = r.json()
     assert task["command_ref"] == "nmap-ping-sweep"
-    assert task["command"] == "nmap -sn -oX /work/ping-sweep.xml 10.0.0.0/24"
+    assert task["command"] == 'nmap -sn -oX "${CASTOR_WORK}"/ping-sweep.xml 10.0.0.0/24'
     assert task["image"] is None and task["tool"] == "nmap"  # the tool says which image
     assert task["container_flags"] == ["--privileged", "--network=bridge"]
 
@@ -245,3 +245,38 @@ def test_command_usage_counts_visible_cards_and_playbooks(client, auth):
     assert not any(c["title"] == title for c in theirs["cards"])
     assert theirs["card_count"] < use["card_count"]
     assert any(p["id"] == "network-baseline" for p in theirs["playbooks"])  # the library is shared
+
+
+def test_work_placeholder_follows_the_job_wherever_it_runs():
+    """{{work}} is the job's work directory: /work in a container, the job directory in a
+    host shell or over SSH. It renders as a reference every runtime sets."""
+    spec = parse_spec("""
+id: work-demo
+name: Work demo
+args:
+  - name: target
+command: nmap -oX {{work}}/scan.xml {{ target }} && cp {{ work }}/scan.xml {{work}}/artifacts/
+outputs:
+  - name: hosts
+    parser: nmap.hosts
+    source: "{{work}}/scan.xml"
+  - name: raw
+    source: /work/other.txt
+""")
+    rendered = render_command(spec, {"target": "10.0.0.1"})
+    assert rendered == 'nmap -oX "${CASTOR_WORK}"/scan.xml 10.0.0.1 && cp "${CASTOR_WORK}"/scan.xml "${CASTOR_WORK}"/artifacts/'
+    assert [o.source for o in spec.outputs] == ["/work/scan.xml", "/work/other.txt"]  # one job-relative form
+
+    with pytest.raises(ValueError, match="work is reserved"):
+        parse_spec("id: x\nname: x\nargs:\n  - name: work\ncommand: echo {{ work }}\n")
+    with pytest.raises(ValueError, match="can only start"):
+        parse_spec('id: x\nname: x\ncommand: echo\noutputs:\n  - name: o\n    source: "out/{{work}}.txt"\n')
+    assert not any("/work/" in p.read_text() for p in COMMANDS_DIR.glob("*.yaml"))  # the built-ins use {{work}}
+
+
+def test_display_line_shows_where_work_is():
+    from castor_server.variables import Resolved
+
+    line = 'nmap -oX "${CASTOR_WORK}"/scan.xml 10.0.0.1'
+    assert Resolved().display_command(line, in_container=True) == "nmap -oX /work/scan.xml 10.0.0.1"
+    assert Resolved().display_command(line, in_container=False) == line  # the agent's own directory

@@ -603,7 +603,9 @@ class AgentGateway:
                     "container_flags": job.container_flags or [],
                     "runtime": "container" if in_container else "host",
                     # Variable values exist only in this message: never on the job row.
-                    "env": {**(job.env or {}), **resolved.env},
+                    # {{work}} is "${CASTOR_WORK}": /work in a container (agents set it to the
+                    # job directory themselves for host jobs).
+                    "env": {**(job.env or {}), **resolved.env, **({"CASTOR_WORK": "/work"} if in_container else {})},
                     "files": resolved.files,
                     "timeout_s": job.timeout_s,
                     # An interactive terminal (pty), and its size if someone already set one.

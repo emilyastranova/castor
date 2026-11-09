@@ -10,7 +10,14 @@ import re
 import shlex
 from typing import Any
 
-from .command_spec import PLACEHOLDER, VAR_PLACEHOLDER, ArgSpec, CommandSpec
+from .command_spec import (
+    PLACEHOLDER,
+    VAR_PLACEHOLDER,
+    WORK_PLACEHOLDER,
+    WORK_REF,
+    ArgSpec,
+    CommandSpec,
+)
 
 
 class ArgumentError(ValueError):
@@ -139,7 +146,9 @@ def render_command(spec: CommandSpec, values: dict[str, Any]) -> str:
     """Return the command line with every placeholder replaced by its quoted value."""
     resolved = resolve_args(spec, values)
     by_name = {a.name: a for a in spec.args}
-    rendered = PLACEHOLDER.sub(lambda m: _shell_words(by_name[m.group(1)], resolved[m.group(1)]), spec.command)
+    # {{work}} first: it's no argument, and it stays a reference the runtime fills in.
+    rendered = WORK_PLACEHOLDER.sub(lambda _: WORK_REF, spec.command)
+    rendered = PLACEHOLDER.sub(lambda m: _shell_words(by_name[m.group(1)], resolved[m.group(1)]), rendered)
     # Variable fields become references to environment variables the agent sets at run
     # time, so no value (secret or not) is ever part of the stored command line.
     rendered = VAR_PLACEHOLDER.sub(

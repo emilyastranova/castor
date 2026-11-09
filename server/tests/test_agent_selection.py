@@ -191,3 +191,37 @@ def test_run_card_over_mcp_chooses_the_agents(client, auth):
     finally:
         for ws in (a_ws, b_ws):
             ws.__exit__(None, None, None)
+
+
+def test_container_jobs_get_their_work_directory(client, auth):
+    """{{work}} renders as "${CASTOR_WORK}": the server sets it to /work for a container job
+    (so any agent passes it in), and leaves it to the agent for a host job."""
+    tag = f"work-{uuid.uuid4().hex[:5]}"
+    ws = client.websocket_connect("/ws/agent")
+    agent = ws.__enter__()
+    agent.send_text(json.dumps({
+        "type": "hello", "secret": "test-agent-secret", "name": tag, "hostname": "h", "os": "Linux", "username": "root",
+        "version": "0.1.0", "capabilities": {"runtimes": ["docker", "host"]}, "tags": [tag], "max_concurrency": 8,
+    }))
+    assert json.loads(agent.receive_text())["type"] == "hello.ok"
+    try:
+        p = _project(client, auth)
+        sent = {}
+        for title, image in (("in a container", "docker.io/library/alpine"), ("in the host shell", None)):
+            task = client.post(f"/api/projects/{p['id']}/tasks", json={
+                "title": title, "kind": "command", "command": 'echo hi > "${CASTOR_WORK}"/out.txt', "image": image,
+                "agent_selector": {"tags": [tag]},
+            }, headers=auth).json()
+            job_id = client.post(f"/api/tasks/{task['id']}/run", headers=auth).json()["id"]
+            while True:
+                msg = json.loads(agent.receive_text())
+                if msg["type"] == "job.run" and msg["job"]["id"] == job_id:
+                    sent[title] = msg["job"]
+                    break
+            _finish(agent, job_id)
+        assert sent["in a container"]["env"]["CASTOR_WORK"] == "/work"
+        assert sent["in a container"]["display_command"] == "echo hi > /work/out.txt"
+        assert "CASTOR_WORK" not in sent["in the host shell"]["env"]
+        assert sent["in the host shell"]["display_command"] == 'echo hi > "${CASTOR_WORK}"/out.txt'
+    finally:
+        ws.__exit__(None, None, None)

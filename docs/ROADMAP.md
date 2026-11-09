@@ -23,18 +23,6 @@ Groups can also be kept in step with the SSO provider's groups.
 
 ## Running work
 
-### A work directory that's right everywhere
-Commands and their output paths say `/work/...`. That only exists inside a container: a job
-in an agent's host shell, or on an [SSH host](https://github.com/emilyastranova/castor/wiki/Agents#ssh-hosts),
-runs in its job directory and finds it through `$CASTOR_WORK`, so a command that writes
-`/work/scan.xml` fails there, or writes to a real `/work` on the machine. 15 of the built-in
-commands and playbooks do this today.
-- **The fix:** a `{{ work }}` placeholder in commands and playbooks, which each agent fills in
-  for where the job runs (`/work` in a container, the job directory in a host shell or over SSH).
-- **Outputs:** output `source:` paths use it too, so artifacts are collected from the right place.
-- **Settings:** each agent and SSH host gets a setting for where job directories go.
-- **Migration:** the built-in library moves to `{{ work }}`.
-
 ### Triggers beyond assets
 Today a trigger fires on new or changed [assets](https://github.com/emilyastranova/castor/wiki/Assets).
 More events should be able to start a command or playbook:

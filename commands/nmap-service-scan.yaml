@@ -24,9 +24,9 @@ args:
     description: Hosts or ranges to skip (pick an exclusion list)
     regex: '^[0-9a-zA-Z./:_-]+$'
     flag: --exclude
-command: nmap -sV -p {{ ports }} -oX /work/service-scan.xml {{ targets }} {{ exclude }}
+command: nmap -sV -p {{ ports }} -oX {{work}}/service-scan.xml {{ targets }} {{ exclude }}
 outputs:
   - name: services
     type: list<service>
     parser: nmap.services
-    source: /work/service-scan.xml
+    source: "{{work}}/service-scan.xml"

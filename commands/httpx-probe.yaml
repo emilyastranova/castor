@@ -16,10 +16,10 @@ args:
     regex: '^[0-9a-z:,-]+$'
     flag: -ports
 command: |
-  printf '%s\n' {{ targets }} | tr ',' '\n' | sed '/^$/d' > /work/targets.txt
-  httpx -l /work/targets.txt -sc -cl -wc -lc -title -td -fr -json -silent -o /work/httpx.jsonl {{ ports }}
+  printf '%s\n' {{ targets }} | tr ',' '\n' | sed '/^$/d' > {{work}}/targets.txt
+  httpx -l {{work}}/targets.txt -sc -cl -wc -lc -title -td -fr -json -silent -o {{work}}/httpx.jsonl {{ ports }}
 outputs:
   - name: urls
     type: list<url>
     parser: httpx.results
-    source: /work/httpx.jsonl
+    source: "{{work}}/httpx.jsonl"

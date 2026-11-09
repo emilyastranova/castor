@@ -139,10 +139,10 @@ args:
     type: list
     required: true
     description: Hosts or networks
-command: echo {{ targets }} > /work/artifacts/result.txt
+command: mkdir -p {{work}}/artifacts && echo {{ targets }} > {{work}}/artifacts/result.txt
 outputs:
   - name: result
-    source: /work/artifacts/result.txt
+    source: "{{work}}/artifacts/result.txt"
 `;
 	const TOOL_TEMPLATE = `id: my-tool
 name: My tool

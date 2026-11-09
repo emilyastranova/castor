@@ -25,9 +25,9 @@ args:
     description: Hosts or ranges to skip (pick an exclusion list)
     regex: '^[0-9a-zA-Z./:_-]+$'
     flag: --exclude
-command: nmap -p {{ ports }} --open -oX /work/nmap-445.xml {{ targets }} {{ exclude }}
+command: nmap -p {{ ports }} --open -oX {{work}}/nmap-445.xml {{ targets }} {{ exclude }}
 outputs:
   - name: hosts
     type: list<host>
     parser: nmap.hosts
-    source: /work/nmap-445.xml
+    source: "{{work}}/nmap-445.xml"

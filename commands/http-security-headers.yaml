@@ -12,10 +12,10 @@ args:
     example: https://app.example.com/
     regex: '^https?://[^\s]+$'
 command: |
-  curl -sS -k -L -o /dev/null -D /work/headers.txt {{ url }} || exit 1
-  grep -i '^HTTP/' /work/headers.txt | tail -1
+  curl -sS -k -L -o /dev/null -D {{work}}/headers.txt {{ url }} || exit 1
+  grep -i '^HTTP/' {{work}}/headers.txt | tail -1
   for h in Strict-Transport-Security Content-Security-Policy X-Content-Type-Options X-Frame-Options Referrer-Policy Permissions-Policy; do
-    if grep -qi "^$h:" /work/headers.txt; then echo "present: $(grep -i "^$h:" /work/headers.txt | tail -1 | tr -d '\r')"; else echo "missing: $h"; fi
+    if grep -qi "^$h:" {{work}}/headers.txt; then echo "present: $(grep -i "^$h:" {{work}}/headers.txt | tail -1 | tr -d '\r')"; else echo "missing: $h"; fi
   done
 outputs:
   - name: missing

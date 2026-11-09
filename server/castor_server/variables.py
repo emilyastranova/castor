@@ -44,9 +44,9 @@ HOSTNAME = re.compile(r"^(?=.{1,253}$)[A-Za-z0-9_]([A-Za-z0-9_-]{0,62})(\.[A-Za-
 DISPLAY_EXPANSION = re.compile(r"( ?)\$\{(CASTOR_VAR_[A-Z0-9_]+)(:?[-+])([^}]*)\}")
 DISPLAY_LENGTH = re.compile(r"\$\{#(CASTOR_VAR_[A-Z0-9_]+)\}")
 # A whole quoted word: "${X}" as rendered from {{ slot.field }}, or "$X"
-DISPLAY_QUOTED = re.compile(r'"\$(?:\{(CASTOR_VAR_[A-Z0-9_]+)\}|(CASTOR_VAR_[A-Z0-9_]+)\b)"')
+DISPLAY_QUOTED = re.compile(r'"\$(?:\{(CASTOR_VAR_[A-Z0-9_]+|CASTOR_WORK)\}|(CASTOR_VAR_[A-Z0-9_]+|CASTOR_WORK)\b)"')
 # Anything else: $X or ${X}, e.g. inside a longer double-quoted string
-DISPLAY_BARE = re.compile(r"\$\{(CASTOR_VAR_[A-Z0-9_]+)\}|\$(CASTOR_VAR_[A-Z0-9_]+)\b")
+DISPLAY_BARE = re.compile(r"\$\{(CASTOR_VAR_[A-Z0-9_]+|CASTOR_WORK)\}|\$(CASTOR_VAR_[A-Z0-9_]+|CASTOR_WORK)\b")
 
 
 def single_quote(text: str) -> str:
@@ -359,6 +359,8 @@ class Resolved:
         return text
 
     def _shown(self, name: str, in_container: bool) -> str | None:
+        if name == "CASTOR_WORK":  # {{work}}: known in a container; elsewhere the agent decides
+            return "/work" if in_container else None
         text = self.display.get(name)
         if text is not None and name in self._file_vars and in_container:
             text = f"/work/{text}"
@@ -386,7 +388,10 @@ class Resolved:
             return str(len(value))
 
         def quoted(m: re.Match[str]) -> str:
-            value = self._shown(m.group(1) or m.group(2), in_container)
+            name = m.group(1) or m.group(2)
+            value = self._shown(name, in_container)
+            if name == "CASTOR_WORK":  # /work in a container; a host's job directory as written
+                return value or m.group(0)
             return "''" if value is None else single_quote(value)
 
         def bare(m: re.Match[str]) -> str:

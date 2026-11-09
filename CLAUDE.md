@@ -275,7 +275,9 @@ argv: with an image it runs
 `<podman|docker> run --rm --network <net> -v <job dir>:/work:Z --entrypoint /bin/sh image -c cmd`
 (the entrypoint is overridden because tool images such as `instrumentisto/nmap` set it to the
 tool itself; images therefore need `/bin/sh`),
-otherwise `/bin/sh -c cmd` on the host in the job dir (if `--allow-host`). After the job,
+otherwise `/bin/sh -c cmd` on the host in the job dir (if `--allow-host`). Commands write there as
+`{{work}}` (rendered `"${CASTOR_WORK}"`: `/work` in a container, set by the dispatcher; the job dir on
+a host, set by the agent or SSH host); never hard-code `/work` in a command. After the job,
 `artifacts.py` collects declared outputs and `/work/artifacts/**` (skipping symlinks and
 anything outside the job dir) and uploads them with stdlib `urllib` before `job.finished`. Processes start in their own
 session so cancel can `killpg`. Interactive jobs (`job.tty`, 3j) run under a stdlib `pty`
