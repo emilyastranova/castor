@@ -677,7 +677,7 @@ The migration to roles (`e5b1c7a93d42`) maps `is_admin` to admin, everyone else 
 operator, and makes every existing user a member of every existing project.
 `run_migrations` copies a SQLite database to `data/backups/` before applying migrations.
 
-## Roadmap
+## Milestones
 
 * **M1** (done): board, cards, agents, container jobs, streamed output, comments,
   attachments and screenshots, custom fields, activity feed.
@@ -690,4 +690,5 @@ operator, and makes every existing user a member of every existing project.
   interactive jobs, alerts, theme colours, duplicating cards.
 * **M4** (done): scoped API tokens and an API reference, a built-in
   MCP server for AI assistants, phone usability.
-* Later: reporting, run summaries, artifact export, agent auto-scaling.
+
+What's next is in [ROADMAP.md](ROADMAP.md).
