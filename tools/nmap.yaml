@@ -1,4 +1,4 @@
-# Tools are what commands run with (docs/PHASE3.md, 3a). This one is a published image.
+# Tools are what commands run with. This one is a published image.
 id: nmap
 name: Nmap
 description: Network scanner (instrumentisto/nmap, Alpine with /bin/sh)

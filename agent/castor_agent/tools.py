@@ -1,4 +1,4 @@
-"""Getting a job's tool ready before it runs (docs/PHASE3.md, 3a).
+"""Getting a job's tool ready before it runs.
 
 The server sends how this agent should get the tool:
 - image: pull it if it isn't here;

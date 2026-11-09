@@ -46,7 +46,7 @@ the execution log and nobody copies output between a terminal, a tracker and a r
 - Agents run on hosts inside target or client networks (jump boxes, lab machines); they are
   deliberately bare (one Python dependency) and pull or build tool environments on demand.
 - Scripts, CI pipelines and other tools drive Castor through its REST API with scoped personal
-  tokens; a built-in MCP server for AI assistants is planned (docs/PHASE4.md).
+  tokens, and AI assistants work with it through its built-in MCP server.
 
 ## Capabilities and Constraints
 

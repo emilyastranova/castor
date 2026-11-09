@@ -598,13 +598,13 @@ operator, and makes every existing user a member of every existing project.
 
 * **M1** (done): board, cards, agents, container jobs, streamed output, comments,
   attachments and screenshots, custom fields, activity feed.
-* **M2** (done, [PHASE2.md](PHASE2.md)): command library, parsers (nmap XML → hosts and
+* **M2** (done): command library, parsers (nmap XML → hosts and
   ports, etc.), playbooks with transforms, conditions and decisions, variables,
   notifications, visual playbook editor, per-agent tokens, users with roles and project
   membership.
-* **M3** (done, [PHASE3.md](PHASE3.md)): tool environments, @mentions and a "mine" filter,
+* **M3** (done): tool environments, @mentions and a "mine" filter,
   per-person view, pinned project notes, AI, assets, search, run cards, import and export,
   interactive jobs, alerts, theme colours, duplicating cards.
-* **M4** (done, [PHASE4.md](PHASE4.md)): scoped API tokens and an API reference, a built-in
+* **M4** (done): scoped API tokens and an API reference, a built-in
   MCP server for AI assistants, phone usability.
 * Later: reporting, run summaries, artifact export, agent auto-scaling.

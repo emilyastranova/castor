@@ -1,4 +1,4 @@
-"""Tools: what a command needs installed, and how an agent gets it (docs/PHASE3.md, 3a).
+"""Tools: what a command needs installed, and how an agent gets it.
 
 A tool provides itself in one or more ways:
 

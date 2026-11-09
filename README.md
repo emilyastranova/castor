@@ -339,7 +339,7 @@ with Python 3.10 or later.
 | [`tools/`](tools/) | Built-in tool environments (YAML): images or build recipes commands run in |
 | [`commands/`](commands/) | Built-in command definitions (YAML). Format in [`commands/README.md`](commands/README.md) |
 | [`playbooks/`](playbooks/) | Built-in playbooks (YAML). Format in [`docs/PLAYBOOK_SPEC.md`](docs/PLAYBOOK_SPEC.md) |
-| [`docs/`](docs/) | [Architecture](docs/ARCHITECTURE.md) and agent protocol, [Phase 2](docs/PHASE2.md), [Phase 3](docs/PHASE3.md) and [Phase 4](docs/PHASE4.md) plans, [playbook spec](docs/PLAYBOOK_SPEC.md) |
+| [`docs/`](docs/) | [Architecture](docs/ARCHITECTURE.md), agent protocol and roadmap, [playbook spec](docs/PLAYBOOK_SPEC.md) |
 | [`deploy/`](deploy/) | Caddy reverse-proxy configuration for `compose.yaml` |
 | [`.github/assets/`](.github/assets/) | README images, made by `build_assets.py` from the AstraLabs brand files |
 
