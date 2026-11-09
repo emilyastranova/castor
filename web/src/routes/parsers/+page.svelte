@@ -5,6 +5,10 @@
 	import { replaceState } from '$app/navigation';
 	import { untrack } from 'svelte';
 	import OutputCard from '$lib/components/OutputCard.svelte';
+	import ParserEditor from '$lib/components/ParserEditor.svelte';
+	import { canEdit } from '$lib/session';
+	import { confirmAction } from '$lib/confirm.svelte';
+	import { onMount } from 'svelte';
 	import { Button, Chip, Icon, IconButton, Progress, Switch, TextField, TopAppBar } from '$lib/m3';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { bytes } from '$lib/format';
@@ -12,26 +16,85 @@
 
 	let { data } = $props();
 	// svelte-ignore state_referenced_locally
-	const parsers: ParserInfo[] = data.parsers;
+	let parsers = $state<ParserInfo[]>(data.parsers);
+	let builtins = $derived(parsers.filter((p) => p.origin === 'builtin'));
+	let library = $derived(parsers.filter((p) => p.origin === 'user'));
 	const MAX_INPUT = 2 * 1024 * 1024; // matches the server's test limit
+	const editable = $derived(canEdit());
+	const NEW = '__new';
 
 	// Option values are kept as typed text (booleans as booleans) and converted on send.
 	type Draft = { input: string; options: Record<string, string | boolean> };
 	const drafts = $state<Record<string, Draft>>(
-		Object.fromEntries(parsers.map((p) => [p.name, { input: '', options: {} }]))
+		untrack(() => Object.fromEntries(data.parsers.map((p) => [p.name, { input: '', options: {} }])))
 	);
 
 	let selectedName = $state(
-		untrack(() => (parsers.some((p) => p.name === page.url.searchParams.get('parser')) ? page.url.searchParams.get('parser')! : parsers[0]?.name))
+		untrack(() => (data.parsers.some((p) => p.name === page.url.searchParams.get('parser')) ? page.url.searchParams.get('parser')! : data.parsers[0]?.name))
 	);
-	let selected = $derived(parsers.find((p) => p.name === selectedName)!);
-	let draft = $derived(drafts[selectedName]);
+	let selected = $derived(parsers.find((p) => p.name === selectedName) ?? parsers[0]);
+	let draft = $derived(drafts[selectedName] ?? { input: '', options: {} });
+	let editorDirty = $state(false);
 
-	function select(name: string) {
+	async function select(name: string) {
+		if (name === selectedName) return;
+		if (editorDirty && !(await confirmAction({ title: 'Discard your changes?', message: 'The parser you edited hasn’t been saved.', confirmLabel: 'Discard', danger: true }))) return;
+		editorDirty = false;
+		newFrom = null;
 		selectedName = name;
 		const url = new URL(page.url);
-		url.searchParams.set('parser', name);
+		for (const k of ['new', 'job', 'output', 'draft']) url.searchParams.delete(k);
+		if (name === NEW) url.searchParams.set('new', '1');
+		else url.searchParams.set('parser', name);
 		replaceState(url, {});
+	}
+
+	// ---- a new parser, maybe for a job output its parser couldn't read (?new=1&job=&output=) ----
+	let newFrom = $state<{ yaml: string; sample: string; from: string; type: string } | null>(null);
+	onMount(async () => {
+		const q = page.url.searchParams;
+		if (!q.get('new')) return;
+		const job = q.get('job');
+		const output = q.get('output');
+		let yamlDraft = '';
+		if (q.get('draft')) {
+			try {
+				const saved = JSON.parse(sessionStorage.getItem('castor.parserDraft') ?? 'null');
+				if (saved?.job === job && saved?.output === output) yamlDraft = saved.yaml;
+				sessionStorage.removeItem('castor.parserDraft');
+			} catch {
+				/* start from the template */
+			}
+		}
+		if (job && output) {
+			try {
+				const input = await api().jobs.outputInput(job, output);
+				newFrom = { yaml: yamlDraft, sample: input.text, from: `the ${output} output of a job (${input.sources.join(', ')})`, type: input.type };
+			} catch (err) {
+				snackbar.error(err instanceof ApiError ? err.message : 'Could not load that output');
+				newFrom = { yaml: yamlDraft, sample: '', from: '', type: '' };
+			}
+		} else newFrom = { yaml: yamlDraft, sample: '', from: '', type: '' };
+		selectedName = NEW;
+	});
+	function startNew() {
+		void select(NEW).then(() => {
+			if (selectedName === NEW && !newFrom) newFrom = { yaml: '', sample: '', from: '', type: '' };
+		});
+	}
+	async function saved(p: ParserInfo) {
+		parsers = await api().parsers.list();
+		drafts[p.name] ??= { input: '', options: {} };
+		editorDirty = false;
+		newFrom = null;
+		selectedName = '';
+		await select(p.name);
+	}
+	async function deleted(name: string) {
+		parsers = parsers.filter((p) => p.name !== name);
+		editorDirty = false;
+		selectedName = '';
+		await select(parsers[0]?.name ?? '');
 	}
 
 	// ---- options: text in the form <-> JSON for the API ----
@@ -185,7 +248,11 @@
 
 <svelte:head><title>Parsers · Castor</title></svelte:head>
 
-<TopAppBar title="Parsers" subtitle="Turn tool output into typed results · try them live on sample data" />
+<TopAppBar title="Parsers" subtitle="Turn tool output into typed results · try them live on sample data">
+	{#snippet actions()}
+		{#if editable}<Button icon="add" onclick={startNew}>New parser</Button>{/if}
+	{/snippet}
+</TopAppBar>
 
 <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-auto px-6 pb-8 lg:flex-row">
 	<!-- parser list -->
@@ -196,8 +263,31 @@
 			</Chip>
 		{/each}
 	</div>
-	<nav class="hidden w-72 shrink-0 flex-col gap-1 pt-2 lg:flex" aria-label="Parsers">
-		{#each parsers as p (p.name)}
+	<nav class="hidden w-72 shrink-0 flex-col gap-1 overflow-y-auto pt-2 lg:flex" aria-label="Parsers">
+		{#if library.length || selectedName === NEW}
+			<p class="px-4 pt-1 pb-1 label-medium text-on-surface-variant">Yours</p>
+			{#if selectedName === NEW}
+				<div class="flex items-center gap-2 rounded-lg bg-secondary-container px-4 py-3 text-on-secondary-container">
+					<Icon name="add" size={18} /><span class="title-small">New parser</span>
+				</div>
+			{/if}
+			{#each library as p (p.name)}
+				<button
+					type="button"
+					class="state-layer focus-ring flex flex-col items-start gap-1 rounded-lg px-4 py-3 text-left transition-colors {p.name === selectedName
+						? 'bg-secondary-container text-on-secondary-container'
+						: 'text-on-surface'}"
+					aria-current={p.name === selectedName ? 'true' : undefined}
+					onclick={() => select(p.name)}
+				>
+					<span class="font-mono title-small">{p.name}</span>
+					<span class="font-mono text-[11px] opacity-75">{p.type}</span>
+					<span class="line-clamp-2 body-small opacity-80">{p.title || p.description}</span>
+				</button>
+			{/each}
+			<p class="px-4 pt-3 pb-1 label-medium text-on-surface-variant">Built in</p>
+		{/if}
+		{#each builtins as p (p.name)}
 			<button
 				type="button"
 				class="state-layer focus-ring flex flex-col items-start gap-1 rounded-lg px-4 py-3 text-left transition-colors {p.name === selectedName
@@ -217,8 +307,17 @@
 		{/each}
 	</nav>
 
-	<!-- workbench -->
-	{#if selected}
+	<!-- a parser in the library, or a new one: its definition, checked live -->
+	{#if selectedName === NEW && newFrom}
+		<ParserEditor parser={null} initialYaml={newFrom.yaml} initialSample={newFrom.sample} sampleFrom={newFrom.from} wantType={newFrom.type} {editable} bind:dirty={editorDirty} onsaved={saved} ondeleted={deleted} oncancel={() => { editorDirty = false; void select(builtins[0]?.name ?? ''); }} />
+	{:else if selectedName === NEW}
+		<div class="flex flex-1 items-center justify-center pt-8"><Progress variant="circular" size={24} /></div>
+	{:else if selected && selected.origin === 'user'}
+		{#key selected.name}
+			<ParserEditor parser={selected} {editable} bind:dirty={editorDirty} onsaved={saved} ondeleted={deleted} />
+		{/key}
+	<!-- a built-in: try it live on sample data -->
+	{:else if selected}
 		<div class="flex min-w-0 flex-1 flex-col gap-4 pt-2">
 			<div class="flex flex-wrap items-center gap-3">
 				<span class="flex size-10 items-center justify-center rounded-md bg-primary-container text-on-primary-container"><Icon name="data_object" /></span>

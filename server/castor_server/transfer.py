@@ -41,7 +41,8 @@ SUFFIX = ".castor.zip"
 MAX_UPLOAD = 2 * 1024**3
 MAX_UNPACKED = 8 * 1024**3
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
-LIBRARY = {  # archive folder → (model, label)
+LIBRARY = {  # archive folder → (model, label); parsers first: commands name them
+    "parsers": (m.ParserDefinition, "parser"),
     "commands": (m.CommandDefinition, "command"),
     "tools": (m.ToolDefinition, "tool"),
     "playbooks": (m.PlaybookDefinition, "playbook"),
@@ -231,6 +232,7 @@ def set_in(data: dict[str, Any], sec: Secrets) -> dict[str, Any]:
 @dataclass
 class ExportOptions:
     everything: bool = False
+    parsers: list[str] = field(default_factory=list)
     commands: list[str] = field(default_factory=list)
     tools: list[str] = field(default_factory=list)
     playbooks: list[str] = field(default_factory=list)
@@ -428,8 +430,8 @@ def single_yaml_archive(data: bytes, filename: str) -> bytes:
     except yaml.YAMLError as exc:
         raise TransferError(f"That YAML doesn't parse: {exc}") from exc
     if not isinstance(raw, dict) or not raw.get("id"):
-        raise TransferError("That YAML isn't a command, tool or playbook (no id:)")
-    folder = "playbooks" if "steps" in raw else "tools" if ("image" in raw or "install" in raw or "check" in raw) and "command" not in raw else "commands"
+        raise TransferError("That YAML isn't a command, tool, parser or playbook (no id:)")
+    folder = "playbooks" if "steps" in raw else "parsers" if "format" in raw and "type" in raw and "command" not in raw else "tools" if ("image" in raw or "install" in raw or "check" in raw) and "command" not in raw else "commands"
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr(f"library/{folder}/{raw['id']}.yaml", data)
@@ -498,15 +500,36 @@ def _free(base: str, taken: set[str], sep: str = "-", limit: int = 64) -> str:
 
 def _spec_parser(folder: str):
     from .command_spec import parse_spec
+    from .parser_spec import parse_parser_spec
     from .playbook_spec import parse_playbook_spec
     from .tool_spec import parse_tool_spec
 
-    return {"commands": parse_spec, "tools": parse_tool_spec, "playbooks": parse_playbook_spec}[folder]
+    return {"parsers": parse_parser_spec, "commands": parse_spec, "tools": parse_tool_spec, "playbooks": parse_playbook_spec}[folder]
+
+
+def _archive_parsers(archive: Archive) -> list[Any]:
+    """The parser definitions in an archive (so its commands can be checked against them)."""
+    from .parser_spec import parse_parser_spec
+
+    found = []
+    for name in archive.library("parsers"):
+        try:
+            found.append(parse_parser_spec(archive.text(name)))
+        except ValueError:
+            continue  # reported in the preview
+    return found
 
 
 async def plan(db: AsyncSession, user: m.User, archive: Archive, passphrase: str | None = None) -> dict[str, Any]:
     """What importing would do: each item with its state and choices, the people it names
     and whether they exist, and anything that won't come across."""
+    from .parser_library import overlay
+
+    with overlay(_archive_parsers(archive)):  # its commands may name its parsers
+        return await _plan(db, user, archive, passphrase)
+
+
+async def _plan(db: AsyncSession, user: m.User, archive: Archive, passphrase: str | None = None) -> dict[str, Any]:
     items: list[dict[str, Any]] = []
     warnings: list[str] = []
     manifest = archive.manifest
@@ -615,6 +638,7 @@ class Result:
     created_users: list[str] = field(default_factory=list)
     projects: list[uuid.UUID] = field(default_factory=list)
     files: list[Path] = field(default_factory=list)  # written so far; removed if the import fails
+    parsers: list[Any] = field(default_factory=list)  # parser specs added, for the registry once committed
 
     def add(self, kind: str, name: str) -> None:
         self.imported.setdefault(kind, []).append(name)
@@ -636,8 +660,24 @@ async def run_import(
     create_users: bool = False,
 ) -> Result:
     """Apply the plan with the chosen resolutions. The caller commits (or rolls back and
-    calls `discard` on failure)."""
+    calls `discard` on failure), then registers `result.parsers` (parser_library.register)."""
+    from .parser_library import overlay
+
+    with overlay(_archive_parsers(archive)):
+        return await _run_import(db, user, archive, choices, passphrase=passphrase, create_users=create_users)
+
+
+async def _run_import(
+    db: AsyncSession,
+    user: m.User,
+    archive: Archive,
+    choices: dict[str, str],
+    *,
+    passphrase: str | None = None,
+    create_users: bool = False,
+) -> Result:
     from .command_library import definition_from_spec as command_from_spec
+    from .parser_library import definition_from_spec as parser_from_spec
     from .playbook_library import definition_from_spec as playbook_from_spec
     from .tool_library import definition_from_spec as tool_from_spec
 
@@ -704,8 +744,8 @@ async def run_import(
         result.add("variable kinds", k.get("name") or k["id"])
     await db.flush()
 
-    setters = {"commands": command_from_spec, "tools": tool_from_spec, "playbooks": playbook_from_spec}
-    for folder in ("tools", "commands", "playbooks"):
+    setters = {"parsers": parser_from_spec, "commands": command_from_spec, "tools": tool_from_spec, "playbooks": playbook_from_spec}
+    for folder in ("parsers", "tools", "commands", "playbooks"):
         model, label = LIBRARY[folder]
         for name in archive.library(folder):
             text = archive.text(name)
@@ -725,6 +765,8 @@ async def run_import(
                 db.add(row)
             setters[folder](row, spec, text)
             result.add(f"{label}s", spec.name)
+            if folder == "parsers":
+                result.parsers.append(spec)
         await db.flush()
 
     # Variable sets (not tied to a card).

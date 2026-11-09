@@ -420,6 +420,8 @@
 			</div>
 			<Switch checked={!!ai.edit_command} label="Retry with a corrected command" onchange={(on) => set('ai', { ...ai, edit_command: on })} />
 			<p class="-mt-1 px-1 body-small text-on-surface-variant">Off: a changed command waits for a person. The output it reads can come from the target, which could try to steer it.</p>
+			<Switch checked={ai.draft_parsers ?? true} label="Read unexpected output with a parser it drafts" onchange={(on) => set('ai', { ...ai, draft_parsers: on })} />
+			<p class="-mt-1 px-1 body-small text-on-surface-variant">When the output isn’t in the format its parser reads, the AI writes a parser, checks it on that output and the run carries on. For this run only: keeping it is up to a person.</p>
 			<div class="flex gap-2">
 				<TextField label="Sure at least (%)" type="number" class="w-36" value={String(Math.round((ai.confidence ?? 0.7) * 100))} oninput={(e) => set('ai', { ...ai, confidence: Math.min(100, Math.max(0, Number((e.currentTarget as HTMLInputElement).value) || 0)) / 100 })} />
 				<TextField label="Retries at most" type="number" class="w-36" value={String(ai.max_retries ?? 2)} oninput={(e) => set('ai', { ...ai, max_retries: Math.min(10, Math.max(0, Math.round(Number((e.currentTarget as HTMLInputElement).value) || 0))) })} />

@@ -786,6 +786,49 @@ class ToolDefinition(Base, TimestampMixin):
     version: Mapped[int] = mapped_column(Integer, default=1)
 
 
+class ParserDefinition(Base, TimestampMixin):
+    """A parser people (or the AI) wrote: declarative YAML (parser_spec.ParserSpec), used by
+    name in command outputs like a built-in. Built-in parsers are code in parsers.py."""
+
+    __tablename__ = "parser_definitions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    origin: Mapped[str] = mapped_column(String(16), default="user")
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="")
+    spec: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    source_yaml: Mapped[str] = mapped_column(Text, default="")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class ParserProposal(Base, TimestampMixin):
+    """A parser the AI drafted for one job output that its parser couldn't read, checked
+    against that output. Using it re-reads the job; saving it to the library is separate and
+    always a person's choice."""
+
+    __tablename__ = "parser_proposals"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), index=True)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    output_name: Mapped[str] = mapped_column(String(64))
+    # The parser the output named, and what it said when it couldn't read it.
+    failed_parser: Mapped[str] = mapped_column(String(64), default="")
+    failure: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(16), default="drafting")  # drafting | ready | failed | applied | dismissed
+    yaml: Mapped[str] = mapped_column(Text, default="")
+    spec: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
+    preview: Mapped[Any] = mapped_column(JSONType, nullable=True)
+    count: Mapped[int] = mapped_column(Integer, default=0)
+    problems: Mapped[list[str]] = mapped_column(JSONType, default=list)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    model: Mapped[str] = mapped_column(String(200), default="")
+    # Who asked (None: drafted on its own, in a playbook run) and who used it.
+    requested_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    applied_by: Mapped[str] = mapped_column(String(200), default="")
+    saved_as: Mapped[str] = mapped_column(String(64), default="")
+
+
 class ApiToken(Base):
     """A personal API token (api_tokens.py): acts as its user, narrowed to its scopes and,
     if set, to some projects. Only the SHA-256 of the token is stored."""

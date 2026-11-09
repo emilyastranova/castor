@@ -106,6 +106,9 @@ class OutputSpec(BaseModel):
     parser: str | None = None
     source: str | None = None  # path or glob under /work, e.g. /work/scan.xml; none = stdout
     options: dict[str, Any] = Field(default_factory=dict)  # parser options (Parsers page)
+    # A parser definition carried inline (parser_spec.ParserSpec as JSON): how a job reads an
+    # output with a draft that isn't in the library. Only set on a job's output_specs.
+    parser_spec: dict[str, Any] | None = Field(None, exclude=True)
 
     @field_validator("name")
     @classmethod
@@ -122,9 +125,14 @@ class OutputSpec(BaseModel):
             if self.source is None:
                 raise ValueError(f"output {self.name}: needs a parser, a source file, or both")
             return self
+        if self.parser_spec is not None:
+            from .parser_spec import ParserSpec
+
+            ParserSpec.model_validate(self.parser_spec)
+            return self
         found = parsers.get(self.parser)
         if found is None:
-            known = ", ".join(sorted(parsers.PARSERS))
+            known = ", ".join(sorted(p.name for p in parsers.all_parsers()))
             raise ValueError(f"output {self.name}: unknown parser {self.parser!r} (known: {known})")
         try:
             found.configure(self.options)

@@ -76,6 +76,15 @@ def _read_all(paths: list[Path]) -> list[bytes]:
     return [p.read_bytes() for p in paths]
 
 
+def _parser_for(spec: OutputSpec) -> parsers.Parser | None:
+    """The output's parser: a draft carried on the job (see ParserProposal), or by name."""
+    if spec.parser_spec is not None:
+        from .parser_spec import ParserSpec, build
+
+        return build(ParserSpec.model_validate(spec.parser_spec))
+    return parsers.get(spec.parser or "")
+
+
 def run_parser(parser: parsers.Parser, options: parsers.Options, blobs: list[bytes]) -> Any:
     """Parse one or more inputs; list types are concatenated, scalars use the first."""
     if not parser.is_list:
@@ -84,6 +93,32 @@ def run_parser(parser: parsers.Parser, options: parsers.Options, blobs: list[byt
     for blob in blobs:
         merged.extend(parser.run(blob, options))
     return merged
+
+
+# Errors that mean "there was nothing to read", not "this isn't the format the parser
+# expects": a new parser wouldn't help with these, so nothing offers one.
+NO_INPUT = ("no file matched", "is too large to parse", "the tool wrote nothing", "could not read the artifact")
+
+
+def is_mismatch(error: str | None) -> bool:
+    """An output whose input was there but that its parser couldn't read."""
+    return bool(error) and not any(marker in error for marker in NO_INPUT)
+
+
+async def read_inputs(db: AsyncSession, job: m.Job, spec: OutputSpec, artifacts: list[m.Attachment] | None = None) -> tuple[list[bytes], list[str]]:
+    """What an output's parser reads: its source files (or stdout), and their names."""
+    if spec.source:
+        if artifacts is None:
+            artifacts = list((await db.execute(select(m.Attachment).where(m.Attachment.job_id == job.id))).scalars())
+        files = sorted((a for a in artifacts if _matches(spec.source, a.filename)), key=lambda a: a.filename)
+        if not files:
+            raise parsers.ParseError(f"no file matched {spec.source} (the tool may have stopped before writing it)")
+        too_big = [a.filename for a in files if a.size > MAX_PARSE_BYTES]
+        if too_big:
+            raise parsers.ParseError(f"{too_big[0]} is too large to parse")
+        blobs = await asyncio.to_thread(_read_all, [settings.data_dir / a.storage_path for a in files])
+        return blobs, [a.filename for a in files]
+    return [await _stdout(db, job.id)], ["stdout"]
 
 
 async def parse_job(db: AsyncSession, job: m.Job) -> list[m.JobOutput]:
@@ -96,29 +131,19 @@ async def parse_job(db: AsyncSession, job: m.Job) -> list[m.JobOutput]:
     )
     results: list[m.JobOutput] = []
     for spec in specs:
-        parser = parsers.get(spec.parser or "")
+        parser = _parser_for(spec)
         if parser is None:
             continue
         row = m.JobOutput(job_id=job.id, name=spec.name, type=parser.type, parser=parser.name)
         try:
-            if spec.source:
-                files = sorted(
-                    (a for a in artifacts if _matches(spec.source, a.filename)),
-                    key=lambda a: a.filename,
-                )
-                if not files:
-                    raise parsers.ParseError(
-                        f"no file matched {spec.source} (the tool may have stopped before writing it)"
-                    )
-                too_big = [a.filename for a in files if a.size > MAX_PARSE_BYTES]
-                if too_big:
-                    raise parsers.ParseError(f"{too_big[0]} is too large to parse")
-                row.sources = [a.filename for a in files]
-                paths = [settings.data_dir / a.storage_path for a in files]
-                blobs = await asyncio.to_thread(_read_all, paths)
-            else:
-                row.sources = ["stdout"]
-                blobs = [await _stdout(db, job.id)]
+            blobs, row.sources = await read_inputs(db, job, spec, list(artifacts))
+            if not any(b.strip() for b in blobs):
+                # Not the parser's fault: an empty list says "found nothing", anything else can't be read.
+                if parser.is_list:
+                    row.value = []
+                    results.append(row)
+                    continue
+                raise parsers.ParseError("the tool wrote nothing to read")
             options = parser.configure(spec.options)
             row.value = await asyncio.to_thread(run_parser, parser, options, blobs)
         except (parsers.ParseError, parsers.OptionsError) as exc:

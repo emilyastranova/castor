@@ -33,3 +33,5 @@ from . import (
 api_router = APIRouter(prefix="/api")
 for module in (auth, clients, projects, tasks, jobs, agents, attachments, activity, commands, parsers, playbooks, variables, notifications, agent_tokens, users, dashboard, tools, notes, search, people, assets, transfer, app_settings, alerts, ai, tokens, mcp):
     api_router.include_router(module.router)
+# AI drafts for job outputs live under /jobs and /parser-proposals (next to parsers.router).
+api_router.include_router(parsers.proposals)

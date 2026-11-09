@@ -4,6 +4,12 @@
 	import { realtime } from '$lib/realtime.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import OutputCard from './OutputCard.svelte';
+	import ParserFix from './ParserFix.svelte';
+
+	// Errors that mean there was nothing to read (outputs.NO_INPUT), not a format the parser
+	// doesn't know: a new parser can't help with these.
+	const NO_INPUT = ['no file matched', 'is too large to parse', 'the tool wrote nothing', 'could not read the artifact'];
+	const mismatch = (error: string | null) => !!error && !NO_INPUT.some((m) => error.includes(m));
 	import { Button, Icon, IconButton, Progress } from '$lib/m3';
 
 	interface Props {
@@ -85,6 +91,7 @@
 					<IconButton icon="refresh" label="Parse again" size="sm" disabled={parsing} onclick={reparse} />
 				{/snippet}
 			</OutputCard>
+			{#if mismatch(o.error)}<ParserFix jobId={job.id} output={o.name} parser={o.parser} />{/if}
 		{/each}
 	{/if}
 </div>

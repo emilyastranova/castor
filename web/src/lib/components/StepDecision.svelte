@@ -4,6 +4,7 @@
 	import { Button, Icon, TextField } from '$lib/m3';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { aiStatus } from '$lib/ai.svelte';
+	import ParserFix from './ParserFix.svelte';
 
 	/** Shown on a step waiting for a person (status attention): why, and the choices. */
 	interface Props {
@@ -78,6 +79,9 @@
 			<p class="mt-1 body-small text-on-surface-variant">The steps after it wait until you choose. Everyone was notified.</p>
 		</div>
 	</div>
+	{#if result?.parse && result.job_id}
+		<ParserFix jobId={result.job_id} output={result.parse.output} parser={result.parse.parser} inRun />
+	{/if}
 	{#if suggestion}
 		<div class="flex flex-col gap-2 rounded-md bg-surface-container px-3 py-2.5">
 			<p class="flex items-center gap-1.5 label-large text-on-surface">

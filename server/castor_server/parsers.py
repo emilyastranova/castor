@@ -79,6 +79,10 @@ class Parser:
     options: type[Options] = Options
     sample: str | None = None  # file in parser_samples/
     sample_options: dict[str, Any] = field(default_factory=dict)
+    # Parsers people (or the AI) wrote are declarative (parser_spec.py) and carry their
+    # sample inline; built-ins are Python here with a sample file.
+    origin: str = "builtin"
+    sample_value: str | None = None
 
     @property
     def is_list(self) -> bool:
@@ -101,10 +105,15 @@ class Parser:
         return self.func(data, options)
 
     def sample_text(self) -> str:
+        if self.sample_value is not None:
+            return self.sample_value
         return (SAMPLES_DIR / self.sample).read_text() if self.sample else ""
 
 
 PARSERS: dict[str, Parser] = {}
+# Parsers from the library (parser_library.py keeps this in step with the database). One
+# server process serves the API, so a dict is enough.
+USER: dict[str, Parser] = {}
 
 
 def parser(
@@ -125,7 +134,12 @@ def parser(
 
 
 def get(name: str) -> Parser | None:
-    return PARSERS.get(name)
+    return PARSERS.get(name) or USER.get(name)
+
+
+def all_parsers() -> list[Parser]:
+    """Built-ins first, then the library's, by name."""
+    return [*PARSERS.values(), *sorted(USER.values(), key=lambda p: p.name)]
 
 
 def option_fields(model: type[Options]) -> list[dict[str, Any]]:

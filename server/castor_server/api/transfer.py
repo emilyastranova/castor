@@ -25,6 +25,7 @@ router = APIRouter(tags=["transfer"])
 
 class ExportIn(BaseModel):
     everything: bool = False
+    parsers: list[str] = []
     commands: list[str] = []
     tools: list[str] = []
     playbooks: list[str] = []
@@ -76,7 +77,7 @@ async def export(body: ExportIn, db: DB, user: CurrentUser):
 
 
 def _summary(contents: dict[str, int]) -> str:
-    words = {"commands": "command", "tools": "tool", "playbooks": "playbook", "variable_kinds": "variable kind",
+    words = {"parsers": "parser", "commands": "command", "tools": "tool", "playbooks": "playbook", "variable_kinds": "variable kind",
              "variable_sets": "variable set", "projects": "project", "users": "user"}
     parts = [f"{n} {words.get(k, k)}{'' if n == 1 else 's'}" for k, n in contents.items() if n]
     return ", ".join(parts) or "nothing"
@@ -172,6 +173,11 @@ async def run_import(body: ImportIn, db: DB, user: Operator):
     finally:
         archive.close()
     path.unlink(missing_ok=True)
+    if result.parsers:
+        from ..parser_library import register
+
+        for spec in result.parsers:
+            register(spec)
     for pid in result.projects:
         members = (await db.execute(select(m.ProjectMember.user_id).where(m.ProjectMember.project_id == pid))).scalars()
         bus.publish("project.members", None, {"project_id": pid, "user_ids": [str(u) for u in members]})

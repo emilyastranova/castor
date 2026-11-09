@@ -121,9 +121,40 @@ parsers (for jobs from before Phase 2b it falls back to the card's current defin
 Output types are a fixed set so playbook steps can be type-checked: `string`, `number`,
 `boolean`, `list<string>`, `host`/`list<host>` (`{ip, hostnames[], status}`),
 `service`/`list<service>` (`{host, port, proto, state, name, product, version}`),
-`url`/`list<url>` (`{url, status, length, words, lines}`). Parsers: `nmap.hosts`,
-`nmap.services`, `ffuf.results`, `lines`, `regex`, `text`. XML goes through `defusedxml`,
-since tool output can carry external untrusted content.
+`url`/`list<url>` (`{url, status, length, words, lines, title, content_type, tech[]}`),
+`smb_host`/`list<smb_host>` (`{host, port, name, domain, os, signing, smbv1}`). Built-in
+parsers: `nmap.hosts`, `nmap.services`, `ffuf.results`, `httpx.results`, `netexec.smb`,
+`lines`, `regex`, `text`. XML goes through `defusedxml`, since tool output can carry external
+untrusted content.
+
+#### Parsers in the library
+
+People and the AI add parsers as **declarative definitions**, never code
+(`parser_spec.py`, table `parser_definitions`, YAML like commands and tools): a `type`, a
+`format` (`lines`, `regex`, `json`, `jsonl`, `csv`, `xml`) with `pattern` / `records` /
+`delimiter`, and `fields` mapping each field of the type's items to where it comes from
+(`values` sets constants). They run on the same guarded pieces as the built-ins, carry a
+`sample`, and are registered next to them (`parsers.USER`, filled at startup and on every
+change by `parser_library.py`) so commands name them like built-ins; a parser a command uses
+can't be deleted or change type. Their results become assets by type (`assets.mapping_for`).
+`POST /api/parsers` / `PUT` / `DELETE /api/parsers/{id}`, `POST /api/parsers/validate`
+(`{yaml, input?}`: check and run without saving) and `POST /api/parsers/draft` (the AI writes
+one for a sample, runs it, and repairs it from the problems).
+
+**Output that doesn't match its parser.** `outputs.is_mismatch` tells "the input was there
+but the parser couldn't read it" from "there was nothing to read" (no file, empty output).
+For such an output a `ParserProposal` (table `parser_proposals`, per job and output) holds a
+parser the AI drafted for that job's real input, checked on it; `job.parser_proposal` events
+report it. `POST /api/jobs/{id}/outputs/{name}/parser-proposal` asks for one (in the
+background), `POST /api/parser-proposals/{id}/apply` (`{save_as?}`) re-reads the job with it
+(carried inline on the job's `output_specs` as `parser_spec`, or saved to the library under
+`save_as`, a person's choice), `…/dismiss` puts it aside, and
+`GET /api/jobs/{id}/outputs/{name}/input` returns what the parser read. In a playbook, a
+step with `on_failure: ask|ai` whose job succeeded but whose output the playbook uses couldn't
+be read pauses (`step_results[step].parse`), and a draft is requested at once. With `ai` and
+the step's `ai.draft_parsers` (default on), `ai.auto_parser` applies it for the run and
+resolves the step `continue`; with `ask` it waits on the step, one click away. Nothing is
+added to the library without a person.
 
 Each parser has an options model (pydantic, `extra="forbid"`); an output's `options` are
 validated when the definition is saved. User-supplied regular expressions run with the
@@ -489,7 +520,7 @@ Authenticated by the session cookie, or an API token in the `Authorization` head
 server sends each domain event as
 `{"type":"event","name":"task.moved","project_id":"…","data":{…}}` to the sockets allowed to
 see it (see Auth). Event names include `project.updated`, `column.*`,
-`task.created|updated|moved|deleted`, `job.updated`, `job.log`, `job.outputs`, `job.resize`,
+`task.created|updated|moved|deleted`, `job.updated`, `job.log`, `job.outputs`, `job.parser_proposal`, `job.resize`,
 `comment.created`, `attachment.created`, `agent.updated`, `playbook_run.updated`,
 `agent_tokens.changed`, `api_tokens.changed`, `tool.status`, `tools.changed`,
 `project.notes`, `notification.created|read`, `assets.changed`, `alert_channels.changed`,

@@ -324,6 +324,18 @@ async def _map(db: AsyncSession, parser: str, rows: Any, project_id: uuid.UUID, 
 
 
 MAPPED_PARSERS = {"nmap.hosts", "nmap.services", "netexec.smb", "ffuf.results", "httpx.results"}
+# A parser from the library (written by a person or the AI) produces the same shapes as the
+# built-ins, so its results become assets by their type.
+MAPPED_TYPES = {"list<host>": "nmap.hosts", "list<service>": "nmap.services", "list<smb_host>": "netexec.smb", "list<url>": "httpx.results"}
+
+
+def mapping_for(parser: str, type_: str) -> str | None:
+    """Which built-in mapping a job output's results go through, if any."""
+    if parser in MAPPED_PARSERS:
+        return parser
+    from .parsers import PARSERS
+
+    return None if parser in PARSERS else MAPPED_TYPES.get(type_)
 
 
 async def ingest_outputs(db: AsyncSession, job: m.Job, task: m.Task, outputs: list[m.JobOutput]) -> Batch:
@@ -331,9 +343,10 @@ async def ingest_outputs(db: AsyncSession, job: m.Job, task: m.Task, outputs: li
     feed entry and fire triggers. Commits."""
     batch = Batch(task.project_id)
     for out in outputs:
-        if out.error or out.parser not in MAPPED_PARSERS:
+        kind = None if out.error else mapping_for(out.parser, out.type)
+        if kind is None:
             continue
-        await _map(db, out.parser, out.value, task.project_id, batch, job_id=job.id, task_id=task.id)
+        await _map(db, kind, out.value, task.project_id, batch, job_id=job.id, task_id=task.id)
     if batch.changes:
         await settle(db, batch, task_id=task.id)
     return batch
@@ -348,12 +361,14 @@ async def collect_past(db: AsyncSession, project_id: uuid.UUID, actor: m.User | 
             select(m.JobOutput, m.Job)
             .join(m.Job, m.Job.id == m.JobOutput.job_id)
             .join(m.Task, m.Task.id == m.Job.task_id)
-            .where(m.Task.project_id == project_id, m.JobOutput.error.is_(None), m.JobOutput.parser.in_(MAPPED_PARSERS))
+            .where(m.Task.project_id == project_id, m.JobOutput.error.is_(None))
             .order_by(m.Job.finished_at, m.JobOutput.created_at)
         )
     ).all()
     for out, job in rows:
-        await _map(db, out.parser, out.value, project_id, batch, job_id=job.id, task_id=job.task_id)
+        kind = mapping_for(out.parser, out.type)
+        if kind is not None:
+            await _map(db, kind, out.value, project_id, batch, job_id=job.id, task_id=job.task_id)
     if batch.changes:
         from .services import actor_of, record_activity
 

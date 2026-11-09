@@ -364,7 +364,7 @@ class Searcher:
         if not self.q.terms:
             return []
         out = []
-        for p in parsers.PARSERS.values():
+        for p in parsers.all_parsers():
             hay = f"{p.name} {p.type} {p.description}".lower()
             if all(t in hay for t in self.q.terms):
                 out.append({"id": p.name, "title": p.name, "snippet": p.description, "project": None, "at": None,

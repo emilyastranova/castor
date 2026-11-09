@@ -443,6 +443,7 @@ With `on_failure: ai`, the `ai` block says what the resolver may do alone (all o
     ai:
       allow: [retry, skip]     # default; also continue, fail
       edit_command: false      # default: a retry with a changed command waits for a person
+      draft_parsers: true      # default: output its parser can't read may be read with a parser the AI drafts
       confidence: 0.7          # below this it asks a person
       max_retries: 2           # AI retries of this step per run
       instructions: A timeout here usually means retry; "0 hosts up" is a fine result.
@@ -451,6 +452,17 @@ With `on_failure: ai`, the `ai` block says what the resolver may do alone (all o
 `edit_command` is off by default on purpose: the output the model reads can come from the
 systems under test, which could try to talk it into running something else. **Ask AI** on
 any paused step (whatever its `on_failure`) gets a suggestion without acting on it.
+
+**Output its parser can't read.** When a step's job succeeds but an output the playbook uses
+isn't in the format its parser reads (a tool changed its output, or printed text where XML was
+expected), a step with `on_failure: ask` or `ai` pauses instead of carrying on with nothing.
+If an AI model is set up, Castor drafts a parser for that output at once and checks it on the
+real output (it must read results of the right type). With `ask` the draft waits on the step:
+using it is one click. With `ai` and `draft_parsers` on, the run uses it and carries on; turn
+it off to have a person look first. A drafted parser is a declarative definition (see the
+Parsers page), never code, and it's only used for that run: keeping it in the library is
+always a person's choice. Steps with `on_failure: stop` or `continue` don't pause; their card's
+results offer the same draft.
 
 ### 8.4 `expect`: what a good result looks like
 

@@ -445,6 +445,29 @@ class JobOutputOut(ORM):
     created_at: datetime
 
 
+class ParserProposalOut(ORM):
+    """A parser the AI drafted for a job output its parser couldn't read."""
+
+    id: uuid.UUID
+    job_id: uuid.UUID
+    project_id: uuid.UUID
+    output_name: str
+    failed_parser: str
+    failure: str
+    status: str
+    yaml: str
+    preview: Any = None
+    count: int
+    problems: list[str]
+    notes: str
+    model: str
+    applied_by: str
+    saved_as: str
+    automatic: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+
 class JobDetail(JobOut):
     logs: list[LogChunkOut] = Field(default_factory=list)
     outputs: list[JobOutputOut] = Field(default_factory=list)

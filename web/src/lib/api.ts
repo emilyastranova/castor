@@ -194,7 +194,7 @@ export interface PlaybookStepSpec {
 	join?: 'all' | 'any' | 'always';
 	on_failure?: 'stop' | 'continue' | 'ask' | 'ai';
 	/** on_failure: ai — what the AI resolver may do on its own. */
-	ai?: { allow?: ResolveAction[]; edit_command?: boolean; confidence?: number; max_retries?: number; instructions?: string } | null;
+	ai?: { allow?: ResolveAction[]; edit_command?: boolean; draft_parsers?: boolean; confidence?: number; max_retries?: number; instructions?: string } | null;
 	expect?: { outputs?: Record<string, Record<string, unknown>>; log?: Record<string, unknown> } | null;
 	/** One card and job per item; args use {{ item }} / {{ item.field }}. */
 	for_each?: { items: string; max_items?: number; concurrency?: number | null } | null;
@@ -259,6 +259,8 @@ export interface PlaybookStepResult {
 	input_count?: number;
 	error?: string;
 	reason?: string;
+	/** Paused because this output wasn't in the format its parser reads. */
+	parse?: { output: string; parser: string };
 	finished_at?: string;
 	/** The job this result judges (expect, or a decision); a newer job supersedes it. */
 	job_id?: string;
@@ -594,6 +596,55 @@ export interface ParserInfo {
 	sample: string;
 	/** Options that suit the sample (e.g. a pattern for the regex parser). */
 	sample_options: Record<string, unknown>;
+	/** builtin: code in Castor; user: a definition in the library (YAML, no options). */
+	origin: 'builtin' | 'user';
+	title: string;
+	source_yaml: string;
+	version: number;
+	/** Commands with an output that names it. */
+	used_by: string[];
+}
+
+/** A parser definition tried on some output, without saving it. */
+export interface ParserCheck {
+	ok: boolean;
+	errors: string[];
+	type: string | null;
+	value: unknown;
+	count: number;
+}
+
+/** A parser the AI wrote for some output, already run on it. */
+export interface ParserDraft {
+	yaml: string;
+	preview: unknown;
+	count: number;
+	problems: string[];
+	notes: string;
+	model: string;
+}
+
+/** A parser the AI drafted for a job output its parser couldn't read. */
+export interface ParserProposal {
+	id: UUID;
+	job_id: UUID;
+	project_id: UUID;
+	output_name: string;
+	failed_parser: string;
+	failure: string;
+	status: 'drafting' | 'ready' | 'failed' | 'applied' | 'dismissed';
+	yaml: string;
+	preview: unknown;
+	count: number;
+	problems: string[];
+	notes: string;
+	model: string;
+	applied_by: string;
+	saved_as: string;
+	/** Drafted on its own, for a playbook step waiting on the output. */
+	automatic: boolean;
+	created_at: string;
+	updated_at: string;
 }
 
 export interface ParseTestResult {
@@ -1029,12 +1080,30 @@ export function api(fetchFn: Fetch = fetch) {
 			cancel: (id: UUID) => post<Job>(`/jobs/${id}/cancel`),
 			artifacts: (id: UUID) => get<Attachment[]>(`/jobs/${id}/artifacts`),
 			outputs: (id: UUID) => get<JobOutput[]>(`/jobs/${id}/outputs`),
-			parse: (id: UUID) => post<JobOutput[]>(`/jobs/${id}/outputs/parse`)
+			parse: (id: UUID) => post<JobOutput[]>(`/jobs/${id}/outputs/parse`),
+			/** What an output's parser read (its files or stdout), to write a parser against. */
+			outputInput: (id: UUID, name: string) =>
+				get<{ text: string; sources: string[]; truncated: boolean; parser: string; type: string; error: string | null }>(
+					`/jobs/${id}/outputs/${encodeURIComponent(name)}/input`
+				),
+			parserProposals: (id: UUID) => get<ParserProposal[]>(`/jobs/${id}/parser-proposals`),
+			draftParser: (id: UUID, name: string) => post<ParserProposal>(`/jobs/${id}/outputs/${encodeURIComponent(name)}/parser-proposal`)
+		},
+		parserProposals: {
+			apply: (id: UUID, saveAs?: string) => post<ParserProposal>(`/parser-proposals/${id}/apply`, { save_as: saveAs || null }),
+			dismiss: (id: UUID) => post<ParserProposal>(`/parser-proposals/${id}/dismiss`)
 		},
 		parsers: {
 			list: () => get<ParserInfo[]>('/parsers'),
+			get: (name: string) => get<ParserInfo>(`/parsers/${encodeURIComponent(name)}`),
 			test: (name: string, input: string, options: Record<string, unknown>) =>
-				post<ParseTestResult>(`/parsers/${encodeURIComponent(name)}/test`, { input, options })
+				post<ParseTestResult>(`/parsers/${encodeURIComponent(name)}/test`, { input, options }),
+			create: (yaml: string) => post<ParserInfo>('/parsers', { yaml }),
+			update: (name: string, yaml: string) => request<ParserInfo>(fetchFn, 'PUT', `/parsers/${encodeURIComponent(name)}`, { yaml }),
+			remove: (name: string) => del(`/parsers/${encodeURIComponent(name)}`),
+			/** Check a definition and run it on `input` (or its own sample), without saving. */
+			validate: (yaml: string, input?: string) => post<ParserCheck>('/parsers/validate', { yaml, input: input ?? null }),
+			draft: (body: { sample: string; type?: string | null; hint?: string; current?: string }) => post<ParserDraft>('/parsers/draft', body)
 		},
 		playbooks: {
 			list: () => get<PlaybookDefinition[]>('/playbooks'),

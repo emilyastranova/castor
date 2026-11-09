@@ -114,6 +114,15 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `test_every_sample_parses` rely on it).
   `outputs.py` runs them after `job.finished` in a background task using the job's
   `output_specs` snapshot and stores `JobOutput` rows, publishing `job.outputs`.
+  Parsers in the library: declarative YAML (`parser_spec.py`: format + field map, never code),
+  `parser_definitions`, registered next to the built-ins by `parser_library.py`
+  (`parsers.get` / `all_parsers`, not `PARSERS`, when the library's count). Output its parser
+  couldn't read (`outputs.is_mismatch`) gets an AI draft as a `ParserProposal`
+  (`ai.draft_parser` runs every draft on the real output; `services.apply_parser_proposal`
+  re-reads the job, inline `parser_spec` or `save_as`). A playbook step with `ask`/`ai` pauses
+  on it (`result.parse`); `ai` steps use the draft by themselves (`ai.draft_parsers`). Saving to
+  the library is always a person's choice. Web: `ParserEditor`, `ParserFix` (results and step
+  decisions), `routes/parsers` (`?new=1&job=&output=`).
 - Playbooks (Phase 2c): `playbook_spec.py` (YAML → `PlaybookSpec`; command steps and
   server-side transform steps, references auto-added to `depends_on`),
   `playbook_transforms.py` (the transform ops), `services._advance` (runs ready steps,

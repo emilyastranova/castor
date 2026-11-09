@@ -93,6 +93,10 @@ class AiStepConfig(BaseModel):
     # Whether a retry may change the command. Off by default: the output it reads can come
     # from the target, which could try to talk it into running something else.
     edit_command: bool = False
+    # Whether output its parser couldn't read may be read with a parser the AI drafts (and
+    # checks on that output) so the run carries on. For this run only: keeping the parser in
+    # the library is a person's choice.
+    draft_parsers: bool = True
     # Below this it asks a person.
     confidence: float = Field(default=0.7, ge=0, le=1)
     # How many times it may retry this step in one run.

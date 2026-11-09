@@ -34,7 +34,15 @@ from .playbook_spec import (
     step_statuses,
 )
 from .playbook_transforms import TransformError, as_items, run_transform
-from .schemas import ColumnOut, JobOut, PlaybookRunOut, ProjectOut, RunSummary, TaskOut
+from .schemas import (
+    ColumnOut,
+    JobOut,
+    ParserProposalOut,
+    PlaybookRunOut,
+    ProjectOut,
+    RunSummary,
+    TaskOut,
+)
 
 DEFAULT_COLUMNS: list[tuple[str, m.ColumnRole | None]] = [
     ("Backlog", m.ColumnRole.backlog),
@@ -907,7 +915,22 @@ async def _advance(
             payload={"run_id": str(run.id), "step_id": step.id},
         )
         await alerts.decision(db, run, step.name, error, step_link(run, step.id))
-        if step.on_failure == "ai":
+        parse = extra.get("parse")
+        if parse:
+            # Its output wasn't in the format its parser reads: have a parser drafted for it
+            # now, so the decision is one click when someone looks (or, for `ai`, so the run
+            # can carry on by itself).
+            from . import ai, llm
+
+            if await llm.enabled(db):
+                proposal = m.ParserProposal(
+                    job_id=uuid.UUID(extra["job_id"]), project_id=run.project_id, output_name=parse["output"],
+                    failed_parser=parse["parser"], failure=error, status="drafting",
+                )
+                db.add(proposal)
+                await db.flush()
+                ai.schedule_parser(proposal.id, run.id, step.id)
+        elif step.on_failure == "ai":
             from . import ai
 
             ai.schedule_resolve(run.id, step.id)
@@ -1050,6 +1073,14 @@ async def _advance(
             if result.get("status") and result.get("job_id") == str(job.id):
                 continue  # already judged
             task = tasks.get(task_ids[step.id])
+            if job.status == m.JobStatus.succeeded and step.on_failure in ("ask", "ai"):
+                unreadable = await _unreadable_output(db, job, spec, step)
+                if unreadable is not None:
+                    name, parser, error = unreadable
+                    await fail_step(step, task, f"its {name} output couldn't be read ({parser}: {error})", job_id=str(job.id),
+                                    parse={"output": name, "parser": parser})
+                    changed = True
+                    continue
             if job.status == m.JobStatus.succeeded and step.expect is not None:
                 await check_expect(step, task, str(job.id), job)
                 changed = True
@@ -1370,6 +1401,114 @@ RESOLUTIONS = {
     "skip": "Skip branch",
     "fail": "Fail",
 }
+
+
+async def _unreadable_output(db: AsyncSession, job: m.Job, spec: PlaybookSpec, step: PlaybookStepSpec) -> tuple[str, str, str] | None:
+    """An output of the step's job that its parser couldn't read (the input was there, the
+    format wasn't what the parser knows) and that the playbook uses later: (name, parser, error)."""
+    from .outputs import is_mismatch
+
+    rows = (await db.execute(select(m.JobOutput).where(m.JobOutput.job_id == job.id, m.JobOutput.error.is_not(None)))).scalars()
+    bad = [r for r in rows if is_mismatch(r.error)]
+    if not bad:
+        return None
+    others = [s.model_dump(mode="json") for s in spec.steps if s.id != step.id]
+    expected = set(((step.expect or {}).get("outputs") or {}).keys())
+    for row in bad:
+        ref = f"steps.{step.id}.outputs.{row.name}"
+        if row.name in expected or any(ref in str(o) for o in others):
+            return row.name, row.parser, str(row.error)[:300]
+    return None
+
+
+def proposal_out(p: m.ParserProposal) -> ParserProposalOut:
+    out = ParserProposalOut.model_validate(p)
+    out.automatic = p.requested_by is None
+    return out
+
+
+async def publish_parser_proposal(db: AsyncSession, p: m.ParserProposal) -> None:
+    bus.publish("job.parser_proposal", p.project_id, proposal_out(p).model_dump(mode="json"))
+
+
+async def apply_parser_proposal(db: AsyncSession, p: m.ParserProposal, user: m.User | None, *, actor: str | None = None,
+                                save_as: str | None = None) -> list[m.Job]:
+    """Read the job's output again with the drafted parser; with `save_as`, also keep it in
+    the library under that id (a person's choice). A playbook step that paused on this
+    output carries on with what it reads now. Commits; returns the jobs that queued."""
+    import yaml
+
+    from . import parser_library
+    from .outputs import parse_job
+    from .parser_spec import ParserSpec, parse_parser_spec
+
+    if p.status not in ("ready", "applied") or not p.spec:
+        raise ValueError("this draft can't be used (it didn't read the output)")
+    spec = ParserSpec.model_validate(p.spec)
+    job = await db.get(m.Job, p.job_id)
+    if job is None:
+        raise ValueError("the job no longer exists")
+    specs = [dict(s) for s in (job.output_specs or [])]
+    target = next((s for s in specs if s.get("name") == p.output_name), None)
+    if target is None:
+        raise ValueError(f"the job has no output {p.output_name}")
+    if save_as:
+        if await db.get(m.ParserDefinition, save_as) is not None:
+            raise ValueError(f"there is already a parser {save_as}")
+        ParserSpec.model_validate({**spec.model_dump(mode="json"), "id": save_as})  # the id is usable
+        blobs, _ = await _proposal_sample(db, job, p.output_name)
+        text = _with_sample(p.yaml, save_as, blobs)
+        try:
+            spec = parse_parser_spec(text)
+        except ValueError:  # the AI's YAML had something the spec drops: write it out from the spec
+            text = yaml.safe_dump({**p.spec, "id": save_as}, sort_keys=False)
+            spec = parse_parser_spec(text)
+        row = m.ParserDefinition(id=save_as, origin="user", version=1)
+        parser_library.definition_from_spec(row, spec, text)
+        db.add(row)
+        parser_library.register(spec)
+        target.update(parser=save_as, type=spec.type, options={})
+        target.pop("parser_spec", None)
+    else:
+        target.update(parser=spec.id, type=spec.type, options={}, parser_spec=spec.model_dump(mode="json"))
+    job.output_specs = specs
+    p.status = "applied"
+    p.applied_by = actor or (user.display_name or user.username if user else "castor")
+    p.saved_as = save_as or ""
+    await db.commit()
+    await parse_job(db, job)
+    jobs: list[m.Job] = []
+    task = await db.get(m.Task, job.task_id)
+    if task is not None and task.playbook_run_id is not None and task.playbook_step_id and task.playbook_item is None:
+        run = await db.get(m.PlaybookRun, task.playbook_run_id, populate_existing=True)
+        result = ((run.step_results or {}).get(task.playbook_step_id) or {}) if run else {}
+        if result.get("status") == "attention" and (result.get("parse") or {}).get("output") == p.output_name and result.get("job_id") == str(job.id):
+            what = f"the parser {save_as}" if save_as else "a parser the AI drafted"
+            jobs = await resolve_step(db, run, task.playbook_step_id, "continue", user, note=f"Read {p.output_name} with {what}",
+                                      actor=actor, extra={"parser": save_as or "draft", "model": p.model})
+    await db.refresh(p)
+    await publish_parser_proposal(db, p)
+    return jobs
+
+
+async def _proposal_sample(db: AsyncSession, job: m.Job, output_name: str) -> tuple[list[bytes], list[str]]:
+    from .outputs import _specs, read_inputs
+
+    spec = next((s for s in await _specs(db, job) if s.name == output_name), None)
+    return await read_inputs(db, job, spec) if spec else ([], [])
+
+
+def _with_sample(text: str, parser_id: str, blobs: list[bytes], limit: int = 4000) -> str:
+    """The draft's YAML under its library id, with the start of the output it was written
+    for as its sample (the Parsers page and later edits use it)."""
+    import re as _re
+
+    text = _re.sub(r"(?m)^id:.*$", f"id: {parser_id}", text.strip(), count=1)
+    text = _re.sub(r"(?ms)^sample:.*", "", text).rstrip()
+    sample = b"\n".join(blobs).decode("utf-8", errors="replace")[:limit].rstrip()
+    if not sample:
+        return text + "\n"
+    return text + "\nsample: |\n" + "\n".join(f"  {line}" for line in sample.splitlines()) + "\n"
 
 
 class ResolveError(ValueError):
