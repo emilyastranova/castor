@@ -101,6 +101,22 @@ TOOLS: list[Tool] = [
           "content_base64": _s("The file's bytes, base64-encoded"), "content_type": _s("MIME type, e.g. image/png (guessed from the name if left out)")},
          ("task_id", "filename", "content_base64"), upload=True),
     Tool("run_card", "Run a command card now.", "POST", "/api/tasks/{task_id}/run", {"task_id": ID["task_id"]}, ("task_id",)),
+    Tool("list_alert_channels", "Chat and webhook channels alerts can go to (Slack, ntfy, a webhook…): ids, names and kinds.",
+         "GET", "/api/alert-channels/brief"),
+    Tool("list_people", "Everyone who can see a project (ids, usernames, names): for alert people and @mentions.",
+         "GET", "/api/projects/{project_id}/people", {"project_id": ID["project_id"]}, ("project_id",)),
+    Tool("set_card_alerts", "Set when a card's runs send alerts (replaces its alert settings). on: finish (either way), failure "
+         "(the default) or none. channels: ids from list_alert_channels; people: user ids from list_people, told in Castor. "
+         "Empty channels and people turn the card's alerts off.",
+         "PATCH", "/api/tasks/{task_id}",
+         {"task_id": ID["task_id"],
+          "alerts": {"type": "object", "additionalProperties": False, "properties": {
+              "on": _s("When to send", enum=["finish", "failure", "none"]),
+              "channels": {"type": "array", "items": {"type": "string"}, "description": "Alert channel ids"},
+              "people": {"type": "array", "items": {"type": "string"}, "description": "User ids"},
+              "long_minutes": {"type": ["integer", "null"], "minimum": 1, "description": "Also alert if a run takes longer than this"},
+              "decisions": {"type": "boolean", "description": "Alert when a playbook run waits for a decision (default true)"}}}},
+         ("task_id", "alerts")),
     Tool("list_jobs", "A card's runs, newest first.", "GET", "/api/tasks/{task_id}/jobs", {"task_id": ID["task_id"]},
          ("task_id",), untrusted=True),
     Tool("get_job", "A job's status, exit code, agent and times.", "GET", "/api/jobs/{job_id}", {"job_id": ID["job_id"]},

@@ -120,3 +120,32 @@ def test_an_assistant_writes_and_checks_a_parser(client, auth):
     assert not created["isError"], created
     assert pid in _call(client, library, "list_parsers")["content"][0]["text"]
     client.delete(f"/api/parsers/{pid}", headers=auth)
+
+
+def test_set_card_alerts(client, auth):
+    p = client.post("/api/projects", json={"codename": f"ML-{uuid.uuid4().hex[:6]}", "name": "Alerts", "kind": "internal"}, headers=auth).json()
+    ch = client.post("/api/alert-channels", json={"name": f"ch-{uuid.uuid4().hex[:6]}", "kind": "ntfy",
+                                                  "fields": {"url": "http://127.0.0.1:9", "topic": "castor"}}, headers=auth)
+    assert ch.status_code == 201, ch.text
+    ch = ch.json()
+    task = client.post(f"/api/projects/{p['id']}/tasks", json={"title": "Watched", "kind": "command", "command": "true"}, headers=auth).json()
+    writer = _token(client, auth, scopes=["projects:write"], project_ids=[p["id"]])
+
+    channels = json.loads(_call(client, writer, "list_alert_channels")["content"][0]["text"])
+    assert {"id": ch["id"], "name": ch["name"], "kind": "ntfy"} in channels  # names only, no settings
+    me = next(u for u in json.loads(_call(client, writer, "list_people", project_id=p["id"])["content"][0]["text"]) if u["username"] == "admin")
+
+    done = _call(client, writer, "set_card_alerts", task_id=task["id"],
+                 alerts={"on": "finish", "channels": [ch["id"]], "people": [me["id"]], "long_minutes": 30})
+    assert not done["isError"], done
+    stored = client.get(f"/api/tasks/{task['id']}", headers=auth).json()["alerts"]
+    assert stored == {"on": "finish", "channels": [ch["id"]], "people": [me["id"]], "long_minutes": 30, "decisions": True}
+
+    assert _call(client, writer, "set_card_alerts", task_id=task["id"], alerts={"on": "nope"})["isError"]
+    assert not _call(client, writer, "set_card_alerts", task_id=task["id"], alerts={"channels": []})["isError"]
+    assert client.get(f"/api/tasks/{task['id']}", headers=auth).json()["alerts"] is None
+
+    reader = _token(client, auth, scopes=["projects:read"], project_ids=[p["id"]])
+    names = {t["name"] for t in _rpc(client, reader, "tools/list")["result"]["tools"]}
+    assert {"list_alert_channels", "list_people"} <= names and "set_card_alerts" not in names
+    client.delete(f"/api/alert-channels/{ch['id']}", headers=auth)
