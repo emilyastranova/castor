@@ -7,6 +7,7 @@
 	import { snackbar } from '$lib/snackbar.svelte';
 	import OutputCard from './OutputCard.svelte';
 	import YamlPane from './library/YamlPane.svelte';
+	import ParserGuide from './ParserGuide.svelte';
 
 	/** A parser in the library (or a new one): its definition, checked live on sample output
 	 *  as you type, and an AI that drafts one from that output. */
@@ -26,11 +27,11 @@
 	}
 	let { parser, initialYaml = '', initialSample = '', sampleFrom = '', wantType = '', editable, dirty = $bindable(false), onsaved, ondeleted, oncancel }: Props = $props();
 
-	const TYPES = ['list<host>', 'list<service>', 'list<url>', 'list<smb_host>', 'list<string>', 'string', 'number', 'boolean'];
+	const TYPES = ['list<object>', 'list<host>', 'list<service>', 'list<url>', 'list<smb_host>', 'list<string>', 'object', 'string', 'number', 'boolean'];
 	const TEMPLATE = `id: my-parser
 name: My parser
 description: What it reads
-type: list<host>
+type: list<host>       # or list<object>: a table with fields you choose
 format: regex          # lines | regex | json | jsonl | csv | xml | javascript
 pattern: '^Host: (?P<ip>\\S+)'
 `;
@@ -146,6 +147,15 @@ code: |
 			snackbar.error(err instanceof ApiError ? err.message : 'Could not delete');
 		}
 	}
+	// ---- the reference guide; its examples load into the editor ----
+	let guideOpen = $state(false);
+	function useExample(exampleYaml: string, exampleSample: string) {
+		// An existing parser keeps its id (it can't change); a new one takes the example's.
+		yaml = parser ? exampleYaml.replace(/^id:.*$/m, `id: ${parser.name}`) : exampleYaml;
+		sample = exampleSample;
+		snackbar.show('Loaded the example: change it to fit your output');
+	}
+
 	const typeOf = $derived(yaml.match(/^type:\s*(\S+)/m)?.[1] ?? 'list<string>');
 </script>
 
@@ -163,6 +173,7 @@ code: |
 				{/if}
 			</p>
 		</div>
+		<Button variant="tonal" icon="menu_book" onclick={() => (guideOpen = true)}>Reference</Button>
 		{#if parser && editable}
 			<Button variant="text" icon="delete" disabled={parser.used_by.length > 0} title={parser.used_by.length ? 'Commands use it: change them first' : ''} onclick={remove}>Delete</Button>
 		{/if}
@@ -247,3 +258,5 @@ code: |
 		</div>
 	</div>
 </div>
+
+<ParserGuide bind:open={guideOpen} onuse={editable ? useExample : undefined} />

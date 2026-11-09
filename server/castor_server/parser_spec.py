@@ -58,6 +58,8 @@ SHAPES: dict[str, dict[str, tuple[str, bool]]] = {
         "os": ("str", False), "signing": ("bool", False), "smbv1": ("bool", False),
     },
     "string": {"value": ("str", True)},
+    # Free-form: the fields are whatever the parser gives (see FREE).
+    "object": {},
     "number": {"value": ("float", True)},
     "boolean": {"value": ("bool", True)},
 }
@@ -67,6 +69,10 @@ DEFAULTS: dict[str, dict[str, Any]] = {
     "url": {"title": "", "content_type": "", "tech": []},
     "smb_host": {"port": 445, "name": "", "domain": "", "os": "", "signing": None, "smbv1": None},
 }
+
+
+FREE = "object"
+FIELD_TYPES = ("str", "int", "float", "bool", "list")
 
 
 def item_type(type_: str) -> str:
@@ -89,6 +95,9 @@ class ParserSpec(BaseModel):
     code: str | None = Field(None, description="javascript: defines parse(text), returning the records (objects) or values")
     fields: dict[str, str] = Field(default_factory=dict)
     values: dict[str, Any] = Field(default_factory=dict)
+    # object types: what a field's text becomes (others stay as read: text from regex, csv
+    # and xml, whatever JSON and JavaScript gave).
+    types: dict[str, Literal["str", "int", "float", "bool", "list"]] = Field(default_factory=dict)
     unique: bool = True
     sample: str = ""
 
@@ -110,10 +119,12 @@ class ParserSpec(BaseModel):
 
     @model_validator(mode="after")
     def check(self) -> ParserSpec:
-        shape = SHAPES[item_type(self.type)]
-        unknown = sorted((set(self.fields) | set(self.values)) - set(shape))
-        if unknown:
-            raise ValueError(f"{', '.join(unknown)}: not a field of {item_type(self.type)} (fields: {', '.join(shape)})")
+        kind = item_type(self.type)
+        shape = SHAPES[kind]
+        if kind != FREE:
+            unknown = sorted((set(self.fields) | set(self.values) | set(self.types)) - set(shape))
+            if unknown:
+                raise ValueError(f"{', '.join(unknown)}: not a field of {kind} (fields: {', '.join(shape)})")
         if self.format == "regex" and not self.pattern:
             raise ValueError("format regex needs a pattern")
         if self.format == "javascript":
@@ -297,6 +308,39 @@ def _coerce(value: Any, kind: str) -> Any:
     return value if isinstance(value, str) else json.dumps(value) if isinstance(value, (dict, list)) else str(value)
 
 
+def _xml_record(el: Any) -> dict[str, Any]:
+    """An element as an object: its attributes, its leaf children's text, and its own text."""
+    out: dict[str, Any] = dict(el.attrib)
+    for child in el:
+        if len(child) == 0 and child.tag not in out:
+            out[child.tag] = (child.text or "").strip()
+    if (el.text or "").strip() and "text" not in out:
+        out["text"] = el.text.strip()
+    return out
+
+
+def _free(spec: ParserSpec, record: dict[str, Any]) -> dict[str, Any]:
+    """An object result: the mapped fields (if any), else the record as read."""
+    if spec.fields:
+        item = {key: _source(spec, record, key) for key in spec.fields}
+    elif "__element__" in record:
+        item = _xml_record(record["__element__"])
+    elif spec.format == "regex":
+        named = {k: v for k, v in record.items() if not k.isdigit() and k != "value"}
+        item = named or {"value": record.get("value")}
+    elif spec.format == "csv" and spec.header:
+        item = {k: v for k, v in record.items() if not k.isdigit()}
+    elif spec.format == "lines":
+        item = {k: v for k, v in record.items() if k != "value"}
+    else:
+        item = dict(record)
+    item.update(spec.values)
+    for key, ftype in spec.types.items():
+        if key in item:
+            item[key] = _coerce(item[key], ftype)
+    return item
+
+
 def run(spec: ParserSpec, data: bytes) -> Any:
     """Parse `data` as the definition says; the value has the definition's type."""
     text = data.decode("utf-8", errors="replace")
@@ -309,6 +353,17 @@ def run(spec: ParserSpec, data: bytes) -> Any:
     seen: set[str] = set()
     missing: dict[str, int] = {}
     for record in records:
+        if kind == FREE:
+            obj = _free(spec, record)
+            if not any(v not in (None, "", [], {}) for v in obj.values()):
+                continue
+            if spec.unique:
+                key = json.dumps(obj, sort_keys=True, default=str)
+                if key in seen:
+                    continue
+                seen.add(key)
+            out.append(obj)
+            continue
         defaults = DEFAULTS.get(kind, {})
         item: dict[str, Any] = {}
         for key, (ftype, _) in shape.items():

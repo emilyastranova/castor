@@ -473,7 +473,10 @@ PARSER_SAMPLE = 12000  # characters of output the model sees (start, and the end
 def _parser_system() -> str:
     from .parser_spec import SHAPES
 
-    shapes = "\n".join(f"- {kind}: " + ", ".join(f"{k}{'*' if req else ''} ({t})" for k, (t, req) in fields.items()) for kind, fields in SHAPES.items())
+    shapes = "\n".join(f"- {kind}: " + ", ".join(f"{k}{'*' if req else ''} ({t})" for k, (t, req) in fields.items()) for kind, fields in SHAPES.items() if fields)
+    shapes += ("\n- object: any fields you choose. Use object / list<object> for anything that isn't one of the types above "
+               "(a table of log entries, users, findings…): name the fields well; `types: {field: int|float|bool|list}` turns "
+               "a field's text into that type.")
     return (
         "You write parser definitions for Castor, a workflow orchestrator for security testing. A parser turns a "
         "tool's output into typed results. It is YAML:\n"

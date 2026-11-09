@@ -133,7 +133,7 @@ TOOLS: list[Tool] = [
     Tool("get_output_input", "What a job output's parser read (its files or stdout): the sample to write a parser against.",
          "GET", "/api/jobs/{job_id}/outputs/{name}/input", {"job_id": ID["job_id"], "name": _s("Output name")}, ("job_id", "name"), untrusted=True),
     Tool("check_parser", "Check a parser definition and run it on some output without saving it. YAML keys: id, name, type (e.g. list<host>, "
-         "list<service>, list<url>, list<smb_host>, list<string>), format (lines|regex|json|jsonl|csv|xml|javascript), pattern (regex, named "
+         "list<service>, list<url>, list<smb_host>, list<string>, list<object> for a table with fields you choose), format (lines|regex|json|jsonl|csv|xml|javascript), pattern (regex, named "
          "groups are fields), records (json dot path / xml element path), delimiter, header, fields {output field: source}, values "
          "{field: constant}; for javascript, code defining function parse(text) that returns an array of objects (sandboxed: no require, "
          "files or network).",

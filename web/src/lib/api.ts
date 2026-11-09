@@ -1107,7 +1107,15 @@ export function api(fetchFn: Fetch = fetch) {
 			remove: (name: string) => del(`/parsers/${encodeURIComponent(name)}`),
 			/** Check a definition and run it on `input` (or its own sample), without saving. */
 			validate: (yaml: string, input?: string) => post<ParserCheck>('/parsers/validate', { yaml, input: input ?? null }),
-			draft: (body: { sample: string; type?: string | null; hint?: string; current?: string }) => post<ParserDraft>('/parsers/draft', body)
+			draft: (body: { sample: string; type?: string | null; hint?: string; current?: string }) => post<ParserDraft>('/parsers/draft', body),
+			/** What a definition can say (formats, output types and their fields, limits), from the server. */
+			reference: () =>
+				get<{
+					formats: string[];
+					types: { type: string; fields: { name: string; kind: string; required: boolean }[]; free: boolean }[];
+					field_types: string[];
+					limits: { regex_seconds: number; js_seconds: number; js_memory_mb: number; records: number; test_input_mb: number };
+				}>('/parsers/reference')
 		},
 		playbooks: {
 			list: () => get<PlaybookDefinition[]>('/playbooks'),

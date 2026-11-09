@@ -125,6 +125,46 @@ async def list_parsers(db: DB, _: CurrentUser):
     return [_out(p, rows.get(p.name), sorted(used.get(p.name, []))) for p in parsers.all_parsers()]
 
 
+class FieldOut(BaseModel):
+    name: str
+    kind: str
+    required: bool
+
+
+class TypeOut(BaseModel):
+    type: str
+    fields: list[FieldOut]
+    # Free-form (object): the parser decides the fields.
+    free: bool = False
+
+
+class ReferenceOut(BaseModel):
+    formats: list[str]
+    types: list[TypeOut]
+    field_types: list[str]
+    limits: dict[str, Any]
+
+
+@router.get("/reference", response_model=ReferenceOut)
+async def reference(_: CurrentUser):
+    """What a parser definition can say, from the code that reads it (the editor's guide)."""
+    from .. import js_sandbox, parser_spec
+
+    types = []
+    for t in parsers.OUTPUT_TYPES:
+        kind = parser_spec.item_type(t)
+        fields = [FieldOut(name=k, kind=f, required=r) for k, (f, r) in parser_spec.SHAPES[kind].items()]
+        types.append(TypeOut(type=t, fields=fields, free=kind == parser_spec.FREE))
+    return ReferenceOut(
+        formats=list(parser_spec.FORMATS),
+        types=types,
+        field_types=list(parser_spec.FIELD_TYPES),
+        limits={"regex_seconds": parsers.REGEX_TIMEOUT_S, "js_seconds": js_sandbox.TIMEOUT_S,
+                "js_memory_mb": js_sandbox.MAX_MEMORY // (1024 * 1024), "records": parser_spec.MAX_RECORDS,
+                "test_input_mb": MAX_TEST_BYTES // (1024 * 1024)},
+    )
+
+
 @router.post("/validate", response_model=ValidateOut)
 async def validate(body: ValidateIn, _: CurrentUser):
     """Check a definition and run it on some output (or its own sample), without saving.

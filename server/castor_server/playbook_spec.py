@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any, Literal
 
@@ -386,13 +387,23 @@ def resolve_output_value(val: Any) -> Any:
             # list<url>
             urls = [u["url"] for u in val if isinstance(u, dict) and u.get("url")]
             return ",".join(dict.fromkeys(urls))
-        return ",".join(str(item) for item in val)
+        return ",".join(_one(item) for item in val)
     if isinstance(val, dict):
         for key in ("ip", "host", "url"):
             if key in val:
                 return str(val[key])
-        return str(val)
+        return _one(val)
     return str(val) if val is not None else ""
+
+
+def _one(item: Any) -> str:
+    """An item of a list<object> as an argument: a one-field object is its value, anything
+    else compact JSON (pluck a field with a transform to pass something specific)."""
+    if isinstance(item, dict):
+        if len(item) == 1:
+            return str(next(iter(item.values())))
+        return json.dumps(item, separators=(",", ":"), default=str)
+    return str(item)
 
 
 def resolve_step_args(

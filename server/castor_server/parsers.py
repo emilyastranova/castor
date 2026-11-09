@@ -38,6 +38,9 @@ OUTPUT_TYPES = (
     "list<url>",
     "smb_host",
     "list<smb_host>",
+    # Anything else: objects with whatever fields the parser gives them (a table of rows).
+    "object",
+    "list<object>",
 )
 
 SAMPLES_DIR = Path(__file__).parent / "parser_samples"

@@ -122,7 +122,9 @@ Output types are a fixed set so playbook steps can be type-checked: `string`, `n
 `boolean`, `list<string>`, `host`/`list<host>` (`{ip, hostnames[], status}`),
 `service`/`list<service>` (`{host, port, proto, state, name, product, version}`),
 `url`/`list<url>` (`{url, status, length, words, lines, title, content_type, tech[]}`),
-`smb_host`/`list<smb_host>` (`{host, port, name, domain, os, signing, smbv1}`). Built-in
+`smb_host`/`list<smb_host>` (`{host, port, name, domain, os, signing, smbv1}`), and
+`object`/`list<object>`: whatever fields the parser gives (a table of log entries, users…),
+shown as a table with a column per field. Built-in
 parsers: `nmap.hosts`, `nmap.services`, `ffuf.results`, `httpx.results`, `netexec.smb`,
 `lines`, `regex`, `text`. XML goes through `defusedxml`, since tool output can carry external
 untrusted content.
@@ -133,7 +135,9 @@ People and the AI add parsers as **declarative definitions**, or as JavaScript i
 (`parser_spec.py`, table `parser_definitions`, YAML like commands and tools): a `type`, a
 `format` (`lines`, `regex`, `json`, `jsonl`, `csv`, `xml`) with `pattern` / `records` /
 `delimiter`, and `fields` mapping each field of the type's items to where it comes from
-(`values` sets constants). With `format: javascript`, `code` defines `parse(text)` returning
+(`values` sets constants). For `object` types any field names go, a regex's named groups or a
+CSV's header become the fields when `fields` is left out, and `types` turns a field's text into
+`int`, `float`, `bool` or `list`. With `format: javascript`, `code` defines `parse(text)` returning
 the records; `js_sandbox.py` runs it in a fresh V8 isolate (mini-racer) with no file system,
 network, `require`, `process` or timers, a 3 s limit and 256 MB, and the result comes back as
 JSON then goes through the same field typing. Code parsers are JavaScript because Python can't

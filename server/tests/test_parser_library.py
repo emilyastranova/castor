@@ -277,3 +277,75 @@ def test_javascript_parsers_through_the_api(client, auth):
     check = client.post("/api/parsers/validate", json={"yaml": _js("function parse(t) { throw new Error('nope') }"), "input": "x"}, headers=auth).json()
     assert not check["ok"] and "nope" in check["errors"][0]
     assert client.delete(f"/api/parsers/{pid}", headers=auth).status_code == 204
+
+
+SSH_LOG = b"""Nov  8 10:01:02 web sshd[123]: Accepted publickey for alice from 10.0.0.5 port 50222 ssh2
+Nov  8 10:03:00 web sshd[124]: Received disconnect from 10.0.0.5 port 50222:11: bye
+Nov  8 10:05:13 web sshd[130]: Failed password for root from 203.0.113.9 port 40111 ssh2
+"""
+SSH_PARSER = r"""id: {id}
+name: SSH logins
+type: list<object>
+format: regex
+pattern: '^(?P<time>\w{{3}}\s+\d+ [\d:]+) \S+ sshd\[\d+\]: (?P<result>Accepted|Failed) (?P<method>\S+) for (?P<user>\S+) from (?P<ip>\S+) port (?P<port>\d+)'
+types: {{port: int}}
+"""
+
+
+def test_objects_take_whatever_fields_the_parser_gives():
+    rows = run(parse_parser_spec(SSH_PARSER.format(id="ssh")), SSH_LOG)
+    assert rows == [
+        {"time": "Nov  8 10:01:02", "result": "Accepted", "method": "publickey", "user": "alice", "ip": "10.0.0.5", "port": 50222},
+        {"time": "Nov  8 10:05:13", "result": "Failed", "method": "password", "user": "root", "ip": "203.0.113.9", "port": 40111},
+    ]  # named groups are the fields; types turns text into numbers; lines that don't match are left out
+    assert run(parse_parser_spec("id: c\nname: c\ntype: list<object>\nformat: csv\ntypes: {n: int, admin: bool}\n"),
+               b"user,n,admin\nalice,3,yes\nbob,1,no\n") == [{"user": "alice", "n": 3, "admin": True}, {"user": "bob", "n": 1, "admin": False}]
+    assert run(parse_parser_spec("id: x\nname: x\ntype: list<object>\nformat: xml\nrecords: .//u\n"),
+               b'<r><u id="1"><name>al</name></u></r>') == [{"id": "1", "name": "al"}]
+    picked = run(parse_parser_spec("id: j\nname: j\ntype: list<object>\nformat: json\nrecords: items\nfields: {who: user.name}\nvalues: {source: api}\n"),
+                 b'{"items": [{"user": {"name": "al"}}, {"user": {"name": "al"}}]}')
+    assert picked == [{"who": "al", "source": "api"}]  # mapped, constant added, duplicates dropped
+    assert run(parse_parser_spec("id: o\nname: o\ntype: object\nformat: json\n"), b'{"version": "9.6"}') == {"version": "9.6"}
+    assert run(parse_parser_spec(_js("function parse(t) { return [{ user: 'a', logins: 2 }] }").replace("list<string>", "list<object>")), b"x") == [{"user": "a", "logins": 2}]
+    with pytest.raises(ValueError, match="not a field of host"):
+        parse_parser_spec("id: b\nname: b\ntype: list<host>\nformat: lines\ntypes: {foo: int}\n")
+
+
+def test_objects_as_arguments():
+    from castor_server.playbook_spec import resolve_output_value
+
+    assert resolve_output_value([{"user": "alice"}, {"user": "bob"}]) == "alice,bob"  # one field: its value
+    assert resolve_output_value([{"user": "alice", "n": 1}]) == '{"user":"alice","n":1}'
+
+
+def test_ssh_logins_through_the_api(client, auth):
+    pid = f"ssh-logins-{uuid.uuid4().hex[:6]}"
+    r = client.post("/api/parsers", json={"yaml": SSH_PARSER.format(id=pid)}, headers=auth)
+    assert r.status_code == 201, r.text
+    assert r.json()["type"] == "list<object>"
+    tried = client.post(f"/api/parsers/{pid}/test", json={"input": SSH_LOG.decode()}, headers=auth).json()
+    assert [row["user"] for row in tried["value"]] == ["alice", "root"]
+    client.delete(f"/api/parsers/{pid}", headers=auth)
+
+
+def test_reference_comes_from_the_code(client, auth):
+    ref = client.get("/api/parsers/reference", headers=auth).json()
+    assert "javascript" in ref["formats"] and "int" in ref["field_types"] and ref["limits"]["js_seconds"] == 3.0
+    types = {t["type"]: t for t in ref["types"]}
+    assert types["list<object>"]["free"] and not types["list<object>"]["fields"]
+    assert {"name": "ip", "kind": "str", "required": True} in types["list<host>"]["fields"]
+
+
+def test_the_reference_guide_examples_parse_their_samples():
+    """The editor's guide (ParserGuide.svelte) loads these with "Try this": each must read its sample."""
+    import re
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[2] / "web/src/lib/components/ParserGuide.svelte").read_text()
+    block = src[src.index("const EXAMPLES"):src.index("const KEYS")]
+    found = re.findall(r"title: '(\w+)'.*?yaml: `(.*?)`,\s*sample: `(.*?)`", block, re.S)
+    assert {t for t, _, _ in found} == {"lines", "regex", "json", "jsonl", "csv", "xml", "javascript"}
+    for title, text, sample in found:
+        # They're JavaScript template literals: \\ is one backslash.
+        _, value, problems = try_parser(text.replace("\\\\", "\\"), sample.replace("\\\\", "\\"))
+        assert not problems and value, (title, problems)

@@ -123,7 +123,8 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   (`ai.draft_parser` runs every draft on the real output; `services.apply_parser_proposal`
   re-reads the job, inline `parser_spec` or `save_as`). A playbook step with `ask`/`ai` pauses
   on it (`result.parse`); `ai` steps use the draft by themselves (`ai.draft_parsers`). Saving to
-  the library is always a person's choice. Web: `ParserEditor`, `ParserFix` (results and step
+  the library is always a person's choice. Web: `ParserEditor` (its Reference button opens `ParserGuide`: examples that load into the
+  editor, types from `GET /api/parsers/reference`; keep its examples parsing), `ParserFix` (results and step
   decisions), `routes/parsers` (`?new=1&job=&output=`).
 - Playbooks (Phase 2c): `playbook_spec.py` (YAML → `PlaybookSpec`; command steps and
   server-side transform steps, references auto-added to `depends_on`),

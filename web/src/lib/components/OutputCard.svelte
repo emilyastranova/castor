@@ -28,8 +28,18 @@
 		mono: boolean[];
 	}
 
+	const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+	/** A cell: text as it is, anything nested as compact JSON. */
+	const cellOf = (v: unknown) => (v === null || v === undefined ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
+	const MAX_COLUMNS = 24;
+
 	let table = $derived.by((): Table | null => {
-		if (error || !Array.isArray(value)) return null;
+		if (error) return null;
+		if (type === 'object' && isObject(value)) {
+			const entries = Object.entries(value);
+			return { header: ['Field', 'Value'], rows: entries.map(([k, v]) => [k, cellOf(v)]), dimmed: entries.map(() => false), mono: [true, false] };
+		}
+		if (!Array.isArray(value)) return null;
 		if (type === 'list<host>') {
 			const all = value as HostResult[];
 			const hosts = showDown ? all : all.filter((h) => h.status === 'up');
@@ -75,6 +85,18 @@
 				mono: [true, false, false, false]
 			};
 		}
+		// list<object> (or any list of objects): a column per field, in the order they first appear.
+		if (type === 'list<object>' || (value.length > 0 && value.every(isObject))) {
+			const rows = value.filter(isObject);
+			const header: string[] = [];
+			for (const r of rows) for (const k of Object.keys(r)) if (!header.includes(k) && header.length < MAX_COLUMNS) header.push(k);
+			return {
+				header,
+				rows: rows.map((r) => header.map((k) => cellOf(r[k]))),
+				dimmed: rows.map(() => false),
+				mono: header.map(() => false)
+			};
+		}
 		return null;
 	});
 
@@ -101,6 +123,7 @@
 			const notSigning = smbHosts.filter((s) => !s.signing).length;
 			return `${smbHosts.length} SMB host${smbHosts.length === 1 ? '' : 's'}${notSigning ? ` (${notSigning} signing disabled)` : ''}`;
 		}
+		if (type === 'list<object>' && Array.isArray(value)) return plural(value.length, 'row');
 		if (Array.isArray(value)) return plural(value.length, 'item');
 		return '';
 	});
