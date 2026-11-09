@@ -245,6 +245,8 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   Its calls mark activity `payload.via = "mcp"` (`api_tokens.via`, set in `deps.current_user` from
   a startup key). `castor-mcp` (agent `mcp_stdio.py`, stdlib only) bridges stdio clients. Web:
   `McpConnect.svelte`.
+  Prefer `_auto(...)` for new tools (inputs come from the endpoint's OpenAPI). A UI action
+  should have its tool, apart from the deliberate gaps listed above `TOOLS +=`.
 - SSH hosts: `orchestrator/ssh.py` (a `HostLink` per host keeps an asyncssh connection and
   registers it with the gateway as an agent whose `ws` is an in-process `SshSocket`, so it
   speaks the agent protocol unchanged), `api/ssh_hosts.py` (admin), web `SshHostDialog` on the

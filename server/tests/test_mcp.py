@@ -193,3 +193,61 @@ def test_an_assistant_manages_agents(client, auth):
     call("remove_ssh_host", host_id=host["id"])
     assert host["agent_id"] not in {a["id"] for a in call("list_agents")}
     call("save_ssh_config", text="")
+
+
+def test_tools_cover_the_api_and_their_inputs_come_from_it(client, auth):
+    """Every tool is a real endpoint; generated inputs are plain JSON schema (no $refs)."""
+    openapi = client.get("/api/openapi.json").json()
+    for tool in mcp.TOOLS:
+        assert tool.method.lower() in openapi["paths"].get(tool.path, {}), tool.name
+    listed = _rpc(client, auth, "tools/list")["result"]["tools"]
+    assert "$ref" not in json.dumps(listed)
+    by_name = {t["name"]: t for t in listed}
+    card = by_name["update_card"]["inputSchema"]
+    assert {"title", "command", "tags", "agent_selector", "assignees"} <= set(card["properties"]) and card["required"] == ["task_id"]
+    assert "all" in card["properties"]["agent_selector"]["description"]
+    assert by_name["set_project_members"]["inputSchema"]["properties"]["user_ids"]["type"] == "array"
+
+
+def test_an_assistant_does_what_a_person_does_with_cards(client, auth):
+    writer = _token(client, auth, scopes=["projects:write", "jobs:write", "variables:write"])
+
+    def call(tool, **args):
+        out = _rpc(client, writer, "tools/call", {"name": tool, "arguments": args})["result"]
+        assert not out["isError"], out
+        text = out["content"][0]["text"]
+        return None if text == "Done." else json.loads(text)
+
+    p = call("create_project", codename=f"MX-{uuid.uuid4().hex[:6]}", name="Parity", kind="internal")
+    col = call("add_column", project_id=p["id"], name="Waiting")
+    card = call("create_card", project_id=p["id"], title="Check", kind="command", command="id",
+                agent_selector={"tags": ["lab"], "all": True})
+    assert card["agent_selector"] == {"tags": ["lab"], "all": True}
+    changed = call("update_card", task_id=card["id"], title="Check twice", tags=["smb"], agent_selector={"tags": ["lab"]})
+    assert changed["title"] == "Check twice" and changed["tags"] == ["smb"] and changed["agent_selector"] == {"tags": ["lab"]}
+    assert call("move_card", task_id=card["id"], column_id=col["id"])["column_id"] == col["id"]
+    copy = call("duplicate_card", task_id=card["id"])
+    assert copy["title"].startswith("Check twice") and copy["id"] != card["id"]
+    comment = call("comment", task_id=card["id"], body="first")
+    assert call("edit_comment", task_id=card["id"], comment_id=comment["id"], body="second")["body"] == "second"
+    call("delete_comment", task_id=card["id"], comment_id=comment["id"])
+    note = call("create_note", project_id=p["id"], title="Scope", body="10.0.0.0/24 only")
+    assert call("update_note", note_id=note["id"], body="10.0.1.0/24 too")["body"] == "10.0.1.0/24 too"
+    me = next(u for u in call("list_people", project_id=p["id"]) if u["username"] == "admin")
+    assert [m["id"] for m in call("set_project_members", project_id=p["id"], user_ids=[me["id"]])] == [me["id"]]
+    assert any(a["type"] == "task.created" for a in call("card_history", task_id=card["id"]))
+
+    s = call("create_variable_set", kind_id="ssh-key", name=f"key-{uuid.uuid4().hex[:6]}", values={"username": "root"})
+    import base64
+    up = call("upload_variable_file", set_id=s["id"], field="private_key", filename="id_ed25519",
+              content_base64=base64.b64encode(b"KEY").decode())
+    assert "private_key" in up["files"] and "KEY" not in json.dumps(up)
+    call("delete_variable_set", set_id=s["id"])
+
+    call("delete_card", task_id=copy["id"])
+    assert _rpc(client, writer, "tools/call", {"name": "get_card", "arguments": {"task_id": copy["id"]}})["result"]["isError"]
+    # A token without the scope doesn't even see the tools that change things.
+    reader = _token(client, auth, scopes=["projects:read"])
+    names = {t["name"] for t in _rpc(client, reader, "tools/list")["result"]["tools"]}
+    assert "get_project" in names and not names & {"update_card", "delete_card", "create_project", "delete_variable_set"}
+    call("delete_project", project_id=p["id"])

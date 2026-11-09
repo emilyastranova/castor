@@ -51,17 +51,84 @@ class Tool:
     untrusted: bool = False
     upload: bool = False  # filename + content_base64 go up as a multipart file
     destructive: bool = False  # removes or revokes something, or trusts a changed host key
+    # Inputs from the endpoint's own OpenAPI (path, query and body fields), with `properties`
+    # overriding or adding to them: the tool follows the endpoint as it changes.
+    auto: bool = False
+    body_key: str | None = None  # the JSON body is this argument's value (a list, say)
 
     @property
     def scope(self) -> str:
         return api_tokens.required_scope(self.method, re.sub(r"\{[^}]+\}", "x", self.path)) or api_tokens.SESSION
 
-    def schema(self) -> dict[str, Any]:
+    def inputs(self, openapi: dict[str, Any] | None) -> tuple[dict[str, Any], list[str]]:
+        if not self.auto or openapi is None:
+            return self.properties, list(self.required)
+        props, required, _ = _openapi_inputs(openapi, self.method, self.path, self.body_key)
+        props = {**props, **self.properties}
+        return props, [*dict.fromkeys([*required, *self.required])]
+
+    def schema(self, openapi: dict[str, Any] | None = None) -> dict[str, Any]:
+        props, required = self.inputs(openapi)
         return {"name": self.name, "description": self.description,
-                "inputSchema": {"type": "object", "properties": self.properties, "required": list(self.required),
+                "inputSchema": {"type": "object", "properties": props, "required": required,
                                 "additionalProperties": False},
                 "annotations": {"readOnlyHint": self.method == "GET",
                                 **({} if self.method == "GET" else {"destructiveHint": self.destructive})}}
+
+
+def _inline(schema: Any, components: dict[str, Any], depth: int = 0) -> Any:
+    """A JSON schema with its $refs filled in (and titles dropped), for an MCP input schema."""
+    if not isinstance(schema, dict):
+        return schema
+    if "$ref" in schema:
+        if depth > 6:
+            return {"type": "object"}
+        return _inline(components.get(schema["$ref"].rsplit("/", 1)[-1], {}), components, depth + 1)
+    out: dict[str, Any] = {}
+    for key, value in schema.items():
+        if key == "title":
+            continue
+        if key == "properties":
+            out[key] = {k: _inline(v, components, depth + 1) for k, v in value.items()}
+        elif key in ("items", "additionalProperties") and isinstance(value, dict):
+            out[key] = _inline(value, components, depth + 1)
+        elif key in ("anyOf", "oneOf", "allOf"):
+            out[key] = [_inline(v, components, depth + 1) for v in value]
+        else:
+            out[key] = value
+    return out
+
+
+def _openapi_inputs(openapi: dict[str, Any], method: str, path: str, body_key: str | None = None
+                    ) -> tuple[dict[str, Any], list[str], set[str]]:
+    """(properties, required, query parameter names) of an endpoint, from the API's OpenAPI."""
+    op = openapi.get("paths", {}).get(path, {}).get(method.lower(), {})
+    components = openapi.get("components", {}).get("schemas", {})
+    props: dict[str, Any] = {}
+    required: list[str] = []
+    query: set[str] = set()
+    for param in op.get("parameters", []):
+        if param.get("in") not in ("path", "query"):
+            continue
+        name = param["name"]
+        props[name] = {**_inline(param.get("schema", {}), components), **({"description": param["description"]} if param.get("description") else {})}
+        if param.get("in") == "query":
+            query.add(name)
+        if param.get("required"):
+            required.append(name)
+    content = (op.get("requestBody") or {}).get("content", {})
+    body = _inline((content.get("application/json") or {}).get("schema"), components) if content else None
+    if body:
+        if body_key:
+            props[body_key] = body
+            required.append(body_key)
+        elif "properties" in body or body.get("type") == "object":
+            props.update(body.get("properties", {}))
+            required += body.get("required", [])
+        elif "anyOf" in body:  # an optional body: its object's fields
+            for option in body["anyOf"]:
+                props.update(option.get("properties", {}))
+    return props, [*dict.fromkeys(required)], query
 
 
 def _s(description: str, **extra: Any) -> dict[str, Any]:
@@ -238,6 +305,141 @@ TOOLS: list[Tool] = [
          "also keep it in the library under that id.", "POST", "/api/parser-proposals/{proposal_id}/apply",
          {"proposal_id": _s("Draft id (from list_parser_drafts)"), "save_as": _s("Library id to keep it as (optional)")}, ("proposal_id",)),
 ]
+def _auto(name: str, method: str, path: str, description: str, **kw: Any) -> Tool:
+    """A tool whose inputs come from its endpoint's OpenAPI (see Tool.auto)."""
+    return Tool(name, description, method, path, auto=True, **kw)
+
+
+_DESTRUCTIVE = {"destructive": True}
+_UNTRUSTED = {"untrusted": True}
+_FILE = {"filename": _s("File name"), "content_base64": _s("The file's bytes, base64-encoded"),
+         "content_type": _s("MIME type (guessed from the name if left out)")}
+
+# Everything else a person can do in the UI, one endpoint each. Left out on purpose: revealing
+# secrets, user accounts, AI providers and alert channels (they hold keys and webhook secrets),
+# import/export and file downloads.
+TOOLS += [
+    # Cards
+    _auto("update_card", "PATCH", "/api/tasks/{task_id}",
+          "Change a card (move it with move_card); only the fields given change: title, description, command (shell) or command_ref + "
+          "command_args (library), image, container_flags, agent_selector (where it runs), tags, priority, assignees "
+          "(user ids from list_people), timeout_s, run_on_move, tty, var_bindings, alerts (see set_card_alerts).",
+          properties={"task_id": ID["task_id"], "agent_selector": _SELECTOR}),
+    _auto("delete_card", "DELETE", "/api/tasks/{task_id}", "Delete a card with its comments, attachments and runs.", **_DESTRUCTIVE),
+    _auto("duplicate_card", "POST", "/api/tasks/{task_id}/duplicate", "Copy a card (optionally into another column or project)."),
+    _auto("card_history", "GET", "/api/tasks/{task_id}/activity", "What happened to a card: moves, runs, edits, by whom."),
+    _auto("list_attachments", "GET", "/api/tasks/{task_id}/attachments", "A card's files (uploads and job artifacts).", **_UNTRUSTED),
+    _auto("delete_attachment", "DELETE", "/api/attachments/{attachment_id}", "Delete a file from a card.", **_DESTRUCTIVE),
+    _auto("edit_comment", "PATCH", "/api/tasks/{task_id}/comments/{comment_id}", "Change a comment's text."),
+    _auto("delete_comment", "DELETE", "/api/tasks/{task_id}/comments/{comment_id}", "Delete a comment.", **_DESTRUCTIVE),
+    # Jobs and results
+    _auto("list_recent_jobs", "GET", "/api/jobs", "Recent jobs across the projects you can see, newest first.", **_UNTRUSTED),
+    _auto("list_job_files", "GET", "/api/jobs/{job_id}/artifacts", "Files a job produced (artifacts kept on its card).", **_UNTRUSTED),
+    _auto("reparse_job", "POST", "/api/jobs/{job_id}/outputs/parse", "Read a job's outputs again with their parsers.", **_UNTRUSTED),
+    _auto("draft_parser", "POST", "/api/jobs/{job_id}/outputs/{name}/parser-proposal",
+          "Ask Castor's AI to draft a parser for a job output its parser couldn't read.", **_UNTRUSTED),
+    _auto("dismiss_parser_draft", "POST", "/api/parser-proposals/{proposal_id}/dismiss", "Set aside a drafted parser."),
+    _auto("explain_failure", "POST", "/api/ai/explain/{job_id}", "Castor's AI explains why a job failed.", **_UNTRUSTED),
+    # Projects and boards
+    _auto("get_project", "GET", "/api/projects/{project_id}", "A project's details and settings."),
+    _auto("create_project", "POST", "/api/projects", "Create a project (codename, name, kind, client…) with the default columns."),
+    _auto("update_project", "PATCH", "/api/projects/{project_id}", "Change a project's name, dates, settings…"),
+    _auto("delete_project", "DELETE", "/api/projects/{project_id}", "Delete a project and everything in it.", **_DESTRUCTIVE),
+    _auto("project_activity", "GET", "/api/projects/{project_id}/activity", "A project's activity feed.", **_UNTRUSTED),
+    _auto("list_activity", "GET", "/api/activity", "Activity across the projects you can see.", **_UNTRUSTED),
+    _auto("list_project_members", "GET", "/api/projects/{project_id}/members", "Who is a member of a project (admins see every project)."),
+    _auto("set_project_members", "PUT", "/api/projects/{project_id}/members", "Replace a project's members (user ids).",
+          body_key="user_ids"),
+    _auto("add_column", "POST", "/api/projects/{project_id}/columns", "Add a column to a board (role: backlog, todo, active, review, done)."),
+    _auto("update_column", "PATCH", "/api/projects/{project_id}/columns/{column_id}", "Rename, move or re-role a column."),
+    _auto("delete_column", "DELETE", "/api/projects/{project_id}/columns/{column_id}", "Delete an empty column.", **_DESTRUCTIVE),
+    _auto("list_clients", "GET", "/api/clients", "Clients projects belong to."),
+    _auto("create_client", "POST", "/api/clients", "Add a client."),
+    _auto("update_client", "PATCH", "/api/clients/{client_id}", "Change a client."),
+    _auto("delete_client", "DELETE", "/api/clients/{client_id}", "Delete a client.", **_DESTRUCTIVE),
+    _auto("dashboard_summary", "GET", "/api/dashboard/summary", "A project's Home: what needs attention, counts, pinned notes."),
+    _auto("dashboard_feed", "GET", "/api/dashboard/feed", "A project's Home feed: comments, runs and changes.", **_UNTRUSTED),
+    # Notes
+    _auto("list_notes", "GET", "/api/projects/{project_id}/notes", "A project's pinned notes."),
+    _auto("create_note", "POST", "/api/projects/{project_id}/notes", "Pin a note (markdown) to a project's Home."),
+    _auto("update_note", "PATCH", "/api/notes/{note_id}", "Change a note (earlier versions are kept)."),
+    _auto("delete_note", "DELETE", "/api/notes/{note_id}", "Delete a note.", **_DESTRUCTIVE),
+    _auto("note_history", "GET", "/api/notes/{note_id}/history", "A note's earlier versions."),
+    _auto("restore_note", "POST", "/api/notes/{note_id}/restore/{index}", "Bring back an earlier version of a note."),
+    _auto("reorder_notes", "POST", "/api/projects/{project_id}/notes/order", "Put a project's notes in this order."),
+    # Assets
+    _auto("list_asset_types", "GET", "/api/assets/types", "Kinds of asset (host, service, url…) and their fields."),
+    _auto("get_asset", "GET", "/api/assets/{asset_id}", "One asset with where it was seen.", **_UNTRUSTED),
+    _auto("add_asset", "POST", "/api/projects/{project_id}/assets", "Record an asset by hand."),
+    _auto("update_asset", "PATCH", "/api/assets/{asset_id}", "Change an asset's fields, tags or notes."),
+    _auto("delete_asset", "DELETE", "/api/assets/{asset_id}", "Delete an asset.", **_DESTRUCTIVE),
+    _auto("import_assets", "POST", "/api/projects/{project_id}/assets/import", "Add many assets at once (text or rows)."),
+    _auto("collect_assets", "POST", "/api/projects/{project_id}/assets/collect", "Gather assets from the project's job results again."),
+    _auto("get_scope", "GET", "/api/projects/{project_id}/scope", "A project's scope: what's in and out (ranges, domains)."),
+    _auto("set_scope", "PUT", "/api/projects/{project_id}/scope", "Replace a project's scope."),
+    _auto("list_asset_triggers", "GET", "/api/projects/{project_id}/asset-triggers", "Rules that run a command or playbook on new assets."),
+    _auto("create_asset_trigger", "POST", "/api/projects/{project_id}/asset-triggers", "Add a rule that runs something on new assets."),
+    _auto("update_asset_trigger", "PUT", "/api/asset-triggers/{trigger_id}", "Change an asset trigger."),
+    _auto("delete_asset_trigger", "DELETE", "/api/asset-triggers/{trigger_id}", "Delete an asset trigger.", **_DESTRUCTIVE),
+    _auto("list_trigger_fires", "GET", "/api/projects/{project_id}/asset-trigger-fires", "Trigger firings, including ones waiting for approval."),
+    _auto("approve_trigger_fire", "POST", "/api/asset-trigger-fires/{fire_id}/approve", "Let a waiting trigger firing run."),
+    _auto("skip_trigger_fire", "POST", "/api/asset-trigger-fires/{fire_id}/skip", "Don't run a waiting trigger firing."),
+    # Command library
+    _auto("create_command", "POST", "/api/commands", "Add a library command (YAML; see get_command for the format)."),
+    _auto("update_command", "PUT", "/api/commands/{command_id}", "Replace a library command's YAML (not built-ins)."),
+    _auto("delete_command", "DELETE", "/api/commands/{command_id}", "Delete a library command.", **_DESTRUCTIVE),
+    _auto("render_command", "POST", "/api/commands/{command_id}/render", "The command line a command makes with these arguments."),
+    _auto("command_usage", "GET", "/api/commands/{command_id}/usage", "Cards and playbooks that use a command."),
+    # Tools
+    _auto("list_tools", "GET", "/api/tools", "Tools commands run with (image, build recipe or host install) and which agents have them."),
+    _auto("get_tool", "GET", "/api/tools/{tool_id}", "One tool, with its YAML."),
+    _auto("create_tool", "POST", "/api/tools", "Add a tool (YAML)."),
+    _auto("update_tool", "PUT", "/api/tools/{tool_id}", "Replace a tool's YAML (not built-ins)."),
+    _auto("delete_tool", "DELETE", "/api/tools/{tool_id}", "Delete a tool.", **_DESTRUCTIVE),
+    _auto("check_tool", "POST", "/api/tools/validate", "Check a tool's YAML without saving it."),
+    _auto("prepare_tool", "POST", "/api/tools/{tool_id}/prepare", "Get a tool ready on agents now (pull, build or install)."),
+    # Playbooks
+    _auto("get_playbook", "GET", "/api/playbooks/{playbook_id}", "One playbook with its steps and YAML."),
+    _auto("create_playbook", "POST", "/api/playbooks", "Add a playbook (YAML; see docs/PLAYBOOK_SPEC.md)."),
+    _auto("update_playbook", "PUT", "/api/playbooks/{playbook_id}", "Replace a playbook's YAML (not built-ins)."),
+    _auto("delete_playbook", "DELETE", "/api/playbooks/{playbook_id}", "Delete a playbook.", **_DESTRUCTIVE),
+    _auto("check_playbook", "POST", "/api/playbooks/validate", "Check a playbook's YAML against the library without saving it."),
+    _auto("playbook_to_yaml", "POST", "/api/playbooks/to-yaml", "Turn a playbook spec (JSON) into its YAML."),
+    _auto("list_runs", "GET", "/api/playbook-runs", "Playbook runs, newest first (filter by project or playbook)."),
+    _auto("cancel_run", "POST", "/api/playbook-runs/{run_id}/cancel", "Stop a playbook run and its running jobs."),
+    _auto("ai_suggest_step", "POST", "/api/playbook-runs/{run_id}/steps/{step_id}/ai/suggest",
+          "Ask Castor's AI what to do about a step waiting for a decision.", **_UNTRUSTED),
+    _auto("ai_apply_step", "POST", "/api/playbook-runs/{run_id}/steps/{step_id}/ai/apply", "Do what the AI suggested for a waiting step."),
+    # Parsers
+    _auto("get_parser", "GET", "/api/parsers/{name}", "One parser: built-in or the library's YAML."),
+    _auto("update_parser", "PUT", "/api/parsers/{name}", "Replace a library parser's YAML."),
+    _auto("delete_parser", "DELETE", "/api/parsers/{name}", "Delete a library parser.", **_DESTRUCTIVE),
+    _auto("test_parser", "POST", "/api/parsers/{name}/test", "Run a parser on some text."),
+    _auto("parser_reference", "GET", "/api/parsers/reference", "Output types and their fields, for writing parsers."),
+    # Variables (values of secrets are never shown)
+    _auto("list_variable_kinds", "GET", "/api/variables/kinds", "Kinds of variable set (credential, ssh-key…) and their fields."),
+    _auto("create_variable_kind", "POST", "/api/variables/kinds", "Add a kind of variable set."),
+    _auto("update_variable_kind", "PUT", "/api/variables/kinds/{kind_id}", "Change a kind of variable set."),
+    _auto("delete_variable_kind", "DELETE", "/api/variables/kinds/{kind_id}", "Delete a kind of variable set.", **_DESTRUCTIVE),
+    _auto("list_variable_sets", "GET", "/api/variables/sets", "Variable sets (credentials, keys…): names and plain fields; secrets only as set or not."),
+    _auto("get_variable_set", "GET", "/api/variables/sets/{set_id}", "One variable set (secret values aren't shown)."),
+    _auto("create_variable_set", "POST", "/api/variables/sets", "Add a variable set; secret fields are stored in the vault."),
+    _auto("update_variable_set", "PATCH", "/api/variables/sets/{set_id}", "Change a variable set (a blank secret keeps the stored one)."),
+    _auto("delete_variable_set", "DELETE", "/api/variables/sets/{set_id}", "Delete a variable set.", **_DESTRUCTIVE),
+    _auto("upload_variable_file", "PUT", "/api/variables/sets/{set_id}/files/{field}", "Store a file field of a set (a key file…).",
+          properties=_FILE, required=("filename", "content_base64"), upload=True),
+    _auto("delete_variable_file", "DELETE", "/api/variables/sets/{set_id}/files/{field}", "Remove a set's file.", **_DESTRUCTIVE),
+    # AI, notifications, people, settings
+    _auto("ai_status", "GET", "/api/ai/status", "Whether Castor's AI is set up, and for what."),
+    _auto("ai_generate", "POST", "/api/ai/generate", "Have Castor's AI draft a command, tool, parser or playbook (checked before it's returned)."),
+    _auto("ai_regex", "POST", "/api/ai/regex", "Have Castor's AI write a regular expression from examples."),
+    _auto("list_notifications", "GET", "/api/notifications", "Your notifications.", **_UNTRUSTED),
+    _auto("mark_notification_read", "POST", "/api/notifications/{notification_id}/read", "Mark a notification read."),
+    _auto("mark_all_notifications_read", "POST", "/api/notifications/read-all", "Mark all your notifications read."),
+    _auto("list_everyone", "GET", "/api/people", "People in the projects you can see."),
+    _auto("get_person", "GET", "/api/people/{username}", "A person's profile, cards and recent activity.", **_UNTRUSTED),
+    _auto("get_settings", "GET", "/api/settings", "Instance settings (notes per project, AI chains)."),
+]
 BY_NAME = {t.name: t for t in TOOLS}
 
 
@@ -250,10 +452,16 @@ async def call_tool(app: Any, authorization: str, user: User, name: str, args: d
     if tool is None or tool not in visible_tools(user):
         return _result(f"Unknown tool {name!r}, or this token's scopes don't allow it", error=True)
     args = dict(args or {})
-    missing = [r for r in tool.required if r not in args]
+    openapi = app.openapi() if tool.auto else None
+    _, required = tool.inputs(openapi)
+    missing = [r for r in required if r not in args]
     if missing:
         return _result(f"Missing arguments: {', '.join(missing)}", error=True)
     path = re.sub(r"\{([^}]+)\}", lambda mt: quote(str(args.pop(mt.group(1))), safe=""), tool.path)
+    query: dict[str, Any] = {}
+    if openapi is not None and tool.method != "GET":
+        names = _openapi_inputs(openapi, tool.method, tool.path)[2]
+        query = {k: args.pop(k) for k in list(args) if k in names}
     if tool.upload:
         try:
             content = base64.b64decode(args["content_base64"], validate=True)
@@ -265,10 +473,12 @@ async def call_tool(app: Any, authorization: str, user: User, name: str, args: d
         if r.status_code >= 400:
             return _result(_failure(r), error=True)
         out = r.json()
-        link = f"/api/attachments/{out['id']}/download?inline=true"
-        out["markdown"] = f"![{name}]({link})" if kind.startswith("image/") else f"[{name}]({link})"
+        if tool.name == "attach_file":
+            link = f"/api/attachments/{out['id']}/download?inline=true"
+            out["markdown"] = f"![{name}]({link})" if kind.startswith("image/") else f"[{name}]({link})"
         return _result(json.dumps(out, ensure_ascii=False))
-    r = await _rest(app, authorization, tool.method, path, args)
+    body: Any = args.pop(tool.body_key, None) if tool.body_key else args
+    r = await _rest(app, authorization, tool.method, path, body, query=query)
     if r.status_code >= 400:
         return _result(_failure(r), error=True)
     if not r.content:  # 204: deleted, revoked…
@@ -279,15 +489,16 @@ async def call_tool(app: Any, authorization: str, user: User, name: str, args: d
     return _result((UNTRUSTED if tool.untrusted else "") + text)
 
 
-async def _rest(app: Any, authorization: str, method: str, path: str, args: dict[str, Any] | None = None,
-                files: dict[str, Any] | None = None) -> httpx.Response:
+async def _rest(app: Any, authorization: str, method: str, path: str, args: Any = None,
+                files: dict[str, Any] | None = None, query: dict[str, Any] | None = None) -> httpx.Response:
     """The REST endpoint, in-process, as the caller. VIA marks the activity it records."""
     headers = {"Authorization": authorization, api_tokens.VIA_HEADER: api_tokens.MCP_KEY}
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://castor") as client:
         if files:
             return await client.request(method, path, headers=headers, files=files)
-        return await client.request(method, path, headers=headers, params=args if method == "GET" else None,
-                                    json=args if method != "GET" else None)
+        if method == "GET":
+            return await client.request(method, path, headers=headers, params=args)
+        return await client.request(method, path, headers=headers, params=query or None, json=args)
 
 
 def _failure(r: httpx.Response) -> str:
@@ -379,7 +590,8 @@ async def handle(app: Any, authorization: str, user: User, message: Any) -> dict
     if method == "ping":
         return _ok(mid, {})
     if method == "tools/list":
-        return _ok(mid, {"tools": [t.schema() for t in visible_tools(user)]})
+        openapi = app.openapi()
+        return _ok(mid, {"tools": [t.schema(openapi) for t in visible_tools(user)]})
     if method == "tools/call":
         if not isinstance(params.get("name"), str) or not isinstance(params.get("arguments", {}), dict):
             return _error(mid, -32602, "tools/call needs a name and an arguments object")

@@ -82,7 +82,7 @@ def test_a_card_runs_on_every_agent_with_its_tags(client, auth):
         assert card["batch"]["status"] == "succeeded" and card["column_id"] == review["id"]
 
         # Again, with one failing: the batch fails and the card stays put.
-        client.patch(f"/api/tasks/{task['id']}", json={"column_id": board["columns"][0]["id"]}, headers=auth)
+        client.post(f"/api/tasks/{task['id']}/move", json={"column_id": board["columns"][0]["id"]}, headers=auth)
         client.post(f"/api/tasks/{task['id']}/run", headers=auth)
         ids = {j["id"] for j in client.get(f"/api/tasks/{task['id']}/jobs", headers=auth).json()} - {on_a, on_b}
         on_a, on_b = _take(a, ids), _take(b, ids)

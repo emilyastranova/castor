@@ -551,6 +551,12 @@ Tools that remove, revoke or rotate something, or trust a changed host key, set
 tokens (the result of creating one has a ready `castor-agent` command, from
 `CASTOR_PUBLIC_URL`), SSH hosts (`PATCH /api/ssh-hosts/{id}` changes some fields) and the SSH
 config.
+Most tools are declared as `_auto(name, method, path, description)`. Their input schema is built
+at `tools/list` from the endpoint's own OpenAPI: path and query parameters plus the JSON
+body's fields, `$ref`s inlined, `body_key` for a non-object body. So they follow the API as it
+changes, and a `properties` entry only adds or overrides a description. Between them the tools
+cover what a person can do in the UI, except revealing secrets, user accounts, AI providers
+and alert channels (keys and webhook secrets), and import/export and file downloads.
 
 ## Dispatcher
 
