@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     # token can never connect with the shared secret.
     allow_shared_agent_secret: bool = True
     agent_heartbeat_interval: int = 15
-    agent_offline_after: int = 45  # seconds without heartbeat → offline
+    agent_offline_after: int = 45  # seconds without any message → offline (keep it a few heartbeats long)
     dispatch_interval: float = 5.0
 
     # Storage

@@ -103,7 +103,9 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   (fills `{{ arg }}` placeholders; **every value goes through `shlex.quote`**, never plain
   string substitution), `command_library.py` (built-in sync from `CASTOR_COMMANDS_DIR` at
   startup, `apply_to_task`). A card with `command_ref` has its `command` rendered by the
-  server; the API refuses raw `command`/`image` edits until it is detached.
+  server; a raw `command`/`image` edit (the card dialog's Command field, the AI resolver's
+  fixes) stays as a one-off change until the arguments change and it's rendered again;
+  detaching (`command_ref: null`) keeps the command as plain shell.
 - Artifacts: the dispatcher issues a one-off upload token per job (`artifacts.py`, only the
   SHA-256 is stored) and sends it with the paths to collect in `job.run`; the agent uploads
   to `POST /api/jobs/{id}/artifacts`, which creates `kind = artifact` attachments.

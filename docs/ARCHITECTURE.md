@@ -95,6 +95,12 @@ Server → agent
 | `job.signal` | `job_id, name ("INT"\|"TERM"\|"QUIT")` (INT is sent as Ctrl+C through the terminal) |
 | `tool.prepare` | `tool` (same shape as `job.tool`; build or pull it now) |
 
+Agents send a `heartbeat` every `heartbeat_interval` seconds (`CASTOR_AGENT_HEARTBEAT_INTERVAL`,
+15). An agent the server hasn't heard from for `CASTOR_AGENT_OFFLINE_AFTER` seconds (45) is
+treated as disconnected (`gateway.sweep_stale`, run by the dispatcher before each pump): marked
+offline, its in-flight jobs lost, and its socket closed with 4408 so a live agent reconnects.
+Keep the timeout a few heartbeats long.
+
 ### Job directories and artifacts
 
 Each job runs in its own directory on the agent (`<workdir>/<job_id>/`, a temp dir by

@@ -7,7 +7,7 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -239,6 +239,22 @@ class AgentGateway:
         except Exception:  # the socket may already be gone
             log.debug("closing agent %s", conn.name, exc_info=True)
         return True
+
+    async def sweep_stale(self) -> list[str]:
+        """Drop agents that have gone quiet: a hung agent or a half-open connection keeps its
+        socket but stops sending heartbeats. Each is handled like a disconnect (offline, its
+        jobs lost) and its socket is closed so the agent, if it's alive, reconnects."""
+        limit = timedelta(seconds=settings.agent_offline_after)
+        now = utcnow()
+        stale = [c for c in list(self.connections.values()) if now - c.last_seen > limit]
+        for conn in stale:
+            log.warning("agent %s silent for %ss, marking it offline", conn.name, int((now - conn.last_seen).total_seconds()))
+            await asyncio.shield(self._unregister(conn))
+            try:
+                await asyncio.wait_for(conn.ws.close(code=4408), timeout=2)
+            except Exception:  # a dead connection may not take a close frame
+                log.debug("closing stale agent %s", conn.name, exc_info=True)
+        return [c.name for c in stale]
 
     async def _unregister(self, conn: AgentConnection) -> None:
         if self.connections.get(conn.agent_id) is not conn:

@@ -2,6 +2,10 @@
 
 import json
 import time
+import uuid
+
+import pytest
+from starlette.websockets import WebSocketDisconnect
 
 
 def test_health(client):
@@ -359,3 +363,34 @@ async def test_reported_migration_adds_column_after_done(tmp_path):
     assert con.execute("SELECT count(*) FROM board_columns WHERE role='reported'").fetchone()[0] == 0
     assert con.execute("SELECT column_id FROM tasks").fetchone()[0] == done_id
     con.close()
+
+
+def test_silent_agent_goes_offline(client, auth, monkeypatch):
+    """An agent that stops sending heartbeats (hung, or a half-open connection) is marked
+    offline after CASTOR_AGENT_OFFLINE_AFTER and its socket is closed, so it gets no work."""
+    from castor_server.config import settings
+
+    name = f"quiet-{uuid.uuid4().hex[:6]}"
+    with client.websocket_connect("/ws/agent") as agent_ws:
+        agent_ws.send_text(json.dumps({
+            "type": "hello", "secret": "test-agent-secret", "name": name, "hostname": "quietbox",
+            "os": "Linux", "username": "root", "version": "0.1.0",
+            "capabilities": {"runtimes": ["host"]}, "tags": [], "max_concurrency": 1,
+        }))
+        assert json.loads(agent_ws.receive_text())["type"] == "hello.ok"
+
+        def state():
+            return {a["name"]: a for a in client.get("/api/agents", headers=auth).json()}[name]
+
+        assert state()["connected"] is True
+        monkeypatch.setattr(settings, "agent_offline_after", 0)
+        deadline = time.monotonic() + 5
+        while state()["connected"] and time.monotonic() < deadline:
+            time.sleep(0.1)
+        agent = state()
+        assert agent["connected"] is False and agent["status"] == "offline"
+        # Read past anything sent before the close (other tests' leftover queued jobs).
+        with pytest.raises(WebSocketDisconnect) as closed:
+            for _ in range(50):
+                agent_ws.receive_text()
+        assert closed.value.code == 4408

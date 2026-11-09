@@ -85,6 +85,10 @@ class Dispatcher:
                 pass
             self._wake.clear()
             try:
+                await gateway.sweep_stale()  # before handing out work, so a silent agent gets none
+            except Exception:
+                log.exception("agent sweep failed")
+            try:
                 await self.pump()
             except Exception:
                 log.exception("dispatcher pump failed")
