@@ -44,6 +44,8 @@ async def delete_agent(agent_id: str, db: DB, _: Admin):
     agent = await db.get(m.Agent, parse_uuid(agent_id))
     if agent is None:
         raise HTTPException(404, "Agent not found")
+    if await db.scalar(select(m.SshHost.id).where(m.SshHost.agent_id == agent.id)):
+        raise HTTPException(409, "This is an SSH host: remove it as one (DELETE /api/ssh-hosts/{id})")
     if gateway.get(agent.id) is not None:
         raise HTTPException(409, "Agent is connected; stop it first")
     await db.delete(agent)

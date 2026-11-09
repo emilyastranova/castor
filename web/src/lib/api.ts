@@ -939,6 +939,52 @@ export interface Agent {
 	created_at: string;
 	running_jobs: number;
 	connected: boolean;
+	/** Set for an SSH host Castor connects to, rather than an agent that dials in. */
+	ssh_host_id?: UUID | null;
+}
+
+export type SshHostState = 'connecting' | 'connected' | 'error' | 'host_key_changed' | 'disabled';
+
+export interface SshHost {
+	id: UUID;
+	agent_id: UUID;
+	name: string;
+	host: string;
+	port: number;
+	username: string;
+	workdir: string;
+	network: string;
+	allow_host: boolean;
+	allow_host_install: boolean;
+	enabled: boolean;
+	tags: string[];
+	max_concurrency: number;
+	/** Goes in the account's ~/.ssh/authorized_keys. */
+	public_key: string;
+	key_fingerprint: string | null;
+	host_key_fingerprint: string | null;
+	/** A different key the host presented, waiting to be accepted. */
+	host_key_pending_fingerprint: string | null;
+	state: SshHostState;
+	error: string | null;
+	connected: boolean;
+}
+
+export interface SshHostIn {
+	name: string;
+	host: string;
+	port: number;
+	username: string;
+	workdir: string;
+	network: string;
+	allow_host: boolean;
+	allow_host_install: boolean;
+	enabled: boolean;
+	tags: string[];
+	max_concurrency: number;
+	generate_key?: boolean;
+	private_key?: string;
+	passphrase?: string;
 }
 
 export class ApiError extends Error {
@@ -1211,6 +1257,14 @@ export function api(fetchFn: Fetch = fetch) {
 			update: (id: UUID, body: { tags?: string[]; max_concurrency?: number }) =>
 				patch<Agent>(`/agents/${id}`, body),
 			remove: (id: UUID) => del(`/agents/${id}`)
+		},
+		sshHosts: {
+			list: () => get<SshHost[]>('/ssh-hosts'),
+			create: (body: SshHostIn) => post<SshHost>('/ssh-hosts', body),
+			update: (id: UUID, body: SshHostIn) => request<SshHost>(fetchFn, 'PUT', `/ssh-hosts/${id}`, body),
+			acceptHostKey: (id: UUID) => post<SshHost>(`/ssh-hosts/${id}/accept-host-key`),
+			reconnect: (id: UUID) => post<SshHost>(`/ssh-hosts/${id}/reconnect`),
+			remove: (id: UUID) => del(`/ssh-hosts/${id}`)
 		},
 		agentTokens: {
 			list: () => get<{ tokens: AgentToken[]; shared_secret_allowed: boolean }>('/agent-tokens'),

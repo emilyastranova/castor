@@ -243,6 +243,13 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   Its calls mark activity `payload.via = "mcp"` (`api_tokens.via`, set in `deps.current_user` from
   a startup key). `castor-mcp` (agent `mcp_stdio.py`, stdlib only) bridges stdio clients. Web:
   `McpConnect.svelte`.
+- SSH hosts: `orchestrator/ssh.py` (a `HostLink` per host keeps an asyncssh connection and
+  registers it with the gateway as an agent whose `ws` is an in-process `SshSocket`, so it
+  speaks the agent protocol unchanged), `api/ssh_hosts.py` (admin), web `SshHostDialog` on the
+  Agents page. Keys go through `vault`; host keys are trusted on first use (`host_key_pending`
+  until an admin accepts a change). Variable values reach the host only in `.castor/env`
+  (sourced and deleted by the job's script), never in a command line. Tests run a real
+  asyncssh server in a thread (`tests/test_ssh_hosts.py`).
 - Config is `pydantic-settings` with the `CASTOR_` prefix (`config.py`).
 - SQLite uses `NullPool` (aiosqlite connections are bound to the event loop that opened
   them; the test client runs WebSocket sessions on another loop).

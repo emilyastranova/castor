@@ -20,6 +20,7 @@ from .config import settings
 from .db import SessionLocal, run_migrations
 from .orchestrator.dispatcher import dispatcher
 from .orchestrator.gateway import gateway
+from .orchestrator.ssh import ssh_hosts
 from .parser_library import load_all as load_library_parsers
 from .playbook_library import sync_builtin_playbooks
 from .security import hash_password
@@ -86,12 +87,14 @@ async def lifespan(app: FastAPI):
     log.info("command library: %d built-in definitions", loaded)
     log.info("playbook library: %d built-in playbooks", loaded_playbooks)
     await dispatcher.start()
+    await ssh_hosts.start()  # hosts Castor connects to over SSH
     sweeper = asyncio.create_task(alerts.sweep_forever())  # alerts for runs going long
     log.info("castor server ready")
     try:
         yield
     finally:
         sweeper.cancel()
+        await ssh_hosts.stop()
         await dispatcher.stop()
 
 

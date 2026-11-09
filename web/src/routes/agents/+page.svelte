@@ -3,7 +3,7 @@
 	import { isAdmin } from '$lib/session';
 	import { invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
-	import type { Agent, AgentToken, Job } from '$lib/api';
+	import type { Agent, AgentToken, Job, SshHost } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { TopAppBar, Card, Icon, IconButton, Chip, Dialog, Button, TextField } from '$lib/m3';
 	import StatusChip from '$lib/components/StatusChip.svelte';
@@ -12,6 +12,7 @@
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { confirmAction } from '$lib/confirm.svelte';
 	import AgentTokenDialog from '$lib/components/AgentTokenDialog.svelte';
+	import SshHostDialog from '$lib/components/SshHostDialog.svelte';
 
 	let { data } = $props();
 	// svelte-ignore state_referenced_locally
@@ -23,6 +24,8 @@
 	// svelte-ignore state_referenced_locally
 	let sharedSecretAllowed = $state(data.sharedSecretAllowed);
 	// svelte-ignore state_referenced_locally
+	let sshHosts = $state<SshHost[]>(data.sshHosts);
+	// svelte-ignore state_referenced_locally
 	let loaded = data.agents;
 	$effect(() => {
 		if (data.agents !== loaded) {
@@ -31,8 +34,68 @@
 			jobs = data.jobs;
 			tokens = data.tokens;
 			sharedSecretAllowed = data.sharedSecretAllowed;
+			sshHosts = data.sshHosts;
 		}
 	});
+
+	async function reloadSshHosts() {
+		if (!isAdmin()) return;
+		try {
+			sshHosts = await api().sshHosts.list();
+		} catch {
+			/* keep what we have */
+		}
+	}
+	const sshOf = (a: Agent) => (a.ssh_host_id ? sshHosts.find((h) => h.id === a.ssh_host_id) : undefined);
+	let sshOpen = $state(false);
+	let sshEditing = $state<SshHost | null>(null);
+	function addSshHost() {
+		sshEditing = null;
+		sshOpen = true;
+	}
+	function editSshHost(h: SshHost) {
+		sshEditing = h;
+		sshOpen = true;
+	}
+	function sshSaved(h: SshHost) {
+		sshHosts = [...sshHosts.filter((x) => x.id !== h.id), h];
+	}
+	async function acceptHostKey(h: SshHost) {
+		const ok = await confirmAction({
+			title: `Trust ${h.name}'s new host key?`,
+			message: `It now presents ${h.host_key_pending_fingerprint}, not the ${h.host_key_fingerprint} Castor trusted. That happens when the machine is reinstalled or its SSH keys are regenerated, and also when something else answers at ${h.host}. Accept it only if you know why it changed.`,
+			confirmLabel: 'Trust the new key',
+			icon: 'key'
+		});
+		if (!ok) return;
+		try {
+			sshSaved(await api().sshHosts.acceptHostKey(h.id));
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not accept the key');
+		}
+	}
+	async function reconnect(h: SshHost) {
+		try {
+			sshSaved(await api().sshHosts.reconnect(h.id));
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not reconnect');
+		}
+	}
+	async function removeSshHost(a: Agent, h: SshHost) {
+		const ok = await confirmAction({
+			title: `Remove SSH host ${a.name}?`,
+			message: `Castor disconnects from ${h.username}@${h.host} (any job running there is lost) and forgets the host and its key. Remove the key from the host's authorized_keys too.`,
+			confirmLabel: 'Remove host'
+		});
+		if (!ok) return;
+		try {
+			await api().sshHosts.remove(h.id);
+			agents = agents.filter((x) => x.id !== a.id);
+			sshHosts = sshHosts.filter((x) => x.id !== h.id);
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not remove the host');
+		}
+	}
 
 	async function reloadTokens() {
 		try {
@@ -95,6 +158,8 @@
 		realtime.subscribe((e) => {
 			if (e.name === 'agent_tokens.changed') {
 				void reloadTokens();
+			} else if (e.name === 'ssh_hosts.changed') {
+				void reloadSshHosts();
 			} else if (e.name === 'agent.updated') {
 				const a = e.data as Agent;
 				agents = [...agents.filter((x) => x.id !== a.id), a].sort((x, y) => x.name.localeCompare(y.name));
@@ -164,7 +229,10 @@
 <TopAppBar title="Agents" subtitle="{online} of {agents.length} online">
 	{#snippet actions()}
 		<IconButton icon="refresh" label="Refresh" onclick={() => invalidateAll()} />
-		{#if isAdmin()}<Button variant="tonal" icon="add" onclick={() => { revealed = null; enrollOpen = true; }}>Enroll agent</Button>{/if}
+		{#if isAdmin()}
+			<Button variant="text" icon="terminal" onclick={addSshHost}>Add SSH host</Button>
+			<Button variant="tonal" icon="add" onclick={() => { revealed = null; enrollOpen = true; }}>Enroll agent</Button>
+		{/if}
 	{/snippet}
 </TopAppBar>
 
@@ -173,8 +241,11 @@
 		<div class="mx-auto mt-24 flex max-w-md flex-col items-center gap-4 text-center">
 			<span class="flex size-20 items-center justify-center rounded-xl bg-primary-container text-on-primary-container"><Icon name="dns" size={40} /></span>
 			<h2 class="headline-small text-on-surface">No agents yet</h2>
-			<p class="body-medium text-on-surface-variant">Start an agent on a machine that can reach this server and it will appear here. Command cards are dispatched to idle agents.</p>
-			<Button icon="add" onclick={() => { revealed = null; enrollOpen = true; }}>Enroll an agent</Button>
+			<p class="body-medium text-on-surface-variant">Start an agent on a machine that can reach this server, or add a host Castor can reach over SSH. Command cards are dispatched to idle agents.</p>
+			<div class="flex flex-wrap justify-center gap-2">
+				<Button icon="add" onclick={() => { revealed = null; enrollOpen = true; }}>Enroll an agent</Button>
+				{#if isAdmin()}<Button variant="outlined" icon="terminal" onclick={addSshHost}>Add SSH host</Button>{/if}
+			</div>
 		</div>
 	{:else}
 		<div class="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4 pt-2">
@@ -183,11 +254,13 @@
 				<Card variant="elevated" class="flex flex-1 flex-col gap-3 p-5">
 					<div class="flex items-start gap-3">
 						<span class="flex size-10 items-center justify-center rounded-md {a.connected ? 'bg-primary-container text-on-primary-container' : 'bg-surface-container-highest text-on-surface-variant'}">
-							<Icon name="dns" filled={a.connected} />
+							<Icon name={a.ssh_host_id ? 'terminal' : 'dns'} filled={a.connected} />
 						</span>
 						<div class="min-w-0 flex-1">
 							<h2 class="truncate title-medium text-on-surface">{a.name}</h2>
-							<p class="truncate body-small text-on-surface-variant">{a.username}@{a.hostname}</p>
+							<p class="truncate body-small text-on-surface-variant">
+								{#if sshOf(a)}{@const h = sshOf(a)!}{h.username}@{h.host}{h.port !== 22 ? `:${h.port}` : ''}{:else}{a.username}@{a.hostname}{/if}
+							</p>
 						</div>
 						<span class="rounded-full px-2 py-0.5 label-small {statusCls[a.status]}">{a.status}{a.running_jobs ? ` · ${a.running_jobs}` : ''}</span>
 					</div>
@@ -198,7 +271,12 @@
 						<dt>Seen</dt><dd class="text-on-surface" title={absoluteTime(a.last_seen_at)}>{a.connected ? 'now' : relativeTime(a.last_seen_at) || 'never'}</dd>
 						<dt>Auth</dt>
 						<dd class="flex min-w-0 items-center gap-1.5">
-							{#if tokenOf(a)}
+							{#if a.ssh_host_id}
+								{@const h = sshOf(a)}
+								<span class="flex min-w-0 items-center gap-1 text-on-surface" title="Castor connects to it over SSH{h?.host_key_fingerprint ? `; host key ${h.host_key_fingerprint}` : ''}">
+									<Icon name="key" size={14} /><span class="truncate">SSH{h?.key_fingerprint ? ` · ${h.key_fingerprint.replace('SHA256:', '').slice(0, 12)}…` : ''}</span>
+								</span>
+							{:else if tokenOf(a)}
 								{@const t = tokenOf(a)!}
 								{#if t.revoked_at}
 									<span class="flex items-center gap-1 text-error"><Icon name="key_off" size={14} />token revoked</span>
@@ -214,10 +292,37 @@
 							{/if}
 						</dd>
 					</dl>
+					{#if sshOf(a) && !a.connected}
+						{@const h = sshOf(a)!}
+						{#if h.state === 'host_key_changed'}
+							<div class="flex flex-col gap-2 rounded-md bg-error-container px-3 py-2 body-small text-on-error-container">
+								<span class="flex items-start gap-1.5"><Icon name="gpp_maybe" size={18} class="mt-px shrink-0" />The host key changed, so Castor stopped connecting.</span>
+								<dl class="grid grid-cols-[auto_1fr] gap-x-2 font-mono text-[11.5px]">
+									<dt>now</dt><dd class="break-all">{h.host_key_pending_fingerprint ?? 'unknown'}</dd>
+									<dt>was</dt><dd class="break-all">{h.host_key_fingerprint}</dd>
+								</dl>
+								<Button variant="text" class="self-end" onclick={() => acceptHostKey(h)}>Review and trust…</Button>
+							</div>
+						{:else if h.state === 'error' && h.error}
+							<div class="flex items-start gap-1.5 rounded-md bg-surface-container-high px-3 py-2 body-small text-on-surface">
+								<Icon name="error" size={18} class="mt-px shrink-0 text-error" />
+								<span class="min-w-0 flex-1 break-words">{h.error}</span>
+								<button type="button" class="label-small text-primary hover:underline" onclick={() => reconnect(h)}>Try now</button>
+							</div>
+						{:else if h.state === 'disabled'}
+							<p class="body-small text-on-surface-variant">Turned off: Castor isn't connecting to it.</p>
+						{:else}
+							<p class="body-small text-on-surface-variant">Connecting…</p>
+						{/if}
+					{/if}
 					<div class="flex flex-wrap items-center gap-1">
 						{#each a.tags as t (t)}<Chip variant="suggestion">{t}</Chip>{/each}
 						<span class="flex-1"></span>
-						{#if isAdmin()}
+						{#if isAdmin() && sshOf(a)}
+							{@const h = sshOf(a)!}
+							<IconButton icon="edit" label="Edit SSH host" size="sm" onclick={() => editSshHost(h)} />
+							<IconButton icon="delete" label="Remove SSH host" size="sm" onclick={() => removeSshHost(a, h)} />
+						{:else if isAdmin()}
 							<IconButton icon="edit" label="Edit agent" size="sm" onclick={() => edit(a)} />
 							<IconButton icon="delete" label="Forget agent" size="sm" disabled={a.connected} onclick={() => removeAgent(a)} />
 						{/if}
@@ -288,5 +393,7 @@
 		<Button onclick={saveAgent}>Save</Button>
 	{/snippet}
 </Dialog>
+
+<SshHostDialog bind:open={sshOpen} host={sshEditing} hosts={sshHosts} onsaved={sshSaved} />
 
 <AgentTokenDialog bind:open={enrollOpen} {wsUrl} {revealed} {sharedSecretAllowed} oncreated={() => void reloadTokens()} />

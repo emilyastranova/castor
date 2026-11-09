@@ -493,6 +493,8 @@ class AgentOut(ORM):
     created_at: datetime
     running_jobs: int = 0
     connected: bool = False
+    # Set for an SSH host Castor connects to (Agents → Add SSH host), not an agent that dials in.
+    ssh_host_id: uuid.UUID | None = None
 
 
 class AgentPatch(BaseModel):

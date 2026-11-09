@@ -13,6 +13,7 @@ the output back into the card.
 | Web UI | `web/` | SvelteKit, Svelte 5, Tailwind v4, custom Material 3 system | Boards, cards, agents, live output |
 | API + orchestrator | `server/` | FastAPI, SQLAlchemy 2 (async), PostgreSQL | REST API, UI WebSocket, agent gateway, dispatcher |
 | Agent | `agent/` | Python 3.10+, `websockets` | Connects out to the server, runs jobs in podman/docker containers (or on the host), streams logs |
+| SSH hosts | `server/castor_server/orchestrator/ssh.py` | asyncssh | The other way around: the server connects to a host over SSH and runs jobs there as an agent |
 | Libraries | `commands/`, `tools/`, `playbooks/` | YAML | Built-in commands (typed arguments), tool environments and playbooks, synced into the database at startup |
 | Reverse proxy | `compose.yaml` (Caddy) | | Single origin: `/api` and `/ws` go to the server, everything else to the web app |
 
@@ -32,6 +33,7 @@ Client 1──* Project 1──* BoardColumn 1──* Task 1──* Job 1──*
                         └──* ActivityEvent
 Agent 1──* Job
       1──* AgentToken (an unused token has no agent yet)
+      1──1 SshHost (only for a host the server connects to over SSH)
 User *──* Project (project_members; admins see every project)
 ```
 
@@ -112,6 +114,42 @@ and before `job.finished`, the agent uploads matching files to
 The server stores only the token's SHA-256, accepts uploads until 10 minutes after the job
 finishes, caps size and count (`CASTOR_ARTIFACT_*`), and saves each file as an Attachment
 with `kind = artifact` and `job_id` set.
+
+### SSH hosts
+
+An admin can add a host Castor connects to (Agents → Add SSH host; `api/ssh_hosts.py`, admin
+only) instead of running an agent on it. `ssh_hosts` keeps how to connect (host, port,
+username, work directory, container network, whether host commands and host installs are
+allowed) and the private key as a vault token; the host's name, tags and slots are on its
+`agents` row like any agent's. Castor generates an ed25519 key (the UI shows the
+`authorized_keys` line) or takes a pasted key, decrypting it once if it has a passphrase.
+
+`orchestrator/ssh.py` runs one `HostLink` per host: it keeps one SSH connection (asyncssh,
+keepalives, reconnect with backoff), probes the host (work dir, OS, podman or docker), and
+registers it with the gateway as an `AgentConnection` whose `ws` is an in-process `SshSocket`.
+The gateway sends it the usual `job.run`, `job.cancel`, `tool.prepare` and `job.stdin`,
+`job.resize` and `job.signal` messages, and the link answers with `job.started`, `job.log`,
+`job.finished`, `job.prompt`, `tool.prepared` and `heartbeat`. So dispatch, log masking, alerts and
+lost jobs work as for any agent. `AgentOut.ssh_host_id` marks these agents, and a connecting
+agent can't register under an SSH host's name.
+
+On the host each job gets `<workdir>/<job_id>/`. Over SFTP, Castor writes the variable files to
+`.castor/` (owner-only), the env vars to `.castor/env` and a `.castor/run.sh`. The script
+records its pid (sshd makes each session its own process group, so cancel is
+`kill -- -<pid>`), sources and deletes the env file (values never appear on a command line),
+then execs the command in `/bin/sh`, or in `podman|docker run` with the job dir at `/work`.
+Every command is sent as `/bin/sh -c '<quoted>'`, whatever the account's login shell. An
+interactive job gets a pty. Afterwards `.castor/` is removed, and the declared outputs and
+`artifacts/**` are fetched over SFTP into attachments (`artifacts.store`, which the upload
+endpoint uses too), skipping symlinks and anything resolving outside the job dir.
+
+Host keys are trusted on first use: the first key seen is stored in `host_key`. If the host
+later presents another key (captured from that same connection in `host_key_pending`), the
+link stops with state `host_key_changed` until an admin accepts it
+(`POST /api/ssh-hosts/{id}/accept-host-key`). Link state (`connecting`, `connected`, `error`,
+`host_key_changed`, `disabled`) and the last error are in `GET /api/ssh-hosts`, and changes
+publish `ssh_hosts.changed`. Each job uses one SSH channel, plus short-lived ones for SFTP
+and cancel, so keep a host's slots below sshd's `MaxSessions` (10).
 
 ### Parsed outputs
 
@@ -542,7 +580,7 @@ server sends each domain event as
 see it (see Auth). Event names include `project.updated`, `column.*`,
 `task.created|updated|moved|deleted`, `job.updated`, `job.log`, `job.outputs`, `job.parser_proposal`, `job.resize`,
 `comment.created`, `attachment.created`, `agent.updated`, `playbook_run.updated`,
-`agent_tokens.changed`, `api_tokens.changed`, `tool.status`, `tools.changed`,
+`agent_tokens.changed`, `ssh_hosts.changed`, `api_tokens.changed`, `tool.status`, `tools.changed`,
 `project.notes`, `notification.created|read`, `assets.changed`, `alert_channels.changed`,
 `settings.changed`, `project.members` and `user.changed`; each section above names its own.
 The client keeps page state in sync by applying these to its stores.

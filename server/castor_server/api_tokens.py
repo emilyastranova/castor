@@ -108,6 +108,8 @@ RULES: list[tuple[str, str, str]] = [
     ("*", "/api/agent-tokens/**", "admin"),
     ("GET", "/api/settings", "projects:read"),
     ("*", "/api/settings", "admin"),
+    ("*", "/api/ssh-hosts", "admin"),
+    ("*", "/api/ssh-hosts/**", "admin"),
     ("GET", "/api/alert-presets", "projects:read"),
     ("GET", "/api/alert-channels/brief", "projects:read"),
     ("*", "/api/alert-channels/**", "admin"),

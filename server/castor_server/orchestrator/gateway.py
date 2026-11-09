@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 class AgentConnection:
     agent_id: uuid.UUID
     name: str
-    ws: WebSocket
+    ws: Any  # a WebSocket, or an SSH host's SshSocket
     capabilities: dict[str, Any]
     tags: list[str]
     max_concurrency: int
@@ -83,6 +83,10 @@ class AgentGateway:
         conn = self.connections.get(agent.id)
         out.connected = conn is not None
         out.running_jobs = len(conn.running) if conn else 0
+        from .ssh import ssh_hosts
+
+        link = ssh_hosts.by_agent(agent.id)
+        out.ssh_host_id = link.host_id if link else None
         return out
 
     async def _publish_agent(self, agent: m.Agent) -> None:
@@ -138,11 +142,13 @@ class AgentGateway:
                 await asyncio.shield(self._unregister(conn))
 
     async def _register(
-        self, ws: WebSocket, hello: dict[str, Any], token_id: uuid.UUID | None = None
+        self, ws: Any, hello: dict[str, Any], token_id: uuid.UUID | None = None,
+        ssh_agent_id: uuid.UUID | None = None,
     ) -> AgentConnection:
         """Find or create the agent record. With a token, the token decides which agent
         this is (binding it on first use); with the shared secret, the name does, unless
-        that agent has a token of its own."""
+        that agent has a token of its own. An SSH host (orchestrator/ssh.py) is its own
+        agent record, which no connecting agent can claim."""
         name = str(hello.get("name") or hello.get("hostname") or uuid.uuid4().hex[:8])
         async with SessionLocal() as db:
             by_name = (
@@ -150,7 +156,11 @@ class AgentGateway:
             ).scalar_one_or_none()
             token = await db.get(m.AgentToken, token_id) if token_id else None
             enrolled = False
-            if token is not None and token.agent_id is not None:
+            if ssh_agent_id is not None:
+                agent = await db.get(m.Agent, ssh_agent_id)
+                if agent is None:
+                    raise RegisterError("the SSH host's agent no longer exists")
+            elif token is not None and token.agent_id is not None:
                 agent = await db.get(m.Agent, token.agent_id)
                 if agent is None:  # pragma: no cover - the FK cascades
                     raise RegisterError("the token's agent no longer exists")
@@ -171,6 +181,8 @@ class AgentGateway:
                     token.agent_id = agent.id
                     agent.tags = sorted(set(agent.tags or []) | set(token.tags or []))
                     enrolled = True
+            if ssh_agent_id is None and await db.scalar(select(m.SshHost.id).where(m.SshHost.agent_id == agent.id)):
+                raise RegisterError(f"{agent.name} is an SSH host that Castor connects to; give this agent another --name")
             if token is not None:
                 agent_tokens.touch(token)
             agent.hostname = str(hello.get("hostname", ""))
@@ -178,9 +190,10 @@ class AgentGateway:
             agent.username = str(hello.get("username", ""))
             agent.version = str(hello.get("version", ""))
             agent.capabilities = hello.get("capabilities") or {}
-            incoming_tags = hello.get("tags") or []
-            agent.tags = sorted(set(agent.tags or []) | set(incoming_tags))
-            agent.max_concurrency = int(hello.get("max_concurrency") or 1)
+            if ssh_agent_id is None:  # an SSH host's tags and slots are set in Castor only
+                incoming_tags = hello.get("tags") or []
+                agent.tags = sorted(set(agent.tags or []) | set(incoming_tags))
+                agent.max_concurrency = int(hello.get("max_concurrency") or 1)
             agent.status = m.AgentStatus.idle
             agent.last_seen_at = utcnow()
             await db.flush()

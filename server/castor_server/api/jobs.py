@@ -3,22 +3,18 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-import aiofiles
 from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse
-from sqlalchemy import func, select
+from sqlalchemy import select
 
+from .. import artifacts
 from .. import models as m
 from ..access import job_or_404, visible_project_ids
 from ..artifacts import token_matches
-from ..config import settings
 from ..deps import DB, CurrentUser, parse_uuid
-from ..events import bus
 from ..orchestrator.dispatcher import dispatcher
 from ..outputs import parse_job
 from ..schemas import AttachmentOut, JobDetail, JobOut, JobOutputOut, LogChunkOut
-from ..services import publish_task, utcnow
-from .attachments import _safe_name
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -125,53 +121,12 @@ async def upload_artifact(
     # Same answer for an unknown job and a bad token, so the endpoint can't probe job ids.
     if job is None or not token_matches(x_castor_job_token, job.artifact_token_hash):
         raise HTTPException(401, "Invalid job or upload token")
-    window_closed = (
-        job.status.is_terminal
-        and job.finished_at is not None
-        and (utcnow() - job.finished_at).total_seconds() > settings.artifact_upload_window_s
-    )
-    if window_closed:
-        raise HTTPException(410, "The upload window for this job has closed")
-    count = (
-        await db.execute(select(func.count()).where(m.Attachment.job_id == job.id))
-    ).scalar_one()
-    if count >= settings.artifact_max_files:
-        raise HTTPException(413, f"A job can keep at most {settings.artifact_max_files} files")
-    task = await db.get(m.Task, job.task_id)
-    if task is None:
-        raise HTTPException(410, "The card for this job no longer exists")
 
-    display_name = (path or file.filename or "artifact").lstrip("/")[:255]
-    attachment_id = uuid.uuid4()
-    directory = settings.uploads_dir / str(task.project_id) / "artifacts" / str(job.id)
-    directory.mkdir(parents=True, exist_ok=True)
-    target = directory / f"{attachment_id}-{_safe_name(display_name)}"
-    size = 0
+    async def chunks():
+        while chunk := await file.read(1024 * 1024):
+            yield chunk
+
     try:
-        async with aiofiles.open(target, "wb") as out:
-            while chunk := await file.read(1024 * 1024):
-                size += len(chunk)
-                if size > settings.artifact_max_bytes:
-                    raise HTTPException(413, "File is larger than the artifact size limit")
-                await out.write(chunk)
-    except HTTPException:
-        target.unlink(missing_ok=True)
-        raise
-
-    attachment = m.Attachment(
-        id=attachment_id,
-        project_id=task.project_id,
-        task_id=task.id,
-        job_id=job.id,
-        kind="artifact",
-        filename=display_name,
-        content_type=file.content_type or "application/octet-stream",
-        size=size,
-        storage_path=str(target.relative_to(settings.data_dir)),
-    )
-    db.add(attachment)
-    await db.commit()
-    out = AttachmentOut.model_validate(attachment)
-    bus.publish("attachment.created", task.project_id, out)
-    await publish_task(db, task)
-    return out
+        return await artifacts.store(db, job, path or file.filename or "artifact", file.content_type, chunks())
+    except artifacts.ArtifactRefused as exc:
+        raise HTTPException(exc.status, str(exc)) from exc

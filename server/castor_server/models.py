@@ -446,6 +446,34 @@ class Agent(Base, TimestampMixin):
     jobs: Mapped[list[Job]] = relationship(back_populates="agent")
 
 
+class SshHost(Base, TimestampMixin):
+    """A host Castor reaches over SSH and runs jobs on, as an agent (orchestrator/ssh.py).
+    Its Agent row holds the name, tags and concurrency like any agent's; this holds how to
+    connect. The private key is a vault token; the host key is trusted on first use."""
+
+    __tablename__ = "ssh_hosts"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id", ondelete="CASCADE"), unique=True)
+    host: Mapped[str] = mapped_column(String(255))
+    port: Mapped[int] = mapped_column(Integer, default=22)
+    username: Mapped[str] = mapped_column(String(128))
+    private_key: Mapped[str] = mapped_column(Text)  # vault token of the OpenSSH private key
+    public_key: Mapped[str] = mapped_column(Text, default="")
+    # The host's key ("ssh-ed25519 AAAA…"), recorded on the first connection; a different
+    # key later is kept in host_key_pending until an admin accepts it.
+    host_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    host_key_pending: Mapped[str | None] = mapped_column(Text, nullable=True)
+    workdir: Mapped[str] = mapped_column(String(500), default="castor-jobs")  # relative: under the home directory
+    network: Mapped[str] = mapped_column(String(64), default="host")
+    allow_host: Mapped[bool] = mapped_column(Boolean, default=True)
+    allow_host_install: Mapped[bool] = mapped_column(Boolean, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    agent: Mapped[Agent] = relationship()
+
+
 class Job(Base):
     __tablename__ = "jobs"
 
