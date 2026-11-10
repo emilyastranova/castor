@@ -14,7 +14,8 @@
 		projectId = null,
 		class: klass = '',
 		hashtags,
-		activeTag = null
+		activeTag = null,
+		room = false
 	}: {
 		text: string;
 		projectId?: string | null;
@@ -23,6 +24,8 @@
 		hashtags?: (tag: string) => string;
 		/** The hashtag being filtered by, shown as chosen. */
 		activeTag?: string | null;
+		/** Keep the corner under a companion's legs clear: the text wraps around it. */
+		room?: boolean;
 	} = $props();
 
 	let root = $state<HTMLDivElement>();
@@ -68,5 +71,6 @@
 		if (chip && !chip.contains(e.relatedTarget as Node | null)) hideMentionTip();
 	}}
 >
+	{#if room}<span class="companion-room" aria-hidden="true"></span>{/if}
 	{@html html}
 </div>

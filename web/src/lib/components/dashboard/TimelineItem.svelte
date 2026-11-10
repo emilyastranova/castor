@@ -56,6 +56,8 @@
 	/** Where the entry goes: the comment, run, file, card or item it's about (the server's link_for). */
 	let link = $derived(item.link ?? null);
 	let editing = $state(false); // a post being edited in place
+	/** The companion picture's width over its height (the built-in one's until it loads). */
+	let aspect = $state(303 / 440);
 	/** A post is already in full on its own project's Home; elsewhere it opens there. */
 	let here = $derived(!!item.post && page.url.pathname === `/projects/${item.project?.id}/dashboard`);
 	let clickable = $derived(!!link && !here && !editing);
@@ -99,7 +101,7 @@
 	const secs = (s: number) => (s < 60 ? `${Math.round(s)}s` : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`);
 </script>
 
-<div class="relative flex gap-3 pb-5 {perched ? 'perch-room' : ''}">
+<div class="relative flex gap-3 pb-5 {perched ? 'perch-room' : ''}" style:--companion-seat={perched ? (me()?.companion_seat ?? 0.605) : undefined} style:--companion-aspect={perched ? aspect : undefined}>
 	<!-- the rail of the timeline -->
 	{#if perched}
 		<!-- With room above for her, the line runs down to the avatar and on from under it. -->
@@ -126,7 +128,7 @@
 		onclick={open}
 		onauxclick={(e) => e.button === 1 && open(e)}
 	>
-		<div class="flex flex-wrap items-baseline gap-x-2 body-small text-on-surface-variant">
+		<div class="flex flex-wrap items-baseline gap-x-2 body-small text-on-surface-variant {perched ? 'perch-head' : ''}">
 			{#if item.actor.username}
 				<a href="/people/{item.actor.username}" class="label-large text-on-surface hover:underline"><PersonName name={item.actor.name} /></a>
 			{:else}
@@ -166,10 +168,26 @@
 		{:else if item.kind === 'comment' && item.comment}
 			{@const forMe = !!myId && item.comment.mentions?.includes(myId)}
 			<div class="relative">
-				<RichText text={item.comment.body} projectId={item.project?.id} class="mt-1.5 line-clamp-6 rounded-md bg-surface-container px-3.5 py-2.5 body-medium text-on-surface {forMe ? 'mentions-me quiet' : ''}" />
+				<!-- Perched: the words wrap around the corner under the legs (a float, which line-clamp's
+				     box layout would ignore, so that comment is clamped by height instead). -->
+				<RichText
+					text={item.comment.body}
+					projectId={item.project?.id}
+					room={perched}
+					class="mt-1.5 rounded-md bg-surface-container px-3.5 py-2.5 body-medium text-on-surface {perched ? 'max-h-[10.5rem] overflow-hidden' : 'line-clamp-6'} {forMe ? 'mentions-me quiet' : ''}"
+				/>
 				{#if perched}
-					<!-- She sits on the newest comment, legs over its front edge. -->
-					<img src={me()?.companion_url ?? '/companion/sitting.webp'} alt="" aria-hidden="true" class="companion" style:--seat={me()?.companion_seat ?? 0.605} />
+					<!-- The companion sits on the newest comment, legs over its front edge. -->
+					<img
+						src={me()?.companion_url ?? '/companion/sitting.webp'}
+						alt=""
+						aria-hidden="true"
+						class="companion"
+						onload={(e) => {
+							const img = e.currentTarget as HTMLImageElement;
+							if (img.naturalHeight) aspect = img.naturalWidth / img.naturalHeight;
+						}}
+					/>
 				{/if}
 			</div>
 		{:else if item.kind === 'job' && item.job}
@@ -209,13 +227,17 @@
 	.rail-below {
 		top: calc(var(--room) + 2.5rem); /* under the 40px avatar */
 	}
+	/* One set of measures for the companion and the room kept for its legs (app.css .companion-room). */
+	.perch-room {
+		--companion-h: 150px;
+		--companion-right: 5.5rem;
+	}
 	.companion {
-		--h: 150px;
 		position: absolute;
 		z-index: 5;
-		top: calc(1px - var(--h) * var(--seat, 0.605)); /* the comment's top margin collapses through its wrapper */
-		right: 5.5rem;
-		height: var(--h);
+		top: calc(1px - var(--companion-h) * var(--companion-seat)); /* the comment's top margin collapses through its wrapper */
+		right: var(--companion-right);
+		height: var(--companion-h);
 		width: auto;
 		pointer-events: none;
 		user-select: none;
@@ -225,9 +247,14 @@
 		.perch-room {
 			--room: 3.25rem;
 		}
-		.companion {
-			--h: 116px;
-			right: 3.5rem;
+		.perch-room {
+			--companion-h: 116px;
+			--companion-right: 3.5rem;
+		}
+		/* On a phone the entry's header runs the full width, up into the companion's body: it
+		   stops short of them instead (on wider screens it never reaches them). */
+		.perch-head {
+			padding-right: calc(var(--companion-right) + var(--companion-h) * var(--companion-aspect) + 0.25rem);
 		}
 	}
 </style>

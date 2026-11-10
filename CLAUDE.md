@@ -353,7 +353,9 @@ dependency; keep it that way so the agent stays trivially installable on target 
   `web/static/companion/sitting.webp` (seat line 60.5% down, `avatars.DEFAULT_SEAT`); people can upload their
   own (`/api/auth/me/companion`, session only, stored like avatars in `<data_dir>/companions`) and set
   `companion_seat` with a live preview (`CompanionSetup.svelte`); the template is
-  `web/static/companion/template.png` (600×880, seat line at 532 px). Decorative, never takes clicks.
+  `web/static/companion/template.png` (600×880, seat line at 532 px). Decorative, never takes clicks; the
+  comment's text wraps around a float under the legs (`RichText` `room`, `.companion-room` in app.css, sized
+  from the `--companion-*` variables `TimelineItem` sets), so it never covers words.
   Timeline exports: `report.py` (self-contained HTML; markdown via markdown-it + nh3; only this project's
   attachments and uploaded avatars embedded, anything else stays a link) and `api/exports.py`
   (`GET /api/projects/{id}/timeline/export`, the feed's `select_events` plus a date range; PDF by WeasyPrint

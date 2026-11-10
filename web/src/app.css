@@ -400,6 +400,15 @@ pre:hover > .code-copy,
 		transition: none;
 	}
 }
+/* The corner of the newest comment under the companion's legs (TimelineItem .perch sets the
+   variables from the picture): the comment's words wrap around it instead of running under them. */
+.companion-room {
+	float: right;
+	width: calc(var(--companion-h) * var(--companion-aspect) + 0.5rem);
+	height: calc(var(--companion-h) * (1 - var(--companion-seat)) - 0.3rem);
+	margin-right: calc(var(--companion-right) - 0.875rem - 0.25rem);
+}
+
 /* A #hashtag in a timeline post (lib/hashtags.ts): a link to the posts that share it. */
 .hashtag {
 	border-radius: 9999px;
