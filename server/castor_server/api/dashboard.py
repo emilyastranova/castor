@@ -109,18 +109,45 @@ async def feed(
     tag: str | None = None,
 ):
     """`tag` (a #hashtag, with or without #): only the posts that use it, whatever the kinds."""
+    limit = max(1, min(limit, 100))
+    events = await select_events(db, user, project_id, kinds=kinds, actor=actor, mine=mine, before=before, limit=limit, tag=tag)
+    return FeedOut(items=await _enrich(db, events), next_before=events[-1].id if len(events) == limit else None)
+
+
+async def select_events(
+    db: DB,
+    user: m.User,
+    project_id: str | None,
+    *,
+    kinds: str | None = None,
+    actor: str | None = None,
+    mine: bool = False,
+    before: int | None = None,
+    limit: int = 40,
+    tag: str | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+) -> list[m.ActivityEvent]:
+    """The timeline's events, newest first, as the user may see them with these filters (the
+    feed pages through them; the timeline export takes a date range)."""
     scope = await _scope(db, user, project_id)
     my_tasks, mentioning = await _mine(db, user, scope) if mine else (set(), set())
     wanted = {k for k in (kinds or "").split(",") if k} or None
     query = select(m.ActivityEvent).where(m.ActivityEvent.type.not_in(HIDDEN_TYPES)).order_by(m.ActivityEvent.id.desc())
     if project_id:
-        # The library is shared, so a project's feed shows its changes too.
+        # The library is shared, so a project's feed shows its changes too. Its own exports are
+        # kept out (the activity log has them), or each export would land in the next.
         query = query.where(m.ActivityEvent.project_id.in_(scope)
                             | (m.ActivityEvent.project_id.is_(None) & m.ActivityEvent.type.like("library.%")))
+        query = query.where(m.ActivityEvent.type != "transfer.timeline")
     elif scope is not None:
         query = query.where(m.ActivityEvent.project_id.is_(None) | m.ActivityEvent.project_id.in_(scope))
     if before:
         query = query.where(m.ActivityEvent.id < before)
+    if since:
+        query = query.where(m.ActivityEvent.created_at >= since)
+    if until:
+        query = query.where(m.ActivityEvent.created_at < until)
     tagged_posts: set[str] | None = None
     if tag:
         from .posts import tagged
@@ -133,7 +160,6 @@ async def feed(
         query = query.where(m.ActivityEvent.actor_id == actor)
 
     # Kinds are derived from types, so filter while reading, in batches.
-    limit = max(1, min(limit, 100))
     events: list[m.ActivityEvent] = []
     cursor_done = False
     offset = 0
@@ -154,7 +180,7 @@ async def feed(
             events.append(e)
             if len(events) == limit:
                 break
-    return FeedOut(items=await _enrich(db, events), next_before=events[-1].id if len(events) == limit else None)
+    return events
 
 
 async def _mine(db: DB, user: m.User, scope: set[uuid.UUID] | None) -> tuple[set[uuid.UUID], set[str]]:
@@ -247,7 +273,8 @@ def link_for(e: m.ActivityEvent, payload: dict, *, task: m.Task | None, has_comm
     return None
 
 
-async def _enrich(db: DB, events: list[m.ActivityEvent]) -> list[FeedItem]:
+async def _enrich(db: DB, events: list[m.ActivityEvent], *, full: bool = False) -> list[FeedItem]:
+    """`full`: comments' whole text (the feed shows the start of a long one)."""
     project_ids = {e.project_id for e in events if e.project_id}
     task_ids = {e.task_id for e in events if e.task_id}
     user_ids = {uuid.UUID(e.actor_id) for e in events if e.actor_type == "user" and e.actor_id and _is_uuid(e.actor_id)}
@@ -315,7 +342,7 @@ async def _enrich(db: DB, events: list[m.ActivityEvent]) -> list[FeedItem]:
             body = comment.body
             item.comment = {
                 "id": str(comment.id),
-                "body": body[:800] + ("…" if len(body) > 800 else ""),
+                "body": body if full else body[:800] + ("…" if len(body) > 800 else ""),
                 "edited": comment.edited_at is not None,
                 "mentions": list(comment.mentions or []),
             }
@@ -333,7 +360,7 @@ async def _enrich(db: DB, events: list[m.ActivityEvent]) -> list[FeedItem]:
                 "exit_code": job.exit_code,
                 "seconds": (job.finished_at - job.started_at).total_seconds() if job.started_at and job.finished_at else None,
                 "agent": agent.name if agent else None,
-                "command": job.command[:300],
+                "command": (job.command[:4000] + ("…" if len(job.command) > 4000 else "")) if full else job.command[:300],
             }
         out.append(item)
     return out

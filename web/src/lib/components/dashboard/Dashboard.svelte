@@ -9,6 +9,8 @@
 	import { page } from '$app/state';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import PostComposer from './PostComposer.svelte';
+	import ExportTimelineDialog from './ExportTimelineDialog.svelte';
+	import { ALL_KINDS, WORK } from './kinds';
 	import { fade } from 'svelte/transition';
 	import TimelineItem from './TimelineItem.svelte';
 	import ProjectNotes from './ProjectNotes.svelte';
@@ -23,23 +25,7 @@
 	let { projectId }: Props = $props();
 	let scope = $derived(projectId);
 
-	const ALL_KINDS: { kind: FeedKind; label: string; icon: string }[] = [
-		{ kind: 'comment', label: 'Comments', icon: 'chat_bubble' },
-		{ kind: 'job', label: 'Jobs', icon: 'terminal' },
-		{ kind: 'card', label: 'Cards', icon: 'note_stack_add' },
-		{ kind: 'move', label: 'Moves', icon: 'move_item' },
-		{ kind: 'board', label: 'Board', icon: 'view_kanban' },
-		{ kind: 'playbook', label: 'Playbooks', icon: 'account_tree' },
-		{ kind: 'library', label: 'Library', icon: 'construction' },
-		{ kind: 'file', label: 'Files', icon: 'attach_file' },
-		{ kind: 'note', label: 'Notes', icon: 'push_pin' },
-		{ kind: 'asset', label: 'Assets', icon: 'radar' },
-		{ kind: 'agent', label: 'Agents', icon: 'dns' },
-		{ kind: 'admin', label: 'Admin', icon: 'shield_person' }
-	];
 	let kindOptions = $derived(ALL_KINDS.filter((k) => k.kind !== 'admin' || isAdmin()));
-	/** What the timeline shows by default: the work, not note edits, agent connections or admin. */
-	const WORK: FeedKind[] = ['comment', 'job', 'card', 'playbook', 'library', 'file', 'asset'];
 	let kinds = $state<Set<FeedKind>>(new Set(WORK));
 	/** "Mine": only what's about you (your cards, mentions, replies). */
 	let mine = $state(false);
@@ -103,6 +89,8 @@
 		void projectId;
 		void loadPostTags();
 	});
+
+	let exportOpen = $state(false);
 
 	let summary = $state<DashboardSummary | null>(null);
 	let items = $state<FeedItem[]>([]);
@@ -438,6 +426,14 @@
 				{:else}
 					<button type="button" class="touch-target shrink-0 label-medium whitespace-nowrap text-primary hover:underline" onclick={() => setKinds(new Set(WORK))}>Just the work</button>
 				{/if}
+				<button
+					type="button"
+					class="state-layer touch-target ml-auto flex shrink-0 items-center gap-1 rounded-full border border-outline-variant px-2.5 py-1 label-medium whitespace-nowrap text-on-surface-variant"
+					title="Export this timeline as a PDF or HTML file"
+					onclick={() => (exportOpen = true)}
+				>
+					<Icon name="download" size={14} />Export
+				</button>
 			</div>
 			{#if canEdit()}
 				<div class="mb-3"><PostComposer {projectId} onsubmit={post} /></div>
@@ -568,3 +564,5 @@
 		</aside>
 	</div>
 </div>
+
+<ExportTimelineDialog bind:open={exportOpen} {projectId} {kinds} {mine} {tag} />

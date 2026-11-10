@@ -627,6 +627,13 @@ item or the page, or none when it's gone, and clicking an entry goes there); adm
 `POST /api/notes/{id}/restore/{index}`, `POST /api/projects/{id}/notes/order`); every edit
 keeps the previous version. Images pasted into a note are project attachments without a card
 (`POST /api/projects/{id}/attachments`).
+**Timeline exports** (`report.py`, `api/exports.py`): `GET /api/projects/{id}/timeline/export?format=html|pdf`
+with the feed's filters (`kinds`, `mine`, `tag`) plus `since`/`until` (dates, inclusive), `tz` and `order` (newest or oldest first). It selects with
+`dashboard.select_events` (at most 5,000, newest first, sorted by when they happened) and `_enrich(full=True)`,
+renders one self-contained HTML document (markdown through markdown-it and nh3; this project's image
+attachments and uploaded avatars embedded as data URIs, any other image a link), and for PDF hands that HTML to
+WeasyPrint with a fetcher that allows only `data:` (`report.no_fetch`), off the event loop. Each export records
+`transfer.timeline` (kept off the project's own feed). The server image installs Pango and fonts for it.
 **Moving writing** (`api/moves.py`): `POST /api/tasks/{id}/comments/{cid}/move` (`to_task_id` a card of the
 same project, or null for the timeline) and `POST /api/posts/{id}/move` (onto a card). The author or an admin
 moves; author, text, mentions, time, edited and `via` come along. Card to card keeps the comment's row

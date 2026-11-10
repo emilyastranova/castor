@@ -350,7 +350,12 @@ dependency; keep it that way so the agent stays trivially installable on target 
   `MoveWritingDialog.svelte`); feed entries follow a comment to its current card.
   The Companion sits on the newest comment in Home's timeline for people who turn her on (`users.companion`,
   off by default, a switch in the account dialog; `TimelineItem` `perched`, picture
-  `web/static/companion/sitting.webp`, seat line 60.5% down; decorative, never takes clicks). `#hashtags` are `posts.hashtags` on the server and
+  `web/static/companion/sitting.webp`, seat line 60.5% down; decorative, never takes clicks).
+  Timeline exports: `report.py` (self-contained HTML; markdown via markdown-it + nh3; only this project's
+  attachments and uploaded avatars embedded, anything else stays a link) and `api/exports.py`
+  (`GET /api/projects/{id}/timeline/export`, the feed's `select_events` plus a date range; PDF by WeasyPrint
+  with `report.no_fetch()`, so rendering never fetches a URL; Pango and fonts in the server Dockerfile). Web:
+  `dashboard/ExportTimelineDialog.svelte`, kinds shared with Home in `dashboard/kinds.ts`. `#hashtags` are `posts.hashtags` on the server and
   `lib/hashtags.ts` in the browser: keep the two rules the same. Home filters by `?tag=`.
   A project dashboard starts with `ProjectNotes.svelte` (pinned notes, `api/notes.py`; edits
   keep earlier versions in `project_notes.history`). Pasting images into markdown boxes

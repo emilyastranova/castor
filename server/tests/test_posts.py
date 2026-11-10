@@ -207,3 +207,47 @@ def test_an_admin_deletes_an_account(client, auth):
     assert comment["body"] == "my two cents" and comment["author_name"] == "Deleted user" and comment["author_id"] is None
     assert any(a["type"] == "user.deleted" for a in client.get("/api/activity?limit=20", headers=auth).json())
     client.delete(f"/api/users/{other_admin['id']}", headers=auth)
+
+
+def test_exporting_the_timeline(client, auth):
+    import base64 as b64
+
+    p = _project(client, auth)
+    other = _project(client, auth)
+    card = client.post(f"/api/projects/{p['id']}/tasks", json={"title": "Recon card"}, headers=auth).json()
+    png = b64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=")
+    mine = client.post(f"/api/projects/{p['id']}/attachments", files={"file": ("shot.png", png, "image/png")}, headers=auth).json()
+    theirs = client.post(f"/api/projects/{other['id']}/attachments", files={"file": ("x.png", png, "image/png")}, headers=auth).json()
+    body = (f"Found **it** <script>alert(1)</script>\n\n![shot](/api/attachments/{mine['id']}/download?inline=true)\n\n"
+            f"![elsewhere](/api/attachments/{theirs['id']}/download)\n\n![remote](https://example.com/x.png)")
+    client.post(f"/api/tasks/{card['id']}/comments", json={"body": body}, headers=auth)
+    client.post(f"/api/projects/{p['id']}/posts", json={"body": "Kickoff #recon"}, headers=auth)
+
+    r = client.get(f"/api/projects/{p['id']}/timeline/export", params={"format": "html", "tz": "Europe/London"}, headers=auth)
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+    assert f'filename="{p["codename"]}-timeline-' in r.headers["content-disposition"]
+    doc = r.text
+    assert "<strong>it</strong>" in doc and "Recon card" in doc and "Kickoff #recon" in doc
+    assert "<script>" not in doc and "alert(1)" in doc  # shown as text, never run
+    assert doc.count("data:image/png;base64,") == 1  # this project's picture is embedded…
+    assert "Image: elsewhere" in doc  # …another project's isn't
+    assert 'href="https://example.com/x.png"' in doc and 'src="https://example.com' not in doc  # remote: a link, never loaded
+
+    oldest = client.get(f"/api/projects/{p['id']}/timeline/export", params={"order": "oldest"}, headers=auth).text
+    assert doc.index("Kickoff") < doc.index("Found") and oldest.index("Found") < oldest.index("Kickoff") and "oldest first" in oldest
+    only_posts = client.get(f"/api/projects/{p['id']}/timeline/export", params={"tag": "recon"}, headers=auth).text
+    assert "Kickoff" in only_posts and "Recon card" not in only_posts and "posts tagged #recon" in only_posts
+    jobs = client.get(f"/api/projects/{p['id']}/timeline/export", params={"kinds": "job"}, headers=auth).text
+    assert "Kickoff" not in jobs and "Nothing on the timeline" in jobs
+    past = client.get(f"/api/projects/{p['id']}/timeline/export", params={"until": "2020-01-01"}, headers=auth).text
+    assert "Nothing on the timeline" in past
+
+    pdf = client.get(f"/api/projects/{p['id']}/timeline/export", params={"format": "pdf"}, headers=auth)
+    assert pdf.status_code == 200 and pdf.content[:5] == b"%PDF-" and pdf.headers["content-type"] == "application/pdf"
+
+    assert client.get(f"/api/projects/{p['id']}/timeline/export", params={"since": "soon"}, headers=auth).status_code == 422
+    assert client.get(f"/api/projects/{p['id']}/timeline/export", params={"tz": "Mars/Base"}, headers=auth).status_code == 422
+    outsider, oh = _user(client, auth)
+    assert client.get(f"/api/projects/{p['id']}/timeline/export", headers=oh).status_code == 404
+    assert any(a["type"] == "transfer.timeline" for a in client.get(f"/api/projects/{p['id']}/activity", headers=auth).json())
+    assert not [i for i in _feed(client, auth, p["id"], kinds="admin,comment") if i["type"] == "transfer.timeline"]  # not on Home
