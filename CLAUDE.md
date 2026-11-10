@@ -347,7 +347,10 @@ dependency; keep it that way so the agent stays trivially installable on target 
   Posts (`api/posts.py`, `project_posts`) are comments on nothing in the timeline (`PostComposer.svelte`,
   rendered by `TimelineItem` from `FeedItem.post`). Comments and posts move (`api/moves.py`: card to card keeps
   the comment's id; post ⇄ comment converts with a backdated `created` activity; same project only;
-  `MoveWritingDialog.svelte`); feed entries follow a comment to its current card. `#hashtags` are `posts.hashtags` on the server and
+  `MoveWritingDialog.svelte`); feed entries follow a comment to its current card.
+  The Companion sits on the newest comment in Home's timeline for people who turn her on (`users.companion`,
+  off by default, a switch in the account dialog; `TimelineItem` `perched`, picture
+  `web/static/companion/sitting.webp`, seat line 60.5% down; decorative, never takes clicks). `#hashtags` are `posts.hashtags` on the server and
   `lib/hashtags.ts` in the browser: keep the two rules the same. Home filters by `?tag=`.
   A project dashboard starts with `ProjectNotes.svelte` (pinned notes, `api/notes.py`; edits
   keep earlier versions in `project_notes.history`). Pasting images into markdown boxes

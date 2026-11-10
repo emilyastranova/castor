@@ -2,7 +2,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import type { User } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
-	import { Button, Dialog, TextField } from '$lib/m3';
+	import { Button, Dialog, Switch, TextField } from '$lib/m3';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { ROLE_LABELS } from '$lib/session';
 	import AvatarEditor from './AvatarEditor.svelte';
@@ -14,6 +14,20 @@
 		user: User;
 	}
 	let { open = $bindable(false), user }: Props = $props();
+
+	// The Companion: saved as it's switched, like the theme colour.
+	// svelte-ignore state_referenced_locally
+	let companion = $state(!!user.companion);
+	async function setCompanion(on: boolean) {
+		companion = on;
+		try {
+			await api().auth.updateMe({ companion: on });
+			await invalidateAll();
+		} catch (err) {
+			companion = !on;
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not save that');
+		}
+	}
 
 	let name = $state('');
 	let current = $state('');
@@ -63,6 +77,13 @@
 			<p class="mb-2 label-large text-on-surface">Theme colour</p>
 			<ThemeColorPicker {user} />
 			<p class="mt-1.5 body-small text-on-surface-variant">The whole interface is coloured from it, in light and dark. Saved as you pick; only you see it.</p>
+		</div>
+		<div class="flex items-start gap-3 rounded-md bg-surface-container px-3 py-2.5">
+			<img src="/companion/sitting.webp" alt="" aria-hidden="true" class="h-14 w-auto shrink-0" />
+			<div class="min-w-0 flex-1">
+				<Switch checked={companion} label="Companion" onchange={setCompanion} />
+				<p class="mt-0.5 body-small text-on-surface-variant">Someone to keep you company: she sits on the newest comment in a project's timeline. Only you see her.</p>
+			</div>
 		</div>
 		<p class="mt-2 label-large text-on-surface">Change password</p>
 		<TextField label="Current password" type="password" bind:value={current} autocomplete="current-password" />

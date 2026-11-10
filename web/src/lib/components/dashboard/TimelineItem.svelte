@@ -18,10 +18,12 @@
 		item: FeedItem;
 		/** Show which project it's in (on the all-projects dashboard). */
 		showProject?: boolean;
+		/** The newest comment: she sits on it. */
+		perched?: boolean;
 		/** The hashtag the timeline is filtered by. */
 		activeTag?: string | null;
 	}
-	let { item, showProject = true, activeTag = null }: Props = $props();
+	let { item, showProject = true, activeTag = null, perched = false }: Props = $props();
 	/** A hashtag opens the project's timeline filtered by it. */
 	const tagLink = (tag: string) => `/projects/${item.project?.id}/dashboard?tag=${encodeURIComponent(tag)}`;
 	let myId = $derived(me()?.id);
@@ -97,9 +99,15 @@
 	const secs = (s: number) => (s < 60 ? `${Math.round(s)}s` : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`);
 </script>
 
-<div class="relative flex gap-3 pb-5">
+<div class="relative flex gap-3 pb-5 {perched ? 'perch-room' : ''}">
 	<!-- the rail of the timeline -->
-	<span class="absolute top-10 bottom-0 left-[19px] w-px bg-outline-variant/60" aria-hidden="true"></span>
+	{#if perched}
+		<!-- With room above for her, the line runs down to the avatar and on from under it. -->
+		<span class="rail-above absolute top-0 left-[19px] w-px bg-outline-variant/60" aria-hidden="true"></span>
+		<span class="rail-below absolute bottom-0 left-[19px] w-px bg-outline-variant/60" aria-hidden="true"></span>
+	{:else}
+		<span class="absolute top-10 bottom-0 left-[19px] w-px bg-outline-variant/60" aria-hidden="true"></span>
+	{/if}
 	{#if item.kind === 'comment' && item.actor.type === 'user'}
 		{#if item.actor.username}
 			<a href="/people/{item.actor.username}" class="shrink-0 rounded-full" aria-label="{item.actor.name}'s page"><Avatar name={item.actor.name} src={item.actor.avatar_url} size={40} tone="secondary" /></a>
@@ -157,7 +165,13 @@
 			{/if}
 		{:else if item.kind === 'comment' && item.comment}
 			{@const forMe = !!myId && item.comment.mentions?.includes(myId)}
-			<RichText text={item.comment.body} projectId={item.project?.id} class="mt-1.5 line-clamp-6 rounded-md bg-surface-container px-3.5 py-2.5 body-medium text-on-surface {forMe ? 'mentions-me quiet' : ''}" />
+			<div class="relative">
+				<RichText text={item.comment.body} projectId={item.project?.id} class="mt-1.5 line-clamp-6 rounded-md bg-surface-container px-3.5 py-2.5 body-medium text-on-surface {forMe ? 'mentions-me quiet' : ''}" />
+				{#if perched}
+					<!-- She sits on the newest comment, legs over its front edge. -->
+					<img src="/companion/sitting.webp" alt="" aria-hidden="true" class="companion" width="303" height="440" />
+				{/if}
+			</div>
 		{:else if item.kind === 'job' && item.job}
 			<div class="mt-1.5 flex flex-col gap-1.5 rounded-md border border-outline-variant/70 px-3.5 py-2.5">
 				<div class="flex flex-wrap items-center gap-x-3 gap-y-1 body-small">
@@ -181,3 +195,39 @@
 {#if moving && item.post && item.project}
 	<MoveWritingDialog bind:open={moving} projectId={item.project.id} what="post" onpick={movePost} />
 {/if}
+
+<style>
+	/* The newest comment makes room above it for her, and she sits on its top edge: the seat line
+	   in the picture (about 60% down, where her hand rests) lines up with the comment, so her legs hang over its front. */
+	.perch-room {
+		--room: 4.5rem;
+		padding-top: var(--room);
+	}
+	.rail-above {
+		height: var(--room);
+	}
+	.rail-below {
+		top: calc(var(--room) + 2.5rem); /* under the 40px avatar */
+	}
+	.companion {
+		--h: 150px;
+		position: absolute;
+		z-index: 5;
+		top: calc(1px - var(--h) * 0.605); /* the comment's top margin collapses through its wrapper */
+		right: 5.5rem;
+		height: var(--h);
+		width: auto;
+		pointer-events: none;
+		user-select: none;
+		filter: drop-shadow(0 2px 2px rgb(0 0 0 / 0.28));
+	}
+	@media (max-width: 640px) {
+		.perch-room {
+			--room: 3.25rem;
+		}
+		.companion {
+			--h: 116px;
+			right: 3.5rem;
+		}
+	}
+</style>

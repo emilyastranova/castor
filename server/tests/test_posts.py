@@ -177,3 +177,11 @@ def test_moving_comments_and_posts(client, auth):
     assert client.post(f"/api/tasks/{a['id']}/comments/{back['id']}/move", json={"to_task_id": elsewhere["id"]}, headers=auth).status_code == 422
     assert client.post(f"/api/tasks/{a['id']}/comments/{back['id']}/move", json={"to_task_id": b["id"]}, headers=bh).status_code == 403
     assert client.post(f"/api/tasks/{a['id']}/comments/{back['id']}/move", json={"to_task_id": a["id"]}, headers=auth).status_code == 422
+
+
+def test_the_companion_is_off_until_turned_on(client, auth):
+    user, h = _user(client, auth)
+    assert client.get("/api/auth/me", headers=h).json()["companion"] is False
+    assert client.patch("/api/auth/me", json={"companion": True}, headers=h).json()["companion"] is True
+    assert client.get("/api/auth/me", headers=h).json()["companion"] is True
+    assert client.get("/api/auth/me", headers=auth).json()["companion"] is False  # only theirs

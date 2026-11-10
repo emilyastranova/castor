@@ -41,6 +41,8 @@ class UserOut(ORM):
     has_upload: bool = False
     # Their theme colour (#rrggbb), or "" for the default palette.
     theme_seed: str = ""
+    # The Companion on their timelines (off by default).
+    companion: bool = False
 
 
 class UserBrief(ORM):
@@ -89,6 +91,7 @@ class PasswordChange(BaseModel):
 class ProfilePatch(BaseModel):
     display_name: str | None = Field(None, min_length=1, max_length=128)
     theme_seed: str | None = Field(None, pattern=r"^(#[0-9a-fA-F]{6})?$")
+    companion: bool | None = None
 
 
 class LoginResponse(BaseModel):

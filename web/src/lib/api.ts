@@ -26,6 +26,8 @@ export interface User {
 	has_upload: boolean;
 	/** Their theme colour (#rrggbb), or '' for the default palette. */
 	theme_seed: string;
+	/** The Companion on their timelines (off by default). */
+	companion?: boolean;
 }
 
 export type AvatarKind = 'initials' | 'upload' | 'url' | 'gravatar';
@@ -1127,7 +1129,7 @@ export function api(fetchFn: Fetch = fetch) {
 				post<{ token: string; user: User }>('/auth/login', { username, password }),
 			logout: () => post<void>('/auth/logout'),
 			me: () => get<User>('/auth/me'),
-			updateMe: (body: { display_name?: string; theme_seed?: string }) => patch<User>('/auth/me', body),
+			updateMe: (body: { display_name?: string; theme_seed?: string; companion?: boolean }) => patch<User>('/auth/me', body),
 			changePassword: (current_password: string, new_password: string) =>
 				post<void>('/auth/password', { current_password, new_password }),
 			/** What the sign-in page offers: providers to sign in with, and whether passwords work. */

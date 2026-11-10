@@ -21,6 +21,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    false,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -141,6 +142,8 @@ class User(Base, TimestampMixin):
     avatar_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     # Their Material You seed colour (#rrggbb); empty means the default palette.
     theme_seed: Mapped[str] = mapped_column(String(9), default="", server_default="")
+    # The Companion who sits on the newest comment in a timeline; off unless they turn her on.
+    companion: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
     @property
     def avatar_url(self) -> str | None:

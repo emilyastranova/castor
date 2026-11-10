@@ -106,6 +106,8 @@
 
 	let summary = $state<DashboardSummary | null>(null);
 	let items = $state<FeedItem[]>([]);
+	/** The newest comment on a card that's showing: the Companion sits on it, for people who turned her on. */
+	let perchId = $derived(!me()?.companion ? null : items.find((i) => i.kind === 'comment' && i.comment && i.type === 'comment.created')?.id ?? null);
 	let nextBefore = $state<number | null>(null);
 	let loadingMore = $state(false);
 	let loaded = $state(false);
@@ -467,7 +469,7 @@
 						<h3 class="sticky top-0 z-10 -mx-1 mb-2 bg-surface px-1 py-1 title-small text-on-surface-variant">{day.label}</h3>
 						<ol>
 							{#each day.items as item (item.id)}
-								<li id={item.post ? `post-${item.post.id}` : undefined} class="rounded-md" in:enter={{ enabled: liveFeed }} out:leave={{ enabled: liveFeed }}><TimelineItem {item} showProject={false} activeTag={tag} /></li>
+								<li id={item.post ? `post-${item.post.id}` : undefined} class="rounded-md" in:enter={{ enabled: liveFeed }} out:leave={{ enabled: liveFeed }}><TimelineItem {item} showProject={false} activeTag={tag} perched={item.id === perchId} /></li>
 							{/each}
 						</ol>
 					</div>
