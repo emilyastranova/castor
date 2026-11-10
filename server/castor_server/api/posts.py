@@ -60,7 +60,7 @@ class PostOut(BaseModel):
 def post_out(post: m.ProjectPost) -> PostOut:
     a = post.author
     return PostOut(
-        id=post.id, project_id=post.project_id, author_id=post.author_id, author_name=a.display_name if a else "unknown",
+        id=post.id, project_id=post.project_id, author_id=post.author_id, author_name=a.display_name if a else "Deleted user",
         author_avatar=a.avatar_url if a else None, body=post.body, mentions=list(post.mentions or []), tags=list(post.tags or []),
         created_at=post.created_at, edited_at=post.edited_at, via=post.via,
     )

@@ -16,6 +16,7 @@ from ..deps import DB, Admin, CurrentUser, parse_uuid
 from ..events import bus
 from ..models import utcnow
 from ..schemas import AvatarIn, PasswordChange, ProfilePatch, UserBrief, UserIn, UserOut, UserPatch
+from ..search import _text
 from ..security import hash_password, verify_password
 from ..services import actor_of, record_activity
 
@@ -117,6 +118,36 @@ async def update_user(user_id: str, body: UserPatch, db: DB, admin: Admin):
     await db.commit()
     bus.publish("user.changed", None, {"id": user.id}, ref=user.id)
     return UserOut.model_validate(user)
+
+
+@router.delete("/users/{user_id}", status_code=204)
+async def delete_user(user_id: str, db: DB, admin: Admin):
+    """Delete an account for good. Their sign-ins, API tokens, memberships and notifications go
+    with it; what they wrote and made stays (shown as by a deleted user), and they're taken off
+    the cards they were assigned to and the alerts they'd asked for. Disabling keeps their name
+    on their work instead."""
+    user = await db.get(m.User, parse_uuid(user_id))
+    if user is None:
+        raise HTTPException(404, "User not found")
+    if user.id == admin.id:
+        raise HTTPException(409, "You can't delete your own account; ask another admin")
+    if user.is_admin and user.disabled_at is None and await _admins_left(db, user.id) == 0:
+        raise HTTPException(409, "Castor needs at least one active admin")
+    uid = str(user.id)
+    for task in (await db.execute(select(m.Task).where(_text(m.Task.assignees).like(f"%{uid}%")
+                                                       | _text(m.Task.alerts).like(f"%{uid}%")))).scalars():
+        if uid in (task.assignees or []):
+            task.assignees = [a for a in task.assignees if a != uid]
+        if task.alerts and uid in [str(p) for p in task.alerts.get("people") or []]:
+            task.alerts = {**task.alerts, "people": [p for p in task.alerts["people"] if str(p) != uid]}
+    name, username, picture = user.display_name, user.username, user.avatar_file
+    await db.delete(user)
+    await record_activity(db, type="user.deleted", message=f"Deleted the account {username} ({name})", project_id=None,
+                          **actor_of(admin))
+    await db.commit()
+    avatars.remove(picture)
+    bus.publish("user.changed", None, {"id": uid, "deleted": True}, ref=uid)  # their open pages sign out
+    bus.publish("project.members", None, {"user_ids": [uid]})
 
 
 @router.patch("/auth/me", response_model=UserOut)

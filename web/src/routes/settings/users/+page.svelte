@@ -8,6 +8,7 @@
 	import { me, ROLE_LABELS } from '$lib/session';
 	import { invalidateAll } from '$app/navigation';
 	import AvatarEditor from '$lib/components/AvatarEditor.svelte';
+	import { confirmAction } from '$lib/confirm.svelte';
 
 	let { data } = $props();
 	// svelte-ignore state_referenced_locally
@@ -83,6 +84,29 @@
 	}
 	let self = $derived(me());
 	/** Editing the only active admin: role and disabling stay locked, so nobody's locked out. */
+	async function removeUser() {
+		const u = editing;
+		if (!u) return;
+		const ok = await confirmAction({
+			title: `Delete ${u.display_name}'s account?`,
+			message:
+				`@${u.username} can't sign in again, and their API tokens, single sign-on links, project memberships and notifications are removed. ` +
+				`Their comments, posts, cards and runs stay, shown as by a deleted user, and they're taken off the cards they were assigned to. This can't be undone.\n\n` +
+				`To keep their name on their work, disable the account instead.`,
+			confirmLabel: 'Delete account',
+			icon: 'person_remove'
+		});
+		if (!ok) return;
+		try {
+			await api().users.remove(u.id);
+			users = users.filter((x) => x.id !== u.id);
+			editing = null;
+			snackbar.show(`Deleted ${u.username}`);
+		} catch (err) {
+			error = err instanceof ApiError ? err.message : 'Could not delete the account';
+		}
+	}
+
 	let lastAdmin = $derived(
 		!!editing && editing.role === 'admin' && !editing.disabled_at && users.filter((u) => u.role === 'admin' && !u.disabled_at).length === 1
 	);
@@ -190,6 +214,9 @@
 		{#if error}<p class="body-small text-error">{error}</p>{/if}
 	</div>
 	{#snippet actions()}
+		{#if editing && editing.id !== me()?.id && !lastAdmin}
+			<Button variant="text" icon="person_remove" class="mr-auto text-error!" onclick={removeUser}>Delete account</Button>
+		{/if}
 		<Button variant="text" onclick={() => (editing = null)}>Cancel</Button>
 		<Button icon="check" loading={saving} disabled={!!edit.password && edit.password.length < 8} onclick={saveEdit}>Save</Button>
 	{/snippet}

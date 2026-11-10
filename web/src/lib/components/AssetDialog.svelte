@@ -196,7 +196,7 @@
 		<p class="py-6 body-medium text-on-surface-variant">Loading…</p>
 	{/if}
 	{#snippet actions()}
-		{#if asset && canEdit()}<Button variant="text" icon="delete" class="mr-auto text-error" onclick={remove}>Remove</Button>{/if}
+		{#if asset && canEdit()}<Button variant="text" icon="delete" class="mr-auto text-error!" onclick={remove}>Remove</Button>{/if}
 		<Button variant="text" onclick={() => (open = false)}>Close</Button>
 	{/snippet}
 </Dialog>

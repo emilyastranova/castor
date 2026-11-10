@@ -126,7 +126,7 @@
 		</ul>
 	</div>
 	{#snippet actions()}
-		{#if group}<Button variant="text" class="mr-auto text-error" onclick={remove}>Remove</Button>{/if}
+		{#if group}<Button variant="text" class="mr-auto text-error!" onclick={remove}>Remove</Button>{/if}
 		<Button variant="text" onclick={() => (open = false)}>Cancel</Button>
 		<Button icon={group ? 'save' : 'add'} loading={saving} disabled={!canSave} onclick={save}>{group ? 'Save' : 'Add group'}</Button>
 	{/snippet}

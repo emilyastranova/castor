@@ -420,7 +420,7 @@
 	</div>
 	{#snippet actions()}
 		{#if set && !oneOff}
-			<Button variant="text" icon="delete" class="mr-auto text-error" onclick={remove}>Delete</Button>
+			<Button variant="text" icon="delete" class="mr-auto text-error!" onclick={remove}>Delete</Button>
 		{/if}
 		<Button variant="text" onclick={() => (open = false)}>Cancel</Button>
 		<Button icon="check" loading={saving} disabled={(showLibraryFields && !name.trim()) || !kind} onclick={save}>

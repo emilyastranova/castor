@@ -1112,7 +1112,7 @@ steps:
 
 	{#snippet actions()}
 		{#if editing?.origin === 'user'}
-			<Button variant="text" class="text-error mr-auto" onclick={() => deletePlaybook(editing!)}>
+			<Button variant="text" class="text-error! mr-auto" onclick={() => deletePlaybook(editing!)}>
 				Delete
 			</Button>
 		{/if}

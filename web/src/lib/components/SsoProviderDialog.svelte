@@ -182,7 +182,7 @@
 		<Switch bind:checked={form.enabled} label="Offer it on the sign-in page" />
 	</div>
 	{#snippet actions()}
-		{#if provider}<Button variant="text" class="mr-auto text-error" onclick={remove}>Remove</Button>{/if}
+		{#if provider}<Button variant="text" class="mr-auto text-error!" onclick={remove}>Remove</Button>{/if}
 		<Button variant="text" onclick={() => (open = false)}>Cancel</Button>
 		<Button icon={provider ? 'save' : 'add'} loading={saving} disabled={!canSave} onclick={save}>{provider ? 'Save' : 'Add provider'}</Button>
 	{/snippet}

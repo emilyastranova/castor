@@ -706,7 +706,10 @@ projects, creates projects, edits the command/playbook/variable libraries, revea
 secrets), `admin` (also users, agents and agent tokens, deleting projects, and every
 project). `deps.Operator` / `deps.Admin` guard endpoints by role; there must always be one
 active admin. `users.disabled_at` blocks sign-in and existing sessions (checked on every
-request).
+request). `DELETE /api/users/{id}` (admins; not yourself, not the last active admin) deletes an account:
+the foreign keys cascade their tokens, sign-on links, memberships and notifications and null them out of
+everything else (comments and posts then show "Deleted user"); their id is taken out of card
+assignees and alert recipients, their uploaded picture removed, and `user.changed` closes their sockets.
 
 **Profile pictures** (`avatars.py`, `PUT /api/users/{id}/avatar`, `POST …/avatar/upload`):
 initials, an uploaded PNG/JPEG/WebP/GIF (≤ 2 MB, type checked from its bytes, no SVG,

@@ -205,7 +205,7 @@
 		{/if}
 	</div>
 	{#snippet actions()}
-		{#if channel}<Button variant="text" icon="delete" class="mr-auto text-error" onclick={remove}>Remove</Button>
+		{#if channel}<Button variant="text" icon="delete" class="mr-auto text-error!" onclick={remove}>Remove</Button>
 		{:else if kind}<Button variant="text" icon="arrow_back" class="mr-auto" onclick={() => (kind = '')}>Kinds</Button>{/if}
 		<Button variant="text" onclick={() => (open = false)}>Cancel</Button>
 		{#if kind}

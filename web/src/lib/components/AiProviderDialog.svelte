@@ -146,7 +146,7 @@
 		{/if}
 	</div>
 	{#snippet actions()}
-		{#if provider}<Button variant="text" icon="delete" class="mr-auto text-error" onclick={remove}>Remove</Button>
+		{#if provider}<Button variant="text" icon="delete" class="mr-auto text-error!" onclick={remove}>Remove</Button>
 		{:else if kind}<Button variant="text" icon="arrow_back" class="mr-auto" onclick={() => (kind = '')}>Kinds</Button>{/if}
 		<Button variant="text" onclick={() => (open = false)}>Cancel</Button>
 		{#if kind}<Button icon="check" loading={saving} disabled={missing} onclick={save}>{provider ? 'Save' : 'Add provider'}</Button>{/if}

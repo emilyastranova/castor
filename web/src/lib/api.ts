@@ -1157,6 +1157,8 @@ export function api(fetchFn: Fetch = fetch) {
 				post<User>('/users', body),
 			update: (id: UUID, body: { display_name?: string; role?: UserRole; disabled?: boolean; password?: string; email?: string }) =>
 				patch<User>(`/users/${id}`, body),
+			/** For good: their sign-ins, tokens and memberships go; their work stays, by a deleted user. */
+			remove: (id: UUID) => del(`/users/${id}`),
 			setAvatar: (id: UUID, body: { kind: AvatarKind; url?: string; gravatar_email?: string }) =>
 				request<User>(fetchFn, 'PUT', `/users/${id}/avatar`, body),
 			uploadAvatar: (id: UUID, file: File) => {

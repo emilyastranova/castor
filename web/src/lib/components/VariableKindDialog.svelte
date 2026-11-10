@@ -173,7 +173,7 @@
 	</div>
 	{#snippet actions()}
 		{#if kind && !readOnly}
-			<Button variant="text" icon="delete" class="mr-auto text-error" onclick={remove}>Delete</Button>
+			<Button variant="text" icon="delete" class="mr-auto text-error!" onclick={remove}>Delete</Button>
 		{/if}
 		{#if !readOnly && aiStatus.enabled}<Button variant="text" icon="auto_awesome" onclick={() => (aiOpen = true)}>AI</Button>{/if}
 		<Button variant="text" onclick={() => (open = false)}>{readOnly ? 'Close' : 'Cancel'}</Button>

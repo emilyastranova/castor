@@ -185,3 +185,25 @@ def test_the_companion_is_off_until_turned_on(client, auth):
     assert client.patch("/api/auth/me", json={"companion": True}, headers=h).json()["companion"] is True
     assert client.get("/api/auth/me", headers=h).json()["companion"] is True
     assert client.get("/api/auth/me", headers=auth).json()["companion"] is False  # only theirs
+
+
+def test_an_admin_deletes_an_account(client, auth):
+    p = _project(client, auth)
+    gone, gh = _user(client, auth)
+    client.put(f"/api/projects/{p['id']}/members", json=[gone["id"]], headers=auth)
+    card = client.post(f"/api/projects/{p['id']}/tasks", json={"title": "Theirs", "assignees": [gone["id"]]}, headers=auth).json()
+    client.post(f"/api/tasks/{card['id']}/comments", json={"body": "my two cents"}, headers=gh)
+    other_admin, ah = _user(client, auth, role="admin")
+
+    assert client.delete(f"/api/users/{gone['id']}", headers=gh).status_code == 403  # not an admin
+    assert client.delete(f"/api/users/{other_admin['id']}", headers=ah).status_code == 409  # not yourself
+    assert client.delete(f"/api/users/{gone['id']}", headers=auth).status_code == 204
+
+    assert client.get("/api/auth/me", headers=gh).status_code == 401  # signed out for good
+    assert client.get(f"/api/users/{gone['id']}", headers=auth).status_code in (404, 405)
+    after = client.get(f"/api/tasks/{card['id']}", headers=auth).json()
+    assert after["assignees"] == []
+    comment = client.get(f"/api/tasks/{card['id']}/comments", headers=auth).json()[0]
+    assert comment["body"] == "my two cents" and comment["author_name"] == "Deleted user" and comment["author_id"] is None
+    assert any(a["type"] == "user.deleted" for a in client.get("/api/activity?limit=20", headers=auth).json())
+    client.delete(f"/api/users/{other_admin['id']}", headers=auth)
