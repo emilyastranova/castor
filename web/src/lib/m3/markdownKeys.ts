@@ -54,13 +54,19 @@ export function markdownKeydown(e: KeyboardEvent & { currentTarget: HTMLTextArea
 	const edit = backtickEdit(el.value, start, end);
 	if (!edit) return false;
 	e.preventDefault();
+	applyEdit(el, edit);
+	return true;
+}
+
+/** Make an edit in a text box as if typed: it goes into the browser's undo history and fires
+ *  `input` (so bind:value follows); setRangeText is the fallback where insertText isn't supported. */
+export function applyEdit(el: HTMLTextAreaElement | HTMLInputElement, edit: Edit) {
+	el.focus();
 	el.setSelectionRange(edit.from, edit.to);
-	// insertText keeps the browser's undo history and fires `input` (so bind:value follows);
-	// setRangeText is the fallback where it isn't supported.
-	if (!document.execCommand?.('insertText', false, edit.insert)) {
+	const ok = edit.insert === '' && edit.from === edit.to ? true : document.execCommand?.(edit.insert ? 'insertText' : 'delete', false, edit.insert);
+	if (!ok) {
 		el.setRangeText(edit.insert, edit.from, edit.to, 'end');
 		el.dispatchEvent(new Event('input', { bubbles: true }));
 	}
 	el.setSelectionRange(...edit.select);
-	return true;
 }

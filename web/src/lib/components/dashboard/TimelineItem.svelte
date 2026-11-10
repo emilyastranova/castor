@@ -138,7 +138,7 @@
 
 		{#if item.post}
 			{#if editing}
-				<div class="mt-2"><PostComposer projectId={item.project?.id ?? ''} initial={item.post.body} label="Edit post" submitLabel="Save" autofocus onsubmit={savePost} oncancel={() => (editing = false)} /></div>
+				<div class="mt-2"><PostComposer projectId={item.project?.id ?? ''} initial={item.post.body} autofocus onsubmit={savePost} oncancel={() => (editing = false)} /></div>
 			{:else}
 				{@const forMe = !!myId && item.post.mentions.includes(myId)}
 				<RichText text={item.post.body} projectId={item.project?.id} hashtags={item.project ? tagLink : undefined} {activeTag} class="mt-1.5 rounded-md bg-surface-container px-3.5 py-2.5 body-medium text-on-surface {long && !expanded ? 'line-clamp-[12]' : ''} {forMe ? 'mentions-me quiet' : ''}" />

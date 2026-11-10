@@ -9,7 +9,7 @@
 	import { confirmAction } from '$lib/confirm.svelte';
 	import { renderMarkdown } from '$lib/markdown';
 	import { lightbox, openImagesIn } from '$lib/lightbox.svelte';
-	import { PastedImages, type DraftTarget } from '$lib/pastedImages.svelte';
+	import { PastedImages } from '$lib/pastedImages.svelte';
 	import { relativeTime, absoluteTime, bytes, duration } from '$lib/format';
 	import { Button, Chip, Dialog, Icon, IconButton, Menu, MenuItem, Select, Switch, Tabs, TextField, Avatar, TagInput } from '$lib/m3';
 	import StatusChip from './StatusChip.svelte';
@@ -26,9 +26,8 @@
 	import { aiStatus } from '$lib/ai.svelte';
 	import RunPlaybookDialog from './RunPlaybookDialog.svelte';
 	import AssigneePicker from './AssigneePicker.svelte';
-	import MentionMenu from './MentionMenu.svelte';
+	import MarkdownEditor from './MarkdownEditor.svelte';
 	import RichText from './RichText.svelte';
-	import { MentionSuggest } from '$lib/mentionSuggest.svelte';
 	import { people } from '$lib/people.svelte';
 	import { enter, leave, pop, glide } from '$lib/motion';
 	import CommandArgsForm from './CommandArgsForm.svelte';
@@ -343,6 +342,7 @@
 			newComment = '';
 		} catch (err) {
 			snackbar.error(err instanceof ApiError ? err.message : 'Could not post comment');
+			throw err; // the editor keeps the text
 		} finally {
 			posting = false;
 		}
@@ -355,13 +355,9 @@
 	let savingEdit = $state(false);
 	const canEdit = (c: Comment) => !!me && (c.author_id === me.id || me.is_admin);
 
-	async function startEdit(c: Comment) {
+	function startEdit(c: Comment) {
 		editingId = c.id;
 		editDraft = c.body;
-		await tick();
-		const box = document.getElementById(`comment-edit-${c.id}`) as HTMLTextAreaElement | null;
-		box?.focus();
-		box?.setSelectionRange(box.value.length, box.value.length);
 	}
 
 	async function removeComment(c: Comment) {
@@ -398,22 +394,12 @@
 			cancelEdit();
 		} catch (err) {
 			snackbar.error(err instanceof ApiError ? err.message : 'Could not save comment');
+			throw err;
 		} finally {
 			savingEdit = false;
 		}
 	}
 
-	function onEditKey(c: Comment, e: KeyboardEvent) {
-		if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-			e.preventDefault();
-			void saveEdit(c);
-		} else if (e.key === 'Escape') {
-			// Cancel the edit, not the whole card.
-			e.preventDefault();
-			e.stopPropagation();
-			cancelEdit();
-		}
-	}
 
 	// ---- images pasted into the comment box: named, uploaded as card attachments, embedded ----
 	const images = new PastedImages(async (file) => {
@@ -421,11 +407,6 @@
 		if (!attachments.some((x) => x.id === a.id)) attachments = [...attachments, a];
 		return api().attachments.url(a.id, true);
 	});
-	const newCommentTarget: DraftTarget = { get: () => newComment, set: (v) => (newComment = v) };
-	const editTarget: DraftTarget = { get: () => editDraft, set: (v) => (editDraft = v) };
-	// @mention suggestions: the people who can see this card's project.
-	const newSuggest = new MentionSuggest(() => people.mentionables(task.project_id), newCommentTarget);
-	const editSuggest = new MentionSuggest(() => people.mentionables(task.project_id), editTarget);
 
 	async function upload(files: FileList | File[] | null) {
 		if (!files || files.length === 0) return;
@@ -885,14 +866,17 @@
 			{:else if tab === 'comments'}
 				<div class="flex flex-col gap-4">
 					{#if editable}<div class="flex flex-col gap-2">
-						<div class="relative">
-							<TextField label="Add a comment" bind:value={newComment} multiline markdown rows={3} supporting="Markdown supported · Ctrl+Enter to post · @ to mention someone · paste an image to add it" oninput={newSuggest.oninput} onkeydown={(e) => newSuggest.onkeydown(e) || ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && postComment())} onblur={newSuggest.close} onpaste={images.pasteInto(newCommentTarget)} />
-							<MentionMenu suggest={newSuggest} />
-						</div>
-						<div class="flex items-center justify-end gap-3">
-							{#if images.uploading > 0}<span class="body-small text-on-surface-variant">Uploading image…</span>{/if}
-							<Button icon="send" loading={posting} onclick={postComment} disabled={!newComment.trim() || images.uploading > 0}>Comment</Button>
-						</div>
+						<MarkdownEditor
+							bind:value={newComment}
+							label="Add a comment"
+							projectId={task.project_id}
+							mentionables={() => people.mentionables(task.project_id)}
+							{images}
+							submitLabel="Comment"
+							onsubmit={postComment}
+							busy={posting}
+							draftKey="comment:{task.id}"
+						/>
 					</div>{/if}
 					{#each newestFirst as c (c.id)}
 						{@const authorName = people.user(task.project_id, c.author_id ?? '')?.username}
@@ -918,28 +902,21 @@
 									{#if canEdit(c)}<IconButton icon="delete" label="Delete comment" size="sm" onclick={() => removeComment(c)} />{/if}
 								</div>
 								{#if editingId === c.id}
-									<div class="mt-2 flex flex-col gap-2">
-										<div class="relative">
-											<TextField
-												id="comment-edit-{c.id}"
-												label="Edit comment"
-												bind:value={editDraft}
-												multiline
-												markdown
-												rows={4}
-												supporting="Ctrl+Enter to save · Esc to cancel · @ to mention · paste an image to add it"
-												oninput={editSuggest.oninput}
-												onkeydown={(e) => editSuggest.onkeydown(e) || onEditKey(c, e)}
-												onblur={editSuggest.close}
-												onpaste={images.pasteInto(editTarget)}
-											/>
-											<MentionMenu suggest={editSuggest} />
-										</div>
-										<div class="flex items-center justify-end gap-2">
-											{#if images.uploading > 0}<span class="body-small text-on-surface-variant">Uploading image…</span>{/if}
-											<Button variant="text" onclick={cancelEdit}>Cancel</Button>
-											<Button icon="check" loading={savingEdit} disabled={!editDraft.trim() || images.uploading > 0} onclick={() => saveEdit(c)}>Save</Button>
-										</div>
+									<div class="mt-2">
+										<MarkdownEditor
+											bind:value={editDraft}
+											label="Edit comment"
+											projectId={task.project_id}
+											mentionables={() => people.mentionables(task.project_id)}
+											{images}
+											submitLabel="Save"
+											submitIcon="check"
+											onsubmit={() => saveEdit(c)}
+											oncancel={cancelEdit}
+											busy={savingEdit}
+											autofocus
+											minRows={4}
+										/>
 									</div>
 								{:else}
 									<RichText text={c.body} projectId={task.project_id} class="mt-1 body-medium text-on-surface" />

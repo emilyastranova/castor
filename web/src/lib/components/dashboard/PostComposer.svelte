@@ -1,86 +1,69 @@
 <script lang="ts">
 	import { api, ApiError } from '$lib/api';
-	import { Button, TextField } from '$lib/m3';
-	import { MentionSuggest } from '$lib/mentionSuggest.svelte';
 	import { PastedImages } from '$lib/pastedImages.svelte';
 	import { people } from '$lib/people.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
-	import MentionMenu from '../MentionMenu.svelte';
+	import { me } from '$lib/session';
+	import { Avatar } from '$lib/m3';
+	import MarkdownEditor from '../MarkdownEditor.svelte';
 	import NameImageDialog from '../NameImageDialog.svelte';
 
-	/** Writing a post on a project's timeline (or editing one): markdown, @mentions, and
-	 *  pasted screenshots, which are stored on the project rather than on a card. */
+	/** Writing a post on a project's timeline (or editing one). Pasted, dropped or picked
+	 *  screenshots are stored on the project rather than on a card. */
 	interface Props {
 		projectId: string;
 		/** Editing: the post's text so far. */
 		initial?: string;
-		label?: string;
-		submitLabel?: string;
 		/** Save the text; throw to keep the box as it is. */
 		onsubmit: (body: string) => Promise<void>;
 		oncancel?: () => void;
 		autofocus?: boolean;
 	}
-	let { projectId, initial = '', label = 'Post to the timeline', submitLabel = 'Post', onsubmit, oncancel, autofocus = false }: Props = $props();
+	let { projectId, initial, onsubmit, oncancel, autofocus = false }: Props = $props();
+	let editing = $derived(initial !== undefined);
 
 	// svelte-ignore state_referenced_locally
-	let body = $state(initial);
+	let body = $state(initial ?? '');
 	let saving = $state(false);
-	const target = { get: () => body, set: (v: string) => (body = v) };
-	const suggest = new MentionSuggest(() => people.mentionables(projectId), target);
 	const images = new PastedImages(async (file) => api().attachments.url((await api().notes.uploadImage(projectId, file)).id, true));
 
-	let canSubmit = $derived(!!body.trim() && !saving && images.uploading === 0);
-
-	async function submit() {
-		if (!canSubmit) return;
+	async function submit(text: string) {
 		saving = true;
 		try {
-			await onsubmit(body);
-			body = '';
+			await onsubmit(text);
+			if (!editing) body = '';
 		} catch (err) {
 			snackbar.error(err instanceof ApiError ? err.message : "Couldn't save the post");
+			throw err;
 		} finally {
 			saving = false;
 		}
 	}
-	function keys(e: KeyboardEvent) {
-		if (suggest.onkeydown(e)) return;
-		if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-			e.preventDefault();
-			void submit();
-		} else if (e.key === 'Escape' && oncancel) {
-			e.preventDefault();
-			oncancel();
-		}
-	}
 </script>
 
-<div class="flex flex-col gap-2">
-	<div class="relative">
-		<TextField
-			{label}
-			bind:value={body}
-			multiline
-			markdown
-			rows={initial ? 4 : 2}
-			{autofocus}
-			supporting="Markdown · paste a screenshot to add it · @ to mention · Ctrl+Enter to {submitLabel.toLowerCase()}{oncancel ? ' · Esc to cancel' : ''}"
-			oninput={suggest.oninput}
-			onkeydown={keys}
-			onblur={suggest.close}
-			onpaste={images.pasteInto(target)}
-		/>
-		<MentionMenu {suggest} />
-	</div>
-	{#if body.trim() || oncancel || images.uploading > 0}
-		<div class="flex items-center justify-end gap-2">
-			{#if images.uploading > 0}<span class="mr-auto body-small text-on-surface-variant">Uploading image…</span>{/if}
-			{#if oncancel}<Button variant="text" onclick={oncancel}>Cancel</Button>{/if}
-			<Button icon={initial ? 'check' : 'send'} loading={saving} disabled={!canSubmit} onclick={submit}>{submitLabel}</Button>
-		</div>
-	{/if}
-</div>
+<MarkdownEditor
+	bind:value={body}
+	label={editing ? 'Edit post' : 'Post to the timeline'}
+	placeholder={editing ? undefined : 'Write a post for the timeline: notes, findings, screenshots…'}
+	{projectId}
+	mentionables={() => people.mentionables(projectId)}
+	{images}
+	submitLabel={editing ? 'Save' : 'Post'}
+	submitIcon={editing ? 'check' : 'send'}
+	onsubmit={submit}
+	{oncancel}
+	busy={saving}
+	collapsible={!editing}
+	{autofocus}
+	minRows={editing ? 4 : 3}
+	hashtags={(tag) => `/projects/${projectId}/dashboard?tag=${encodeURIComponent(tag)}`}
+	draftKey={editing ? undefined : `post:${projectId}`}
+>
+	{#snippet leading()}
+		{@const who = me()}
+		{#if who}<Avatar name={who.display_name} src={who.avatar_url} size={32} />{/if}
+	{/snippet}
+</MarkdownEditor>
 
 {#if images.pending[0]}
 	{#key images.pending[0]}

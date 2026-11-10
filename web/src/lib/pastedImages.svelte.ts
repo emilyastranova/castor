@@ -50,9 +50,16 @@ export class PastedImages {
 			if (!images.length) return;
 			e.preventDefault();
 			e.stopPropagation(); // don't also run a surrounding paste-to-attachments handler
-			const textarea = e.currentTarget;
-			this.pending = [...this.pending, ...images.map((file) => ({ file, textarea, target }))];
+			this.add(images, e.currentTarget, target);
 		};
+	}
+
+	/** Images from anywhere (dropped, picked from a file chooser): named, then inserted at the
+	 *  textarea's caret like pasted ones. Files that aren't images are left out. */
+	add(files: Iterable<File>, textarea: HTMLTextAreaElement, target: DraftTarget): number {
+		const images = Array.from(files).filter((f) => f.type.startsWith('image/'));
+		this.pending = [...this.pending, ...images.map((file) => ({ file, textarea, target }))];
+		return images.length;
 	}
 
 	async confirm(name: string) {
