@@ -330,6 +330,8 @@ TOOLS += [
     _auto("card_history", "GET", "/api/tasks/{task_id}/activity", "What happened to a card: moves, runs, edits, by whom."),
     _auto("list_attachments", "GET", "/api/tasks/{task_id}/attachments", "A card's files (uploads and job artifacts).", **_UNTRUSTED),
     _auto("delete_attachment", "DELETE", "/api/attachments/{attachment_id}", "Delete a file from a card.", **_DESTRUCTIVE),
+    _auto("move_comment", "POST", "/api/tasks/{task_id}/comments/{comment_id}/move",
+          "Move a comment to another card of the same project (to_task_id), or out to the project's timeline as a post (to_task_id null)."),
     _auto("edit_comment", "PATCH", "/api/tasks/{task_id}/comments/{comment_id}", "Change a comment's text."),
     _auto("delete_comment", "DELETE", "/api/tasks/{task_id}/comments/{comment_id}", "Delete a comment.", **_DESTRUCTIVE),
     # Jobs and results
@@ -369,6 +371,7 @@ TOOLS += [
     _auto("list_posts", "GET", "/api/projects/{project_id}/posts", "Posts on a project's timeline (its Home): notes not tied to a card, newest first; tag for one #hashtag."),
     _auto("list_post_tags", "GET", "/api/projects/{project_id}/post-tags", "The #hashtags a project's timeline posts use, most used first."),
     _auto("post_to_timeline", "POST", "/api/projects/{project_id}/posts", "Post to a project's timeline (markdown; @username or @group mentions notify people; #hashtags tag it). For notes and findings that don't belong to a card."),
+    _auto("move_post", "POST", "/api/posts/{post_id}/move", "Move a timeline post onto a card of the project (to_task_id), where it becomes a comment (author, text and time kept)."),
     _auto("edit_post", "PATCH", "/api/posts/{post_id}", "Change a timeline post's text."),
     _auto("delete_post", "DELETE", "/api/posts/{post_id}", "Delete a timeline post.", **_DESTRUCTIVE),
     _auto("reorder_notes", "POST", "/api/projects/{project_id}/notes/order", "Put a project's notes in this order."),

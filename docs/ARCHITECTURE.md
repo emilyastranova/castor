@@ -627,6 +627,13 @@ item or the page, or none when it's gone, and clicking an entry goes there); adm
 `POST /api/notes/{id}/restore/{index}`, `POST /api/projects/{id}/notes/order`); every edit
 keeps the previous version. Images pasted into a note are project attachments without a card
 (`POST /api/projects/{id}/attachments`).
+**Moving writing** (`api/moves.py`): `POST /api/tasks/{id}/comments/{cid}/move` (`to_task_id` a card of the
+same project, or null for the timeline) and `POST /api/posts/{id}/move` (onto a card). The author or an admin
+moves; author, text, mentions, time, edited and `via` come along. Card to card keeps the comment's row
+(feed entries follow it: `_enrich` takes a comment's current card); a conversion makes the other kind with
+a `created` activity backdated to when it was written, and `comment.moved` records the move (payload
+`moved_comment_id` / `moved_post_id`, not `comment_id`/`post_id`, so it isn't shown as the writing itself).
+Entries for a comment that no longer exists are dropped.
 **Posts** (`project_posts`, `api/posts.py`) are comments on nothing, written straight into the
 timeline from the composer above it: `GET/POST /api/projects/{id}/posts`, `PATCH/DELETE
 /api/posts/{id}` (operators post; the author or an admin changes one). Markdown, `@mentions`

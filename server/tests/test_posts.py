@@ -134,3 +134,46 @@ def test_timeline_entries_link_to_what_they_are_about(client, auth):
     # Once the card is gone, its entries don't lead anywhere.
     client.delete(f"/api/tasks/{card['id']}", headers=auth)
     assert all(i["link"] is None for i in _feed(client, auth, p["id"], kinds="comment") if i["type"] == "comment.created")
+
+
+def test_moving_comments_and_posts(client, auth):
+    p = _project(client, auth)
+    bob, bh = _user(client, auth)
+    client.put(f"/api/projects/{p['id']}/members", json=[bob["id"]], headers=auth)
+    a = client.post(f"/api/projects/{p['id']}/tasks", json={"title": "Card A"}, headers=auth).json()
+    b = client.post(f"/api/projects/{p['id']}/tasks", json={"title": "Card B"}, headers=auth).json()
+    c = client.post(f"/api/tasks/{a['id']}/comments", json={"body": f"belongs on B, @{bob['username']}"}, headers=auth).json()
+
+    # Card to card: the same comment (id, author, time), now on B; its entry follows it.
+    r = client.post(f"/api/tasks/{a['id']}/comments/{c['id']}/move", json={"to_task_id": b["id"]}, headers=auth)
+    assert r.status_code == 200, r.text
+    assert r.json()["comment"]["id"] == c["id"] and r.json()["comment"]["created_at"] == c["created_at"]
+    assert not client.get(f"/api/tasks/{a['id']}/comments", headers=auth).json()
+    assert [x["id"] for x in client.get(f"/api/tasks/{b['id']}/comments", headers=auth).json()] == [c["id"]]
+    feed = _feed(client, auth, p["id"], kinds="comment")
+    entry = next(i for i in feed if i["type"] == "comment.created")
+    assert entry["task"]["id"] == b["id"] and entry["link"].endswith(f"&comment={c['id']}")
+    assert any(i["type"] == "comment.moved" and "Card A" in i["message"] and "Card B" in i["message"] for i in feed)
+
+    # Out to the timeline: a post with the same writing and time; the comment's entry goes.
+    r = client.post(f"/api/tasks/{b['id']}/comments/{c['id']}/move", json={"to_task_id": None}, headers=auth).json()
+    post = r["post"]
+    assert r["kind"] == "post" and post["body"] == c["body"] and post["created_at"] == c["created_at"] and post["mentions"] == [bob["id"]]
+    assert not client.get(f"/api/tasks/{b['id']}/comments", headers=auth).json()
+    feed = _feed(client, auth, p["id"], kinds="comment")
+    assert not [i for i in feed if i["type"] == "comment.created"]
+    assert [i["post"]["id"] for i in feed if i["post"]] == [post["id"]]
+
+    # And back onto a card: a comment again.
+    assert client.post(f"/api/posts/{post['id']}/move", json={"to_task_id": a["id"]}, headers=bh).status_code == 403  # not Bob's
+    back = client.post(f"/api/posts/{post['id']}/move", json={"to_task_id": a["id"]}, headers=auth).json()["comment"]
+    assert back["body"] == c["body"] and back["created_at"] == c["created_at"]
+    assert client.get(f"/api/projects/{p['id']}/posts", headers=auth).json() == []
+    assert [x["id"] for x in client.get(f"/api/tasks/{a['id']}/comments", headers=auth).json()] == [back["id"]]
+
+    # Not into another project, and not by someone else.
+    other = _project(client, auth)
+    elsewhere = client.post(f"/api/projects/{other['id']}/tasks", json={"title": "Far"}, headers=auth).json()
+    assert client.post(f"/api/tasks/{a['id']}/comments/{back['id']}/move", json={"to_task_id": elsewhere["id"]}, headers=auth).status_code == 422
+    assert client.post(f"/api/tasks/{a['id']}/comments/{back['id']}/move", json={"to_task_id": b["id"]}, headers=bh).status_code == 403
+    assert client.post(f"/api/tasks/{a['id']}/comments/{back['id']}/move", json={"to_task_id": a["id"]}, headers=auth).status_code == 422

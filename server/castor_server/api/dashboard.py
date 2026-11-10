@@ -219,6 +219,10 @@ def link_for(e: m.ActivityEvent, payload: dict, *, task: m.Task | None, has_comm
         return f"/playbooks?run={payload['run_id']}" + (f"&step={quote(str(payload['step_id']))}" if payload.get("step_id") else "")
     if head == "post":
         return f"/projects/{pid}/dashboard?post={payload['post_id']}" if has_post else None
+    if e.type == "comment.moved" and payload.get("moved_post_id"):
+        return f"/projects/{pid}/dashboard?post={payload['moved_post_id']}"
+    if e.type == "comment.moved" and task is not None and payload.get("moved_comment_id"):
+        return f"/projects/{task.project_id}?task={task.id}&comment={payload['moved_comment_id']}"
     if task is not None:
         card = f"/projects/{task.project_id}?task={task.id}"
         if head == "comment" and has_comment:
@@ -256,10 +260,11 @@ async def _enrich(db: DB, events: list[m.ActivityEvent]) -> list[FeedItem]:
         return {r.id: r for r in (await db.execute(select(model).where(model.id.in_(ids)))).scalars()}
 
     projects = await by_id(m.Project, project_ids)
-    tasks = await by_id(m.Task, task_ids)
+    comments = await by_id(m.Comment, comment_ids)
+    # A comment's entries follow it to the card it's on now (comments can move).
+    tasks = await by_id(m.Task, task_ids | {c.task_id for c in comments.values()})
     users = await by_id(m.User, user_ids)
     jobs = await by_id(m.Job, job_ids)
-    comments = await by_id(m.Comment, comment_ids)
     posts = await by_id(m.ProjectPost, {uuid.UUID(e.payload["post_id"]) for e in events if _is_uuid((e.payload or {}).get("post_id"))})
     agents = await by_id(m.Agent, {j.agent_id for j in jobs.values() if j.agent_id})
     # Comment events from before comment ids were recorded: that author's comment on that
@@ -279,9 +284,13 @@ async def _enrich(db: DB, events: list[m.ActivityEvent]) -> list[FeedItem]:
         payload = e.payload or {}
         post = posts.get(uuid.UUID(payload["post_id"])) if _is_uuid(payload.get("post_id")) else None
         if e.type == "post.created" and post is None:
-            continue  # deleted
+            continue  # deleted, or moved onto a card
+        if e.type in ("comment.created", "comment.edited") and _is_uuid(payload.get("comment_id")) \
+                and uuid.UUID(payload["comment_id"]) not in comments:
+            continue  # deleted (that has its own entry), or moved out to the timeline
         project = projects.get(e.project_id) if e.project_id else None
-        task = tasks.get(e.task_id) if e.task_id else None
+        moved = comments.get(uuid.UUID(payload["comment_id"])) if _is_uuid(payload.get("comment_id")) else None
+        task = tasks.get(moved.task_id) if moved is not None else tasks.get(e.task_id) if e.task_id else None
         author = users.get(uuid.UUID(e.actor_id)) if e.actor_type == "user" and _is_uuid(e.actor_id) else None
         item = FeedItem(
             id=e.id,

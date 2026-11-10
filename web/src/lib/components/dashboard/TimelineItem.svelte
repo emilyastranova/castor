@@ -11,6 +11,7 @@
 	import { confirmAction } from '$lib/confirm.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import PostComposer from './PostComposer.svelte';
+	import MoveWritingDialog from '../MoveWritingDialog.svelte';
 
 	/** One timeline entry; how it looks depends on its kind. */
 	interface Props {
@@ -76,6 +77,15 @@
 		await api().posts.update(item.post!.id, body);
 		editing = false;
 	}
+	let moving = $state(false);
+	async function movePost(toTaskId: string | null) {
+		if (!toTaskId || !item.post || !item.project) return;
+		const r = await api().posts.move(item.post.id, toTaskId);
+		const pid = item.project.id;
+		snackbar.show('Moved the post to that card', {
+			action: { label: 'Open', run: () => void goto(`/projects/${pid}?task=${toTaskId}&comment=${r.comment?.id}`) }
+		});
+	}
 	async function removePost() {
 		if (!(await confirmAction({ title: 'Delete this post?', message: 'It leaves the timeline for everyone. Images in it stay in the project\'s files.', confirmLabel: 'Delete post' }))) return;
 		try {
@@ -118,7 +128,7 @@
 			{#if item.post}
 				<span>posted{#if item.post.edited}<span class="italic"> · edited</span>{/if}</span>
 			{:else if item.kind === 'comment'}
-				<span>{item.type === 'comment.edited' ? 'edited a comment on' : item.type === 'comment.deleted' ? 'deleted a comment on' : 'commented on'}</span>
+				<span>{item.type === 'comment.edited' ? 'edited a comment on' : item.type === 'comment.deleted' ? 'deleted a comment on' : item.type === 'comment.moved' ? `moved a ${item.message.startsWith('Moved a post') ? 'post' : 'comment'}${item.task ? ' to' : ''}` : 'commented on'}</span>
 			{/if}
 			{#if item.task}
 				{#if link}<a href={link} class="min-w-0 truncate font-medium text-primary hover:underline">{item.task.name}</a>{:else}<span class="truncate">{item.task.name}</span>{/if}
@@ -131,6 +141,7 @@
 				<Menu>
 					{#snippet anchor()}<IconButton icon="more_vert" label="Post actions" size="sm" class="-my-1.5" />{/snippet}
 					<MenuItem icon="edit" onclick={() => (editing = true)}>Edit</MenuItem>
+					<MenuItem icon="drive_file_move" onclick={() => (moving = true)}>Move to a card…</MenuItem>
 					<MenuItem icon="delete" danger onclick={removePost}>Delete</MenuItem>
 				</Menu>
 			{/if}
@@ -166,3 +177,7 @@
 		{/if}
 	</div>
 </div>
+
+{#if moving && item.post && item.project}
+	<MoveWritingDialog bind:open={moving} projectId={item.project.id} what="post" onpick={movePost} />
+{/if}

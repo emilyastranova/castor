@@ -312,6 +312,13 @@ export interface FeedItem {
 	post?: { id: UUID; body: string; edited: boolean; mentions: string[]; tags: string[]; author_id: UUID | null } | null;
 }
 
+/** What a moved comment or post became. */
+export interface MoveResult {
+	kind: 'comment' | 'post';
+	comment?: Comment | null;
+	post?: ProjectPost | null;
+}
+
 /** A post on a project's timeline: a comment on nothing. */
 export interface ProjectPost {
 	id: UUID;
@@ -1201,6 +1208,9 @@ export function api(fetchFn: Fetch = fetch) {
 			updateComment: (id: UUID, commentId: UUID, body: string) =>
 				patch<Comment>(`/tasks/${id}/comments/${commentId}`, { body }),
 			removeComment: (id: UUID, commentId: UUID) => del(`/tasks/${id}/comments/${commentId}`),
+			/** To another card of the project, or (null) out to its timeline as a post. */
+			moveComment: (id: UUID, commentId: UUID, toTaskId: UUID | null) =>
+				post<MoveResult>(`/tasks/${id}/comments/${commentId}/move`, { to_task_id: toTaskId }),
 			attachments: (id: UUID) => get<Attachment[]>(`/tasks/${id}/attachments`),
 			upload: (id: UUID, file: File, kind?: string) => {
 				const form = new FormData();
@@ -1456,7 +1466,9 @@ export function api(fetchFn: Fetch = fetch) {
 			tags: (projectId: UUID) => get<{ tag: string; count: number }[]>(`/projects/${projectId}/post-tags`),
 			create: (projectId: UUID, body: string) => post<ProjectPost>(`/projects/${projectId}/posts`, { body }),
 			update: (id: UUID, body: string) => patch<ProjectPost>(`/posts/${id}`, { body }),
-			remove: (id: UUID) => del(`/posts/${id}`)
+			remove: (id: UUID) => del(`/posts/${id}`),
+			/** Onto a card of the project, where it becomes a comment. */
+			move: (id: UUID, toTaskId: UUID) => post<MoveResult>(`/posts/${id}/move`, { to_task_id: toTaskId })
 		},
 		dashboard: {
 			summary: (projectId?: string | null) => get<DashboardSummary>(`/dashboard/summary${projectId ? `?project_id=${projectId}` : ''}`),

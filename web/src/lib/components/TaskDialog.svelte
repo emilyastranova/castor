@@ -18,6 +18,7 @@
 	import ColumnGlyph from './ColumnGlyph.svelte';
 	import PriorityGlyph, { priorityOptions } from './PriorityGlyph.svelte';
 	import NameImageDialog from './NameImageDialog.svelte';
+	import MoveWritingDialog from './MoveWritingDialog.svelte';
 	import RunPanel from './RunPanel.svelte';
 	import DuplicateDialog from './DuplicateDialog.svelte';
 	import AlertRulesDialog from './AlertRulesDialog.svelte';
@@ -366,6 +367,19 @@
 	let editDraft = $state('');
 	let savingEdit = $state(false);
 	const canEdit = (c: Comment) => !!me && (c.author_id === me.id || me.is_admin);
+
+	// ---- moving a comment to another card, or out to the timeline ----
+	let movingComment = $state<Comment | null>(null);
+	async function moveComment(toTaskId: UUID | null) {
+		const c = movingComment;
+		if (!c) return;
+		const r = await api().tasks.moveComment(task.id, c.id, toTaskId);
+		comments = comments.filter((x) => x.id !== c.id);
+		const where = toTaskId ? 'that card' : 'the timeline';
+		snackbar.show(`Moved the comment to ${where}`, {
+			action: { label: 'Open', run: () => void goto(toTaskId ? `/projects/${task.project_id}?task=${toTaskId}&comment=${r.comment?.id}` : `/projects/${task.project_id}/dashboard?post=${r.post?.id}`) }
+		});
+	}
 
 	function startEdit(c: Comment) {
 		editingId = c.id;
@@ -922,6 +936,9 @@
 									{#if canEdit(c) && editingId !== c.id}
 										<IconButton icon="edit" label="Edit comment" size="sm" onclick={() => startEdit(c)} />
 									{/if}
+									{#if canEdit(c) && editingId !== c.id}
+										<IconButton icon="drive_file_move" label="Move comment to another card or the timeline" size="sm" onclick={() => (movingComment = c)} />
+									{/if}
 									{#if canEdit(c)}<IconButton icon="delete" label="Delete comment" size="sm" onclick={() => removeComment(c)} />{/if}
 								</div>
 								{#if editingId === c.id}
@@ -1112,5 +1129,16 @@
 		projectId={rerun.project.id}
 		initial={rerun.inputs}
 		onRun={(r) => r.card_id && openCard(r.card_id)}
+	/>
+{/if}
+
+{#if movingComment}
+	<MoveWritingDialog
+		projectId={task.project_id}
+		what="comment"
+		fromTaskId={task.id}
+		timeline
+		onpick={moveComment}
+		bind:open={() => !!movingComment, (v) => !v && (movingComment = null)}
 	/>
 {/if}
