@@ -801,7 +801,7 @@
 					</Button>{/if}
 				</div>
 				{#if editingDescription}
-					<TextField label="Description (markdown)" bind:value={description} multiline rows={6} autofocus oninput={() => edited('description')} />
+					<TextField label="Description (markdown)" bind:value={description} multiline markdown rows={6} autofocus oninput={() => edited('description')} />
 				{:else if task.description.trim()}
 					<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 					<div class="prose-m3 body-medium text-on-surface" onclick={openImagesIn}>{@html renderMarkdown(task.description)}</div>
@@ -885,7 +885,7 @@
 				<div class="flex flex-col gap-4">
 					{#if editable}<div class="flex flex-col gap-2">
 						<div class="relative">
-							<TextField label="Add a comment" bind:value={newComment} multiline rows={3} supporting="Markdown supported · Ctrl+Enter to post · @ to mention someone · paste an image to add it" oninput={newSuggest.oninput} onkeydown={(e) => newSuggest.onkeydown(e) || ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && postComment())} onblur={newSuggest.close} onpaste={images.pasteInto(newCommentTarget)} />
+							<TextField label="Add a comment" bind:value={newComment} multiline markdown rows={3} supporting="Markdown supported · Ctrl+Enter to post · @ to mention someone · paste an image to add it" oninput={newSuggest.oninput} onkeydown={(e) => newSuggest.onkeydown(e) || ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && postComment())} onblur={newSuggest.close} onpaste={images.pasteInto(newCommentTarget)} />
 							<MentionMenu suggest={newSuggest} />
 						</div>
 						<div class="flex items-center justify-end gap-3">
@@ -924,6 +924,7 @@
 												label="Edit comment"
 												bind:value={editDraft}
 												multiline
+												markdown
 												rows={4}
 												supporting="Ctrl+Enter to save · Esc to cancel · @ to mention · paste an image to add it"
 												oninput={editSuggest.oninput}

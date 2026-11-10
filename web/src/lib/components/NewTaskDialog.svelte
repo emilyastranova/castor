@@ -183,7 +183,7 @@
 				</div>
 			</div>
 		{/if}
-		<TextField label="Description" bind:value={description} multiline rows={3} supporting="Markdown supported" />
+		<TextField label="Description" bind:value={description} multiline markdown rows={3} supporting="Markdown supported" />
 		<div class="grid gap-4 sm:grid-cols-2">
 			<Select label="Column" bind:value={columnId} options={columns.map((c) => ({ value: c.id, label: c.name }))}>
 				{#snippet leading(id)}<ColumnGlyph role={columns.find((c) => c.id === id)?.role} />{/snippet}

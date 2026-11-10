@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { HTMLInputAttributes, HTMLTextareaAttributes } from 'svelte/elements';
 	import Icon from './Icon.svelte';
+	import { markdownKeydown } from './markdownKeys';
 
 	interface Props {
 		label: string;
@@ -9,6 +10,8 @@
 		multiline?: boolean;
 		rows?: number;
 		mono?: boolean;
+		/** A markdown box: ` over selected text makes it code (markdownKeys.ts). */
+		markdown?: boolean;
 		supporting?: string;
 		error?: string | null;
 		leadingIcon?: string;
@@ -38,6 +41,7 @@
 		multiline = false,
 		rows = 3,
 		mono = false,
+		markdown = false,
 		supporting,
 		error = null,
 		leadingIcon,
@@ -126,7 +130,10 @@
 						onblur?.(e);
 					}}
 					{oninput}
-					{onkeydown}
+					onkeydown={(e) => {
+						onkeydown?.(e);
+						if (markdown) markdownKeydown(e);
+					}}
 					{onpaste}
 				></textarea>
 			{:else}

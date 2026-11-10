@@ -210,7 +210,7 @@
 {#snippet editor()}
 	<div bind:this={editorEl} class="flex min-h-60 flex-col gap-3 rounded-lg border border-primary p-4" style:background-color={noteBg(draftColor)}>
 		<TextField label="Title" bind:value={draftTitle} onkeydown={editorKeys} />
-		<TextField label="Note (markdown)" bind:value={draftBody} multiline rows={7} onkeydown={editorKeys} onpaste={images.pasteInto(bodyTarget)} {error} supporting="Markdown · paste an image to add it · Ctrl+Enter to save · Esc to cancel" />
+		<TextField label="Note (markdown)" bind:value={draftBody} multiline markdown rows={7} onkeydown={editorKeys} onpaste={images.pasteInto(bodyTarget)} {error} supporting="Markdown · paste an image to add it · Ctrl+Enter to save · Esc to cancel" />
 		<NoteColorPicker value={draftColor} onpick={(c) => (draftColor = c)} size={24} />
 		<div class="flex items-center justify-end gap-2">
 			{#if images.uploading > 0}<span class="mr-auto body-small text-on-surface-variant">Uploading image…</span>{/if}
