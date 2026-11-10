@@ -66,6 +66,33 @@ def save(user_id, version: int, data: bytes) -> str:
     return name
 
 
+COMPANION_MAX = 3 * 1024 * 1024
+DEFAULT_SEAT = 0.605  # web/static/companion/sitting.webp
+
+
+def companion_dir() -> Path:
+    path = settings.data_dir / "companions"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def save_companion(user_id, version: int, data: bytes) -> str:
+    """Store someone's own companion picture; returns its file name."""
+    if len(data) > COMPANION_MAX:
+        raise AvatarError(f"the picture is larger than {COMPANION_MAX // (1024 * 1024)} MB")
+    kind = image_type(data)
+    if kind is None:
+        raise AvatarError("upload a PNG, WebP, GIF or JPEG image (PNG or WebP with a transparent background works best)")
+    name = f"{user_id}-{version}.{kind[1]}"
+    (companion_dir() / name).write_bytes(data)
+    return name
+
+
+def remove_companion(name: str) -> None:
+    if name and "/" not in name and "\\" not in name:
+        (companion_dir() / name).unlink(missing_ok=True)
+
+
 def remove(name: str) -> None:
     if name and "/" not in name and "\\" not in name:
         (directory() / name).unlink(missing_ok=True)

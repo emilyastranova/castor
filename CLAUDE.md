@@ -348,9 +348,12 @@ dependency; keep it that way so the agent stays trivially installable on target 
   rendered by `TimelineItem` from `FeedItem.post`). Comments and posts move (`api/moves.py`: card to card keeps
   the comment's id; post ⇄ comment converts with a backdated `created` activity; same project only;
   `MoveWritingDialog.svelte`); feed entries follow a comment to its current card.
-  The Companion sits on the newest comment in Home's timeline for people who turn her on (`users.companion`,
-  off by default, a switch in the account dialog; `TimelineItem` `perched`, picture
-  `web/static/companion/sitting.webp`, seat line 60.5% down; decorative, never takes clicks).
+  The Companion sits on the newest comment in Home's timeline for people who turn it on (`users.companion`,
+  off by default, a switch in the account dialog; `TimelineItem` `perched`). Built-in picture
+  `web/static/companion/sitting.webp` (seat line 60.5% down, `avatars.DEFAULT_SEAT`); people can upload their
+  own (`/api/auth/me/companion`, session only, stored like avatars in `<data_dir>/companions`) and set
+  `companion_seat` with a live preview (`CompanionSetup.svelte`); the template is
+  `web/static/companion/template.png` (600×880, seat line at 532 px). Decorative, never takes clicks.
   Timeline exports: `report.py` (self-contained HTML; markdown via markdown-it + nh3; only this project's
   attachments and uploaded avatars embedded, anything else stays a link) and `api/exports.py`
   (`GET /api/projects/{id}/timeline/export`, the feed's `select_events` plus a date range; PDF by WeasyPrint

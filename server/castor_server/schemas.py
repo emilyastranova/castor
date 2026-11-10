@@ -41,8 +41,11 @@ class UserOut(ORM):
     has_upload: bool = False
     # Their theme colour (#rrggbb), or "" for the default palette.
     theme_seed: str = ""
-    # The Companion on their timelines (off by default).
+    # The Companion on their timelines (off by default): their own picture (None: the built-in
+    # one) and its seat line (0–1 from the top).
     companion: bool = False
+    companion_url: str | None = None
+    companion_seat: float = 0.605
 
 
 class UserBrief(ORM):
@@ -92,6 +95,7 @@ class ProfilePatch(BaseModel):
     display_name: str | None = Field(None, min_length=1, max_length=128)
     theme_seed: str | None = Field(None, pattern=r"^(#[0-9a-fA-F]{6})?$")
     companion: bool | None = None
+    companion_seat: float | None = Field(None, ge=0.05, le=0.95)
 
 
 class LoginResponse(BaseModel):

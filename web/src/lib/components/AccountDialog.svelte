@@ -7,6 +7,7 @@
 	import { ROLE_LABELS } from '$lib/session';
 	import AvatarEditor from './AvatarEditor.svelte';
 	import ThemeColorPicker from './ThemeColorPicker.svelte';
+	import CompanionSetup from './CompanionSetup.svelte';
 
 	/** The signed-in user's own account: display name and password. */
 	interface Props {
@@ -78,12 +79,15 @@
 			<ThemeColorPicker {user} />
 			<p class="mt-1.5 body-small text-on-surface-variant">The whole interface is coloured from it, in light and dark. Saved as you pick; only you see it.</p>
 		</div>
-		<div class="flex items-start gap-3 rounded-md bg-surface-container px-3 py-2.5">
-			<img src="/companion/sitting.webp" alt="" aria-hidden="true" class="h-14 w-auto shrink-0" />
-			<div class="min-w-0 flex-1">
-				<Switch checked={companion} label="Companion" onchange={setCompanion} />
-				<p class="mt-0.5 body-small text-on-surface-variant">Someone to keep you company: she sits on the newest comment in a project's timeline. Only you see her.</p>
+		<div class="flex flex-col gap-3 rounded-md bg-surface-container px-3 py-2.5">
+			<div class="flex items-start gap-3">
+				<img src={user.companion_url ?? '/companion/sitting.webp'} alt="" aria-hidden="true" class="h-14 w-auto shrink-0" />
+				<div class="min-w-0 flex-1">
+					<Switch checked={companion} label="Companion" onchange={setCompanion} />
+					<p class="mt-0.5 body-small text-on-surface-variant">Someone to keep you company: they sit on the newest comment in a project's timeline. Bring your own if you like. Only you see them.</p>
+				</div>
 			</div>
+			{#if companion}<CompanionSetup {user} />{/if}
 		</div>
 		<p class="mt-2 label-large text-on-surface">Change password</p>
 		<TextField label="Current password" type="password" bind:value={current} autocomplete="current-password" />

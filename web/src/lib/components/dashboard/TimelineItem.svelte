@@ -169,7 +169,7 @@
 				<RichText text={item.comment.body} projectId={item.project?.id} class="mt-1.5 line-clamp-6 rounded-md bg-surface-container px-3.5 py-2.5 body-medium text-on-surface {forMe ? 'mentions-me quiet' : ''}" />
 				{#if perched}
 					<!-- She sits on the newest comment, legs over its front edge. -->
-					<img src="/companion/sitting.webp" alt="" aria-hidden="true" class="companion" width="303" height="440" />
+					<img src={me()?.companion_url ?? '/companion/sitting.webp'} alt="" aria-hidden="true" class="companion" style:--seat={me()?.companion_seat ?? 0.605} />
 				{/if}
 			</div>
 		{:else if item.kind === 'job' && item.job}
@@ -213,7 +213,7 @@
 		--h: 150px;
 		position: absolute;
 		z-index: 5;
-		top: calc(1px - var(--h) * 0.605); /* the comment's top margin collapses through its wrapper */
+		top: calc(1px - var(--h) * var(--seat, 0.605)); /* the comment's top margin collapses through its wrapper */
 		right: 5.5rem;
 		height: var(--h);
 		width: auto;

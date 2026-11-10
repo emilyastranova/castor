@@ -140,12 +140,13 @@ async def delete_user(user_id: str, db: DB, admin: Admin):
             task.assignees = [a for a in task.assignees if a != uid]
         if task.alerts and uid in [str(p) for p in task.alerts.get("people") or []]:
             task.alerts = {**task.alerts, "people": [p for p in task.alerts["people"] if str(p) != uid]}
-    name, username, picture = user.display_name, user.username, user.avatar_file
+    name, username, picture, companion = user.display_name, user.username, user.avatar_file, user.companion_file
     await db.delete(user)
     await record_activity(db, type="user.deleted", message=f"Deleted the account {username} ({name})", project_id=None,
                           **actor_of(admin))
     await db.commit()
     avatars.remove(picture)
+    avatars.remove_companion(companion)
     bus.publish("user.changed", None, {"id": uid, "deleted": True}, ref=uid)  # their open pages sign out
     bus.publish("project.members", None, {"user_ids": [uid]})
 
@@ -160,6 +161,8 @@ async def update_me(body: ProfilePatch, db: DB, user: CurrentUser):
         user.theme_seed = body.theme_seed.lower()
     if body.companion is not None:
         user.companion = body.companion
+    if body.companion_seat is not None:
+        user.companion_seat = round(body.companion_seat, 4)
     await db.commit()
     return UserOut.model_validate(user)
 
@@ -223,6 +226,48 @@ async def upload_avatar(user_id: str, db: DB, user: CurrentUser, file: Annotated
         avatars.remove(old)
     bus.publish("user.changed", None, {"id": target.id}, ref=target.id)
     return UserOut.model_validate(target)
+
+
+@router.post("/auth/me/companion", response_model=UserOut)
+async def upload_companion(db: DB, user: CurrentUser, file: Annotated[UploadFile, File()]):
+    """Your own companion picture (only you see it). Set where it sits with companion_seat."""
+    data = await file.read(avatars.COMPANION_MAX + 1)
+    old = user.companion_file
+    try:
+        user.companion_file = avatars.save_companion(user.id, user.companion_version + 1, data)
+    except avatars.AvatarError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    user.companion_version += 1
+    await db.commit()
+    if old != user.companion_file:
+        avatars.remove_companion(old)
+    bus.publish("user.changed", None, {"id": user.id}, ref=user.id)
+    return UserOut.model_validate(user)
+
+
+@router.delete("/auth/me/companion", response_model=UserOut)
+async def reset_companion(db: DB, user: CurrentUser):
+    """Back to the built-in companion (and her seat line)."""
+    old = user.companion_file
+    user.companion_file = ""
+    user.companion_seat = avatars.DEFAULT_SEAT
+    await db.commit()
+    avatars.remove_companion(old)
+    bus.publish("user.changed", None, {"id": user.id}, ref=user.id)
+    return UserOut.model_validate(user)
+
+
+@router.get("/auth/me/companion")
+async def get_companion(user: CurrentUser):
+    path = avatars.companion_dir() / user.companion_file if user.companion_file else None
+    if path is None or not path.is_file():
+        raise HTTPException(404, "No companion picture")
+    kind = avatars.image_type(path.read_bytes()[:16])
+    return FileResponse(
+        path,
+        media_type=kind[0] if kind else "application/octet-stream",
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=31536000, immutable"},
+    )
 
 
 @router.get("/users/{user_id}/avatar")

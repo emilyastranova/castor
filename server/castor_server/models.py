@@ -144,6 +144,16 @@ class User(Base, TimestampMixin):
     theme_seed: Mapped[str] = mapped_column(String(9), default="", server_default="")
     # The Companion who sits on the newest comment in a timeline; off unless they turn her on.
     companion: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # Their own companion picture (avatars.companion_dir), or "" for the built-in one, and where
+    # its seat line is: the height (0–1, from the top) of the surface the figure sits on.
+    companion_file: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    companion_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    companion_seat: Mapped[float] = mapped_column(Float, default=0.605, server_default="0.605")
+
+    @property
+    def companion_url(self) -> str | None:
+        """Their own companion picture, or None for the built-in one."""
+        return f"/api/auth/me/companion?v={self.companion_version}" if self.companion_file else None
 
     @property
     def avatar_url(self) -> str | None:

@@ -718,6 +718,11 @@ the foreign keys cascade their tokens, sign-on links, memberships and notificati
 everything else (comments and posts then show "Deleted user"); their id is taken out of card
 assignees and alert recipients, their uploaded picture removed, and `user.changed` closes their sockets.
 
+**Companion** (a personal preference): `users.companion` turns it on; `POST/GET/DELETE /api/auth/me/companion`
+(session only) uploads, serves (only to its owner) and removes someone's own picture, kept like avatars in
+`<data_dir>/companions` (PNG/WebP/GIF/JPEG checked from the bytes, ≤ 3 MB); `users.companion_seat` (0.05–0.95)
+is where the picture's seat line is, 0.605 for the built-in one. The template is `web/static/companion/template.png`.
+
 **Profile pictures** (`avatars.py`, `PUT /api/users/{id}/avatar`, `POST …/avatar/upload`):
 initials, an uploaded PNG/JPEG/WebP/GIF (≤ 2 MB, type checked from its bytes, no SVG,
 stored in `<data_dir>/avatars/`, served with `nosniff`), an https image URL, or Gravatar

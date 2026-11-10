@@ -251,3 +251,25 @@ def test_exporting_the_timeline(client, auth):
     assert client.get(f"/api/projects/{p['id']}/timeline/export", headers=oh).status_code == 404
     assert any(a["type"] == "transfer.timeline" for a in client.get(f"/api/projects/{p['id']}/activity", headers=auth).json())
     assert not [i for i in _feed(client, auth, p["id"], kinds="admin,comment") if i["type"] == "transfer.timeline"]  # not on Home
+
+
+def test_your_own_companion(client, auth):
+    import base64 as b64
+
+    user, h = _user(client, auth)
+    me = client.get("/api/auth/me", headers=h).json()
+    assert me["companion_url"] is None and me["companion_seat"] == 0.605  # the built-in one
+    png = b64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=")
+    up = client.post("/api/auth/me/companion", files={"file": ("me.png", png, "image/png")}, headers=h)
+    assert up.status_code == 200, up.text
+    assert up.json()["companion_url"].startswith("/api/auth/me/companion?v=")
+    assert client.get("/api/auth/me/companion", headers=h).content == png
+    assert client.get("/api/auth/me/companion", headers=auth).status_code == 404  # only theirs
+    bad = client.post("/api/auth/me/companion", files={"file": ("x.txt", b"not an image", "text/plain")}, headers=h)
+    assert bad.status_code == 422
+
+    assert client.patch("/api/auth/me", json={"companion_seat": 0.7}, headers=h).json()["companion_seat"] == 0.7
+    assert client.patch("/api/auth/me", json={"companion_seat": 1.5}, headers=h).status_code == 422
+    back = client.delete("/api/auth/me/companion", headers=h).json()
+    assert back["companion_url"] is None and back["companion_seat"] == 0.605
+    assert client.get("/api/auth/me/companion", headers=h).status_code == 404

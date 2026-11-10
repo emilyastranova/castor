@@ -26,8 +26,11 @@ export interface User {
 	has_upload: boolean;
 	/** Their theme colour (#rrggbb), or '' for the default palette. */
 	theme_seed: string;
-	/** The Companion on their timelines (off by default). */
+	/** The Companion on their timelines (off by default): their own picture (null: the built-in
+	 *  one) and its seat line, 0–1 from the top. */
 	companion?: boolean;
+	companion_url?: string | null;
+	companion_seat?: number;
 }
 
 export type AvatarKind = 'initials' | 'upload' | 'url' | 'gravatar';
@@ -1129,7 +1132,15 @@ export function api(fetchFn: Fetch = fetch) {
 				post<{ token: string; user: User }>('/auth/login', { username, password }),
 			logout: () => post<void>('/auth/logout'),
 			me: () => get<User>('/auth/me'),
-			updateMe: (body: { display_name?: string; theme_seed?: string; companion?: boolean }) => patch<User>('/auth/me', body),
+			updateMe: (body: { display_name?: string; theme_seed?: string; companion?: boolean; companion_seat?: number }) => patch<User>('/auth/me', body),
+			/** Your own companion picture (only you see it). */
+			uploadCompanion: (file: File) => {
+				const form = new FormData();
+				form.append('file', file);
+				return post<User>('/auth/me/companion', form);
+			},
+			/** Back to the built-in companion. */
+			resetCompanion: () => request<User>(fetchFn, 'DELETE', '/auth/me/companion'),
 			changePassword: (current_password: string, new_password: string) =>
 				post<void>('/auth/password', { current_password, new_password }),
 			/** What the sign-in page offers: providers to sign in with, and whether passwords work. */
