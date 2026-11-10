@@ -5,6 +5,8 @@
 	import RichText from '../RichText.svelte';
 	import { absoluteTime } from '$lib/format';
 	import { me, canEdit, isAdmin } from '$lib/session';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { api } from '$lib/api';
 	import { confirmAction } from '$lib/confirm.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
@@ -48,23 +50,26 @@
 	};
 
 	let meta = $derived(KIND[item.kind] ?? KIND.admin);
-	let link = $derived(
-		item.link
-			? item.link
-			: item.run_id
-			? `/playbooks?run=${item.run_id}${item.step_id ? `&step=${item.step_id}` : ''}`
-			: item.task && item.project
-				? `/projects/${item.project.id}?task=${item.task.id}`
-				: item.project
-					? `/projects/${item.project.id}${item.kind === 'note' ? '/dashboard' : item.kind === 'asset' ? '/assets' : ''}`
-					: null
-	);
+	/** Where the entry goes: the comment, run, file, card or item it's about (the server's link_for). */
+	let link = $derived(item.link ?? null);
+	let editing = $state(false); // a post being edited in place
+	/** A post is already in full on its own project's Home; elsewhere it opens there. */
+	let here = $derived(!!item.post && page.url.pathname === `/projects/${item.project?.id}/dashboard`);
+	let clickable = $derived(!!link && !here && !editing);
+	/** Clicking anywhere on the entry opens it, except on its own links, buttons and images, or
+	 *  when selecting text. Ctrl/Cmd or the middle button open a new tab. */
+	function open(e: MouseEvent) {
+		if (!clickable || !link) return;
+		if ((e.target as HTMLElement).closest('a, button, input, textarea, img, label, [role="menu"], [role="menuitem"], .mention')) return;
+		if (window.getSelection()?.toString()) return;
+		if (e.ctrlKey || e.metaKey || e.button === 1) window.open(link, '_blank', 'noopener');
+		else void goto(link);
+	}
 	// The job outcome is the event itself ("job.failed"), not the job's state now.
 	let outcome = $derived(item.kind === 'job' ? JOB[item.type.split('.')[1]] : undefined);
 	let time = $derived(new Date(item.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
 	// A post: its author (or an admin) edits and deletes it here; long ones fold.
 	let mayChange = $derived(!!item.post && canEdit() && (isAdmin() || (!!myId && item.post.author_id === myId)));
-	let editing = $state(false);
 	let expanded = $state(false);
 	let long = $derived(!!item.post && (item.post.body.split('\n').length > 12 || item.post.body.length > 1200));
 	async function savePost(body: string) {
@@ -96,7 +101,13 @@
 			<Icon name={outcome?.icon ?? meta.icon} size={20} />
 		</span>
 	{/if}
-	<div class="min-w-0 flex-1 pt-0.5">
+	<!-- The whole entry opens what it's about; its own link (card, message) is the keyboard way in. -->
+	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+	<div
+		class="min-w-0 flex-1 rounded-md pt-0.5 transition-colors {clickable ? '-mx-2 -my-1 cursor-pointer px-2 py-1 hover:bg-on-surface/5' : ''}"
+		onclick={open}
+		onauxclick={(e) => e.button === 1 && open(e)}
+	>
 		<div class="flex flex-wrap items-baseline gap-x-2 body-small text-on-surface-variant">
 			{#if item.actor.username}
 				<a href="/people/{item.actor.username}" class="label-large text-on-surface hover:underline"><PersonName name={item.actor.name} /></a>

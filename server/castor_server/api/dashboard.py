@@ -77,7 +77,7 @@ class FeedItem(BaseModel):
     run_id: str | None = None
     step_id: str | None = None
     via: str | None = None  # "mcp": done through an AI assistant
-    link: str | None = None  # where a library item lives
+    link: str | None = None  # where the thing it's about is (link_for)
 
 
 class FeedOut(BaseModel):
@@ -201,6 +201,48 @@ def _library_link(event_type: str, payload: dict) -> str | None:
     return pattern.format(quote(str(payload["id"]), safe="")) if pattern else None
 
 
+# Where things outside a project live, by the head of the event type.
+PLACES = {"agent": "/agents", "agent_token": "/agents", "ssh_host": "/agents", "ssh_config": "/agents",
+          "group": "/settings/groups", "user": "/settings/users", "api_token": "/settings/tokens",
+          "settings": "/settings/general", "ai": "/settings/ai", "alerts": "/settings/alerts",
+          "transfer": "/settings/transfer", "variable": "/variables"}
+
+
+def link_for(e: m.ActivityEvent, payload: dict, *, task: m.Task | None, has_comment: bool, has_post: bool) -> str | None:
+    """Where clicking a timeline entry goes: the comment, run, file or card it's about, the post,
+    the library item, or the page the thing lives on. None when it's gone."""
+    pid = e.project_id
+    head = e.type.split(".", 1)[0]
+    if e.type.startswith("library."):
+        return _library_link(e.type, payload)
+    if payload.get("run_id"):
+        return f"/playbooks?run={payload['run_id']}" + (f"&step={quote(str(payload['step_id']))}" if payload.get("step_id") else "")
+    if head == "post":
+        return f"/projects/{pid}/dashboard?post={payload['post_id']}" if has_post else None
+    if task is not None:
+        card = f"/projects/{task.project_id}?task={task.id}"
+        if head == "comment" and has_comment:
+            return f"{card}&comment={payload['comment_id']}"
+        if head == "job" and _is_uuid(payload.get("job_id")):
+            return f"{card}&tab=output&job={payload['job_id']}"
+        if head == "attachment":
+            return f"{card}&tab=attachments"
+        if head == "comment":
+            return f"{card}&tab=comments"
+        return card
+    if e.task_id:
+        return None  # the card is gone
+    if head == "note" and pid:
+        return f"/projects/{pid}/dashboard"
+    if head in ("assets", "trigger") or e.type == "project.scope":
+        return f"/projects/{pid}/assets" if pid else None
+    if head in PLACES:
+        return PLACES[head]
+    if pid and e.type != "project.deleted":
+        return f"/projects/{pid}"
+    return None
+
+
 async def _enrich(db: DB, events: list[m.ActivityEvent]) -> list[FeedItem]:
     project_ids = {e.project_id for e in events if e.project_id}
     task_ids = {e.task_id for e in events if e.task_id}
@@ -258,7 +300,6 @@ async def _enrich(db: DB, events: list[m.ActivityEvent]) -> list[FeedItem]:
             run_id=payload.get("run_id"),
             step_id=payload.get("step_id"),
             via=payload.get("via"),
-            link=_library_link(e.type, payload),
         )
         comment = comments.get(uuid.UUID(payload["comment_id"])) if _is_uuid(payload.get("comment_id")) else None
         if comment is not None:
@@ -273,6 +314,7 @@ async def _enrich(db: DB, events: list[m.ActivityEvent]) -> list[FeedItem]:
             item.post = {"id": str(post.id), "body": post.body, "edited": post.edited_at is not None, "tags": list(post.tags or []),
                          "mentions": list(post.mentions or []), "author_id": str(post.author_id) if post.author_id else None}
             item.via = post.via or item.via
+        item.link = link_for(e, payload, task=task, has_comment=comment is not None, has_post=post is not None)
         job = jobs.get(uuid.UUID(payload["job_id"])) if _is_uuid(payload.get("job_id")) else None
         if job is not None:
             agent = agents.get(job.agent_id) if job.agent_id else None

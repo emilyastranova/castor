@@ -117,3 +117,20 @@ def test_posts_are_tagged_and_filtered_by_hashtag(client, auth):
     # Editing re-reads them.
     client.patch(f"/api/posts/{a['id']}", json={"body": "found the VPN"}, headers=auth)
     assert [i["post"]["id"] for i in _feed(client, auth, p["id"], tag="recon")] == [b["id"]]
+
+
+def test_timeline_entries_link_to_what_they_are_about(client, auth):
+    p = _project(client, auth)
+    card = client.post(f"/api/projects/{p['id']}/tasks", json={"title": "Linked"}, headers=auth).json()
+    comment = client.post(f"/api/tasks/{card['id']}/comments", json={"body": "look"}, headers=auth).json()
+    post = client.post(f"/api/projects/{p['id']}/posts", json={"body": "a note"}, headers=auth).json()
+    client.post(f"/api/projects/{p['id']}/columns", json={"name": "Parked"}, headers=auth)
+    links = {i["type"]: i["link"] for i in _feed(client, auth, p["id"], kinds="comment,card,board")}
+    card_link = f"/projects/{p['id']}?task={card['id']}"
+    assert links["comment.created"] == f"{card_link}&comment={comment['id']}"
+    assert links["task.created"] == card_link
+    assert links["post.created"] == f"/projects/{p['id']}/dashboard?post={post['id']}"
+    assert links["column.created"] == f"/projects/{p['id']}"
+    # Once the card is gone, its entries don't lead anywhere.
+    client.delete(f"/api/tasks/{card['id']}", headers=auth)
+    assert all(i["link"] is None for i in _feed(client, auth, p["id"], kinds="comment") if i["type"] == "comment.created")

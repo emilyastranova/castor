@@ -340,7 +340,8 @@ dependency; keep it that way so the agent stays trivially installable on target 
 - `routes/projects/[id]/dashboard` (the project's Home) renders
   `lib/components/dashboard/Dashboard.svelte` (one `projectId`), fed by
   `api/dashboard.py` (`/summary`, `/feed`: activity events enriched with the comment, job,
-  card and author). New activity types map to feed kinds in `dashboard.kind_of`. Every mutation that
+  card and author). New activity types map to feed kinds in `dashboard.kind_of` and to where clicking them goes in
+  `dashboard.link_for`. Every mutation that
   changes something people would care about records an activity (`record_activity`; library items
   through `services.library_activity`), or MCP work done through it never shows up in the feed.
   Posts (`api/posts.py`, `project_posts`) are comments on nothing in the timeline (`PostComposer.svelte`,

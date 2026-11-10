@@ -619,7 +619,9 @@ they're about attached (the comment's text, the job's outcome, duration and agen
 card, the author's picture), filtered by kind (`comment, job, card, move, board, file, playbook, library, note,
 asset, agent, admin`; library changes, `library.<item>.<action>` from `services.library_activity`,
 have no project but show in every project's feed, with a `link` to the item) and optionally to what's about the user (`mine=true`: their assigned, opened or
-commented cards and comments mentioning them, done by someone else); admin events only for admins; job queue/dispatch steps never), paged with
+commented cards and comments mentioning them, done by someone else; each item has a `link` to what it's
+about from `dashboard.link_for`: the comment, the run's output, the card's files, the post, the library
+item or the page, or none when it's gone, and clicking an entry goes there); admin events only for admins; job queue/dispatch steps never), paged with
 `before=<id>`. A project's dashboard starts with its pinned notes (`GET/POST
 /api/projects/{id}/notes`, `PATCH/DELETE /api/notes/{id}`, `GET /api/notes/{id}/history`,
 `POST /api/notes/{id}/restore/{index}`, `POST /api/projects/{id}/notes/order`); every edit
