@@ -791,6 +791,29 @@ class ProjectNote(Base, TimestampMixin):
     editor: Mapped[User | None] = relationship()
 
 
+class ProjectPost(Base, TimestampMixin):
+    """A post on a project's timeline (Home): a comment on nothing, for notes and screenshots
+    that don't belong to a card. Pasted images are project attachments without a card."""
+
+    __tablename__ = "project_posts"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    author_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    body: Mapped[str] = mapped_column(Text)
+    # Ids (strings) of the people it @mentions.
+    mentions: Mapped[list[str]] = mapped_column(JSONType, default=list)
+    edited_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    # "mcp": written (or last edited) through an AI assistant over MCP.
+    via: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+    author: Mapped[User | None] = relationship()
+
+
 class Attachment(Base):
     __tablename__ = "attachments"
 

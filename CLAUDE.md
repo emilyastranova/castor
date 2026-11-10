@@ -343,6 +343,8 @@ dependency; keep it that way so the agent stays trivially installable on target 
   card and author). New activity types map to feed kinds in `dashboard.kind_of`. Every mutation that
   changes something people would care about records an activity (`record_activity`; library items
   through `services.library_activity`), or MCP work done through it never shows up in the feed.
+  Posts (`api/posts.py`, `project_posts`) are comments on nothing in the timeline (`PostComposer.svelte`,
+  rendered by `TimelineItem` from `FeedItem.post`).
   A project dashboard starts with `ProjectNotes.svelte` (pinned notes, `api/notes.py`; edits
   keep earlier versions in `project_notes.history`). Pasting images into markdown boxes
   (comments, notes) goes through `lib/pastedImages.svelte.ts` + `NameImageDialog`.

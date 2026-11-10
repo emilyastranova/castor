@@ -6,7 +6,7 @@ Postgres. Prefix filters narrow it:
 
     in:NWL26-001   one project (by codename)
     type:comment   one kind of thing (see TYPES), or several: type:card,comment
-    by:sam         made by someone (cards, comments, runs, notes)
+    by:sam         made by someone (cards, comments, posts, runs, notes)
     tag:smb        with a tag (cards, commands, playbooks, agents)
     is:mine        yours (assigned to or opened by you; comments that mention you)
     status:failed  a run's status, or a card's latest run
@@ -35,6 +35,7 @@ from .api_tokens import project_limit
 TYPES: list[tuple[str, str]] = [
     ("card", "Cards"),
     ("comment", "Comments"),
+    ("post", "Timeline posts"),
     ("output", "Results"),
     ("log", "Console output"),
     ("file", "Files and screenshots"),
@@ -53,15 +54,15 @@ TYPES: list[tuple[str, str]] = [
 TYPE_NAMES = {t for t, _ in TYPES}
 ALIASES = {"cards": "card", "task": "card", "tasks": "card", "comments": "comment", "results": "output",
            "outputs": "output", "logs": "log", "console": "log", "files": "file", "screenshot": "file",
-           "screenshots": "file", "attachment": "file", "runs": "run", "notes": "note", "projects": "project",
+           "screenshots": "file", "attachment": "file", "runs": "run", "notes": "note", "posts": "post", "projects": "project",
            "playbooks": "playbook", "commands": "command", "tools": "tool", "parsers": "parser",
            "variables": "variable", "vars": "variable", "people": "person", "user": "person", "assets": "asset",
            "host": "asset", "hosts": "asset", "service": "asset", "services": "asset", "domain": "asset", "domains": "asset",
            "users": "person", "agents": "agent"}
-BY_TYPES = {"card", "comment", "run", "note"}
+BY_TYPES = {"card", "comment", "post", "run", "note"}
 TAG_TYPES = {"card", "command", "playbook", "agent"}
 STATUS_TYPES = {"card", "run"}
-MINE_TYPES = {"card", "comment"}
+MINE_TYPES = {"card", "comment", "post"}
 FILTER = re.compile(r"(?:^|\s)(in|type|by|tag|is|status):(\"[^\"]*\"|\S+)", re.IGNORECASE)
 
 
@@ -235,6 +236,22 @@ class Searcher:
             "project": self.project_ref(task.project_id), "at": cm.created_at, "icon": "chat_bubble",
             "link": f"/projects/{task.project_id}?task={task.id}&comment={cm.id}",
         } for cm, task, author in rows]
+
+    async def post(self) -> list[dict[str, Any]]:
+        q, p = self.q, m.ProjectPost
+        cond = [self.in_scope(p.project_id), _match([p.body], q.terms)]
+        if (by := await self.by_user_id()) is not None:
+            cond.append(p.author_id == by)
+        if q.mine:
+            cond.append(_text(p.mentions).ilike(_like(str(self.user.id)), escape="\\"))
+        rows = await self.rows(
+            select(p, m.User.display_name).outerjoin(m.User, m.User.id == p.author_id).where(*cond).order_by(p.created_at.desc())
+        )
+        return [{
+            "id": str(post.id), "title": f"{author or 'Someone'} on the timeline", "snippet": snippet(post.body, q.terms),
+            "project": self.project_ref(post.project_id), "at": post.created_at, "icon": "edit_note",
+            "link": f"/projects/{post.project_id}/dashboard?post={post.id}",
+        } for post, author in rows]
 
     async def output(self) -> list[dict[str, Any]]:
         q, o, j, t = self.q, m.JobOutput, m.Job, m.Task

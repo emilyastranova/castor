@@ -113,8 +113,10 @@
 		{/if}
 		<div class="flex min-w-0 flex-1 flex-col self-stretch justify-center">
 			{#if multiline}
+				<!-- svelte-ignore a11y_autofocus -->
 				<textarea
 					{id}
+					{autofocus}
 					{name}
 					{rows}
 					{autocomplete}

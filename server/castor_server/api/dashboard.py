@@ -24,13 +24,14 @@ from ..services import playbook_run_out, step_link
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 # Feed kinds, from activity types. Job queue/dispatch steps are noise and never shown.
-HIDDEN_TYPES = {"job.queued", "job.dispatched", "task.duplicated"}  # the copy's task.created says it
+HIDDEN_TYPES = {"job.queued", "job.dispatched", "task.duplicated",  # the copy's task.created says it
+                "post.edited", "post.deleted"}  # a post shows as it is now, and goes when deleted
 ADMIN_KINDS = {"admin"}
 
 
 def kind_of(event_type: str) -> str:
     head = event_type.split(".", 1)[0]
-    if head == "comment":
+    if head in ("comment", "post"):  # a post is a comment on nothing
         return "comment"
     if head == "job":
         return "job"
@@ -70,6 +71,8 @@ class FeedItem(BaseModel):
     task: Ref | None = None
     actor: dict[str, Any]
     comment: dict[str, Any] | None = None
+    # A post (written straight into the timeline): {id, body, edited, mentions, author_id}.
+    post: dict[str, Any] | None = None
     job: dict[str, Any] | None = None
     run_id: str | None = None
     step_id: str | None = None
@@ -162,14 +165,17 @@ async def _mine(db: DB, user: m.User, scope: set[uuid.UUID] | None) -> tuple[set
     mentions = await db.execute(
         select(m.Comment.id, m.Comment.mentions).join(m.Task, m.Task.id == m.Comment.task_id).where(in_scope(m.Task.project_id))
     )
-    return tasks, {str(cid) for cid, who in mentions.all() if me in (who or [])}
+    posts = await db.execute(select(m.ProjectPost.id, m.ProjectPost.mentions).where(in_scope(m.ProjectPost.project_id)))
+    mentioning = {str(cid) for cid, who in mentions.all() if me in (who or [])}
+    return tasks, mentioning | {str(pid) for pid, who in posts.all() if me in (who or [])}
 
 
 def _is_mine(e: m.ActivityEvent, user: m.User, tasks: set[uuid.UUID], mentioning: set[str]) -> bool:
     """Something about you that someone (or something) else did."""
     if e.actor_type == "user" and e.actor_id == str(user.id):
         return False
-    return e.task_id in tasks or (e.payload or {}).get("comment_id") in mentioning
+    payload = e.payload or {}
+    return e.task_id in tasks or payload.get("comment_id") in mentioning or payload.get("post_id") in mentioning
 
 
 LIBRARY_LINKS = {"command": "/library?c={}", "tool": "/library?t={}", "parser": "/parsers?parser={}",
@@ -200,6 +206,7 @@ async def _enrich(db: DB, events: list[m.ActivityEvent]) -> list[FeedItem]:
     users = await by_id(m.User, user_ids)
     jobs = await by_id(m.Job, job_ids)
     comments = await by_id(m.Comment, comment_ids)
+    posts = await by_id(m.ProjectPost, {uuid.UUID(e.payload["post_id"]) for e in events if _is_uuid((e.payload or {}).get("post_id"))})
     agents = await by_id(m.Agent, {j.agent_id for j in jobs.values() if j.agent_id})
     # Comment events from before comment ids were recorded: that author's comment on that
     # card nearest the event.
@@ -216,6 +223,9 @@ async def _enrich(db: DB, events: list[m.ActivityEvent]) -> list[FeedItem]:
     out = []
     for e in events:
         payload = e.payload or {}
+        post = posts.get(uuid.UUID(payload["post_id"])) if _is_uuid(payload.get("post_id")) else None
+        if e.type == "post.created" and post is None:
+            continue  # deleted
         project = projects.get(e.project_id) if e.project_id else None
         task = tasks.get(e.task_id) if e.task_id else None
         author = users.get(uuid.UUID(e.actor_id)) if e.actor_type == "user" and _is_uuid(e.actor_id) else None
@@ -247,6 +257,10 @@ async def _enrich(db: DB, events: list[m.ActivityEvent]) -> list[FeedItem]:
                 "edited": comment.edited_at is not None,
                 "mentions": list(comment.mentions or []),
             }
+        if post is not None:
+            item.post = {"id": str(post.id), "body": post.body, "edited": post.edited_at is not None,
+                         "mentions": list(post.mentions or []), "author_id": str(post.author_id) if post.author_id else None}
+            item.via = post.via or item.via
         job = jobs.get(uuid.UUID(payload["job_id"])) if _is_uuid(payload.get("job_id")) else None
         if job is not None:
             agent = agents.get(job.agent_id) if job.agent_id else None
@@ -439,7 +453,7 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
 
     counts = {
         "open_cards": open_cards,
-        "comments_24h": (await db.execute(recent("comment.created"))).scalar_one(),
+        "comments_24h": (await db.execute(recent("comment.created", "post.created"))).scalar_one(),
         "cards_24h": (await db.execute(recent("task.created"))).scalar_one(),
         "jobs_succeeded_24h": (await db.execute(recent("job.succeeded"))).scalar_one(),
         "jobs_failed_24h": (await db.execute(recent("job.failed", "job.lost"))).scalar_one(),

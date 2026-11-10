@@ -308,6 +308,22 @@ export interface FeedItem {
 	via?: string | null;
 	/** Where a library item lives (library events). */
 	link?: string | null;
+	/** A post written straight into the timeline (type post.created), as it is now. */
+	post?: { id: UUID; body: string; edited: boolean; mentions: string[]; author_id: UUID | null } | null;
+}
+
+/** A post on a project's timeline: a comment on nothing. */
+export interface ProjectPost {
+	id: UUID;
+	project_id: UUID;
+	author_id: UUID | null;
+	author_name: string;
+	author_avatar: string | null;
+	body: string;
+	mentions: string[];
+	created_at: string;
+	edited_at: string | null;
+	via?: string | null;
 }
 
 export interface DashboardSummary {
@@ -1431,6 +1447,12 @@ export function api(fetchFn: Fetch = fetch) {
 				form.append('file', file);
 				return post<Attachment>(`/projects/${projectId}/attachments`, form);
 			}
+		},
+		posts: {
+			list: (projectId: UUID) => get<ProjectPost[]>(`/projects/${projectId}/posts`),
+			create: (projectId: UUID, body: string) => post<ProjectPost>(`/projects/${projectId}/posts`, { body }),
+			update: (id: UUID, body: string) => patch<ProjectPost>(`/posts/${id}`, { body }),
+			remove: (id: UUID) => del(`/posts/${id}`)
 		},
 		dashboard: {
 			summary: (projectId?: string | null) => get<DashboardSummary>(`/dashboard/summary${projectId ? `?project_id=${projectId}` : ''}`),

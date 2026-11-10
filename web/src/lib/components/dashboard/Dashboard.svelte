@@ -5,7 +5,10 @@
 	import { realtime } from '$lib/realtime.svelte';
 	import { notifications } from '$lib/notifications.svelte';
 	import { relativeTime, absoluteTime } from '$lib/format';
-	import { me, isAdmin } from '$lib/session';
+	import { me, isAdmin, canEdit } from '$lib/session';
+	import { page } from '$app/state';
+	import { snackbar } from '$lib/snackbar.svelte';
+	import PostComposer from './PostComposer.svelte';
 	import { fade } from 'svelte/transition';
 	import TimelineItem from './TimelineItem.svelte';
 	import ProjectNotes from './ProjectNotes.svelte';
@@ -139,6 +142,13 @@
 	$effect(() =>
 		realtime.subscribe((e) => {
 			if (e.project_id && e.project_id !== projectId) return;
+			if (e.name === 'post.updated') {
+				const p = e.data as { id: string; body: string; edited_at: string | null; mentions: string[] };
+				items = items.map((i) => (i.post?.id === p.id ? { ...i, post: { ...i.post, body: p.body, edited: !!p.edited_at, mentions: p.mentions } } : i));
+			} else if (e.name === 'post.deleted') {
+				const id = (e.data as { id: string }).id;
+				items = items.filter((i) => i.post?.id !== id);
+			}
 			if (e.name === 'activity.created') {
 				clearTimeout(headTimer);
 				headTimer = setTimeout(refreshHead, 400);
@@ -154,6 +164,24 @@
 	$effect(() => {
 		const t = setInterval(() => (now = Date.now()), 15000);
 		return () => clearInterval(t);
+	});
+
+	async function post(body: string) {
+		await api().posts.create(projectId, body);
+		if (!kinds.has('comment')) snackbar.show('Posted. Comments are hidden by your timeline filters, so it isn\'t shown.');
+	}
+
+	// A link to a post (?post=<id>, from a mention): scroll to it once it's loaded.
+	let shownPost = '';
+	$effect(() => {
+		const id = page.url.searchParams.get('post');
+		if (!id || id === shownPost || !loaded) return;
+		const el = document.getElementById(`post-${id}`);
+		if (!el) return;
+		shownPost = id;
+		el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+		el.classList.add('post-flash');
+		setTimeout(() => el.classList.remove('post-flash'), 2200);
 	});
 
 	function toggleKind(kind: FeedKind) {
@@ -362,6 +390,9 @@
 					<button type="button" class="touch-target shrink-0 label-medium whitespace-nowrap text-primary hover:underline" onclick={() => setKinds(new Set(WORK))}>Just the work</button>
 				{/if}
 			</div>
+			{#if canEdit()}
+				<div class="mb-4"><PostComposer {projectId} onsubmit={post} /></div>
+			{/if}
 			{#if !loaded}
 				<p class="py-10 text-center body-medium text-on-surface-variant">Loading…</p>
 			{:else if !items.length}
@@ -375,7 +406,7 @@
 						<h3 class="sticky top-0 z-10 -mx-1 mb-2 bg-surface px-1 py-1 title-small text-on-surface-variant">{day.label}</h3>
 						<ol>
 							{#each day.items as item (item.id)}
-								<li in:enter={{ enabled: liveFeed }} out:leave={{ enabled: liveFeed }}><TimelineItem {item} showProject={false} /></li>
+								<li id={item.post ? `post-${item.post.id}` : undefined} class="rounded-md" in:enter={{ enabled: liveFeed }} out:leave={{ enabled: liveFeed }}><TimelineItem {item} showProject={false} /></li>
 							{/each}
 						</ol>
 					</div>

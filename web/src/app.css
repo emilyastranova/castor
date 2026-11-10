@@ -396,6 +396,25 @@ select optgroup {
 			0 0 0 10px color-mix(in srgb, var(--md-sys-color-primary) 0%, transparent);
 	}
 }
+/* A timeline post opened from a link (a mention): a short tint behind it. */
+.post-flash {
+	animation: post-flash 2.2s ease-out 1;
+}
+@keyframes post-flash {
+	0%,
+	45% {
+		background-color: color-mix(in srgb, var(--md-sys-color-primary) 14%, transparent);
+	}
+	100% {
+		background-color: transparent;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.post-flash {
+		animation: none;
+		outline: 2px solid var(--md-sys-color-primary);
+	}
+}
 /* In lists that reload (the dashboard feed) the glow stays but doesn't pulse every time. */
 .mentions-me.quiet {
 	animation: none;

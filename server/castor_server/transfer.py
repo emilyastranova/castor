@@ -58,6 +58,7 @@ PROJECT_TABLES: list[tuple[str, type]] = [
     ("comments", m.Comment),
     ("attachments", m.Attachment),
     ("notes", m.ProjectNote),
+    ("posts", m.ProjectPost),
     ("variable_sets", m.VariableSet),
     ("assets", m.Asset),
     ("asset_observations", m.AssetObservation),
@@ -274,6 +275,7 @@ async def _project_bundle(db: AsyncSession, project: m.Project, opts: ExportOpti
         "comments": [row_of(c) for c in await _rows(db, select(m.Comment).where(m.Comment.task_id.in_(task_ids)))],
         "attachments": [row_of(a, skip=("storage_path",)) for a in attachments],
         "notes": [row_of(n) for n in await _rows(db, select(m.ProjectNote).where(m.ProjectNote.project_id == pid))],
+        "posts": [row_of(p) for p in await _rows(db, select(m.ProjectPost).where(m.ProjectPost.project_id == pid))],
         "variable_sets": [set_out(s, sec) for s in sets],
         "assets": [{**row_of(a), "secret": sec.out(a.secret)} for a in assets],
         "asset_observations": [row_of(o) for o in await _rows(db, select(m.AssetObservation).where(m.AssetObservation.asset_id.in_(asset_ids)))],
@@ -610,7 +612,7 @@ async def _plan(db: AsyncSession, user: m.User, archive: Archive, passphrase: st
     for name in archive.projects():
         bundle = archive.json(name)
         p = bundle["project"]
-        counts = [("tasks", "card"), ("comments", "comment"), ("attachments", "file"), ("jobs", "job run"), ("assets", "asset")]
+        counts = [("tasks", "card"), ("comments", "comment"), ("posts", "post"), ("attachments", "file"), ("jobs", "job run"), ("assets", "asset")]
         notes = [_count(len(bundle[k]), word) for k, word in counts if bundle.get(k)]
         exists = p["codename"] in codes
         items.append({
@@ -882,7 +884,7 @@ async def _import_project(
                 values["group_assignees"] = [local_groups[handles[g]] for g in raw.get("group_assignees") or []
                                              if handles.get(g) in local_groups]
                 values["var_bindings"] = {k: v for k, v in (values.get("var_bindings") or {}).items() if v in mapped}
-            elif table == "comments":
+            elif table in ("comments", "posts"):
                 values["mentions"] = [x for x in values.get("mentions") or [] if x in known_users]
             elif table == "assets":
                 values["secret"] = sec.into(raw.get("secret"))

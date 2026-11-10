@@ -624,7 +624,16 @@ commented cards and comments mentioning them, done by someone else); admin event
 /api/projects/{id}/notes`, `PATCH/DELETE /api/notes/{id}`, `GET /api/notes/{id}/history`,
 `POST /api/notes/{id}/restore/{index}`, `POST /api/projects/{id}/notes/order`); every edit
 keeps the previous version. Images pasted into a note are project attachments without a card
-(`POST /api/projects/{id}/attachments`). The page refreshes from `activity.created`, `job.updated`,
+(`POST /api/projects/{id}/attachments`).
+**Posts** (`project_posts`, `api/posts.py`) are comments on nothing, written straight into the
+timeline from the composer above it: `GET/POST /api/projects/{id}/posts`, `PATCH/DELETE
+/api/posts/{id}` (operators post; the author or an admin changes one). Markdown, `@mentions`
+(`comment.mention` notifications linking `/projects/{id}/dashboard?post=<id>`, so they reach Needs
+attention and the Mine filter), pasted images as project attachments, `via` like comments. Feed
+entries are `post.created` (kind `comment`, with the post as it is now in `post`); `post.edited` and
+`post.deleted` are recorded but hidden, and a deleted post's entry is dropped. Events
+`post.created`/`post.updated`/`post.deleted` keep open timelines current. Posts are searched
+(`type:post`) and travel with project exports. The page refreshes from `activity.created`, `job.updated`,
 `playbook_run.updated` and `agent.updated` events.
 
 ## UI realtime (`/ws/ui`)

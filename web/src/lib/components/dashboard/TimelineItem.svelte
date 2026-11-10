@@ -1,10 +1,14 @@
 <script lang="ts">
 	import PersonName from '$lib/components/PersonName.svelte';
 	import type { FeedItem } from '$lib/api';
-	import { Avatar, Icon } from '$lib/m3';
+	import { Avatar, Icon, IconButton, Menu, MenuItem } from '$lib/m3';
 	import RichText from '../RichText.svelte';
 	import { absoluteTime } from '$lib/format';
-	import { me } from '$lib/session';
+	import { me, canEdit, isAdmin } from '$lib/session';
+	import { api } from '$lib/api';
+	import { confirmAction } from '$lib/confirm.svelte';
+	import { snackbar } from '$lib/snackbar.svelte';
+	import PostComposer from './PostComposer.svelte';
 
 	/** One timeline entry; how it looks depends on its kind. */
 	interface Props {
@@ -54,6 +58,23 @@
 	// The job outcome is the event itself ("job.failed"), not the job's state now.
 	let outcome = $derived(item.kind === 'job' ? JOB[item.type.split('.')[1]] : undefined);
 	let time = $derived(new Date(item.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
+	// A post: its author (or an admin) edits and deletes it here; long ones fold.
+	let mayChange = $derived(!!item.post && canEdit() && (isAdmin() || (!!myId && item.post.author_id === myId)));
+	let editing = $state(false);
+	let expanded = $state(false);
+	let long = $derived(!!item.post && (item.post.body.split('\n').length > 12 || item.post.body.length > 1200));
+	async function savePost(body: string) {
+		await api().posts.update(item.post!.id, body);
+		editing = false;
+	}
+	async function removePost() {
+		if (!(await confirmAction({ title: 'Delete this post?', message: 'It leaves the timeline for everyone. Images in it stay in the project\'s files.', confirmLabel: 'Delete post' }))) return;
+		try {
+			await api().posts.remove(item.post!.id);
+		} catch {
+			snackbar.error("Couldn't delete the post");
+		}
+	}
 	const secs = (s: number) => (s < 60 ? `${Math.round(s)}s` : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`);
 </script>
 
@@ -79,7 +100,9 @@
 				<span class="label-large text-on-surface"><PersonName name={item.actor.name} /></span>
 			{/if}
 			{#if item.via === 'mcp'}<span title="Done through an AI assistant connected over MCP">via MCP</span>{/if}
-			{#if item.kind === 'comment'}
+			{#if item.post}
+				<span>posted{#if item.post.edited}<span class="italic"> · edited</span>{/if}</span>
+			{:else if item.kind === 'comment'}
 				<span>{item.type === 'comment.edited' ? 'edited a comment on' : item.type === 'comment.deleted' ? 'deleted a comment on' : 'commented on'}</span>
 			{/if}
 			{#if item.task}
@@ -89,9 +112,24 @@
 				<span class="rounded bg-surface-container-highest px-1.5 font-mono text-[11px]" title={item.project.name}>{item.project.codename}</span>
 			{/if}
 			<span class="ml-auto shrink-0" title={absoluteTime(item.created_at)}>{time}</span>
+			{#if mayChange && !editing}
+				<Menu>
+					{#snippet anchor()}<IconButton icon="more_vert" label="Post actions" size="sm" class="-my-1.5" />{/snippet}
+					<MenuItem icon="edit" onclick={() => (editing = true)}>Edit</MenuItem>
+					<MenuItem icon="delete" danger onclick={removePost}>Delete</MenuItem>
+				</Menu>
+			{/if}
 		</div>
 
-		{#if item.kind === 'comment' && item.comment}
+		{#if item.post}
+			{#if editing}
+				<div class="mt-2"><PostComposer projectId={item.project?.id ?? ''} initial={item.post.body} label="Edit post" submitLabel="Save" autofocus onsubmit={savePost} oncancel={() => (editing = false)} /></div>
+			{:else}
+				{@const forMe = !!myId && item.post.mentions.includes(myId)}
+				<RichText text={item.post.body} projectId={item.project?.id} class="mt-1.5 rounded-md bg-surface-container px-3.5 py-2.5 body-medium text-on-surface {long && !expanded ? 'line-clamp-[12]' : ''} {forMe ? 'mentions-me quiet' : ''}" />
+				{#if long}<button type="button" class="touch-target mt-1 label-medium text-primary hover:underline" onclick={() => (expanded = !expanded)}>{expanded ? 'Show less' : 'Show all'}</button>{/if}
+			{/if}
+		{:else if item.kind === 'comment' && item.comment}
 			{@const forMe = !!myId && item.comment.mentions?.includes(myId)}
 			<RichText text={item.comment.body} projectId={item.project?.id} class="mt-1.5 line-clamp-6 rounded-md bg-surface-container px-3.5 py-2.5 body-medium text-on-surface {forMe ? 'mentions-me quiet' : ''}" />
 		{:else if item.kind === 'job' && item.job}

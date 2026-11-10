@@ -176,6 +176,7 @@ RULES: list[tuple[str, str, str]] = [
     ("*", "/api/tasks/**", "projects:rw"),
     ("*", "/api/attachments/**", "projects:rw"),
     ("*", "/api/notes/**", "projects:rw"),
+    ("*", "/api/posts/**", "projects:rw"),
     ("*", "/api/activity", "projects:read"),
     ("*", "/api/dashboard/**", "projects:read"),
     ("*", "/api/search", "projects:read"),
