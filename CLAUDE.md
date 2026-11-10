@@ -350,10 +350,12 @@ dependency; keep it that way so the agent stays trivially installable on target 
   A project dashboard starts with `ProjectNotes.svelte` (pinned notes, `api/notes.py`; edits
   keep earlier versions in `project_notes.history`). Pasting images into markdown boxes
   (comments, notes) goes through `lib/pastedImages.svelte.ts` + `NameImageDialog`.
-  Comments and timeline posts are written in `MarkdownEditor.svelte` (Write/Preview, toolbar and
+  Comments, timeline posts, card descriptions and pinned notes are written in `MarkdownEditor.svelte` (Write/Preview, toolbar and
   shortcuts from `lib/markdownEdit.ts`, pure and tested by hand; @mentions, images pasted, dropped or
   picked via `PastedImages.add`, list continuation, drafts in localStorage by `draftKey`; `onsubmit` throws
-  to keep the text). Other markdown boxes are `TextField` with `markdown` (` over a selection makes it
+  to keep the text; `fill` takes the height it's given). A pinned note is edited in a top-layer sheet
+  that grows out of its tile and shrinks back into it (`ProjectNotes` `startEdit`/`finish`, FLIP with the
+  Web Animations API, a fade under reduced motion). Other markdown boxes are `TextField` with `markdown` (` over a selection makes it
   code, `m3/markdownKeys.ts`); never on command, YAML or key fields. Rendered markdown (`{@html renderMarkdown(...)}` or `RichText`) takes
   `use:copyableCode` (`lib/copyCode.ts`): a copy button on code blocks, inline code copies on click.
 - Tags: edit them with `m3/TagInput` (pills; Enter, comma, space or Tab adds; an existing tag

@@ -179,6 +179,18 @@
 		void save(patch);
 	}
 
+	async function saveDescription(text: string) {
+		if (text !== task.description) {
+			try {
+				onupdated(await api().tasks.update(task.id, { description: text }));
+			} catch (err) {
+				snackbar.error(err instanceof ApiError ? err.message : 'Could not save the description');
+				throw err; // the editor keeps the text
+			}
+		}
+		editingDescription = false;
+	}
+
 	async function save(patch: Partial<Task>) {
 		try {
 			const updated = await api().tasks.update(task.id, patch);
@@ -778,12 +790,23 @@
 			<div>
 				<div class="mb-1 flex items-center justify-between">
 					<h3 class="title-small text-on-surface">Description</h3>
-					{#if editable}<Button variant="text" icon={editingDescription ? 'check' : 'edit'} onclick={() => { if (editingDescription && description !== task.description) commit('description', { description }); editingDescription = !editingDescription; }}>
-						{editingDescription ? 'Done' : 'Edit'}
-					</Button>{/if}
+					{#if editable && !editingDescription}<Button variant="text" icon="edit" onclick={() => { description = task.description; editingDescription = true; }}>Edit</Button>{/if}
 				</div>
 				{#if editingDescription}
-					<TextField label="Description (markdown)" bind:value={description} multiline markdown rows={6} autofocus oninput={() => edited('description')} />
+					<MarkdownEditor
+						bind:value={description}
+						label="Description"
+						placeholder="What this card is for, what to check, links…"
+						projectId={task.project_id}
+						mentionables={() => people.mentionables(task.project_id)}
+						{images}
+						submitLabel="Save"
+						submitIcon="check"
+						onsubmit={saveDescription}
+						oncancel={() => { description = task.description; editingDescription = false; }}
+						autofocus
+						minRows={6}
+					/>
 				{:else if task.description.trim()}
 					<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 					<div class="prose-m3 body-medium text-on-surface" use:copyableCode onclick={openImagesIn}>{@html renderMarkdown(task.description)}</div>

@@ -40,6 +40,10 @@
 		draftKey?: string;
 		/** Shown before the box while it's collapsed (the writer's avatar). */
 		leading?: Snippet;
+		/** Fill the height it's given (a large editing panel) instead of growing with the text. */
+		fill?: boolean;
+		/** Things shown at the start of the footer, before the reference (a note's colour). */
+		footerStart?: Snippet;
 	}
 	let {
 		value = $bindable(''),
@@ -58,7 +62,9 @@
 		minRows = 3,
 		hashtags,
 		draftKey,
-		leading
+		leading,
+		fill = false,
+		footerStart
 	}: Props = $props();
 
 	const uid = `md-${Math.random().toString(36).slice(2, 8)}`;
@@ -137,7 +143,7 @@
 	// ---- the box grows with its text (up to about half the screen, then scrolls) ----
 	function fit() {
 		const el = textarea;
-		if (!el) return;
+		if (!el || fill) return;
 		el.style.height = 'auto';
 		const max = Math.max(200, Math.round(window.innerHeight * 0.5));
 		el.style.height = `${Math.min(el.scrollHeight + 2, max)}px`;
@@ -203,8 +209,7 @@
 		const ctrl = e.ctrlKey || e.metaKey;
 		const key = e.key.toLowerCase();
 		if (ctrl && e.key === 'Enter') {
-			e.preventDefault();
-			void submit();
+			return; // the editor's own keydown submits, wherever the focus is in it
 		} else if (e.key === 'Escape' && oncancel) {
 			e.preventDefault();
 			e.stopPropagation(); // cancel this, not the dialog around it
@@ -259,7 +264,7 @@
 <!-- The group is the drop zone for images and takes the Write/Preview shortcut for everything in it. -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
-	class="relative flex flex-col rounded-md border transition-[border-color,box-shadow] duration-150
+	class="relative flex flex-col rounded-md border transition-[border-color,box-shadow] duration-150 {fill ? 'min-h-0 flex-1' : ''}
 		{dragging > 0 ? 'border-primary shadow-[inset_0_0_0_1px_var(--md-sys-color-primary)]' : focused ? 'border-primary shadow-[inset_0_0_0_1px_var(--md-sys-color-primary)]' : expanded ? 'border-outline-variant hover:border-outline' : 'border-outline hover:border-on-surface'}"
 	onfocusin={() => (focused = true)}
 	onfocusout={focusout}
@@ -268,6 +273,12 @@
 			e.preventDefault();
 			e.stopPropagation(); // close the reference, not the dialog around it
 			showHelp = false;
+			return;
+		}
+		// Ctrl/Cmd+Enter submits from anywhere in the editor (the text, a toolbar or colour button).
+		if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !e.defaultPrevented) {
+			e.preventDefault();
+			void submit();
 			return;
 		}
 		// Write ⇄ Preview from anywhere in the editor.
@@ -330,11 +341,11 @@
 		</div>
 	{/if}
 
-	<div id="{uid}-panel" role="tabpanel" aria-labelledby="{uid}-{mode}" class="relative">
+	<div id="{uid}-panel" role="tabpanel" aria-labelledby="{uid}-{mode}" class="relative {fill ? 'flex min-h-0 flex-1 flex-col' : ''}">
 		{#if mode === 'write'}
 			<!-- Collapsed, the box reads as an invitation: who's writing, the prompt, and an image
 			     button. The textarea itself stays the same element, so clicking it just opens up. -->
-			<div class="flex items-center">
+			<div class="flex items-center {fill ? 'min-h-0 flex-1 items-stretch' : ''}">
 			{#if !expanded && leading}<div class="shrink-0 pl-3" aria-hidden="true">{@render leading()}</div>{/if}
 			<textarea
 				bind:this={textarea}
@@ -342,7 +353,7 @@
 				rows={expanded ? minRows : 1}
 				aria-label={label}
 				placeholder={placeholder ?? label}
-				class="block w-full min-w-0 flex-1 resize-none bg-transparent px-3.5 body-medium leading-[1.6] text-on-surface caret-primary outline-none placeholder:text-on-surface-variant {expanded ? 'py-2.5' : 'cursor-text py-3.5 body-large'}"
+				class="block w-full min-w-0 flex-1 resize-none bg-transparent px-3.5 body-medium leading-[1.6] text-on-surface caret-primary outline-none placeholder:text-on-surface-variant {expanded ? 'py-2.5' : 'cursor-text py-3.5 body-large'} {fill ? 'h-full overflow-y-auto' : ''}"
 				oninput={(e) => {
 					restored = false;
 					suggest.oninput(e);
@@ -363,7 +374,7 @@
 			</div>
 			<MentionMenu {suggest} />
 		{:else}
-			<div class="overflow-y-auto px-3.5 py-2.5" style="min-height: {height}px; max-height: 50vh">
+			<div class="overflow-y-auto px-3.5 py-2.5 {fill ? 'min-h-0 flex-1' : ''}" style={fill ? '' : `min-height: ${height}px; max-height: 50vh`}>
 				{#if value.trim()}
 					<RichText text={value} {projectId} {hashtags} class="body-medium text-on-surface" />
 				{:else}
@@ -380,6 +391,7 @@
 
 	{#if expanded}
 		<div class="flex flex-wrap items-center gap-x-2 gap-y-1 px-2 pt-1 pb-2">
+			{@render footerStart?.()}
 			<div class="relative">
 				<button
 					type="button"
