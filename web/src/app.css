@@ -274,7 +274,7 @@ select optgroup {
 .prose-m3 p:last-child { margin-bottom: 0; }
 .prose-m3 a { color: var(--md-sys-color-primary); text-decoration: underline; }
 .prose-m3 code { font-family: var(--md-sys-typescale-mono); font-size: 0.85em; background: var(--md-sys-color-surface-container-highest); padding: 0.1em 0.35em; border-radius: 4px; }
-.prose-m3 pre { background: var(--md-sys-color-surface-container-highest); padding: 0.75rem 1rem; border-radius: var(--md-sys-shape-corner-small); overflow: auto; }
+.prose-m3 pre { background: var(--md-sys-color-surface-container-highest); padding: 0.75rem 1rem; border-radius: var(--md-sys-shape-corner-small); overflow: auto; margin: 0 0 0.75em; }
 .prose-m3 pre code { background: none; padding: 0; }
 .prose-m3 ul, .prose-m3 ol { padding-left: 1.5em; margin: 0 0 0.75em; }
 /* Tailwind's base styles remove list markers; markdown lists need them back. */
@@ -285,7 +285,11 @@ select optgroup {
 .prose-m3 li:has(> input[type='checkbox']) { list-style: none; margin-left: -1.25em; }
 .prose-m3 h1, .prose-m3 h2, .prose-m3 h3 { font-weight: 500; margin: 1em 0 0.4em; }
 .prose-m3 blockquote { border-left: 3px solid var(--md-sys-color-outline-variant); margin: 0 0 0.75em; padding-left: 0.75em; color: var(--md-sys-color-on-surface-variant); }
-.prose-m3 table { border-collapse: collapse; }
+.prose-m3 table { border-collapse: collapse; margin: 0 0 0.75em; }
+.prose-m3 hr { border: 0; border-top: 1px solid var(--md-sys-color-outline-variant); margin: 1em 0; }
+/* Blocks are spaced below each other (the reset zeroes pre, table, hr margins); nothing pads the edges. */
+.prose-m3 > :first-child { margin-top: 0; }
+.prose-m3 > :last-child { margin-bottom: 0; }
 /* @mentions: picture + display name; the @username shows above on hover. */
 .prose-m3 .mention {
 	/* Plain inline (not flex), so the name sits on the text's baseline like any other word. */
