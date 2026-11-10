@@ -5,6 +5,7 @@
 	import { me } from '$lib/session';
 	import { goto } from '$app/navigation';
 	import { chipHashtags } from '$lib/hashtags';
+	import { copyableCode } from '$lib/copyCode';
 
 	/** Rendered markdown (comments): images open in the viewer, @mentions of people on the
 	 *  project show as chips. */
@@ -55,6 +56,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div
 	bind:this={root}
+	use:copyableCode
 	class="prose-m3 {klass}"
 	{onclick}
 	onpointerover={(e) => {

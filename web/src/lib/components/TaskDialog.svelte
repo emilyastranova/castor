@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { copyableCode } from '$lib/copyCode';
 	import PersonName from '$lib/components/PersonName.svelte';
 	import type { Agent, ArgErrors, Attachment, Column, Comment, CommandDefinition, Job, PlaybookRun, PlaybookSpec, Project, Task, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
@@ -804,7 +805,7 @@
 					<TextField label="Description (markdown)" bind:value={description} multiline markdown rows={6} autofocus oninput={() => edited('description')} />
 				{:else if task.description.trim()}
 					<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-					<div class="prose-m3 body-medium text-on-surface" onclick={openImagesIn}>{@html renderMarkdown(task.description)}</div>
+					<div class="prose-m3 body-medium text-on-surface" use:copyableCode onclick={openImagesIn}>{@html renderMarkdown(task.description)}</div>
 				{:else}
 					<p class="body-medium text-on-surface-variant italic">No description.</p>
 				{/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { copyableCode } from '$lib/copyCode';
 	import PersonName from '$lib/components/PersonName.svelte';
 	import { tick } from 'svelte';
 	import type { NoteVersion, ProjectNote, UUID } from '$lib/api';
@@ -256,7 +257,7 @@
 						{@const fade = !expanded[note.id] && overflow[note.id]?.more && !overflow[note.id]?.atEnd}
 						<div use:measure={note.id} class="note-scroll min-h-0 flex-1 {expanded[note.id] ? '' : 'overflow-y-auto'}" class:faded={fade}>
 							<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-							<div class="prose-m3 body-medium text-on-surface" onclick={openImagesIn}>{@html renderMarkdown(note.body)}</div>
+							<div class="prose-m3 body-medium text-on-surface" use:copyableCode onclick={openImagesIn}>{@html renderMarkdown(note.body)}</div>
 						</div>
 					{:else}
 						<p class="flex-1 body-medium text-on-surface-variant italic">Empty</p>
@@ -316,7 +317,7 @@
 			{#if versions[picked]}
 				<div class="min-w-0 rounded-md bg-surface-container p-4 md:max-h-[50vh] md:overflow-y-auto">
 					<p class="mb-2 title-small text-on-surface">{versions[picked].title}</p>
-					<div class="prose-m3 body-medium text-on-surface">{@html renderMarkdown(versions[picked].body || '_Empty_')}</div>
+					<div class="prose-m3 body-medium text-on-surface" use:copyableCode>{@html renderMarkdown(versions[picked].body || '_Empty_')}</div>
 				</div>
 			{/if}
 		</div>
