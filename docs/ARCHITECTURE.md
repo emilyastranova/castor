@@ -632,8 +632,11 @@ timeline from the composer above it: `GET/POST /api/projects/{id}/posts`, `PATCH
 attention and the Mine filter), pasted images as project attachments, `via` like comments. Feed
 entries are `post.created` (kind `comment`, with the post as it is now in `post`); `post.edited` and
 `post.deleted` are recorded but hidden, and a deleted post's entry is dropped. Events
-`post.created`/`post.updated`/`post.deleted` keep open timelines current. Posts are searched
-(`type:post`) and travel with project exports. The page refreshes from `activity.created`, `job.updated`,
+`post.created`/`post.updated`/`post.deleted` keep open timelines current. `#hashtags` are read from the
+text on save (`posts.hashtags`, outside code and links; `web/src/lib/hashtags.ts` uses the same rule to
+link them) into `project_posts.tags`; `GET /api/dashboard/feed?tag=` shows only the posts with one
+(whatever the kinds), `GET /api/projects/{id}/post-tags` lists them with counts. Posts are searched
+(`type:post`, `tag:`) and travel with project exports. The page refreshes from `activity.created`, `job.updated`,
 `playbook_run.updated` and `agent.updated` events.
 
 ## UI realtime (`/ws/ui`)

@@ -7,7 +7,7 @@ Postgres. Prefix filters narrow it:
     in:NWL26-001   one project (by codename)
     type:comment   one kind of thing (see TYPES), or several: type:card,comment
     by:sam         made by someone (cards, comments, posts, runs, notes)
-    tag:smb        with a tag (cards, commands, playbooks, agents)
+    tag:smb        with a tag (cards, posts' #hashtags, commands, playbooks, agents)
     is:mine        yours (assigned to or opened by you; comments that mention you)
     status:failed  a run's status, or a card's latest run
 
@@ -60,7 +60,7 @@ ALIASES = {"cards": "card", "task": "card", "tasks": "card", "comments": "commen
            "host": "asset", "hosts": "asset", "service": "asset", "services": "asset", "domain": "asset", "domains": "asset",
            "users": "person", "agents": "agent"}
 BY_TYPES = {"card", "comment", "post", "run", "note"}
-TAG_TYPES = {"card", "command", "playbook", "agent"}
+TAG_TYPES = {"card", "post", "command", "playbook", "agent"}
 STATUS_TYPES = {"card", "run"}
 MINE_TYPES = {"card", "comment", "post"}
 FILTER = re.compile(r"(?:^|\s)(in|type|by|tag|is|status):(\"[^\"]*\"|\S+)", re.IGNORECASE)
@@ -242,6 +242,7 @@ class Searcher:
         cond = [self.in_scope(p.project_id), _match([p.body], q.terms)]
         if (by := await self.by_user_id()) is not None:
             cond.append(p.author_id == by)
+        cond += [_text(p.tags).ilike(_like(f'"{tag}"'), escape="\\") for tag in q.tags]
         if q.mine:
             cond.append(_text(p.mentions).ilike(_like(str(self.user.id)), escape="\\"))
         rows = await self.rows(

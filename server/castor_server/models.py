@@ -807,6 +807,8 @@ class ProjectPost(Base, TimestampMixin):
     body: Mapped[str] = mapped_column(Text)
     # Ids (strings) of the people it @mentions.
     mentions: Mapped[list[str]] = mapped_column(JSONType, default=list)
+    # Its #hashtags, as first written (posts.hashtags); the timeline filters by them.
+    tags: Mapped[list[str]] = mapped_column(JSONType, default=list, server_default="[]")
     edited_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     # "mcp": written (or last edited) through an AI assistant over MCP.
     via: Mapped[str | None] = mapped_column(String(16), nullable=True)

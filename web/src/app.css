@@ -362,6 +362,32 @@ select optgroup {
 		transition: none;
 	}
 }
+/* A #hashtag in a timeline post (lib/hashtags.ts): a link to the posts that share it. */
+.hashtag {
+	border-radius: 9999px;
+	padding: 0 0.4em;
+	color: var(--md-sys-color-primary);
+	background: color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent);
+	font-weight: 500;
+	text-decoration: none;
+	white-space: nowrap;
+}
+.hashtag:hover {
+	background: color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent);
+}
+.hashtag:focus-visible {
+	outline: 2px solid var(--md-sys-color-secondary);
+	outline-offset: 1px;
+}
+.prose-m3 a.hashtag {
+	color: var(--md-sys-color-primary);
+	text-decoration: none;
+}
+.hashtag-on,
+.prose-m3 a.hashtag-on {
+	background: var(--md-sys-color-primary);
+	color: var(--md-sys-color-on-primary);
+}
 .prose-m3 .mention-me {
 	background: var(--md-sys-color-primary-container);
 	color: var(--md-sys-color-on-primary-container);

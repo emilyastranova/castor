@@ -81,6 +81,29 @@
 	}
 	let isDefault = $derived(kinds.size === WORK.length && WORK.every((k) => kinds.has(k)));
 
+	/** Only the posts with this #hashtag (?tag=, from clicking one). */
+	let tag = $derived(page.url.searchParams.get('tag'));
+	function tagHref(t: string | null) {
+		const url = new URL(page.url);
+		if (t) url.searchParams.set('tag', t);
+		else url.searchParams.delete('tag');
+		url.searchParams.delete('post');
+		return `${url.pathname}${url.search}`;
+	}
+	/** The hashtags the project's posts use, most used first. */
+	let postTags = $state<{ tag: string; count: number }[]>([]);
+	async function loadPostTags() {
+		try {
+			postTags = await api().posts.tags(projectId);
+		} catch {
+			/* keep the last ones */
+		}
+	}
+	$effect(() => {
+		void projectId;
+		void loadPostTags();
+	});
+
 	let summary = $state<DashboardSummary | null>(null);
 	let items = $state<FeedItem[]>([]);
 	let nextBefore = $state<number | null>(null);
@@ -97,7 +120,7 @@
 		}
 	}
 	async function loadFeed() {
-		const res = await api().dashboard.feed({ project_id: scope, kinds: [...kinds], mine, limit: 40 });
+		const res = await api().dashboard.feed({ project_id: scope, kinds: [...kinds], mine, tag, limit: 40 });
 		liveFeed = false;
 		items = res.items;
 		nextBefore = res.next_before;
@@ -105,7 +128,7 @@
 	}
 	/** New events: fetch the newest page and add what isn't shown yet. */
 	async function refreshHead() {
-		const res = await api().dashboard.feed({ project_id: scope, kinds: [...kinds], mine, limit: 40 });
+		const res = await api().dashboard.feed({ project_id: scope, kinds: [...kinds], mine, tag, limit: 40 });
 		const known = new Set(items.map((i) => i.id));
 		const fresh = res.items.filter((i) => !known.has(i.id));
 		if (!fresh.length) return;
@@ -116,7 +139,7 @@
 		if (!nextBefore) return;
 		loadingMore = true;
 		try {
-			const res = await api().dashboard.feed({ project_id: scope, kinds: [...kinds], mine, before: nextBefore, limit: 40 });
+			const res = await api().dashboard.feed({ project_id: scope, kinds: [...kinds], mine, tag, before: nextBefore, limit: 40 });
 			liveFeed = true;
 			items = [...items, ...res.items];
 			nextBefore = res.next_before;
@@ -131,6 +154,7 @@
 		void scope;
 		void kinds;
 		void mine;
+		void tag;
 		loaded = false;
 		void loadSummary();
 		void loadFeed();
@@ -142,9 +166,14 @@
 	$effect(() =>
 		realtime.subscribe((e) => {
 			if (e.project_id && e.project_id !== projectId) return;
+			if (e.name.startsWith('post.')) void loadPostTags();
 			if (e.name === 'post.updated') {
 				const p = e.data as { id: string; body: string; edited_at: string | null; mentions: string[] };
-				items = items.map((i) => (i.post?.id === p.id ? { ...i, post: { ...i.post, body: p.body, edited: !!p.edited_at, mentions: p.mentions } } : i));
+				const p2 = e.data as { tags: string[] };
+				items = items
+					.map((i) => (i.post?.id === p.id ? { ...i, post: { ...i.post, body: p.body, edited: !!p.edited_at, mentions: p.mentions, tags: p2.tags } } : i))
+					// Filtered by a tag the post no longer has: it leaves.
+					.filter((i) => !tag || !i.post || i.post.tags.some((t) => t.toLowerCase() === tag.toLowerCase()));
 			} else if (e.name === 'post.deleted') {
 				const id = (e.data as { id: string }).id;
 				items = items.filter((i) => i.post?.id !== id);
@@ -168,7 +197,7 @@
 
 	async function post(body: string) {
 		await api().posts.create(projectId, body);
-		if (!kinds.has('comment')) snackbar.show('Posted. Comments are hidden by your timeline filters, so it isn\'t shown.');
+		if (!kinds.has('comment') && !tag) snackbar.show('Posted. Comments are hidden by your timeline filters, so it isn\'t shown.');
 	}
 
 	// A link to a post (?post=<id>, from a mention): scroll to it once it's loaded.
@@ -375,10 +404,12 @@
 				{#each kindOptions as k (k.kind)}
 					<button
 						type="button"
-						class="touch-target flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 label-medium whitespace-nowrap transition-colors {kinds.has(k.kind)
+						class="touch-target flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 label-medium whitespace-nowrap transition-colors disabled:opacity-40 {kinds.has(k.kind)
 							? 'border-transparent bg-secondary-container text-on-secondary-container'
 							: 'border-outline-variant text-on-surface-variant hover:bg-surface-container-high'}"
 						aria-pressed={kinds.has(k.kind)}
+						disabled={!!tag}
+						title={tag ? 'Filtering by a hashtag shows only posts' : undefined}
 						onclick={() => toggleKind(k.kind)}
 					>
 						<Icon name={kinds.has(k.kind) ? 'check' : k.icon} size={14} />{k.label}
@@ -391,14 +422,28 @@
 				{/if}
 			</div>
 			{#if canEdit()}
-				<div class="mb-4"><PostComposer {projectId} onsubmit={post} /></div>
+				<div class="mb-3"><PostComposer {projectId} onsubmit={post} /></div>
+			{/if}
+			{#if tag}
+				<div class="mb-3 flex flex-wrap items-center gap-2 rounded-md bg-secondary-container/50 px-3 py-2">
+					<span class="body-medium text-on-surface">Posts tagged</span>
+					<a href={tagHref(null)} class="state-layer flex items-center gap-1 rounded-full bg-secondary-container py-0.5 pr-1.5 pl-2.5 label-large text-on-secondary-container" title="Show the whole timeline" aria-label="Stop filtering by #{tag}">#{tag}<Icon name="close" size={16} /></a>
+					<a href={tagHref(null)} class="ml-auto label-medium text-primary hover:underline">Whole timeline</a>
+				</div>
+			{:else if postTags.length}
+				<div class="mb-3 flex items-center gap-1.5 max-sm:-mx-4 max-sm:overflow-x-auto max-sm:px-4 max-sm:[scrollbar-width:none] sm:flex-wrap" aria-label="Hashtags in posts">
+					<Icon name="tag" size={16} class="shrink-0 text-on-surface-variant" />
+					{#each postTags.slice(0, 12) as t (t.tag)}
+						<a href={tagHref(t.tag)} class="hashtag shrink-0" title="{t.count} post{t.count === 1 ? '' : 's'}">#{t.tag}</a>
+					{/each}
+				</div>
 			{/if}
 			{#if !loaded}
 				<p class="py-10 text-center body-medium text-on-surface-variant">Loading…</p>
 			{:else if !items.length}
 				<div class="flex flex-col items-center gap-2 rounded-lg bg-surface-container-low py-12 text-center text-on-surface-variant">
 					<Icon name="history" size={36} />
-					<p class="body-medium">Nothing here yet{isDefault ? '' : ' for these filters'}.</p>
+					<p class="body-medium">{tag ? `No posts tagged #${tag}.` : `Nothing here yet${isDefault ? '' : ' for these filters'}.`}</p>
 				</div>
 			{:else}
 				{#each days as day (day.label)}
@@ -406,7 +451,7 @@
 						<h3 class="sticky top-0 z-10 -mx-1 mb-2 bg-surface px-1 py-1 title-small text-on-surface-variant">{day.label}</h3>
 						<ol>
 							{#each day.items as item (item.id)}
-								<li id={item.post ? `post-${item.post.id}` : undefined} class="rounded-md" in:enter={{ enabled: liveFeed }} out:leave={{ enabled: liveFeed }}><TimelineItem {item} showProject={false} /></li>
+								<li id={item.post ? `post-${item.post.id}` : undefined} class="rounded-md" in:enter={{ enabled: liveFeed }} out:leave={{ enabled: liveFeed }}><TimelineItem {item} showProject={false} activeTag={tag} /></li>
 							{/each}
 						</ol>
 					</div>

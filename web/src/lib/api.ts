@@ -309,7 +309,7 @@ export interface FeedItem {
 	/** Where a library item lives (library events). */
 	link?: string | null;
 	/** A post written straight into the timeline (type post.created), as it is now. */
-	post?: { id: UUID; body: string; edited: boolean; mentions: string[]; author_id: UUID | null } | null;
+	post?: { id: UUID; body: string; edited: boolean; mentions: string[]; tags: string[]; author_id: UUID | null } | null;
 }
 
 /** A post on a project's timeline: a comment on nothing. */
@@ -321,6 +321,8 @@ export interface ProjectPost {
 	author_avatar: string | null;
 	body: string;
 	mentions: string[];
+	/** Its #hashtags. */
+	tags: string[];
 	created_at: string;
 	edited_at: string | null;
 	via?: string | null;
@@ -1449,14 +1451,16 @@ export function api(fetchFn: Fetch = fetch) {
 			}
 		},
 		posts: {
-			list: (projectId: UUID) => get<ProjectPost[]>(`/projects/${projectId}/posts`),
+			list: (projectId: UUID, tag?: string) => get<ProjectPost[]>(`/projects/${projectId}/posts${tag ? `?tag=${encodeURIComponent(tag)}` : ''}`),
+			/** Hashtags the project's posts use, most used first. */
+			tags: (projectId: UUID) => get<{ tag: string; count: number }[]>(`/projects/${projectId}/post-tags`),
 			create: (projectId: UUID, body: string) => post<ProjectPost>(`/projects/${projectId}/posts`, { body }),
 			update: (id: UUID, body: string) => patch<ProjectPost>(`/posts/${id}`, { body }),
 			remove: (id: UUID) => del(`/posts/${id}`)
 		},
 		dashboard: {
 			summary: (projectId?: string | null) => get<DashboardSummary>(`/dashboard/summary${projectId ? `?project_id=${projectId}` : ''}`),
-			feed: (params: { project_id?: string | null; kinds?: FeedKind[]; mine?: boolean; actor?: string | null; before?: number | null; limit?: number } = {}) => {
+			feed: (params: { project_id?: string | null; kinds?: FeedKind[]; mine?: boolean; actor?: string | null; before?: number | null; limit?: number; tag?: string | null } = {}) => {
 				const q = new URLSearchParams();
 				if (params.project_id) q.set('project_id', params.project_id);
 				if (params.actor) q.set('actor', params.actor);
@@ -1464,6 +1468,7 @@ export function api(fetchFn: Fetch = fetch) {
 				if (params.kinds?.length) q.set('kinds', params.kinds.join(','));
 				if (params.before) q.set('before', String(params.before));
 				if (params.limit) q.set('limit', String(params.limit));
+				if (params.tag) q.set('tag', params.tag);
 				return get<{ items: FeedItem[]; next_before: number | null }>(`/dashboard/feed?${q}`);
 			}
 		},

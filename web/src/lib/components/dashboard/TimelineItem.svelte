@@ -15,8 +15,12 @@
 		item: FeedItem;
 		/** Show which project it's in (on the all-projects dashboard). */
 		showProject?: boolean;
+		/** The hashtag the timeline is filtered by. */
+		activeTag?: string | null;
 	}
-	let { item, showProject = true }: Props = $props();
+	let { item, showProject = true, activeTag = null }: Props = $props();
+	/** A hashtag opens the project's timeline filtered by it. */
+	const tagLink = (tag: string) => `/projects/${item.project?.id}/dashboard?tag=${encodeURIComponent(tag)}`;
 	let myId = $derived(me()?.id);
 
 	const KIND: Record<string, { icon: string; tone: string }> = {
@@ -126,7 +130,7 @@
 				<div class="mt-2"><PostComposer projectId={item.project?.id ?? ''} initial={item.post.body} label="Edit post" submitLabel="Save" autofocus onsubmit={savePost} oncancel={() => (editing = false)} /></div>
 			{:else}
 				{@const forMe = !!myId && item.post.mentions.includes(myId)}
-				<RichText text={item.post.body} projectId={item.project?.id} class="mt-1.5 rounded-md bg-surface-container px-3.5 py-2.5 body-medium text-on-surface {long && !expanded ? 'line-clamp-[12]' : ''} {forMe ? 'mentions-me quiet' : ''}" />
+				<RichText text={item.post.body} projectId={item.project?.id} hashtags={item.project ? tagLink : undefined} {activeTag} class="mt-1.5 rounded-md bg-surface-container px-3.5 py-2.5 body-medium text-on-surface {long && !expanded ? 'line-clamp-[12]' : ''} {forMe ? 'mentions-me quiet' : ''}" />
 				{#if long}<button type="button" class="touch-target mt-1 label-medium text-primary hover:underline" onclick={() => (expanded = !expanded)}>{expanded ? 'Show less' : 'Show all'}</button>{/if}
 			{/if}
 		{:else if item.kind === 'comment' && item.comment}

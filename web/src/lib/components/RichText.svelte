@@ -4,10 +4,25 @@
 	import { people, chipMentions, showMentionTip, hideMentionTip } from '$lib/people.svelte';
 	import { me } from '$lib/session';
 	import { goto } from '$app/navigation';
+	import { chipHashtags } from '$lib/hashtags';
 
 	/** Rendered markdown (comments): images open in the viewer, @mentions of people on the
 	 *  project show as chips. */
-	let { text, projectId = null, class: klass = '' }: { text: string; projectId?: string | null; class?: string } = $props();
+	let {
+		text,
+		projectId = null,
+		class: klass = '',
+		hashtags,
+		activeTag = null
+	}: {
+		text: string;
+		projectId?: string | null;
+		class?: string;
+		/** Make #hashtags links to this (timeline posts). */
+		hashtags?: (tag: string) => string;
+		/** The hashtag being filtered by, shown as chosen. */
+		activeTag?: string | null;
+	} = $props();
 
 	let root = $state<HTMLDivElement>();
 	/** A mention chip opens that person's page; an image opens the viewer. */
@@ -28,8 +43,10 @@
 	let html = $derived(renderMarkdown(text));
 	let who = $derived(people.mentionables(projectId));
 	$effect(() => {
-		void html; // re-chip whenever the rendered text (or the people) change
+		void html; // re-chip whenever the rendered text (or the people, or the chosen tag) change
+		void activeTag;
 		if (root) chipMentions(root, who, me()?.id);
+		if (root && hashtags) chipHashtags(root, hashtags, activeTag);
 	});
 	// Don't leave a tooltip behind when the comment goes away (e.g. navigating from a chip).
 	$effect(() => hideMentionTip);

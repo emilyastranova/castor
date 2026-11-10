@@ -106,7 +106,9 @@ async def feed(
     mine: bool = False,
     before: int | None = None,
     limit: int = 40,
+    tag: str | None = None,
 ):
+    """`tag` (a #hashtag, with or without #): only the posts that use it, whatever the kinds."""
     scope = await _scope(db, user, project_id)
     my_tasks, mentioning = await _mine(db, user, scope) if mine else (set(), set())
     wanted = {k for k in (kinds or "").split(",") if k} or None
@@ -119,6 +121,14 @@ async def feed(
         query = query.where(m.ActivityEvent.project_id.is_(None) | m.ActivityEvent.project_id.in_(scope))
     if before:
         query = query.where(m.ActivityEvent.id < before)
+    tagged_posts: set[str] | None = None
+    if tag:
+        from .posts import tagged
+
+        rows = await db.execute(select(m.ProjectPost.id).where(tagged(tag), m.ProjectPost.project_id.in_(scope) if scope is not None else true()))
+        tagged_posts = {str(p) for p in rows.scalars()}
+        query = query.where(m.ActivityEvent.type == "post.created")
+        wanted = None
     if actor:
         query = query.where(m.ActivityEvent.actor_id == actor)
 
@@ -136,6 +146,8 @@ async def feed(
             if kind in ADMIN_KINDS and not user.is_admin:
                 continue
             if wanted and kind not in wanted:
+                continue
+            if tagged_posts is not None and (e.payload or {}).get("post_id") not in tagged_posts:
                 continue
             if mine and not _is_mine(e, user, my_tasks, mentioning):
                 continue
@@ -258,7 +270,7 @@ async def _enrich(db: DB, events: list[m.ActivityEvent]) -> list[FeedItem]:
                 "mentions": list(comment.mentions or []),
             }
         if post is not None:
-            item.post = {"id": str(post.id), "body": post.body, "edited": post.edited_at is not None,
+            item.post = {"id": str(post.id), "body": post.body, "edited": post.edited_at is not None, "tags": list(post.tags or []),
                          "mentions": list(post.mentions or []), "author_id": str(post.author_id) if post.author_id else None}
             item.via = post.via or item.via
         job = jobs.get(uuid.UUID(payload["job_id"])) if _is_uuid(payload.get("job_id")) else None

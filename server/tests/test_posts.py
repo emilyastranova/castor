@@ -87,3 +87,33 @@ def test_posting_through_mcp_is_marked(client, auth):
     assert json.loads(result["content"][0]["text"])["via"] == "mcp"
     item = next(i for i in _feed(client, auth, p["id"]) if i["post"])
     assert item["via"] == "mcp" and item["post"]["body"] == "from the assistant"
+
+
+def test_hashtags():
+    from castor_server.api.posts import hashtags
+
+    text = "#Recon notes: see #web-app, (#scope). Not ##this, a#b, http://x/#frag, #1, `#code`, [l](http://x/#link)\n```\n#fenced\n```\n#recon again #über-"
+    assert hashtags(text) == ["Recon", "web-app", "scope", "über"]
+
+
+def test_posts_are_tagged_and_filtered_by_hashtag(client, auth):
+    p = _project(client, auth)
+    a = client.post(f"/api/projects/{p['id']}/posts", json={"body": "#Recon found the VPN #web"}, headers=auth).json()
+    client.post(f"/api/projects/{p['id']}/posts", json={"body": "lunch, no tags"}, headers=auth)
+    b = client.post(f"/api/projects/{p['id']}/posts", json={"body": "more #recon"}, headers=auth).json()
+    assert a["tags"] == ["Recon", "web"] and b["tags"] == ["recon"]
+
+    # Any case, with or without #, and whatever the kinds say.
+    for tag in ("recon", "#RECON"):
+        items = _feed(client, auth, p["id"], tag=tag, kinds="job")
+        assert [i["post"]["id"] for i in items] == [b["id"], a["id"]]
+    assert [i["post"]["tags"] for i in _feed(client, auth, p["id"], tag="web")] == [["Recon", "web"]]
+    assert client.get(f"/api/projects/{p['id']}/post-tags", headers=auth).json() == [{"tag": "Recon", "count": 2}, {"tag": "web", "count": 1}]
+    listed = client.get(f"/api/projects/{p['id']}/posts", params={"tag": "web"}, headers=auth).json()
+    assert [x["id"] for x in listed] == [a["id"]]
+    found = client.get("/api/search", params={"q": f"in:{p['codename']} tag:web"}, headers=auth).json()
+    assert [h["id"] for g in found["groups"] if g["type"] == "post" for h in g["hits"]] == [a["id"]]
+
+    # Editing re-reads them.
+    client.patch(f"/api/posts/{a['id']}", json={"body": "found the VPN"}, headers=auth)
+    assert [i["post"]["id"] for i in _feed(client, auth, p["id"], tag="recon")] == [b["id"]]
