@@ -44,6 +44,8 @@
 		fill?: boolean;
 		/** Things shown at the start of the footer, before the reference (a note's colour). */
 		footerStart?: Snippet;
+		/** A name for the text box others can find it by (data-<name>). */
+		marker?: string;
 	}
 	let {
 		value = $bindable(''),
@@ -64,7 +66,8 @@
 		draftKey,
 		leading,
 		fill = false,
-		footerStart
+		footerStart,
+		marker
 	}: Props = $props();
 
 	const uid = `md-${Math.random().toString(36).slice(2, 8)}`;
@@ -350,6 +353,7 @@
 			<textarea
 				bind:this={textarea}
 				bind:value
+				{...marker ? { [`data-${marker}`]: '' } : {}}
 				rows={expanded ? minRows : 1}
 				aria-label={label}
 				placeholder={placeholder ?? label}

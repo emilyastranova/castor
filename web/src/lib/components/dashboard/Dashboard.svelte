@@ -195,6 +195,20 @@
 		return () => clearInterval(t);
 	});
 
+	/** Type to post: on Home, with nothing else taking keys, a printable key starts a post. The
+	 *  box is focused during the keydown, so the browser types that very character into it. */
+	function typeToPost(e: KeyboardEvent) {
+		if (!canEdit() || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+		if (e.key.length !== 1 || e.key === ' ') return; // letters, digits, punctuation; space scrolls
+		const at = e.target as HTMLElement | null;
+		if (at?.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="textbox"], [role="menu"], dialog')) return;
+		if (document.querySelector('dialog[open]')) return; // a card, a note or a prompt is open
+		const box = document.querySelector<HTMLTextAreaElement>('textarea[data-timeline-composer]');
+		if (!box) return;
+		box.focus({ preventScroll: true });
+		box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+	}
+
 	async function post(body: string) {
 		await api().posts.create(projectId, body);
 		if (!kinds.has('comment') && !tag) snackbar.show('Posted. Comments are hidden by your timeline filters, so it isn\'t shown.');
@@ -337,6 +351,8 @@
 			: []
 	);
 </script>
+
+<svelte:window onkeydown={typeToPost} />
 
 <div class="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 pt-4 pb-10 sm:px-6 sm:pt-6">
 	<!-- greeting -->

@@ -44,7 +44,8 @@
 <MarkdownEditor
 	bind:value={body}
 	label={editing ? 'Edit post' : 'Post to the timeline'}
-	placeholder={editing ? undefined : 'Write a post for the timeline: notes, findings, screenshots…'}
+	placeholder={editing ? undefined : 'Write a post for the timeline (just start typing): notes, findings, screenshots…'}
+	marker={editing ? undefined : 'timeline-composer'}
 	{projectId}
 	mentionables={() => people.mentionables(projectId)}
 	{images}
