@@ -7,6 +7,7 @@ import re
 import uuid
 from datetime import datetime, timedelta
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -47,6 +48,10 @@ def kind_of(event_type: str) -> str:
         return "note"
     if head in ("assets", "trigger"):
         return "asset"
+    if head == "library":
+        return "library"  # commands, tools, parsers, playbooks, variable kinds
+    if head == "column" or event_type == "project.updated":
+        return "board"
     return "admin"  # users, projects, variables
 
 
@@ -69,6 +74,7 @@ class FeedItem(BaseModel):
     run_id: str | None = None
     step_id: str | None = None
     via: str | None = None  # "mcp": done through an AI assistant
+    link: str | None = None  # where a library item lives
 
 
 class FeedOut(BaseModel):
@@ -103,7 +109,9 @@ async def feed(
     wanted = {k for k in (kinds or "").split(",") if k} or None
     query = select(m.ActivityEvent).where(m.ActivityEvent.type.not_in(HIDDEN_TYPES)).order_by(m.ActivityEvent.id.desc())
     if project_id:
-        query = query.where(m.ActivityEvent.project_id.in_(scope))
+        # The library is shared, so a project's feed shows its changes too.
+        query = query.where(m.ActivityEvent.project_id.in_(scope)
+                            | (m.ActivityEvent.project_id.is_(None) & m.ActivityEvent.type.like("library.%")))
     elif scope is not None:
         query = query.where(m.ActivityEvent.project_id.is_(None) | m.ActivityEvent.project_id.in_(scope))
     if before:
@@ -164,6 +172,17 @@ def _is_mine(e: m.ActivityEvent, user: m.User, tasks: set[uuid.UUID], mentioning
     return e.task_id in tasks or (e.payload or {}).get("comment_id") in mentioning
 
 
+LIBRARY_LINKS = {"command": "/library?c={}", "tool": "/library?t={}", "parser": "/parsers?parser={}",
+                 "playbook": "/playbooks/edit/{}", "variable_kind": "/variables"}
+
+
+def _library_link(event_type: str, payload: dict) -> str | None:
+    if not event_type.startswith("library.") or event_type.endswith(".deleted") or not payload.get("id"):
+        return None
+    pattern = LIBRARY_LINKS.get(payload.get("item", ""))
+    return pattern.format(quote(str(payload["id"]), safe="")) if pattern else None
+
+
 async def _enrich(db: DB, events: list[m.ActivityEvent]) -> list[FeedItem]:
     project_ids = {e.project_id for e in events if e.project_id}
     task_ids = {e.task_id for e in events if e.task_id}
@@ -217,6 +236,7 @@ async def _enrich(db: DB, events: list[m.ActivityEvent]) -> list[FeedItem]:
             run_id=payload.get("run_id"),
             step_id=payload.get("step_id"),
             via=payload.get("via"),
+            link=_library_link(e.type, payload),
         )
         comment = comments.get(uuid.UUID(payload["comment_id"])) if _is_uuid(payload.get("comment_id")) else None
         if comment is not None:

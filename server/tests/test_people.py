@@ -80,7 +80,7 @@ def test_mentions_and_mine(client, auth):
     # Mine: the comment mentioning Bob is in his timeline; Cat's own comment isn't in hers,
     # but a reply on the card she commented on is.
     mine = client.get(f"/api/dashboard/feed?project_id={p['id']}&mine=true", headers=bh).json()["items"]
-    assert [i["comment"]["id"] for i in mine if i["comment"]] == [c["id"]]
+    assert [(i["type"], i["comment"]["id"]) for i in mine if i["comment"]] == [("comment.edited", c["id"]), ("comment.created", c["id"])]
     client.post(f"/api/tasks/{task['id']}/comments", json={"body": "on it"}, headers=ch)
     cat_mine = client.get(f"/api/dashboard/feed?project_id={p['id']}&mine=true&kinds=comment", headers=ch).json()["items"]
     assert "on it" not in [i["comment"]["body"] for i in cat_mine]

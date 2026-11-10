@@ -335,6 +335,7 @@ async def update_trigger(trigger_id: str, body: TriggerIn, db: DB, user: Current
         setattr(t, k, v)
     t.asset_type = A.type_of(body.asset_type).name
     t.conditions = [c.model_dump() for c in body.conditions]
+    await record_activity(db, type="trigger.updated", message=f"Changed the trigger “{t.name}”", project_id=t.project_id, **actor_of(user))
     await db.commit()
     bus.publish("asset_triggers.changed", t.project_id, {"project_id": str(t.project_id)})
     return _trigger_out(t)
@@ -345,6 +346,7 @@ async def delete_trigger(trigger_id: str, db: DB, user: CurrentUser):
     t = await _trigger_or_404(db, user, trigger_id, write=True)
     pid = t.project_id
     await db.delete(t)
+    await record_activity(db, type="trigger.deleted", message=f"Removed the trigger “{t.name}”", project_id=pid, **actor_of(user))
     await db.commit()
     bus.publish("asset_triggers.changed", pid, {"project_id": str(pid)})
 

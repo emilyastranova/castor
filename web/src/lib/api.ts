@@ -282,7 +282,7 @@ export interface PlaybookStepResult {
 	items?: number;
 }
 
-export type FeedKind = 'comment' | 'job' | 'card' | 'move' | 'file' | 'playbook' | 'note' | 'asset' | 'agent' | 'admin';
+export type FeedKind = 'comment' | 'job' | 'card' | 'move' | 'board' | 'file' | 'playbook' | 'library' | 'note' | 'asset' | 'agent' | 'admin';
 
 export interface ProjectRef {
 	id: UUID;
@@ -306,6 +306,8 @@ export interface FeedItem {
 	step_id: string | null;
 	/** 'mcp': done through an AI assistant. */
 	via?: string | null;
+	/** Where a library item lives (library events). */
+	link?: string | null;
 }
 
 export interface DashboardSummary {
@@ -867,6 +869,8 @@ export interface Comment {
 	updated_at: string;
 	/** Set when the body was changed after posting. */
 	edited_at: string | null;
+	/** 'mcp': written (or last edited) through an AI assistant. */
+	via?: string | null;
 }
 
 export interface Attachment {

@@ -8,6 +8,7 @@ from ..deps import DB, Admin, CurrentUser, parse_uuid
 from ..events import bus
 from ..orchestrator.gateway import gateway
 from ..schemas import AgentOut, AgentPatch
+from ..services import actor_of, record_activity
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -19,7 +20,7 @@ async def list_agents(db: DB, _: CurrentUser):
 
 
 @router.patch("/{agent_id}", response_model=AgentOut)
-async def update_agent(agent_id: str, body: AgentPatch, db: DB, _: Admin):
+async def update_agent(agent_id: str, body: AgentPatch, db: DB, user: Admin):
     agent = await db.get(m.Agent, parse_uuid(agent_id))
     if agent is None:
         raise HTTPException(404, "Agent not found")
@@ -33,6 +34,7 @@ async def update_agent(agent_id: str, body: AgentPatch, db: DB, _: Admin):
         conn = gateway.get(agent.id)
         if conn:
             conn.max_concurrency = agent.max_concurrency
+    await record_activity(db, type="agent.updated", message=f"Changed the agent {agent.name}", project_id=None, **actor_of(user))
     await db.commit()
     out = await gateway.agent_out(agent)
     bus.publish("agent.updated", None, out)
@@ -40,7 +42,7 @@ async def update_agent(agent_id: str, body: AgentPatch, db: DB, _: Admin):
 
 
 @router.delete("/{agent_id}", status_code=204)
-async def delete_agent(agent_id: str, db: DB, _: Admin):
+async def delete_agent(agent_id: str, db: DB, user: Admin):
     agent = await db.get(m.Agent, parse_uuid(agent_id))
     if agent is None:
         raise HTTPException(404, "Agent not found")
@@ -49,5 +51,6 @@ async def delete_agent(agent_id: str, db: DB, _: Admin):
     if gateway.get(agent.id) is not None:
         raise HTTPException(409, "Agent is connected; stop it first")
     await db.delete(agent)
+    await record_activity(db, type="agent.deleted", message=f"Removed the agent {agent.name}", project_id=None, **actor_of(user))
     await db.commit()
     bus.publish("agent.deleted", None, {"id": agent.id})

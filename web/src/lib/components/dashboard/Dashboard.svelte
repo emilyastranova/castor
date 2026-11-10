@@ -25,7 +25,9 @@
 		{ kind: 'job', label: 'Jobs', icon: 'terminal' },
 		{ kind: 'card', label: 'Cards', icon: 'note_stack_add' },
 		{ kind: 'move', label: 'Moves', icon: 'move_item' },
+		{ kind: 'board', label: 'Board', icon: 'view_kanban' },
 		{ kind: 'playbook', label: 'Playbooks', icon: 'account_tree' },
+		{ kind: 'library', label: 'Library', icon: 'construction' },
 		{ kind: 'file', label: 'Files', icon: 'attach_file' },
 		{ kind: 'note', label: 'Notes', icon: 'push_pin' },
 		{ kind: 'asset', label: 'Assets', icon: 'radar' },
@@ -34,7 +36,7 @@
 	];
 	let kindOptions = $derived(ALL_KINDS.filter((k) => k.kind !== 'admin' || isAdmin()));
 	/** What the timeline shows by default: the work, not note edits, agent connections or admin. */
-	const WORK: FeedKind[] = ['comment', 'job', 'card', 'playbook', 'file', 'asset'];
+	const WORK: FeedKind[] = ['comment', 'job', 'card', 'playbook', 'library', 'file', 'asset'];
 	let kinds = $state<Set<FeedKind>>(new Set(WORK));
 	/** "Mine": only what's about you (your cards, mentions, replies). */
 	let mine = $state(false);
@@ -45,8 +47,13 @@
 	let prefsRead = $state(false);
 	$effect(() => {
 		try {
-			const saved = JSON.parse(localStorage.getItem(PREFS) ?? 'null') as { kinds?: string[]; mine?: boolean } | null;
-			if (saved?.kinds) kinds = new Set(saved.kinds.filter((k): k is FeedKind => ALL_KINDS.some((x) => x.kind === k)));
+			const saved = JSON.parse(localStorage.getItem(PREFS) ?? 'null') as { kinds?: string[]; known?: string[]; mine?: boolean } | null;
+			if (saved?.kinds) {
+				// Kinds added since the filters were saved start as their default.
+				const known = saved.known ?? ['comment', 'job', 'card', 'move', 'file', 'playbook', 'note', 'asset', 'agent', 'admin'];
+				const added = WORK.filter((k) => !known.includes(k));
+				kinds = new Set([...saved.kinds.filter((k): k is FeedKind => ALL_KINDS.some((x) => x.kind === k)), ...added]);
+			}
 			if (saved?.mine !== undefined) mine = !!saved.mine;
 			else mine = localStorage.getItem('castor.dashboard.mine') === '1'; // before filters were saved
 		} catch {
@@ -56,7 +63,7 @@
 	});
 	function savePrefs() {
 		try {
-			localStorage.setItem(PREFS, JSON.stringify({ kinds: [...kinds], mine }));
+			localStorage.setItem(PREFS, JSON.stringify({ kinds: [...kinds], known: ALL_KINDS.map((k) => k.kind), mine }));
 		} catch {
 			/* storage unavailable */
 		}

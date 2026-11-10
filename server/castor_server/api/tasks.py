@@ -7,8 +7,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
+from .. import api_tokens, notifications, people, variables
 from .. import models as m
-from .. import notifications, people, variables
 from ..access import check_project, project_or_404
 from ..command_library import apply_library, load_spec
 from ..command_render import ArgumentError
@@ -170,8 +170,18 @@ async def update_task(task_id: str, body: TaskPatch, db: DB, user: CurrentUser):
     library_args = changes.pop("command_args", None)
     detaching = "command_ref" in body.model_fields_set and library_ref is None
 
+    edited = [k for k, v in changes.items() if k not in ("assignees", "group_assignees") and getattr(task, k) != v]
+    if library_ref != task.command_ref or library_args is not None and library_args != task.command_args:
+        edited.append("command")
+    if bindings is not None and bindings != (task.var_bindings or {}):
+        edited.append("variables")
+    if "alerts" in body.model_fields_set:
+        edited.append("alerts")
     for key, value in changes.items():
         setattr(task, key, value)
+    if edited:
+        await record_activity(db, type="task.updated", message=f"Changed {_fields_said(edited)} of “{task.title}”", project_id=task.project_id,
+                              task_id=task.id, payload={"fields": sorted(set(edited))}, **actor_of(user))
     if detaching:
         task.command_ref = None  # keeps the rendered command as a plain shell command
     elif library_ref and (library_ref != task.command_ref or library_args is not None):
@@ -362,6 +372,16 @@ async def _mention(db, task: m.Task, comment: m.Comment, author: m.User, already
         )
 
 
+FIELD_WORDS = {"command_ref": "command", "command_args": "command", "image": "image", "container_flags": "container flags",
+               "agent_selector": "where it runs", "run_on_move": "run on move", "timeout_s": "timeout", "due_at": "due date",
+               "custom_fields": "fields", "tty": "interactive"}
+
+
+def _fields_said(fields: list[str]) -> str:
+    words = list(dict.fromkeys(FIELD_WORDS.get(f, f.replace("_", " ")) for f in fields))
+    return "the " + (", ".join(words[:-1]) + " and " + words[-1] if len(words) > 1 else words[0])
+
+
 def _comment_out(comment: m.Comment) -> CommentOut:
     out = CommentOut.model_validate(comment)
     out.author_name = comment.author.display_name if comment.author else "unknown"
@@ -390,7 +410,7 @@ async def create_comment(task_id: str, body: CommentIn, db: DB, user: CurrentUse
     task = await _task_or_404(db, user, task_id, write=True)
     if not body.body.strip():
         raise HTTPException(400, "Comment is empty")
-    comment = m.Comment(task_id=task.id, author_id=user.id, body=body.body)
+    comment = m.Comment(task_id=task.id, author_id=user.id, body=body.body, via=api_tokens.via.get())
     comment.author = user
     db.add(comment)
     await db.flush()
@@ -429,6 +449,10 @@ async def update_comment(
         # Only people added by this edit are notified; the comment's author is who mentions.
         author = await db.get(m.User, comment.author_id) if comment.author_id else user
         await _mention(db, task, comment, author or user, list(comment.mentions or []))
+        if api_tokens.via.get():
+            comment.via = api_tokens.via.get()
+        await record_activity(db, type="comment.edited", message=f"Edited a comment on “{task.title}”", project_id=task.project_id,
+                              task_id=task.id, payload={"comment_id": str(comment.id)}, **actor_of(user))
         await db.commit()
     await db.refresh(comment, ["author"])
     out = _comment_out(comment)
@@ -445,6 +469,8 @@ async def delete_comment(task_id: str, comment_id: str, db: DB, user: CurrentUse
     if comment.author_id != user.id and not user.is_admin:
         raise HTTPException(403, "You can only delete your own comments")
     await db.delete(comment)
+    await record_activity(db, type="comment.deleted", message=f"Deleted a comment on “{task.title}”", project_id=task.project_id,
+                          task_id=task.id, **actor_of(user))
     await db.commit()
     bus.publish("comment.deleted", task.project_id, {"id": comment.id, "task_id": task.id})
     await publish_task(db, task)

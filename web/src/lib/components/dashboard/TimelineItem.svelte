@@ -20,6 +20,8 @@
 		job: { icon: 'terminal', tone: 'bg-primary-container text-on-primary-container' },
 		card: { icon: 'note_stack_add', tone: 'bg-tertiary-container text-on-tertiary-container' },
 		move: { icon: 'move_item', tone: 'bg-surface-container-highest text-on-surface-variant' },
+		board: { icon: 'view_kanban', tone: 'bg-surface-container-highest text-on-surface-variant' },
+		library: { icon: 'construction', tone: 'bg-secondary-container text-on-secondary-container' },
 		file: { icon: 'attach_file', tone: 'bg-surface-container-highest text-on-surface-variant' },
 		playbook: { icon: 'account_tree', tone: 'bg-primary-container text-on-primary-container' },
 		agent: { icon: 'dns', tone: 'bg-surface-container-highest text-on-surface-variant' },
@@ -39,7 +41,9 @@
 
 	let meta = $derived(KIND[item.kind] ?? KIND.admin);
 	let link = $derived(
-		item.run_id
+		item.link
+			? item.link
+			: item.run_id
 			? `/playbooks?run=${item.run_id}${item.step_id ? `&step=${item.step_id}` : ''}`
 			: item.task && item.project
 				? `/projects/${item.project.id}?task=${item.task.id}`
@@ -76,7 +80,7 @@
 			{/if}
 			{#if item.via === 'mcp'}<span title="Done through an AI assistant connected over MCP">via MCP</span>{/if}
 			{#if item.kind === 'comment'}
-				<span>commented on</span>
+				<span>{item.type === 'comment.edited' ? 'edited a comment on' : item.type === 'comment.deleted' ? 'deleted a comment on' : 'commented on'}</span>
 			{/if}
 			{#if item.task}
 				{#if link}<a href={link} class="min-w-0 truncate font-medium text-primary hover:underline">{item.task.name}</a>{:else}<span class="truncate">{item.task.name}</span>{/if}

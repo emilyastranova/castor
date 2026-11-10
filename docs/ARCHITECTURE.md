@@ -559,7 +559,8 @@ caller's Authorization header, so scopes, roles and project limits apply unchang
 as untrusted data. Resources (`resources/list`, `resources/templates/list`, `resources/read`;
 `castor://projects/{id}/board`, `cards/{id}`, `jobs/{id}/output`, `runs/{id}`) are GETs the same
 way. The in-process calls carry `X-Castor-Via: <api_tokens.MCP_KEY>`, so the activity they
-record has `payload.via = "mcp"`. `castor-mcp` (agent package) bridges stdio clients to it.
+record has `payload.via = "mcp"`, and comments they write keep it in `comments.via` (shown on the
+card). `castor-mcp` (agent package) bridges stdio clients to it.
 Tools that remove, revoke or rotate something, or trust a changed host key, set
 `destructiveHint` (`Tool.destructive`); a 204 answers "Done.". Admin tools cover agents, agent
 tokens (the result of creating one has a ready `castor-agent` command, from
@@ -615,8 +616,9 @@ agents and slots), the pinned notes as one line each (`pinned`), the user's own 
 moving, what's yours and a random fact (those, or general trivia from
 `dashboard/trivia.ts`). `GET /api/dashboard/feed` is the timeline: activity events with what
 they're about attached (the comment's text, the job's outcome, duration and agent, the
-card, the author's picture), filtered by kind (`comment, job, card, move, file, playbook, note,
-agent, admin`) and optionally to what's about the user (`mine=true`: their assigned, opened or
+card, the author's picture), filtered by kind (`comment, job, card, move, board, file, playbook, library, note,
+asset, agent, admin`; library changes, `library.<item>.<action>` from `services.library_activity`,
+have no project but show in every project's feed, with a `link` to the item) and optionally to what's about the user (`mine=true`: their assigned, opened or
 commented cards and comments mentioning them, done by someone else); admin events only for admins; job queue/dispatch steps never), paged with
 `before=<id>`. A project's dashboard starts with its pinned notes (`GET/POST
 /api/projects/{id}/notes`, `PATCH/DELETE /api/notes/{id}`, `GET /api/notes/{id}/history`,

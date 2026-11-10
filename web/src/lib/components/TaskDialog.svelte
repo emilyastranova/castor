@@ -217,7 +217,7 @@
 	/** Shown newest first, under the box, so a long thread doesn't need scrolling to reply. */
 	let newestFirst = $derived([...comments].reverse());
 	let attachments = $state<Attachment[]>([]);
-	let history = $state<{ id: number; message: string; actor_name: string; created_at: string }[]>([]);
+	let history = $state<{ id: number; message: string; actor_name: string; created_at: string; payload?: { via?: string } }[]>([]);
 	let newComment = $state('');
 	let posting = $state(false);
 	let uploading = $state(false);
@@ -906,6 +906,7 @@
 									{#if authorName}<a href="/people/{authorName}" class="label-large text-on-surface hover:underline"><PersonName name={c.author_name} /></a>{:else}<span class="label-large text-on-surface"><PersonName name={c.author_name} /></span>{/if}
 									<span title={absoluteTime(c.created_at)}>{relativeTime(c.created_at)}</span>
 									{#if mentionsMe(c)}<span class="flex items-center gap-0.5 rounded-full bg-primary-container px-1.5 py-0.5 label-small text-on-primary-container"><Icon name="alternate_email" size={12} />Mentions you</span>{/if}
+									{#if c.via === 'mcp'}<span title="Written through an AI assistant connected over MCP">· via MCP</span>{/if}
 									{#if c.edited_at}
 										<span class="italic" title="Edited {absoluteTime(c.edited_at)}">· edited</span>
 									{/if}
@@ -1020,7 +1021,7 @@
 						<li class="flex gap-3 body-medium">
 							<span class="w-20 shrink-0 body-small text-on-surface-variant" title={absoluteTime(h.created_at)}>{relativeTime(h.created_at)}</span>
 							<span class="text-on-surface">{h.message}</span>
-							<span class="body-small text-on-surface-variant">· {h.actor_name}</span>
+							<span class="body-small text-on-surface-variant">· {h.actor_name}{#if h.payload?.via === 'mcp'}{' '}<span title="Done through an AI assistant connected over MCP">via MCP</span>{/if}</span>
 						</li>
 					{:else}
 						<li class="body-medium text-on-surface-variant">No history.</li>

@@ -251,3 +251,31 @@ def test_an_assistant_does_what_a_person_does_with_cards(client, auth):
     names = {t["name"] for t in _rpc(client, reader, "tools/list")["result"]["tools"]}
     assert "get_project" in names and not names & {"update_card", "delete_card", "create_project", "delete_variable_set"}
     call("delete_project", project_id=p["id"])
+
+
+def test_mcp_work_shows_in_the_feed(client, auth):
+    """Library changes, card edits and comment edits through MCP are in the feed, marked."""
+    p = client.post("/api/projects", json={"codename": f"MF-{uuid.uuid4().hex[:6]}", "name": "Feed", "kind": "internal"}, headers=auth).json()
+    tok = _token(client, auth, scopes=["projects:write", "library:write"], project_ids=[p["id"]])
+    cid = f"feed-{uuid.uuid4().hex[:6]}"
+    made = _call(client, tok, "create_command", yaml=f"id: {cid}\nname: Feed probe\ncommand: echo hi\n")
+    assert not made["isError"], made
+    card = json.loads(_call(client, tok, "create_card", project_id=p["id"], title="Watched")["content"][0]["text"])
+    assert not _call(client, tok, "update_card", task_id=card["id"], title="Watched closely", priority=2)["isError"]
+    comment = json.loads(_call(client, tok, "comment", task_id=card["id"], body="first")["content"][0]["text"])
+    assert comment["via"] == "mcp"
+    assert not _call(client, tok, "edit_comment", task_id=card["id"], comment_id=comment["id"], body="second")["isError"]
+    by_hand = client.post(f"/api/tasks/{card['id']}/comments", json={"body": "by hand"}, headers=auth).json()
+    assert by_hand["via"] is None
+    client.delete(f"/api/tasks/{card['id']}/comments/{by_hand['id']}", headers=auth)
+    listed = {c["body"]: c["via"] for c in client.get(f"/api/tasks/{card['id']}/comments", headers=auth).json()}
+    assert listed == {"second": "mcp"}
+
+    items = client.get(f"/api/dashboard/feed?project_id={p['id']}", headers=auth).json()["items"]
+    seen = {(i["type"], i["via"]) for i in items}
+    assert {("library.command.created", "mcp"), ("task.updated", "mcp"), ("comment.edited", "mcp"), ("comment.deleted", None)} <= seen
+    lib = next(i for i in items if i["type"] == "library.command.created" and cid in i["message"])
+    assert lib["kind"] == "library" and lib["link"] == f"/library?c={cid}"
+    edit = next(i for i in items if i["type"] == "task.updated")
+    assert "title" in edit["message"] and "priority" in edit["message"]
+    client.delete(f"/api/commands/{cid}", headers=auth)

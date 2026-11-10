@@ -106,6 +106,17 @@ async def record_activity(
     return event
 
 
+LIBRARY_ITEMS = {"command": "command", "tool": "tool", "parser": "parser", "playbook": "playbook", "variable_kind": "variable kind"}
+
+
+async def library_activity(db: AsyncSession, user: m.User | None, item: str, action: str, item_id: str, name: str | None = None) -> None:
+    """A change to the shared library (type `library.<item>.<action>`): in every feed."""
+    verb = {"created": "Added", "updated": "Changed", "deleted": "Removed"}[action]
+    label = f"{name} ({item_id})" if name and name != item_id else item_id
+    await record_activity(db, type=f"library.{item}.{action}", message=f"{verb} the {LIBRARY_ITEMS[item]} {label}",
+                          project_id=None, payload={"item": item, "id": item_id}, **actor_of(user))
+
+
 def actor_of(user: m.User | None) -> dict[str, Any]:
     if user is None:
         return {"actor_type": "system", "actor_id": None, "actor_name": "castor"}

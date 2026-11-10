@@ -15,6 +15,7 @@ from ..deps import DB, CurrentUser, Operator
 from ..events import bus
 from ..orchestrator.dispatcher import tool_ready, tool_way
 from ..orchestrator.gateway import gateway
+from ..services import library_activity
 from ..tool_library import definition_from_spec, tools_in_use
 from ..tool_spec import ToolSpec, parse_tool_spec
 
@@ -125,20 +126,21 @@ async def validate_tool(body: ToolYamlIn, _: CurrentUser):
 
 
 @router.post("", response_model=ToolOut, status_code=201)
-async def create_tool(body: ToolYamlIn, db: DB, _: Operator):
+async def create_tool(body: ToolYamlIn, db: DB, user: Operator):
     spec = _parse_or_422(body.yaml)
     if await db.get(m.ToolDefinition, spec.id) is not None:
         raise HTTPException(409, f"A tool with id “{spec.id}” already exists")
     row = m.ToolDefinition(id=spec.id, origin="user", version=1)
     definition_from_spec(row, spec, body.yaml)
     db.add(row)
+    await library_activity(db, user, "tool", "created", spec.id, row.name)
     await db.commit()
     bus.publish("tools.changed", None, {"id": spec.id})
     return _out(row, await _used_by(db))
 
 
 @router.put("/{tool_id}", response_model=ToolOut)
-async def update_tool(tool_id: str, body: ToolYamlIn, db: DB, _: Operator):
+async def update_tool(tool_id: str, body: ToolYamlIn, db: DB, user: Operator):
     row = await db.get(m.ToolDefinition, tool_id)
     if row is None:
         raise HTTPException(404, "Tool not found")
@@ -148,13 +150,14 @@ async def update_tool(tool_id: str, body: ToolYamlIn, db: DB, _: Operator):
     if spec.id != tool_id:
         raise HTTPException(422, "id: cannot be changed (create a new tool instead)")
     definition_from_spec(row, spec, body.yaml)
+    await library_activity(db, user, "tool", "updated", tool_id, row.name)
     await db.commit()
     bus.publish("tools.changed", None, {"id": tool_id})
     return _out(row, await _used_by(db))
 
 
 @router.delete("/{tool_id}", status_code=204)
-async def delete_tool(tool_id: str, db: DB, _: Operator):
+async def delete_tool(tool_id: str, db: DB, user: Operator):
     row = await db.get(m.ToolDefinition, tool_id)
     if row is None:
         raise HTTPException(404, "Tool not found")
@@ -163,6 +166,7 @@ async def delete_tool(tool_id: str, db: DB, _: Operator):
     if tool_id in await tools_in_use(db):
         raise HTTPException(409, "Commands use this tool; change them first")
     await db.delete(row)
+    await library_activity(db, user, "tool", "deleted", tool_id, row.name)
     await db.commit()
     bus.publish("tools.changed", None, {"id": tool_id})
 

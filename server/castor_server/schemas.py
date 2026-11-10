@@ -421,6 +421,7 @@ class CommentOut(ORM):
     created_at: datetime
     updated_at: datetime
     edited_at: datetime | None = None
+    via: str | None = None  # "mcp": through an AI assistant
 
 
 class AttachmentOut(ORM):

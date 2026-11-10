@@ -1,3 +1,4 @@
+
 """Variable kinds (typed field templates) and variable sets (filled-in instances)."""
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from .. import vault
 from ..access import visible_project_ids
 from ..config import settings
 from ..deps import DB, CurrentUser, Operator, parse_uuid
-from ..services import actor_of, record_activity
+from ..services import actor_of, library_activity, record_activity
 
 router = APIRouter(prefix="/variables", tags=["variables"])
 
@@ -184,7 +185,7 @@ async def list_kinds(db: DB, _: CurrentUser):
 
 
 @router.post("/kinds", response_model=KindOut, status_code=201)
-async def create_kind(body: KindIn, db: DB, _: Operator):
+async def create_kind(body: KindIn, db: DB, user: Operator):
     spec = _parse_kind(body)
     if await db.get(m.VariableKind, spec.id) is not None:
         raise HTTPException(409, f"A variable kind with id “{spec.id}” already exists")
@@ -193,12 +194,13 @@ async def create_kind(body: KindIn, db: DB, _: Operator):
         spec=spec.model_dump(mode="json"),
     )
     db.add(row)
+    await library_activity(db, user, "variable_kind", "created", spec.id, row.name)
     await db.commit()
     return _kind_out(row)
 
 
 @router.put("/kinds/{kind_id}", response_model=KindOut)
-async def update_kind(kind_id: str, body: KindIn, db: DB, _: Operator):
+async def update_kind(kind_id: str, body: KindIn, db: DB, user: Operator):
     row, old = await _kind_or_404(db, kind_id)
     if row.origin == "builtin":
         raise HTTPException(409, "Built-in kinds are read-only; create your own to customise")
@@ -217,12 +219,13 @@ async def update_kind(kind_id: str, body: KindIn, db: DB, _: Operator):
         )
     row.name, row.description, row.spec = spec.name, spec.description, spec.model_dump(mode="json")
     await v.drop_removed_fields(db, spec)
+    await library_activity(db, user, "variable_kind", "updated", kind_id, row.name)
     await db.commit()
     return _kind_out(row, count or 0)
 
 
 @router.delete("/kinds/{kind_id}", status_code=204)
-async def delete_kind(kind_id: str, db: DB, _: Operator):
+async def delete_kind(kind_id: str, db: DB, user: Operator):
     row, _spec = await _kind_or_404(db, kind_id)
     if row.origin == "builtin":
         raise HTTPException(409, "Built-in kinds cannot be deleted")
@@ -230,6 +233,7 @@ async def delete_kind(kind_id: str, db: DB, _: Operator):
     if count:
         raise HTTPException(409, f"{count} variable set(s) use this kind; delete them first")
     await db.delete(row)
+    await library_activity(db, user, "variable_kind", "deleted", kind_id, row.name)
     await db.commit()
 
 
@@ -286,6 +290,8 @@ async def create_set(body: SetIn, db: DB, user: Operator):
     )
     _apply(row, spec, body.values)
     db.add(row)
+    if not row.ephemeral:
+        await record_activity(db, type="variable.set_created", message=f"Added the variable set {row.name}", project_id=None, **actor_of(user))
     await db.commit()
     return _set_out(row, spec)
 
@@ -309,6 +315,8 @@ async def update_set(set_id: str, body: SetPatch, db: DB, user: Operator):
         row.project_ids = [str(p) for p in body.project_ids]
     if body.values:
         _apply(row, spec, body.values)
+    if not row.ephemeral:
+        await record_activity(db, type="variable.set_updated", message=f"Changed the variable set {row.name}", project_id=None, **actor_of(user))
     await db.commit()
     return _set_out(row, spec)
 
@@ -317,6 +325,8 @@ async def update_set(set_id: str, body: SetPatch, db: DB, user: Operator):
 async def delete_set(set_id: str, db: DB, user: Operator):
     row, _spec = await _set_or_404(db, set_id, user)
     await db.delete(row)
+    if not row.ephemeral:
+        await record_activity(db, type="variable.set_deleted", message=f"Removed the variable set {row.name}", project_id=None, **actor_of(user))
     await db.commit()
 
 
@@ -332,6 +342,8 @@ async def upload_file(
     if len(data) > settings.variable_file_max_bytes:
         raise HTTPException(413, f"files are limited to {settings.variable_file_max_bytes} bytes")
     v.store_file(row, f, (file.filename or field)[:200], data)
+    if not row.ephemeral:
+        await record_activity(db, type="variable.set_updated", message=f"Uploaded {field} to the variable set {row.name}", project_id=None, **actor_of(user))
     await db.commit()
     return _set_out(row, spec)
 
@@ -342,6 +354,8 @@ async def delete_file(set_id: str, field: str, db: DB, user: Operator):
     files = dict(row.files or {})
     files.pop(field, None)
     row.files = files
+    if not row.ephemeral:
+        await record_activity(db, type="variable.set_updated", message=f"Removed {field} from the variable set {row.name}", project_id=None, **actor_of(user))
     await db.commit()
     return _set_out(row, spec)
 

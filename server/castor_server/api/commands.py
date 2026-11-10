@@ -11,6 +11,7 @@ from ..command_render import ArgumentError, render_command
 from ..command_spec import CommandSpec, parse_spec
 from ..deps import DB, CurrentUser, Operator
 from ..schemas import CommandDefinitionOut, CommandUsageOut, CommandYamlIn, RenderIn, RenderOut
+from ..services import library_activity
 from ..tool_library import load_tool
 
 router = APIRouter(prefix="/commands", tags=["commands"])
@@ -85,7 +86,7 @@ async def _check_vars(db, spec) -> None:
 
 
 @router.post("", response_model=CommandDefinitionOut, status_code=201)
-async def create_command(body: CommandYamlIn, db: DB, _: Operator):
+async def create_command(body: CommandYamlIn, db: DB, user: Operator):
     spec = _parse_or_422(body.yaml)
     await _check_vars(db, spec)
     if await db.get(m.CommandDefinition, spec.id) is not None:
@@ -93,12 +94,13 @@ async def create_command(body: CommandYamlIn, db: DB, _: Operator):
     row = m.CommandDefinition(id=spec.id, origin="user", version=1)
     definition_from_spec(row, spec, body.yaml)
     db.add(row)
+    await library_activity(db, user, "command", "created", spec.id, row.name)
     await db.commit()
     return await _out(db, row, set())
 
 
 @router.put("/{command_id}", response_model=CommandDefinitionOut)
-async def update_command(command_id: str, body: CommandYamlIn, db: DB, _: Operator):
+async def update_command(command_id: str, body: CommandYamlIn, db: DB, user: Operator):
     row = await db.get(m.CommandDefinition, command_id)
     if row is None:
         raise HTTPException(404, "Command not found")
@@ -109,12 +111,13 @@ async def update_command(command_id: str, body: CommandYamlIn, db: DB, _: Operat
     if spec.id != command_id:
         raise HTTPException(422, "id: cannot be changed (create a new command instead)")
     definition_from_spec(row, spec, body.yaml)
+    await library_activity(db, user, "command", "updated", command_id, row.name)
     await db.commit()
     return await _out(db, row, await ids_in_use(db))
 
 
 @router.delete("/{command_id}", status_code=204)
-async def delete_command(command_id: str, db: DB, _: Operator):
+async def delete_command(command_id: str, db: DB, user: Operator):
     row = await db.get(m.CommandDefinition, command_id)
     if row is None:
         raise HTTPException(404, "Command not found")
@@ -125,6 +128,7 @@ async def delete_command(command_id: str, db: DB, _: Operator):
     for task in tasks:
         task.command_ref = None
     await db.delete(row)
+    await library_activity(db, user, "command", "deleted", command_id, row.name)
     await db.commit()
 
 

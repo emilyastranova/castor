@@ -126,8 +126,12 @@ async def get_project(project_id: str, db: DB, user: CurrentUser):
 @router.patch("/{project_id}", response_model=ProjectOut)
 async def update_project(project_id: str, body: ProjectPatch, db: DB, user: CurrentUser):
     project = await _project_or_404(db, user, project_id, write=True)
+    before = {k: getattr(project, k) for k in body.model_dump(exclude_unset=True)}
     for key, value in body.model_dump(exclude_unset=True).items():
         setattr(project, key, value)
+    if changed := sorted(k for k, v in before.items() if getattr(project, k) != v):
+        await record_activity(db, type="project.updated", message=f"Changed the {', '.join(c.replace('_', ' ') for c in changed)} of {project.codename}",
+                              project_id=project.id, **actor_of(user))
     await db.commit()
     bus.publish("project.updated", project.id, ProjectOut.model_validate(project))
     return project
@@ -137,6 +141,7 @@ async def update_project(project_id: str, body: ProjectPatch, db: DB, user: Curr
 async def delete_project(project_id: str, db: DB, user: Admin):
     project = await _project_or_404(db, user, project_id)
     await db.delete(project)
+    await record_activity(db, type="project.deleted", message=f"Deleted the project {project.codename} ({project.name})", project_id=None, **actor_of(user))
     await db.commit()
     bus.publish("project.deleted", project.id, {"id": project.id})
 
@@ -198,6 +203,7 @@ async def create_column(project_id: str, body: ColumnIn, db: DB, user: CurrentUs
         wip_limit=body.wip_limit,
     )
     db.add(column)
+    await record_activity(db, type="column.created", message=f"Added the column {column.name}", project_id=project.id, **actor_of(user))
     await db.commit()
     bus.publish("column.created", project.id, ColumnOut.model_validate(column))
     return column
@@ -209,8 +215,14 @@ async def update_column(project_id: str, column_id: str, body: ColumnPatch, db: 
     column = await db.get(m.BoardColumn, parse_uuid(column_id))
     if column is None or column.project_id != project.id:
         raise HTTPException(404, "Column not found")
+    old_name = column.name
+    changed = sorted(k for k, v in body.model_dump(exclude_unset=True).items() if getattr(column, k) != v)
     for key, value in body.model_dump(exclude_unset=True).items():
         setattr(column, key, value)
+    if changed:
+        said = f"Renamed the column {old_name} to {column.name}" if changed == ["name"] else \
+            f"Changed the {', '.join(c.replace('_', ' ') for c in changed)} of the column {column.name}"
+        await record_activity(db, type="column.updated", message=said, project_id=project.id, **actor_of(user))
     await db.commit()
     bus.publish("column.updated", project.id, ColumnOut.model_validate(column))
     return column
@@ -228,6 +240,7 @@ async def delete_column(project_id: str, column_id: str, db: DB, user: CurrentUs
     if has_tasks:
         raise HTTPException(409, "Move or delete the cards in this column first")
     await db.delete(column)
+    await record_activity(db, type="column.deleted", message=f"Removed the column {column.name}", project_id=project.id, **actor_of(user))
     await db.commit()
     bus.publish("column.deleted", project.id, {"id": column.id})
 

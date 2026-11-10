@@ -28,6 +28,7 @@ from ..services import (
     SelectorError,
     cancel_playbook_run,
     check_selector,
+    library_activity,
     playbook_run_out,
     resolve_step,
     start_playbook_run,
@@ -112,7 +113,7 @@ async def spec_to_yaml(body: SpecIn, db: DB, _: CurrentUser):
 
 
 @router.post("/playbooks", response_model=PlaybookDefinitionOut, status_code=201)
-async def create_playbook(body: PlaybookDefinitionIn, db: DB, _: Operator):
+async def create_playbook(body: PlaybookDefinitionIn, db: DB, user: Operator):
     spec = await _checked_spec(db, body.yaml)
     if await db.get(m.PlaybookDefinition, spec.id) is not None:
         raise HTTPException(409, f"A playbook with id “{spec.id}” already exists")
@@ -120,12 +121,13 @@ async def create_playbook(body: PlaybookDefinitionIn, db: DB, _: Operator):
     row = m.PlaybookDefinition(id=spec.id, origin="user", version=1)
     definition_from_spec(row, spec, body.yaml)
     db.add(row)
+    await library_activity(db, user, "playbook", "created", spec.id, row.name)
     await db.commit()
     return PlaybookDefinitionOut.model_validate(row)
 
 
 @router.put("/playbooks/{playbook_id}", response_model=PlaybookDefinitionOut)
-async def update_playbook(playbook_id: str, body: PlaybookDefinitionIn, db: DB, _: Operator):
+async def update_playbook(playbook_id: str, body: PlaybookDefinitionIn, db: DB, user: Operator):
     row = await db.get(m.PlaybookDefinition, playbook_id)
     if row is None:
         raise HTTPException(404, "Playbook not found")
@@ -137,12 +139,13 @@ async def update_playbook(playbook_id: str, body: PlaybookDefinitionIn, db: DB, 
         raise HTTPException(422, "id: cannot be changed (create a new playbook instead)")
 
     definition_from_spec(row, spec, body.yaml)
+    await library_activity(db, user, "playbook", "updated", playbook_id, row.name)
     await db.commit()
     return PlaybookDefinitionOut.model_validate(row)
 
 
 @router.delete("/playbooks/{playbook_id}", status_code=204)
-async def delete_playbook(playbook_id: str, db: DB, _: Operator):
+async def delete_playbook(playbook_id: str, db: DB, user: Operator):
     row = await db.get(m.PlaybookDefinition, playbook_id)
     if row is None:
         raise HTTPException(404, "Playbook not found")
@@ -150,6 +153,7 @@ async def delete_playbook(playbook_id: str, db: DB, _: Operator):
         raise HTTPException(409, "Built-in playbooks cannot be deleted")
 
     await db.delete(row)
+    await library_activity(db, user, "playbook", "deleted", playbook_id, row.name)
     await db.commit()
 
 

@@ -15,7 +15,12 @@ from ..deps import DB, CurrentUser, Operator, parse_uuid
 from ..outputs import _specs, is_mismatch, run_parser
 from ..parser_spec import parse_parser_spec
 from ..schemas import ParserProposalOut
-from ..services import apply_parser_proposal, proposal_out, publish_parser_proposal
+from ..services import (
+    apply_parser_proposal,
+    library_activity,
+    proposal_out,
+    publish_parser_proposal,
+)
 
 router = APIRouter(prefix="/parsers", tags=["parsers"])
 proposals = APIRouter(tags=["parsers"])
@@ -194,7 +199,7 @@ async def draft(body: DraftIn, db: DB, user: CurrentUser):
 
 
 @router.post("", response_model=ParserOut, status_code=201)
-async def create_parser(body: ParserYamlIn, db: DB, _: Operator):
+async def create_parser(body: ParserYamlIn, db: DB, user: Operator):
     try:
         spec = parse_parser_spec(body.yaml)
     except ValueError as exc:
@@ -204,6 +209,7 @@ async def create_parser(body: ParserYamlIn, db: DB, _: Operator):
     row = m.ParserDefinition(id=spec.id, origin="user", version=1)
     parser_library.definition_from_spec(row, spec, body.yaml)
     db.add(row)
+    await library_activity(db, user, "parser", "created", spec.id, row.name)
     await db.commit()
     parser_library.register(spec)
     return _out(parsers.get(spec.id), row)
@@ -218,7 +224,7 @@ async def get_parser(name: str, db: DB, _: CurrentUser):
 
 
 @router.put("/{name}", response_model=ParserOut)
-async def update_parser(name: str, body: ParserYamlIn, db: DB, _: Operator):
+async def update_parser(name: str, body: ParserYamlIn, db: DB, user: Operator):
     row = await db.get(m.ParserDefinition, name)
     if row is None:
         raise HTTPException(409 if name in parsers.PARSERS else 404, "Built-in parsers can't be changed" if name in parsers.PARSERS else "Parser not found")
@@ -232,13 +238,14 @@ async def update_parser(name: str, body: ParserYamlIn, db: DB, _: Operator):
     if used and spec.type != row.spec.get("type"):
         raise HTTPException(409, f"{', '.join(used)} use{'s' if len(used) == 1 else ''} it as {row.spec.get('type')}; keep that type or make a new parser")
     parser_library.definition_from_spec(row, spec, body.yaml)
+    await library_activity(db, user, "parser", "updated", name, row.name)
     await db.commit()
     parser_library.register(spec)
     return _out(parsers.get(name), row, used)
 
 
 @router.delete("/{name}", status_code=204)
-async def delete_parser(name: str, db: DB, _: Operator):
+async def delete_parser(name: str, db: DB, user: Operator):
     row = await db.get(m.ParserDefinition, name)
     if row is None:
         raise HTTPException(409 if name in parsers.PARSERS else 404, "Built-in parsers can't be deleted" if name in parsers.PARSERS else "Parser not found")
@@ -246,6 +253,7 @@ async def delete_parser(name: str, db: DB, _: Operator):
     if used:
         raise HTTPException(409, f"Used by {', '.join(used)}: change {'that command' if len(used) == 1 else 'those commands'} first")
     await db.delete(row)
+    await library_activity(db, user, "parser", "deleted", name, row.name)
     await db.commit()
     parser_library.unregister(name)
 
