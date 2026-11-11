@@ -7,7 +7,7 @@
 	import { Button, Icon, IconButton, Progress } from '$lib/m3';
 	import { duration } from '$lib/format';
 	import { snackbar } from '$lib/snackbar.svelte';
-	import { currentTheme } from '$lib/m3/theme';
+	import { currentTheme, isDark } from '$lib/m3/theme';
 	import type { Terminal as XTerm } from '@xterm/xterm';
 	import type { FitAddon as XFit } from '@xterm/addon-fit';
 	import '@xterm/xterm/css/xterm.css';
@@ -191,15 +191,16 @@
 			]);
 			await document.fonts?.ready; // measure the monospace font once it's loaded
 			if (cancelled || !host) return;
-			// The AstraLabs theme: carbon, bone and an acid cursor, in Martian Mono.
-			const astra = currentTheme().id === 'astralabs';
-			const acid = getComputedStyle(document.documentElement).getPropertyValue('--al-acid').trim() || '#b6ff2e';
+			// A dark theme gives the terminal its surface, ink, accent and mono face.
+			const themed = !!currentTheme().id && isDark();
+			const css = getComputedStyle(document.documentElement);
+			const v = (name: string) => css.getPropertyValue(name).trim();
 			term = new Terminal({
-				theme: astra
-					? { ...THEME, background: '#0a0909', foreground: '#ede6e1', cursor: acid, cursorAccent: '#0a0909', selectionBackground: `${acid}47`, black: '#1c1b1a', brightBlack: '#8e8380', red: '#ff5a63', yellow: '#ffa21f' }
+				theme: themed
+					? { ...THEME, background: v('--md-sys-color-surface-container-lowest'), foreground: v('--md-sys-color-on-surface'), cursor: v('--md-sys-color-primary'), cursorAccent: v('--md-sys-color-surface-container-lowest'), selectionBackground: /^#[0-9a-f]{6}$/i.test(v('--md-sys-color-primary')) ? `${v('--md-sys-color-primary')}47` : THEME.selectionBackground, brightBlack: v('--md-sys-color-on-surface-variant') }
 					: THEME,
-				fontFamily: astra ? '"Martian Mono", "Roboto Mono", ui-monospace, monospace' : '"Roboto Mono", ui-monospace, SFMono-Regular, Menlo, monospace',
-				fontSize: astra ? 11.5 : 12.5,
+				fontFamily: themed && v('--md-sys-typescale-mono') ? v('--md-sys-typescale-mono') : '"Roboto Mono", ui-monospace, SFMono-Regular, Menlo, monospace',
+				fontSize: themed ? 12 : 12.5,
 				lineHeight: 1.25,
 				scrollback: 20000,
 				convertEol: false,

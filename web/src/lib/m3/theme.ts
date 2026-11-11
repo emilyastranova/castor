@@ -1,7 +1,7 @@
 /** Runtime theming: light/dark preference and optional custom seed colour. */
 import { browser } from '$app/environment';
 import customColors from './custom-colors.json';
-import { themeById, type ThemeDef, type ThemeId } from './themes';
+import type { Theme } from '$lib/api';
 
 export type ThemeMode = 'system' | 'light' | 'dark';
 
@@ -32,7 +32,8 @@ export function setMode(mode: ThemeMode): void {
 
 export function isDark(): boolean {
 	if (!browser) return false;
-	if (currentTheme().darkOnly) return true;
+	const modes = currentTheme().modes;
+	if (modes !== 'both') return modes === 'dark';
 	const mode = getMode();
 	if (mode !== 'system') return mode === 'dark';
 	return window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -110,45 +111,54 @@ function cached(seed: string): { light: Palette; dark: Palette } | null {
 }
 
 const ACCENT_KEY = 'castor.seed.accent';
-/** Bump when accent() changes, so cached accents are worked out again. */
-const ACCENT_VERSION = 3;
-/** Read by an 'accent' theme (themes/astralabs.css): its accent and the roles drawn from it. */
-const ACCENT_VARS = ['--al-acid', '--al-acid-hi', '--md-sys-color-primary-container', '--md-sys-color-inverse-primary', '--md-sys-color-primary-fixed-dim', '--md-sys-color-on-primary-fixed-variant'];
+/** Bump when accent() changes, so cached accents are worked out again (app.html checks it too). */
+const ACCENT_VERSION = 4;
+/** What an `colour: accent` theme reads (server theme_spec.ACCENT_VARS). */
+const ACCENT_VARS = ['--theme-accent', '--theme-accent-hover', '--theme-accent-container', '--theme-accent-inverse', '--theme-accent-dim', '--theme-accent-deep'];
 
-/** A vivid accent in the seed's hue for a dark theme: the lightest tone (60–92, so 5:1 or more
- *  against carbon, with carbon text on it) at which the hue still holds its colour. Yellows and
- *  greens stay vivid high up, as acid does; reds and purples only lower down, where light tones
- *  would turn them pastel. Also its hover, a deep container and the inverse for light grounds. */
-async function accent(seed: string): Promise<Palette> {
+/** A vivid accent in the seed's hue, for dark and for light grounds. On dark: the lightest tone
+ *  (60–92: 5:1 or more on a dark surface, dark text on it) at which the hue still holds its
+ *  colour, as acid does high up while reds and purples only stay vivid lower down. On light: the
+ *  darkest such tone from 30 to 50 (white text on it). With its hover, container and inverse. */
+async function accent(seed: string): Promise<{ dark: Palette; light: Palette }> {
 	const mcu = await import('@material/material-color-utilities');
 	const hct = mcu.Hct.fromInt(mcu.argbFromHex(seed));
 	const want = Math.max(hct.chroma, 64);
-	const chromaAt = (tone: number) => mcu.Hct.from(hct.hue, want, tone).chroma;
-	let tone = 92;
-	let best = { tone: 60, chroma: 0 };
-	for (let t = 92; t >= 60; t -= 2) {
-		const c = chromaAt(t);
-		if (c > best.chroma) best = { tone: t, chroma: c };
-		if (c >= want * 0.9) {
-			tone = t;
-			break;
-		}
-		tone = best.tone;
-	}
 	const at = (t: number, c = want) => mcu.hexFromArgb(mcu.Hct.from(hct.hue, c, t).toInt());
+	const pick = (tones: number[]) => {
+		let best = { tone: tones[0], chroma: 0 };
+		for (const t of tones) {
+			const c = mcu.Hct.from(hct.hue, want, t).chroma;
+			if (c >= want * 0.9) return t;
+			if (c > best.chroma) best = { tone: t, chroma: c };
+		}
+		return best.tone;
+	};
+	const dark = pick([92, 90, 88, 86, 84, 82, 80, 78, 76, 74, 72, 70, 68, 66, 64, 62, 60]);
+	const light = pick([30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50].reverse());
 	return {
-		'--al-acid': at(tone),
-		'--al-acid-hi': at(Math.min(tone + 8, 96)),
-		'--md-sys-color-primary-container': at(18, Math.min(want, 40)),
-		'--md-sys-color-inverse-primary': at(40),
-		'--md-sys-color-primary-fixed-dim': at(Math.max(tone - 10, 50)),
-		'--md-sys-color-on-primary-fixed-variant': at(30)
+		dark: {
+			'--theme-accent': at(dark),
+			'--theme-accent-hover': at(Math.min(dark + 8, 96)),
+			'--theme-accent-container': at(18, Math.min(want, 40)),
+			'--theme-accent-inverse': at(40),
+			'--theme-accent-dim': at(Math.max(dark - 10, 50)),
+			'--theme-accent-deep': at(30)
+		},
+		light: {
+			'--theme-accent': at(light),
+			'--theme-accent-hover': at(Math.max(light - 8, 20)),
+			'--theme-accent-container': at(90, Math.min(want, 40)),
+			'--theme-accent-inverse': at(80),
+			'--theme-accent-dim': at(Math.min(light + 10, 60)),
+			'--theme-accent-deep': at(30)
+		}
 	};
 }
-function cachedAccent(seed: string): Palette | null {
+function cachedAccent(seed: string): { dark: Palette; light: Palette } | null {
 	try {
 		const c = JSON.parse(localStorage.getItem(ACCENT_KEY) ?? 'null');
-		return c?.seed === seed && c.v === ACCENT_VERSION ? c.vars : null;
+		return c?.seed === seed && c.v === ACCENT_VERSION ? c : null;
 	} catch {
 		return null;
 	}
@@ -180,18 +190,26 @@ export async function applySeed(seed: string | null): Promise<void> {
 		clearVars(root);
 		return;
 	}
-	if (currentTheme().seed === 'accent') {
-		// The theme keeps its own surfaces; the colour only replaces its accent.
-		const vars = cachedAccent(seed) ?? (await accent(seed));
+	const colour = currentTheme().colour;
+	if (colour !== 'palette') {
+		// The theme keeps its own colours: an accent theme takes the seed for its accent only, a
+		// fixed one not at all (the seed is kept for when they pick another theme).
 		try {
 			localStorage.setItem(SEED_KEY, seed);
-			localStorage.setItem(ACCENT_KEY, JSON.stringify({ seed, vars, v: ACCENT_VERSION }));
 		} catch {
 			/* private mode */
 		}
 		clearVars(root);
+		delete root.dataset.seed;
+		if (colour === 'fixed') return;
+		const both = cachedAccent(seed) ?? (await accent(seed));
+		try {
+			localStorage.setItem(ACCENT_KEY, JSON.stringify({ seed, ...both, v: ACCENT_VERSION }));
+		} catch {
+			/* private mode */
+		}
 		root.dataset.seed = seed;
-		for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value);
+		for (const [name, value] of Object.entries(isDark() ? both.dark : both.light)) root.style.setProperty(name, value);
 		return;
 	}
 	const both = cached(seed) ?? (await palettes(seed));
@@ -225,21 +243,32 @@ export function toggleMode(): ThemeMode {
 	return next;
 }
 
-// ---------- themes (themes.ts) ----------
+// ---------- themes (docs/THEME_SPEC.md) ----------
 
 const SKIN_KEY = 'castor.skin';
 
-/** The theme this browser shows (saved with what app.html needs before first paint). */
-export function currentTheme(): ThemeDef {
-	if (!browser) return themeById('');
+/** What this browser remembers of the chosen theme: enough for app.html to paint it before any
+ *  script runs (its CSS and fonts), and for isDark() and applySeed(). */
+interface SavedTheme {
+	id: string;
+	modes: Theme['modes'];
+	colour: Theme['colour'];
+	css: string;
+	stylesheets: string[];
+}
+const NONE: SavedTheme = { id: '', modes: 'both', colour: 'palette', css: '', stylesheets: [] };
+
+export function currentTheme(): SavedTheme {
+	if (!browser) return NONE;
 	try {
-		return themeById(JSON.parse(localStorage.getItem(SKIN_KEY) ?? 'null')?.id);
+		const saved = JSON.parse(localStorage.getItem(SKIN_KEY) ?? 'null');
+		return saved?.id ? { ...NONE, ...saved } : NONE;
 	} catch {
-		return themeById('');
+		return NONE;
 	}
 }
 
-function loadFonts(urls: string[]) {
+function loadStylesheets(urls: string[]) {
 	for (const href of urls) {
 		if (document.querySelector(`link[data-theme-font="${CSS.escape(href)}"]`)) continue;
 		const link = document.createElement('link');
@@ -250,20 +279,31 @@ function loadFonts(urls: string[]) {
 	}
 }
 
-/** Switch the whole interface to a theme ('' for Castor's own) and remember it here. */
-export function applyTheme(id: ThemeId | string): void {
+/** Switch the interface to a theme (Castor's own when its id is '') and remember it here. */
+export function applyTheme(theme: Pick<Theme, 'id' | 'modes' | 'colour' | 'css' | 'stylesheets'>): void {
 	if (!browser) return;
-	const theme = themeById(id);
 	const root = document.documentElement;
+	const saved: SavedTheme = { id: theme.id, modes: theme.modes, colour: theme.colour, css: theme.css, stylesheets: theme.stylesheets };
 	try {
-		if (theme.id) localStorage.setItem(SKIN_KEY, JSON.stringify({ id: theme.id, fonts: theme.fonts, seed: theme.seed, darkOnly: theme.darkOnly }));
+		if (theme.id) localStorage.setItem(SKIN_KEY, JSON.stringify(saved));
 		else localStorage.removeItem(SKIN_KEY);
 	} catch {
 		/* private mode: it still applies for this page */
 	}
-	if (theme.id) root.dataset.skin = theme.id;
-	else delete root.dataset.skin;
-	loadFonts(theme.fonts);
+	let style = document.getElementById('castor-theme') as HTMLStyleElement | null;
+	if (theme.id) {
+		if (!style) {
+			style = document.createElement('style');
+			style.id = 'castor-theme';
+			document.head.appendChild(style);
+		}
+		if (style.textContent !== theme.css) style.textContent = theme.css;
+		root.dataset.skin = theme.id;
+		loadStylesheets(theme.stylesheets);
+	} else {
+		style?.remove();
+		delete root.dataset.skin;
+	}
 	const seed = getSeed();
 	if (seed) void applySeed(seed);
 	else clearVars(root);

@@ -61,6 +61,8 @@ class Settings(BaseSettings):
     tools_dir: Path = Path(__file__).resolve().parents[2] / "tools"
     # Built-in playbook definitions (playbooks/*.yaml), synced into the library on startup.
     playbooks_dir: Path = Path(__file__).resolve().parents[2] / "playbooks"
+    # Built-in themes for the web UI (theme_spec.py).
+    themes_dir: Path = Path(__file__).resolve().parents[2] / "themes"
 
     @property
     def uploads_dir(self) -> Path:

@@ -41,7 +41,7 @@ class UserOut(ORM):
     has_upload: bool = False
     # Their theme colour (#rrggbb), or "" for the default palette.
     theme_seed: str = ""
-    # Their theme ("" for Castor's own; see ThemeId).
+    # Their theme (a theme_definitions id; "" for Castor's own).
     theme: str = ""
     # The Companion on their timelines (off by default): their own picture (None: the built-in
     # one) and its seat line (0–1 from the top).
@@ -93,14 +93,10 @@ class PasswordChange(BaseModel):
     new_password: str = Field(min_length=8, max_length=256)
 
 
-# Themes people can pick (web lib/m3/themes.ts has their looks); "" is Castor's own.
-ThemeId = Literal["", "astralabs"]
-
-
 class ProfilePatch(BaseModel):
     display_name: str | None = Field(None, min_length=1, max_length=128)
     theme_seed: str | None = Field(None, pattern=r"^(#[0-9a-fA-F]{6})?$")
-    theme: ThemeId | None = None
+    theme: str | None = Field(None, max_length=64)  # a theme_definitions id, or "" for Castor's own
     companion: bool | None = None
     companion_seat: float | None = Field(None, ge=0.05, le=0.95)
 

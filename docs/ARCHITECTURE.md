@@ -419,6 +419,14 @@ Agents report cached tags in `hello` and heartbeats; the dispatcher prefers an a
 the tool ready. `POST /api/tools/{id}/prepare` sends `tool.prepare` ahead of time; state is
 published as `tool.status`, library edits as `tools.changed`.
 
+## Themes
+
+Themes for the web UI live in `theme_definitions` (`id`, `origin` builtin|user, `spec`,
+`source_yaml`): built-ins from `themes/*.yaml` (`CASTOR_THEMES_DIR`), custom ones from admins.
+`users.theme` holds a person's choice (`""` is Castor's own look). `GET /api/themes` returns
+each with the CSS `theme_spec.compile_css` makes of it; the browser injects that and caches it
+for first paint. Changes publish `themes.changed`. Format: [THEME_SPEC.md](THEME_SPEC.md).
+
 ## Assets
 
 A project's inventory of what it found (`assets.py`, `api/assets.py`): hosts, services, URLs,
@@ -663,7 +671,7 @@ server sends each domain event as
 see it (see Auth). Event names include `project.updated`, `column.*`,
 `task.created|updated|moved|deleted`, `job.updated`, `job.log`, `job.outputs`, `job.parser_proposal`, `job.resize`,
 `comment.created`, `attachment.created`, `agent.updated`, `playbook_run.updated`,
-`agent_tokens.changed`, `ssh_hosts.changed`, `api_tokens.changed`, `tool.status`, `tools.changed`,
+`agent_tokens.changed`, `ssh_hosts.changed`, `api_tokens.changed`, `tool.status`, `tools.changed`, `themes.changed`,
 `project.notes`, `notification.created|read`, `assets.changed`, `alert_channels.changed`,
 `settings.changed`, `project.members` and `user.changed`; each section above names its own.
 The client keeps page state in sync by applying these to its stores.

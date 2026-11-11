@@ -7,7 +7,7 @@
 	import { NavigationRail, Snackbar, Icon, IconButton, Menu, MenuItem, Avatar } from '$lib/m3';
 	import { realtime } from '$lib/realtime.svelte';
 	import { applySeed, applyTheme, currentTheme, getSeed, initTheme, toggleMode, isDark } from '$lib/m3/theme';
-	import { themeById } from '$lib/m3/themes';
+	import { themes } from '$lib/themes.svelte';
 	import { api } from '$lib/api';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import ConfirmHost from '$lib/components/ConfirmHost.svelte';
@@ -48,13 +48,21 @@
 		const seed = data.user?.theme_seed;
 		if (seed !== undefined && (seed || null) !== getSeed()) void applySeed(seed || null);
 	});
-	// …and so does its theme. A dark-only theme has no light/dark switch.
+	// …and so does its theme. A theme with only light or only dark has no light/dark switch.
 	$effect(() => {
-		const theme = data.user?.theme;
-		if (theme !== undefined && theme !== currentTheme().id) applyTheme(theme);
+		if (!data.user) return;
+		void themes.load();
+		const theme = themes.byId(data.user.theme);
+		if (theme && (theme.id !== currentTheme().id || theme.css !== currentTheme().css)) applyTheme(theme);
 		dark = isDark();
 	});
-	let darkOnly = $derived(themeById(data.user?.theme).darkOnly);
+	// An admin changed a theme: load them again (the effect above re-applies yours).
+	$effect(() =>
+		realtime.subscribe((e) => {
+			if (e.name === 'themes.changed') void themes.load(true);
+		})
+	);
+	let oneMode = $derived((themes.byId(data.user?.theme)?.modes ?? currentTheme().modes) !== 'both');
 
 	$effect.pre(() => {
 		if (data.user) currentProject.init(data.user.id);
@@ -123,7 +131,7 @@
 						</span>
 					{/if}
 					<NotificationBell />
-					{#if !darkOnly}<IconButton
+					{#if !oneMode}<IconButton
 						icon={dark ? 'light_mode' : 'dark_mode'}
 						label="Toggle theme"
 						onclick={() => {
@@ -159,7 +167,7 @@
 			user={data.user}
 			{dark}
 			onaccount={() => (accountOpen = true)}
-			ontheme={darkOnly
+			ontheme={oneMode
 				? undefined
 				: () => {
 						toggleMode();

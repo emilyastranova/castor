@@ -156,6 +156,10 @@ RULES: list[tuple[str, str, str]] = [
     ("*", "/api/tools/**", "library:rw"),
     ("*", "/api/parsers/**", "library:rw"),
     ("*", "/api/variables/kinds/**", "library:rw"),
+    # Themes: everyone reads them; changing them is for admins (checked by the endpoints)
+    ("POST", "/api/themes/validate", "library:read"),
+    ("*", "/api/themes", "library:rw"),
+    ("*", "/api/themes/**", "library:rw"),
     # Variables
     ("POST", "/api/variables/sets/*/reveal/*", "secrets:reveal"),
     ("*", "/api/variables/sets/**", "variables:rw"),

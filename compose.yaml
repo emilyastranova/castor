@@ -39,6 +39,7 @@ services:
       CASTOR_COMMANDS_DIR: /commands
       CASTOR_PLAYBOOKS_DIR: /playbooks
       CASTOR_TOOLS_DIR: /tools
+      CASTOR_THEMES_DIR: /themes
       CASTOR_ALLOW_SHARED_AGENT_SECRET: ${CASTOR_ALLOW_SHARED_AGENT_SECRET:-true}
       CASTOR_VAULT_KEY: ${CASTOR_VAULT_KEY:-}
       CASTOR_NOTIFY_WEBHOOKS: ${CASTOR_NOTIFY_WEBHOOKS:-}
@@ -48,6 +49,7 @@ services:
       - ./commands:/commands:ro
       - ./playbooks:/playbooks:ro
       - ./tools:/tools:ro
+      - ./themes:/themes:ro
 
   web:
     build:

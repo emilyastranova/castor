@@ -25,6 +25,7 @@ from .parser_library import load_all as load_library_parsers
 from .playbook_library import sync_builtin_playbooks
 from .security import hash_password
 from .services import ensure_run_cards
+from .theme_library import sync_builtin_themes
 from .tool_library import sync_builtin_tools
 from .variables import drop_unclaimed, sync_builtin_kinds
 from .ws.terminal import router as terminal_ws_router
@@ -79,6 +80,7 @@ async def lifespan(app: FastAPI):
         loaded_tools = await sync_builtin_tools(db)  # before commands, which name tools
         loaded = await sync_builtin_definitions(db)
         loaded_playbooks = await sync_builtin_playbooks(db)
+        loaded_themes = await sync_builtin_themes(db)
         carded = await ensure_run_cards(db)  # runs from before run cards (3h)
     if carded:
         log.info("gave %d earlier playbook runs their card", carded)
@@ -86,6 +88,7 @@ async def lifespan(app: FastAPI):
     log.info("tool library: %d built-in tools", loaded_tools)
     log.info("command library: %d built-in definitions", loaded)
     log.info("playbook library: %d built-in playbooks", loaded_playbooks)
+    log.info("themes: %d built-in", loaded_themes)
     await dispatcher.start()
     await ssh_hosts.start()  # hosts Castor connects to over SSH
     sweeper = asyncio.create_task(alerts.sweep_forever())  # alerts for runs going long

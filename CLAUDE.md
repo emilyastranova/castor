@@ -307,13 +307,15 @@ dependency; keep it that way so the agent stays trivially installable on target 
   `data-theme` on `<html>`, see `m3/theme.ts`); use the role tokens so light/dark both work.
   Each user can recolour every role from a seed (`users.theme_seed`, `m3/theme.ts` `applySeed`,
   `ThemeColorPicker`), so never hard-code a colour that should follow the theme.
-  Themes (`users.theme`, `m3/themes.ts` + `m3/themes/<id>.css`, server `schemas.ThemeId`): a theme is
-  unlayered CSS scoped to `:root[data-skin='<id>']` over the role tokens and the `m3-*` hook classes on
-  the components (`m3-btn-<variant>`, `m3-tab`, `m3-switch`, `m3-rail-ind`, `m3-snackbar`, `m3-dialog`), plus
-  the fonts it loads; `app.html` applies the saved one before first paint. A theme may be dark only, and its
-  `seed` says what the person's theme colour recolours: every role (`palette`) or just its accent (`accent`,
-  `theme.ts` `accent()`, the `--al-acid` family). AstraLabs (after astralabs.dev/design; Martian Mono in `static/fonts`, OFL) squares
-  every corner and swaps elevation for rule hairlines; add a new component's hook class if a theme needs it.
+  Themes (`docs/THEME_SPEC.md`, keep it and the wiki's Themes page in sync with the format): YAML compiled by
+  `theme_spec.py` into CSS scoped to `html:root[data-skin='<id>']` (extra `css` nested inside it; `check_css` refuses
+  anything that could escape the scope, fetch from elsewhere or run script). Built-ins in `themes/` (`CASTOR_THEMES_DIR`,
+  `theme_library.py`), custom ones from Settings → Themes (`api/themes.py`, admins; `routes/settings/themes`,
+  `ThemeEditor`'s Try it). `users.theme` is the choice; web `lib/themes.svelte.ts` lists them, `m3/theme.ts`
+  `applyTheme` injects the CSS and caches it for `app.html`'s first paint. A theme's `colour` says what the theme colour
+  does: `palette`, `accent` (`theme.ts` `accent()` sets `--theme-accent…`, see `theme_spec.ACCENT_VARS`) or `fixed`.
+  Themes target the `m3-*` hook classes on components (`m3-btn-<variant>`, `m3-tab`, `m3-switch`, `m3-rail-ind`,
+  `m3-snackbar`, `m3-dialog`, `job-console`); give a new component one if a theme needs it, and list it in the spec.
 - `lib/api.ts` is the typed client; pass SvelteKit's `fetch` in load functions
   (`api(fetch)`). `hooks.server.ts` rewrites server-side `/api/*` fetches to
   `API_INTERNAL_URL` and forwards the session cookie.

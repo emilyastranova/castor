@@ -406,6 +406,12 @@ TOOLS += [
     _auto("delete_tool", "DELETE", "/api/tools/{tool_id}", "Delete a tool.", **_DESTRUCTIVE),
     _auto("check_tool", "POST", "/api/tools/validate", "Check a tool's YAML without saving it."),
     _auto("prepare_tool", "POST", "/api/tools/{tool_id}/prepare", "Get a tool ready on agents now (pull, build or install)."),
+    # Themes (docs/THEME_SPEC.md); changing them needs an admin
+    _auto("list_themes", "GET", "/api/themes", "Themes for the web UI people can pick, with their YAML."),
+    _auto("check_theme", "POST", "/api/themes/validate", "Check a theme's YAML and compile it, without saving it."),
+    _auto("create_theme", "POST", "/api/themes", "Add a custom theme (YAML; admins)."),
+    _auto("update_theme", "PUT", "/api/themes/{theme_id}", "Replace a custom theme's YAML (admins; not built-ins)."),
+    _auto("delete_theme", "DELETE", "/api/themes/{theme_id}", "Delete a custom theme; its users go back to Castor's own (admins).", **_DESTRUCTIVE),
     # Playbooks
     _auto("get_playbook", "GET", "/api/playbooks/{playbook_id}", "One playbook with its steps and YAML."),
     _auto("create_playbook", "POST", "/api/playbooks", "Add a playbook (YAML; see docs/PLAYBOOK_SPEC.md)."),

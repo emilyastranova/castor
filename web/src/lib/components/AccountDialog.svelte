@@ -8,7 +8,7 @@
 	import AvatarEditor from './AvatarEditor.svelte';
 	import ThemeColorPicker from './ThemeColorPicker.svelte';
 	import ThemePicker from './ThemePicker.svelte';
-	import { themeById } from '$lib/m3/themes';
+	import { themes } from '$lib/themes.svelte';
 	import CompanionSetup from './CompanionSetup.svelte';
 
 	/** The signed-in user's own account: display name and password. */
@@ -66,6 +66,7 @@
 			saving = false;
 		}
 	}
+	let theme = $derived(themes.byId(user.theme) ?? themes.byId('')!);
 </script>
 
 <Dialog bind:open title="Your account" icon="account_circle" size="sm">
@@ -82,11 +83,13 @@
 		</div>
 		<div>
 			<p class="mb-2 label-large text-on-surface">Theme colour</p>
-			<ThemeColorPicker {user} defaultColour={themeById(user.theme).defaultColour} />
+			<ThemeColorPicker {user} defaultColour={theme.default_colour} />
 			<p class="mt-1.5 body-small text-on-surface-variant">
-				{themeById(user.theme).seed === 'accent'
-					? `It takes the place of ${themeById(user.theme).name}'s accent: primary actions, focus and selection. Saved as you pick; only you see it.`
-					: 'The whole interface is coloured from it, in light and dark. Saved as you pick; only you see it.'}
+				{theme.colour === 'accent'
+					? `It takes the place of ${theme.name}'s accent: primary actions, focus and selection. Saved as you pick; only you see it.`
+					: theme.colour === 'fixed'
+						? `${theme.name} keeps its own colours; yours comes back with a theme that uses it.`
+						: 'The whole interface is coloured from it, in light and dark. Saved as you pick; only you see it.'}
 			</p>
 		</div>
 		<div class="flex flex-col gap-3 rounded-md bg-surface-container px-3 py-2.5">

@@ -1,0 +1,380 @@
+# AstraLabs, after the AstraLabs design system (https://astralabs.dev/design): build on void,
+# raise with plate, divide with rule hairlines; bone for text and line work, ash for labels,
+# acid only for action, focus and live signals. Square corners, no drop shadows, Archivo for
+# words, Martian Mono for labels and literals. Dark only. The format: docs/THEME_SPEC.md.
+id: astralabs
+name: AstraLabs
+description: Carbon and bone, with acid or your theme colour. Square corners, hairline rules, mono labels. Dark only.
+modes: dark
+colour: accent
+default_colour: "#b6ff2e"
+fonts:
+  - https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..900&display=swap
+font_faces:
+  - family: Martian Mono
+    src: /fonts/MartianMono-Variable.woff2
+    weight: 100 800
+    stretch: 75% 112.5%
+type:
+  body: "'Archivo', 'Roboto Flex', system-ui, sans-serif"
+  mono: "'Martian Mono', 'Roboto Mono', ui-monospace, monospace"
+  icons: sharp
+  icon_weight: 300
+  icon_fill: false
+shape:
+  square: true
+elevation: hairline
+preview: ["#0a0909", "#131212", "#ede6e1", "#b6ff2e"]
+colours:
+  dark:
+    primary: "#b6ff2e"
+    on-primary: "#0a0909"
+    primary-container: "#24320c"
+    on-primary-container: "#ccff6b"
+    secondary: "#c9c0bb"
+    on-secondary: "#0a0909"
+    secondary-container: "#2c2a29"
+    on-secondary-container: "#ede6e1"
+    tertiary: "#ffa21f"
+    on-tertiary: "#0a0909"
+    tertiary-container: "#33230b"
+    on-tertiary-container: "#ffc778"
+    error: "#ff2e3a"
+    on-error: "#0a0909"
+    error-container: "#3b0d11"
+    on-error-container: "#ff9096"
+    background: "#0a0909"
+    on-background: "#ede6e1"
+    surface: "#0a0909"
+    on-surface: "#ede6e1"
+    surface-variant: "#1c1b1a"
+    on-surface-variant: "#8e8380"
+    surface-dim: "#0a0909"
+    surface-bright: "#22201f"
+    surface-container-lowest: "#0a0909"
+    surface-container-low: "#0f0e0e"
+    surface-container: "#131212"
+    surface-container-high: "#171615"
+    surface-container-highest: "#1c1b1a"
+    inverse-surface: "#ede6e1"
+    inverse-on-surface: "#0a0909"
+    inverse-primary: "#3f6d00"
+    outline: "#6b6361"
+    outline-variant: "#2c2a29"
+    shadow: "#000000"
+    scrim: "#000000"
+    surface-tint: "#b6ff2e"
+    primary-fixed: "#b6ff2e"
+    primary-fixed-dim: "#9bd923"
+    on-primary-fixed: "#0a0909"
+    on-primary-fixed-variant: "#2f4200"
+    secondary-fixed: "#ede6e1"
+    tertiary-fixed: "#ffc778"
+    on-tertiary-fixed: "#2a1800"
+    blue: "#3aa8ee"
+    on-blue: "#0a0909"
+    blue-container: "#0b2a40"
+    on-blue-container: "#a9dcff"
+    amber: "#ffa21f"
+    on-amber: "#0a0909"
+    amber-container: "#33230b"
+    on-amber-container: "#ffc778"
+    violet: "#e061c2"
+    on-violet: "#0a0909"
+    violet-container: "#3a1030"
+    on-violet-container: "#ffb3ea"
+    green: "#8ccf1f"
+    on-green: "#0a0909"
+    green-container: "#1f2e08"
+    on-green-container: "#c9f58a"
+    note-default: "#131212"
+    note-red: "#4d1c1e"
+    note-orange: "#4f2e14"
+    note-yellow: "#45401a"
+    note-green: "#24391f"
+    note-teal: "#173a36"
+    note-blue: "#1a344a"
+    note-navy: "#20283f"
+    note-purple: "#342744"
+    note-pink: "#442333"
+    note-brown: "#372d24"
+    note-gray: "#262524"
+    primary-hover: "#ccff6b"
+css: |
+  /* The AstraLabs palette and motion, for the rules below. */
+  --al-void: #0a0909;
+  --al-plate: #131212;
+  --al-rule: #2c2a29;
+  --al-rule-subtle: #1c1b1a;
+  --al-bone: #ede6e1;
+  --al-ash: #8e8380;
+  --al-down: #ff2e3a;
+  --al-warn: #ffa21f;
+  --al-tick: color-mix(in oklab, var(--al-bone) 55%, transparent);
+  --al-flick: 40ms steps(1, end);
+  --al-snap: 200ms cubic-bezier(0.3, 1.35, 0.5, 1);
+  --al-mono: 'Martian Mono', 'Roboto Mono', ui-monospace, monospace;
+  /* Colour changes are hard cuts. */
+  --md-sys-motion-short: 40ms;
+  --md-sys-state-hover: 0.06;
+
+  /* ---------- browser surfaces ---------- */
+  body {
+    background: var(--al-void);
+    font-size: 15px;
+  }
+  ::selection {
+    background: var(--md-sys-color-primary);
+    color: var(--md-sys-color-on-primary);
+  }
+  input,
+  textarea,
+  [contenteditable] {
+    caret-color: var(--md-sys-color-primary);
+  }
+  * {
+    scrollbar-color: var(--al-rule) transparent;
+  }
+  .focus-ring:focus-visible,
+  button:focus-visible:not(.outline-none),
+  a:focus-visible:not(.outline-none),
+  summary:focus-visible {
+    outline: 2px solid var(--md-sys-color-primary);
+    outline-offset: 3px;
+  }
+  .group:focus-visible .m3-rail-ind {
+    outline: 2px solid var(--md-sys-color-primary);
+    outline-offset: 3px;
+  }
+
+  /* ---------- type ---------- */
+  /* Archivo carries words: titles heavier and a touch wider, as the system's title and subtitle. */
+  .display-large,
+  .display-medium,
+  .display-small,
+  .headline-large,
+  .headline-medium,
+  .headline-small {
+    font-weight: 800;
+    font-stretch: 106%;
+    letter-spacing: 0;
+  }
+  .title-large {
+    font-weight: 800;
+    font-stretch: 106%;
+    letter-spacing: 0.01em;
+  }
+  .title-medium,
+  .title-small {
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+  /* Martian Mono carries labels (narrow width, tracked out). Names and tags keep their case. */
+  .label-large,
+  .label-medium,
+  .label-small {
+    font-family: var(--al-mono);
+    font-stretch: 85%;
+    font-weight: 500;
+  }
+  .label-large { font-size: 11.5px; letter-spacing: 0.05em; }
+  .label-medium { font-size: 11px; letter-spacing: 0.06em; }
+  .label-small { font-size: 10px; letter-spacing: 0.08em; }
+  .font-mono,
+  code,
+  pre,
+  kbd {
+    font-stretch: 85%;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Icons: the sharp outline set, light stroke, never filled. */
+  .material-symbols-rounded,
+  .material-symbols-rounded.filled {
+    font-family: 'Material Symbols Sharp';
+    font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+  }
+
+  /* Markdown: links in bone with an acid underline; code on a void well with a rule edge. */
+  .prose-m3 a {
+    color: var(--al-bone);
+    text-decoration-color: var(--md-sys-color-primary);
+    text-underline-offset: 3px;
+  }
+  .prose-m3 pre {
+    background: var(--al-void);
+    box-shadow: inset 0 0 0 1px var(--al-rule);
+  }
+  .prose-m3 :not(pre) > code {
+    background: var(--al-rule-subtle);
+    box-shadow: inset 0 0 0 1px var(--al-rule);
+  }
+
+  /* ---------- buttons: square; only the filled primary is cut, top right, at 60° ---------- */
+  .m3-btn {
+    font: 600 11px/1 var(--al-mono);
+    font-stretch: 85%;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    transition: background-color var(--al-flick), color var(--al-flick), border-color var(--al-flick);
+  }
+  .m3-btn:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+  .m3-btn-filled {
+    --cut: 9px;
+    padding-right: calc(1.5rem + 6px);
+    clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% calc(var(--cut) * 1.732), 100% 100%, 0 100%);
+    box-shadow: none;
+  }
+  .m3-btn-filled:hover {
+    background: var(--theme-primary-hover);
+    box-shadow: none;
+  }
+  .m3-btn-filled::before {
+    display: none;
+  }
+  /* The cut would clip the focus outline, so a focused primary shows its full frame. */
+  .m3-btn-filled:focus-visible {
+    clip-path: none;
+  }
+  .m3-btn-tonal {
+    box-shadow: none;
+  }
+  .m3-btn-tonal:hover {
+    box-shadow: none;
+    background: color-mix(in oklab, var(--al-rule), var(--al-bone) 10%);
+  }
+  .m3-btn-outlined,
+  .m3-btn-elevated {
+    color: var(--al-bone);
+    background: transparent;
+    box-shadow: none;
+    border: 1px solid var(--al-rule);
+  }
+  .m3-btn-outlined:hover,
+  .m3-btn-elevated:hover {
+    border-color: var(--al-bone);
+    box-shadow: none;
+  }
+  .m3-btn-text {
+    color: var(--al-bone);
+  }
+  .m3-btn-danger {
+    background: transparent;
+    color: var(--al-down);
+    box-shadow: inset 0 0 0 1px var(--al-down);
+  }
+  .m3-btn-danger:hover {
+    background: var(--al-down);
+    color: var(--al-void);
+  }
+  .m3-btn-danger::before {
+    display: none;
+  }
+
+  /* ---------- navigation: the active destination is lit in bone over an acid index ---------- */
+  .m3-rail-ind[data-active] {
+    background: transparent;
+    color: var(--al-bone);
+  }
+  .m3-rail-ind[data-active]::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: -3px;
+    width: 16px;
+    height: 2px;
+    margin-left: -8px;
+    background: var(--md-sys-color-primary);
+  }
+  .m3-rail-label {
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  /* Tabs: mono, uppercase, ash; the chosen one in bone over a 2px acid index. */
+  .m3-tab {
+    font: 500 10.5px/1 var(--al-mono);
+    font-stretch: 85%;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  .m3-tab[aria-selected='true'] {
+    color: var(--al-bone);
+  }
+  .m3-tab-ind {
+    height: 2px;
+    inset-inline: 0;
+    background: var(--md-sys-color-primary);
+  }
+
+  /* ---------- switch: a square track and a square thumb that snaps across ---------- */
+  .m3-switch {
+    height: 20px;
+    width: 40px;
+    border-width: 1px;
+    margin-block: 6px;
+    background: var(--al-void);
+    border-color: var(--al-ash);
+    transition: border-color var(--al-flick);
+  }
+  .m3-switch[aria-checked='true'] {
+    background: var(--al-void);
+    border-color: var(--md-sys-color-primary);
+  }
+  .m3-switch-thumb {
+    left: 3px;
+    width: 12px;
+    height: 12px;
+    background: var(--al-ash);
+    box-shadow: none;
+    translate: 0 -50%;
+    transition: translate var(--al-snap), background-color var(--al-flick);
+  }
+  .m3-switch[aria-checked='true'] .m3-switch-thumb {
+    left: 3px;
+    translate: 20px -50%;
+    background: var(--md-sys-color-primary);
+  }
+  .m3-switch-thumb > * {
+    display: none;
+  }
+
+  /* ---------- dialogs and toasts: plate on a rule hairline; toasts carry corner ticks ---------- */
+  .m3-dialog {
+    background: var(--al-plate);
+  }
+  .m3-dialog::backdrop {
+    background: color-mix(in oklab, var(--al-void) 82%, transparent);
+  }
+  .m3-snackbar:not(.bg-error-container) {
+    background-color: var(--al-plate);
+    color: var(--al-bone);
+    box-shadow: 0 0 0 1px var(--al-rule);
+    background-image:
+      linear-gradient(var(--al-tick), var(--al-tick)), linear-gradient(var(--al-tick), var(--al-tick)),
+      linear-gradient(var(--al-tick), var(--al-tick)), linear-gradient(var(--al-tick), var(--al-tick)),
+      linear-gradient(var(--al-tick), var(--al-tick)), linear-gradient(var(--al-tick), var(--al-tick)),
+      linear-gradient(var(--al-tick), var(--al-tick)), linear-gradient(var(--al-tick), var(--al-tick));
+    background-repeat: no-repeat;
+    background-position: top left, top left, top right, top right, bottom left, bottom left, bottom right, bottom right;
+    background-size: 8px 1px, 1px 8px, 8px 1px, 1px 8px, 8px 1px, 1px 8px, 8px 1px, 1px 8px;
+  }
+  .m3-snackbar:not(.bg-error-container) .text-inverse-on-surface {
+    color: var(--al-ash);
+  }
+  .m3-snackbar:not(.bg-error-container) .text-inverse-primary {
+    color: var(--md-sys-color-primary);
+  }
+
+  /* ---------- job console (JobConsole.svelte themes xterm itself) ---------- */
+  .job-console,
+  .job-console .xterm .xterm-viewport {
+    background-color: var(--al-void) !important;
+    color: var(--al-bone);
+  }
+  .job-console {
+    box-shadow: inset 0 0 0 1px var(--al-rule);
+  }

@@ -17,11 +17,16 @@
 				const root = document.documentElement;
 				const t = localStorage.getItem('castor.theme');
 				if (t === 'light' || t === 'dark') root.dataset.theme = t;
-				// A theme (lib/m3/themes.ts): its attribute and fonts, and whether it takes the seed.
+				// The chosen theme (docs/THEME_SPEC.md, lib/m3/theme.ts applyTheme): its compiled CSS,
+				// its stylesheets, and what the theme colour does with it.
 				const skin = JSON.parse(localStorage.getItem('castor.skin') || 'null');
 				if (skin && skin.id) {
 					root.dataset.skin = skin.id;
-					for (const href of skin.fonts || []) {
+					const style = document.createElement('style');
+					style.id = 'castor-theme';
+					style.textContent = skin.css || '';
+					document.head.appendChild(style);
+					for (const href of skin.stylesheets || []) {
 						const link = document.createElement('link');
 						link.rel = 'stylesheet';
 						link.href = href;
@@ -29,17 +34,16 @@
 						document.head.appendChild(link);
 					}
 				}
+				const modes = skin && skin.modes;
+				const dark = modes === 'dark' || (modes !== 'light' && (t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches));
+				const colour = (skin && skin.colour) || 'palette';
 				const seed = localStorage.getItem('castor.seed');
 				const vars = JSON.parse(localStorage.getItem('castor.seed.vars') || 'null');
 				const accent = JSON.parse(localStorage.getItem('castor.seed.accent') || 'null');
-				if (skin && skin.seed === 'accent') {
-					// The theme keeps its surfaces; the colour only replaces its accent.
-					if (seed && accent && accent.seed === seed && accent.v === 3) { // v: theme.ts ACCENT_VERSION
-						root.dataset.seed = seed;
-						for (const [name, value] of Object.entries(accent.vars)) root.style.setProperty(name, value);
-					}
-				} else if (seed && vars && vars.seed === seed) {
-					const dark = t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+				if (seed && colour === 'accent' && accent && accent.seed === seed && accent.v === 4) { // v: theme.ts ACCENT_VERSION
+					root.dataset.seed = seed;
+					for (const [name, value] of Object.entries(dark ? accent.dark : accent.light)) root.style.setProperty(name, value);
+				} else if (seed && colour === 'palette' && vars && vars.seed === seed) {
 					root.dataset.seed = seed;
 					for (const [name, value] of Object.entries(dark ? vars.dark : vars.light)) root.style.setProperty(name, value);
 				}

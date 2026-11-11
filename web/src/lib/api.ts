@@ -1416,6 +1416,14 @@ export function api(fetchFn: Fetch = fetch) {
 			revoke: (id: UUID) => post<ApiToken>(`/tokens/${id}/revoke`),
 			remove: (id: UUID) => del(`/tokens/${id}`)
 		},
+		themes: {
+			list: () => get<Theme[]>('/themes'),
+			get: (id: string) => get<Theme>(`/themes/${id}`),
+			create: (yaml: string) => post<Theme>('/themes', { yaml }),
+			update: (id: string, yaml: string) => request<Theme>(fetchFn, 'PUT', `/themes/${id}`, { yaml }),
+			remove: (id: string) => del(`/themes/${id}`),
+			validate: (yaml: string) => post<{ ok: boolean; errors: string[]; theme: Theme | null }>('/themes/validate', { yaml })
+		},
 		tools: {
 			list: () => get<ToolDefinition[]>('/tools'),
 			get: (id: string) => get<ToolDefinition>(`/tools/${id}`),
@@ -1713,6 +1721,25 @@ export interface AiProvider {
 	enabled: boolean;
 	fields: Record<string, string>;
 	secrets: Record<string, boolean>;
+}
+
+/** A theme for the web UI (docs/THEME_SPEC.md), compiled by the server; Castor's own look is
+ *  `id: ''` and comes from lib/themes.svelte.ts, not the API. */
+export interface Theme {
+	id: string;
+	origin: 'builtin' | 'user' | 'castor';
+	name: string;
+	description: string;
+	modes: 'both' | 'dark' | 'light';
+	colour: 'palette' | 'accent' | 'fixed';
+	default_colour: string;
+	preview: string[];
+	css: string;
+	stylesheets: string[];
+	source_yaml: string;
+	version: number;
+	used_by: number;
+	spec: Record<string, unknown>;
 }
 
 export interface AiProviderIn {

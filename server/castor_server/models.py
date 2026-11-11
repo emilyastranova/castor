@@ -946,6 +946,21 @@ class ToolDefinition(Base, TimestampMixin):
     version: Mapped[int] = mapped_column(Integer, default=1)
 
 
+class ThemeDefinition(Base, TimestampMixin):
+    """A theme for the web UI (theme_spec.ThemeSpec). Built-ins come from themes/*.yaml, the
+    rest from Settings → Themes; people pick one in their account (users.theme)."""
+
+    __tablename__ = "theme_definitions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    origin: Mapped[str] = mapped_column(String(16), default="user")  # builtin | user
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="")
+    spec: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    source_yaml: Mapped[str] = mapped_column(Text, default="")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
+
 class ParserDefinition(Base, TimestampMixin):
     """A parser people (or the AI) wrote: declarative YAML (parser_spec.ParserSpec), used by
     name in command outputs like a built-in. Built-in parsers are code in parsers.py."""

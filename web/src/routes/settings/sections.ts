@@ -6,6 +6,7 @@ export const SECTIONS = [
 	{ href: '/settings/groups', icon: 'groups', label: 'Groups', detail: 'Teams to mention and share with' },
 	{ href: '/settings/sso', icon: 'login', label: 'Sign-on', detail: 'Single sign-on and passwords' },
 	{ href: '/settings/tokens', icon: 'key', label: 'API tokens', detail: "Everyone's personal tokens" },
+	{ href: '/settings/themes', icon: 'palette', label: 'Themes', detail: 'Looks people can pick' },
 	{ href: '/settings/alerts', icon: 'campaign', label: 'Alerts', detail: 'Chat and webhook channels' },
 	{ href: '/settings/ai', icon: 'auto_awesome', label: 'AI', detail: 'Providers, models and fallbacks' },
 	{ href: '/settings/activity', icon: 'history', label: 'Activity log', detail: 'Everything, across projects' },
