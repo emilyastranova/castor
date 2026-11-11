@@ -7,6 +7,10 @@
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { relativeTime, absoluteTime } from '$lib/format';
 	import { canEdit } from '$lib/session';
+	import MarkdownEditor from './MarkdownEditor.svelte';
+	import { people } from '$lib/people.svelte';
+	import { PastedImages } from '$lib/pastedImages.svelte';
+	import RichText from './RichText.svelte';
 
 	/** One asset: every field with where its value came from (and other values tools
 	 *  reported), what it's linked to, triggered runs and its history. */
@@ -71,6 +75,81 @@
 			onchanged?.();
 		} catch (err) {
 			snackbar.error(err instanceof ApiError ? err.message : 'Could not do that');
+		}
+	}
+
+	// ---- its description (markdown) ----
+	// Pictures pasted into it are stored on the project, like a pinned note's.
+	const images = new PastedImages(async (file) => api().attachments.url((await api().notes.uploadImage(projectId, file)).id, true));
+	let describing = $state(false);
+	let descriptionDraft = $state('');
+	async function saveDescription(text: string) {
+		if (!asset) return;
+		await api().assets.describe(asset.id, text);
+		describing = false;
+		await load(asset.id);
+		onchanged?.();
+	}
+
+	// ---- outside the scope: add it (the address or its network, the name or its domain) ----
+	const isIp = (v: string) => /^\d{1,3}(\.\d{1,3}){3}$/.test(v);
+	let scopeChoices = $derived.by(() => {
+		if (!asset) return [] as { entry: string; label: string }[];
+		const f = asset.fields as Record<string, unknown>;
+		const names = new Set<string>();
+		for (const v of [f.ip, f.hostname, f.host, asset.type === 'domain' ? f.name : null]) if (typeof v === 'string' && v) names.add(v.toLowerCase());
+		if (asset.type === 'url' && typeof f.url === 'string') {
+			try {
+				names.add(new URL(f.url).hostname.toLowerCase());
+			} catch {
+				/* not a URL */
+			}
+		}
+		const out: { entry: string; label: string }[] = [];
+		for (const n of names) {
+			if (isIp(n)) {
+				out.push({ entry: n, label: `${n} (just this address)` });
+				out.push({ entry: `${n.split('.').slice(0, 3).join('.')}.0/24`, label: `${n.split('.').slice(0, 3).join('.')}.0/24 (its network)` });
+			} else if (n.includes('.')) {
+				out.push({ entry: n, label: `${n} and its subdomains` });
+				const parent = n.split('.').slice(1).join('.');
+				if (parent.includes('.')) out.push({ entry: parent, label: `${parent} (the whole domain)` });
+			} else {
+				out.push({ entry: n, label: n });
+			}
+		}
+		return out.filter((c, i) => out.findIndex((x) => x.entry === c.entry) === i);
+	});
+	let scopeOpen = $state(false);
+	let scopeEntry = $state('');
+	let scopeGroup = $state('');
+	let newGroup = $state('');
+	let groupNames = $state<string[]>([]);
+	async function openScope() {
+		scopeOpen = !scopeOpen;
+		if (!scopeOpen) return;
+		scopeEntry = scopeChoices[0]?.entry ?? '';
+		newGroup = '';
+		try {
+			groupNames = (await api().assets.scope(projectId)).groups.map((g) => g.name);
+		} catch {
+			groupNames = [];
+		}
+		scopeGroup = groupNames[0] ?? '__new';
+		if (!groupNames.length) newGroup = 'Scope';
+	}
+	async function addToScope() {
+		if (!asset || !scopeEntry) return;
+		const name = (scopeGroup === '__new' ? newGroup : scopeGroup).trim() || 'Scope';
+		try {
+			await api().assets.addToScope(projectId, scopeEntry, name);
+			await load(asset.id);
+			scopeOpen = false;
+			onchanged?.();
+			if (asset.in_scope) snackbar.show(`Added ${scopeEntry} to ${name}`);
+			else snackbar.error(`Added ${scopeEntry} to ${name}, but ${asset.label} is still outside: an exclusion covers it (Edit scope)`);
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not change the scope');
 		}
 	}
 
@@ -141,7 +220,13 @@
 			<div class="flex flex-wrap items-center gap-2 body-small text-on-surface-variant">
 				<span class="rounded-full bg-secondary-container px-2.5 py-0.5 label-medium text-on-secondary-container">{type?.label ?? asset.type}</span>
 				{#if asset.in_scope}
-					<span class="flex items-center gap-1 rounded-full bg-primary-container px-2.5 py-0.5 label-medium text-on-primary-container"><Icon name="verified" size={14} />In scope</span>
+					<span class="flex items-center gap-1 rounded-full bg-primary-container px-2.5 py-0.5 label-medium text-on-primary-container" title="In the project's scope">
+						<Icon name="verified" size={14} />In scope{asset.scope_groups.length ? `: ${asset.scope_groups.join(', ')}` : ''}
+					</span>
+				{:else if canEdit() && scopeChoices.length}
+					<button type="button" class="state-layer focus-ring flex items-center gap-1 rounded-full border border-outline-variant px-2.5 py-0.5 label-medium" aria-expanded={scopeOpen} onclick={openScope}>
+						<Icon name="block" size={14} />Outside scope<span class="text-primary">· Add to scope</span><Icon name={scopeOpen ? 'arrow_drop_up' : 'arrow_drop_down'} size={16} />
+					</button>
 				{:else}
 					<span class="flex items-center gap-1 rounded-full border border-outline-variant px-2.5 py-0.5 label-medium"><Icon name="block" size={14} />Outside scope</span>
 				{/if}
@@ -151,6 +236,24 @@
 				<span title={absoluteTime(asset.first_seen)}>first seen {relativeTime(asset.first_seen)}</span>·
 				<span title={absoluteTime(asset.last_seen)}>last seen {relativeTime(asset.last_seen)}</span>
 			</div>
+
+			{#if scopeOpen && !asset.in_scope}
+				<section class="flex flex-col gap-3 rounded-md border border-outline-variant bg-surface-container px-3 py-3" aria-label="Add to the scope">
+					<fieldset class="flex flex-col gap-1">
+						<legend class="mb-1 label-large text-on-surface">Add</legend>
+						{#each scopeChoices as c (c.entry)}
+							<label class="flex cursor-pointer items-center gap-2 body-medium text-on-surface">
+								<input type="radio" name="scope-entry" value={c.entry} bind:group={scopeEntry} class="accent-primary" />{c.label}
+							</label>
+						{/each}
+					</fieldset>
+					<div class="flex flex-wrap items-end gap-2">
+						<Select label="To the group" bind:value={scopeGroup} class="min-w-40 flex-1" options={[...groupNames.map((n) => ({ value: n, label: n })), { value: '__new', label: 'A new group…' }]} />
+						{#if scopeGroup === '__new'}<TextField label="New group" bind:value={newGroup} class="min-w-40 flex-1" placeholder="e.g. External, OT" />{/if}
+						<Button icon="add" disabled={!scopeEntry || (scopeGroup === '__new' && !newGroup.trim())} onclick={addToScope}>Add to scope</Button>
+					</div>
+				</section>
+			{/if}
 
 			{#if asset.status !== 'confirmed'}
 				<div class="flex flex-wrap items-center gap-2 rounded-md bg-tertiary-container/40 px-3 py-2.5 body-medium text-on-surface">
@@ -166,6 +269,35 @@
 					{/if}
 				</div>
 			{/if}
+
+			<section>
+				<div class="mb-1.5 flex items-center gap-2">
+					<h3 class="flex-1 label-large text-on-surface-variant">Description</h3>
+					{#if canEdit() && !describing}
+						<Button variant="text" icon="edit" onclick={() => { descriptionDraft = asset?.description ?? ''; describing = true; }}>{asset.description ? 'Edit' : 'Add'}</Button>
+					{/if}
+				</div>
+				{#if describing}
+					<MarkdownEditor
+						bind:value={descriptionDraft}
+						label="Description"
+						{projectId}
+						mentionables={() => people.mentionables(projectId)}
+						{images}
+						placeholder="What it is, who owns it, why it matters…"
+						submitLabel="Save"
+						submitIcon="check"
+						minRows={4}
+						onsubmit={saveDescription}
+						oncancel={() => (describing = false)}
+						autofocus
+					/>
+				{:else if asset.description.trim()}
+					<RichText text={asset.description} {projectId} class="rounded-md bg-surface-container px-3 py-2 body-medium text-on-surface" />
+				{:else}
+					<p class="body-small text-on-surface-variant italic">No description.</p>
+				{/if}
+			</section>
 
 			<!-- fields, each with where it came from -->
 			<section>

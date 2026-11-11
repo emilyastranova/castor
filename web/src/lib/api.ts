@@ -390,6 +390,10 @@ export interface Asset {
 	fields: Record<string, unknown>;
 	has_secret: boolean;
 	in_scope: boolean;
+	/** What people know about it (markdown). */
+	description: string;
+	/** The scope groups it falls in (Internal, External…). */
+	scope_groups: string[];
 	first_seen: string;
 	last_seen: string;
 	links: number;
@@ -399,6 +403,14 @@ export interface Asset {
 	confidence: number;
 	/** Suggested ones: where they were mentioned, newest first. */
 	mentions: AssetMention[];
+}
+
+/** A project's scope: named groups of what's in it, and exclusions that win over every group. */
+export interface Scope {
+	groups: { name: string; include: string[] }[];
+	exclude: string[];
+	/** Every group's entries together. */
+	include: string[];
 }
 
 export interface AssetVerdict {
@@ -1487,12 +1499,13 @@ export function api(fetchFn: Fetch = fetch) {
 		},
 		assets: {
 			types: () => get<AssetType[]>('/assets/types'),
-			list: (projectId: UUID, params: { type?: string; where?: string; limit?: number; status?: Asset['status'] } = {}) => {
+			list: (projectId: UUID, params: { type?: string; where?: string; limit?: number; status?: Asset['status']; scope?: string } = {}) => {
 				const q = new URLSearchParams();
 				if (params.type) q.set('type', params.type);
 				if (params.where) q.set('where', params.where);
 				if (params.limit !== undefined) q.set('limit', String(params.limit));
 				if (params.status) q.set('status', params.status);
+				if (params.scope) q.set('scope', params.scope);
 				return get<{ items: Asset[]; total: number; counts: Record<string, number>; suggested: number }>(`/projects/${projectId}/assets?${q}`);
 			},
 			confirm: (id: UUID) => post<Asset>(`/assets/${id}/confirm`),
@@ -1508,12 +1521,16 @@ export function api(fetchFn: Fetch = fetch) {
 			import: (projectId: UUID, type: string, text: string) =>
 				post<{ added: number; updated: number; skipped: string[] }>(`/projects/${projectId}/assets/import`, { type, text }),
 			update: (id: UUID, fields: Record<string, unknown>) => patch<Asset>(`/assets/${id}`, { fields }),
+			/** Its description (markdown). */
+			describe: (id: UUID, description: string) => patch<Asset>(`/assets/${id}`, { description }),
+			/** Add one entry to a scope group (made if new). */
+			addToScope: (projectId: UUID, entry: string, group: string) => post<Scope>(`/projects/${projectId}/scope/add`, { entry, group }),
 			remove: (id: UUID) => del(`/assets/${id}`),
 			reveal: (id: UUID) => post<{ secret: string }>(`/assets/${id}/reveal`),
 			collect: (projectId: UUID) => post<{ added: number; updated: number; suggested: number }>(`/projects/${projectId}/assets/collect`),
-			scope: (projectId: UUID) => get<{ include: string[]; exclude: string[] }>(`/projects/${projectId}/scope`),
-			setScope: (projectId: UUID, body: { include: string[]; exclude: string[] }) =>
-				request<{ include: string[]; exclude: string[] }>(fetchFn, 'PUT', `/projects/${projectId}/scope`, body),
+			scope: (projectId: UUID) => get<Scope>(`/projects/${projectId}/scope`),
+			setScope: (projectId: UUID, body: { groups?: { name: string; include: string[] }[]; include?: string[]; exclude: string[] }) =>
+				request<Scope>(fetchFn, 'PUT', `/projects/${projectId}/scope`, body),
 			triggers: (projectId: UUID) => get<AssetTrigger[]>(`/projects/${projectId}/asset-triggers`),
 			createTrigger: (projectId: UUID, body: Omit<AssetTrigger, 'id' | 'project_id' | 'fires' | 'created_at'>) =>
 				post<AssetTrigger>(`/projects/${projectId}/asset-triggers`, body),

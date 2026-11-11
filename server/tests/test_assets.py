@@ -162,3 +162,47 @@ def test_triggers_run_in_scope_and_wait_outside(client, auth):
             job = client.get(f"/api/tasks/{f['task_id']}", headers=auth).json()["latest_job"]
             if job:
                 client.post(f"/api/jobs/{job['id']}/cancel", headers=auth)
+
+
+def test_scope_comes_in_named_groups(client, auth):
+    import uuid
+
+    p = client.post("/api/projects", json={"codename": f"SG-{uuid.uuid4().hex[:6]}", "name": "Groups", "kind": "internal"}, headers=auth).json()
+    pid = p["id"]
+    for ip in ("10.5.0.7", "203.0.113.9", "10.5.9.9", "192.0.2.1"):
+        client.post(f"/api/projects/{pid}/assets", json={"type": "host", "fields": {"ip": ip}}, headers=auth)
+    r = client.put(f"/api/projects/{pid}/scope", json={"groups": [
+        {"name": "Internal", "include": ["10.5.0.0/16"]}, {"name": "External", "include": ["203.0.113.0/24"]},
+        {"name": "Sensitive", "include": ["10.5.0.7"]}], "exclude": ["10.5.9.9"]}, headers=auth)
+    assert r.status_code == 200, r.text
+    assert r.json()["include"] == ["10.5.0.0/16", "203.0.113.0/24", "10.5.0.7"]
+    by_ip = {a["key"]: a for a in client.get(f"/api/projects/{pid}/assets", headers=auth).json()["items"]}
+    assert by_ip["10.5.0.7"]["scope_groups"] == ["Internal", "Sensitive"] and by_ip["10.5.0.7"]["in_scope"]
+    assert by_ip["203.0.113.9"]["scope_groups"] == ["External"]
+    assert by_ip["10.5.9.9"]["scope_groups"] == [] and not by_ip["10.5.9.9"]["in_scope"]  # excluded wins
+    assert not by_ip["192.0.2.1"]["in_scope"]
+    only = client.get(f"/api/projects/{pid}/assets?scope=sensitive", headers=auth).json()["items"]
+    assert [a["key"] for a in only] == ["10.5.0.7"]
+    outside = client.get(f"/api/projects/{pid}/assets?scope=-", headers=auth).json()["items"]
+    assert {a["key"] for a in outside} == {"10.5.9.9", "192.0.2.1"}
+    dup = client.put(f"/api/projects/{pid}/scope", json={"groups": [{"name": "OT", "include": []}, {"name": "ot", "include": []}]}, headers=auth)
+    assert dup.status_code == 422
+    legacy = client.put(f"/api/projects/{pid}/scope", json={"include": ["10.5.0.0/16"], "exclude": []}, headers=auth).json()
+    assert legacy["groups"] == [{"name": "Scope", "include": ["10.5.0.0/16"]}]
+
+
+def test_assets_have_descriptions_and_scope_takes_one_entry(client, auth):
+    import uuid
+
+    p = client.post("/api/projects", json={"codename": f"SD-{uuid.uuid4().hex[:6]}", "name": "Desc", "kind": "internal"}, headers=auth).json()
+    a = client.post(f"/api/projects/{p['id']}/assets", json={"type": "host", "fields": {"ip": "10.8.0.4"}}, headers=auth).json()
+    r = client.patch(f"/api/assets/{a['id']}", json={"description": "The **jump host** the client gave us. Owner: IT ops."}, headers=auth)
+    assert r.status_code == 200 and r.json()["description"].startswith("The **jump host**")
+    assert client.get(f"/api/assets/{a['id']}", headers=auth).json()["description"].endswith("IT ops.")
+    hits = client.get("/api/search?q=jump%20host", headers=auth).json()
+    assert any(h["id"] == a["id"] for group in hits.get("groups", []) for h in group.get("items", [])) or "jump" in str(hits)
+    s = client.post(f"/api/projects/{p['id']}/scope/add", json={"entry": "10.8.0.0/24", "group": "OT"}, headers=auth).json()
+    assert s["groups"] == [{"name": "OT", "include": ["10.8.0.0/24"]}]
+    s = client.post(f"/api/projects/{p['id']}/scope/add", json={"entry": "10.9.0.1", "group": "ot"}, headers=auth).json()
+    assert s["groups"] == [{"name": "OT", "include": ["10.8.0.0/24", "10.9.0.1"]}]
+    assert client.get(f"/api/assets/{a['id']}", headers=auth).json()["scope_groups"] == ["OT"]

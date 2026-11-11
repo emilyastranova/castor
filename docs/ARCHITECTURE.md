@@ -449,7 +449,9 @@ mention, a `ref` to where it was) and `asset_links` between them. Parsed outputs
 notes, unparsed output or a picture the AI read; `assets_text.py`) or dismissed, and
 `assets.confidence` the best observation's. A host seen by name and by address is merged. Events
 `assets.changed` and `asset_triggers.changed`; activity `assets.found`, `assets.suggested`,
-`assets.confirmed`, `assets.merged`. Triggers run a command or playbook for new or changed assets: automatically
+`assets.confirmed`, `assets.merged`, `assets.described`. Each asset has a markdown `description`. The
+scope (`projects.settings.scope`) is named groups of entries (`groups: [{name, include}]`) and
+exclusions that win over every group; an asset reports the groups it falls in. Triggers run a command or playbook for new or changed assets: automatically
 inside the project's scope (`projects.settings.scope`), otherwise after approval; once per
 asset and rate-limited. Command arguments can take `{"assets": {type, where, field}}`.
 

@@ -29,6 +29,9 @@ class AssetBrief(BaseModel):
     fields: dict[str, Any]
     has_secret: bool
     in_scope: bool
+    description: str = ""  # markdown, written by people
+    # The scope groups it falls in (Internal, External…).
+    scope_groups: list[str] = Field(default_factory=list)
     first_seen: datetime
     last_seen: datetime
     links: int = 0
@@ -46,13 +49,17 @@ class AssetList(BaseModel):
     suggested: int = 0
 
 
-def _brief(a: m.Asset, project: m.Project, links: int = 0, mentions: list[dict[str, Any]] | None = None) -> AssetBrief:
+def _brief(a: m.Asset, project: m.Project, links: int = 0, mentions: list[dict[str, Any]] | None = None,
+           scope: dict[str, Any] | None = None) -> AssetBrief:
+    groups = A.scope_groups(project, a, scope)
     return AssetBrief(id=a.id, type=a.type, key=a.key, label=a.label, fields=a.fields or {}, has_secret=bool(a.secret),
-                      in_scope=A.in_scope(project, a), first_seen=a.first_seen, last_seen=a.last_seen, links=links,
+                      description=a.description or "",
+                      in_scope=bool(groups), scope_groups=groups, first_seen=a.first_seen, last_seen=a.last_seen, links=links,
                       status=a.status or "confirmed", confidence=a.confidence or 0, mentions=mentions or [])
 
 
 SOURCE_WORDS = {"comment": "a comment", "post": "a timeline post", "card": "a card's description", "note": "a pinned note",
+                "asset": "an asset's description",
                 "output": "a run's output", "ai": "a picture (read by the AI)", "parser": "a tool's results", "manual": "added by hand",
                 "import": "an import"}
 
@@ -68,6 +75,8 @@ def ref_link(project_id: uuid.UUID, ref: dict[str, Any] | None, task_id: uuid.UU
         return f"/projects/{project_id}/dashboard?post={rid}"
     if kind == "note":
         return f"/projects/{project_id}/dashboard"
+    if kind == "asset":
+        return f"/projects/{project_id}/assets?asset={rid}"
     if kind == "job" and card:
         return f"{card}&tab=output&job={job_id or rid}"
     if kind == "attachment" and card:
@@ -117,16 +126,30 @@ async def asset_types(_: CurrentUser) -> list[dict[str, Any]]:
     ]
 
 
+def _in_group(groups: list[str], want: str) -> bool:
+    """`want` is a group's name, `*` (any group) or `-` (none)."""
+    if want == "*":
+        return bool(groups)
+    if want == "-":
+        return not groups
+    return want in [g.lower() for g in groups]
+
+
 @router.get("/projects/{project_id}/assets", response_model=AssetList)
 async def list_assets(project_id: str, db: DB, user: CurrentUser, type: str | None = None, where: str = "",
-                      limit: int = 200, offset: int = 0, status: Literal["confirmed", "suggested", "dismissed"] = "confirmed"):
+                      limit: int = 200, offset: int = 0, status: Literal["confirmed", "suggested", "dismissed"] = "confirmed",
+                      scope: str | None = None):
     """`where` takes `field:value`, `field!=value`, `port>1000` and free words. `status`: the
-    confirmed assets (the default), the suggested ones (only mentioned) or the dismissed ones."""
+    confirmed assets (the default), the suggested ones (only mentioned) or the dismissed ones.
+    `scope`: only those in that scope group, `*` in any, `-` in none."""
     project = await project_or_404(db, user, parse_uuid(project_id))
     try:
         rows = await A.query(db, project.id, type, where, status=status)
     except A.AssetError as exc:
         raise HTTPException(422, str(exc)) from exc
+    sc = A.scope_of(project)
+    if scope:
+        rows = [a for a in rows if _in_group(A.scope_groups(project, a, sc), scope.lower())]
     counts_rows = await db.execute(select(m.Asset.type, func.count()).where(m.Asset.project_id == project.id, m.Asset.status == status)
                                    .group_by(m.Asset.type))
     suggested = (await db.execute(select(func.count()).select_from(m.Asset).where(m.Asset.project_id == project.id,
@@ -140,7 +163,7 @@ async def list_assets(project_id: str, db: DB, user: CurrentUser, type: str | No
                 if x in ids:
                     link_counts[x] = link_counts.get(x, 0) + 1
     mentions = await _mentions(db, page) if status != "confirmed" else {}
-    return AssetList(items=[_brief(a, project, link_counts.get(a.id, 0), mentions.get(a.id)) for a in page], total=len(rows),
+    return AssetList(items=[_brief(a, project, link_counts.get(a.id, 0), mentions.get(a.id), sc) for a in page], total=len(rows),
                      counts={t: n for t, n in counts_rows.all()}, suggested=suggested)
 
 
@@ -246,19 +269,32 @@ async def collect_assets(project_id: str, db: DB, user: CurrentUser) -> dict[str
 
 
 class AssetPatch(BaseModel):
-    fields: dict[str, Any]
+    fields: dict[str, Any] = Field(default_factory=dict)
+    # What people know about it, in markdown: what it is, who owns it, why it matters.
+    description: str | None = Field(None, max_length=20_000)
 
 
 @router.patch("/assets/{asset_id}", response_model=AssetBrief)
 async def edit_asset(asset_id: str, body: AssetPatch, db: DB, user: CurrentUser):
-    """Set fields by hand (recorded as a manual observation; identity fields can't change)."""
+    """Set fields by hand (recorded as a manual observation; identity fields can't change),
+    and/or the asset's description (markdown)."""
     a = await _asset_or_404(db, user, asset_id, write=True)
     project = await db.get(m.Project, a.project_id)
-    t = A.type_of(a.type)
-    fields = {k: v for k, v in body.fields.items() if k not in t.identity}
-    batch = A.Batch(a.project_id)
-    a = await A.observe(db, a.project_id, a.type, {**a.fields, **fields}, batch=batch, source="manual", actor_id=user.id)
-    await A.settle(db, batch, actor=user)
+    if body.description is not None and body.description != (a.description or ""):
+        a.description = body.description
+        await record_activity(db, type="assets.described", message=f"Described the {a.type} {a.label}", project_id=a.project_id,
+                              **actor_of(user))
+        await db.commit()
+        bus.publish("assets.changed", a.project_id, {"project_id": str(a.project_id)})
+        from ..assets_text import after_text
+
+        after_text(a.project_id, a.description, source="asset", ref={"kind": "asset", "id": str(a.id)}, actor_id=user.id)
+    if body.fields:
+        t = A.type_of(a.type)
+        fields = {k: v for k, v in body.fields.items() if k not in t.identity}
+        batch = A.Batch(a.project_id)
+        a = await A.observe(db, a.project_id, a.type, {**a.fields, **fields}, batch=batch, source="manual", actor_id=user.id)
+        await A.settle(db, batch, actor=user)
     return _brief(a, project)
 
 
@@ -405,24 +441,65 @@ async def reveal_secret(asset_id: str, db: DB, user: CurrentUser) -> dict[str, s
 # ---------- scope ----------
 
 
+class ScopeGroup(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    include: list[str] = Field(default_factory=list, max_length=500)
+
+
 class ScopeIn(BaseModel):
+    # Named groups (Internal, External, Sensitive, OT…); without them, `include` is one group.
+    groups: list[ScopeGroup] | None = Field(None, max_length=30)
     include: list[str] = Field(default_factory=list, max_length=500)
     exclude: list[str] = Field(default_factory=list, max_length=500)
 
 
 @router.get("/projects/{project_id}/scope")
-async def get_scope(project_id: str, db: DB, user: CurrentUser) -> dict[str, list[str]]:
+async def get_scope(project_id: str, db: DB, user: CurrentUser) -> dict[str, Any]:
+    """The scope's groups (each a name and its entries), the exclusions, and `include`: every group's entries."""
     return A.scope_of(await project_or_404(db, user, parse_uuid(project_id)))
 
 
-@router.put("/projects/{project_id}/scope")
-async def set_scope(project_id: str, body: ScopeIn, db: DB, user: CurrentUser) -> dict[str, list[str]]:
-    """CIDRs, addresses and domains (a domain covers its subdomains); exclusions win."""
+class ScopeAddIn(BaseModel):
+    entry: str = Field(min_length=1, max_length=300)  # an address, CIDR range or domain
+    group: str = Field("Scope", min_length=1, max_length=40)  # created if new
+
+
+@router.post("/projects/{project_id}/scope/add")
+async def add_to_scope(project_id: str, body: ScopeAddIn, db: DB, user: CurrentUser) -> dict[str, Any]:
+    """Add one entry to a scope group (made if it doesn't exist yet), keeping the rest."""
     project = await project_or_404(db, user, parse_uuid(project_id), write=True)
-    clean = {k: [x.strip() for x in getattr(body, k) if x.strip()] for k in ("include", "exclude")}
-    project.settings = {**(project.settings or {}), "scope": clean}
-    await record_activity(db, type="project.scope", message=f"Set the scope: {', '.join(clean['include'][:5]) or 'nothing'}"
-                          + (" …" if len(clean["include"]) > 5 else ""), project_id=project.id, **actor_of(user))
+    scope = A.scope_of(project)
+    groups = [{"name": g["name"], "include": list(g["include"])} for g in scope["groups"]]
+    group = next((g for g in groups if g["name"].lower() == body.group.strip().lower()), None)
+    if group is None:
+        group = {"name": body.group.strip(), "include": []}
+        groups.append(group)
+    entry = body.entry.strip()
+    if entry not in group["include"]:
+        group["include"].append(entry)
+    project.settings = {**(project.settings or {}), "scope": {"groups": groups, "exclude": scope["exclude"]}}
+    await record_activity(db, type="project.scope", message=f"Added {entry} to the {group['name']} scope", project_id=project.id,
+                          **actor_of(user))
+    await db.commit()
+    bus.publish("assets.changed", project.id, {"project_id": str(project.id)})
+    return A.scope_of(project)
+
+
+@router.put("/projects/{project_id}/scope")
+async def set_scope(project_id: str, body: ScopeIn, db: DB, user: CurrentUser) -> dict[str, Any]:
+    """CIDRs, addresses and domains (a domain covers its subdomains), in named groups; exclusions
+    win over every group. Send `groups`, or just `include` for one group called "Scope"."""
+    project = await project_or_404(db, user, parse_uuid(project_id), write=True)
+    entries = lambda xs: [*dict.fromkeys(x.strip() for x in xs if x.strip())]
+    groups = [{"name": g.name.strip(), "include": entries(g.include)} for g in body.groups] if body.groups is not None \
+        else ([{"name": "Scope", "include": entries(body.include)}] if entries(body.include) else [])
+    names = [g["name"].lower() for g in groups]
+    if len(set(names)) != len(names):
+        raise HTTPException(422, "groups: each needs its own name")
+    project.settings = {**(project.settings or {}), "scope": {"groups": groups, "exclude": entries(body.exclude)}}
+    clean = A.scope_of(project)
+    said = "; ".join(f"{g['name']}: {', '.join(g['include'][:3])}{' …' if len(g['include']) > 3 else ''}" for g in groups if g["include"])
+    await record_activity(db, type="project.scope", message=f"Set the scope: {said or 'nothing'}", project_id=project.id, **actor_of(user))
     await db.commit()
     bus.publish("assets.changed", project.id, {"project_id": str(project.id)})
     return clean

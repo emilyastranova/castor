@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import type { Asset, AssetTrigger, AssetTriggerFire, AssetVerdict, UUID } from '$lib/api';
+	import type { Asset, AssetTrigger, AssetTriggerFire, AssetVerdict, Scope, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, Icon, IconButton, Select, Switch, Tabs, TextField, TopAppBar } from '$lib/m3';
 	import ProjectSwitcher from '$lib/components/ProjectSwitcher.svelte';
@@ -40,7 +40,7 @@
 	async function load(liveChange = false) {
 		const mine = ++seq;
 		try {
-			const res = await api().assets.list(project.id, { type: type || undefined, where, limit: 500, status });
+			const res = await api().assets.list(project.id, { type: type || undefined, where, limit: 500, status, scope: status === 'confirmed' ? scopeFilter || undefined : undefined });
 			if (mine !== seq) return;
 			live = liveChange;
 			items = res.items;
@@ -57,29 +57,38 @@
 		void type;
 		void where;
 		void status;
+		void scopeFilter;
 		clearTimeout(timer);
 		timer = setTimeout(() => void load(), 200);
 	});
 
-	// ---- scope ----
-	let scope = $state<{ include: string[]; exclude: string[] }>({ include: [], exclude: [] });
+	// ---- scope: named groups (Internal, External, OT…) and exclusions ----
+	let scope = $state<Scope>({ groups: [], exclude: [], include: [] });
+	/** Show only one scope group's assets ('-': outside every group). */
+	let scopeFilter = $state('');
 	let scopeOpen = $state(false);
-	let scopeInclude = $state('');
+	let groupDrafts = $state<{ name: string; text: string }[]>([]);
 	let scopeExclude = $state('');
+	const GROUP_IDEAS = ['Internal', 'External', 'Sensitive', 'OT', 'Cloud', 'Wireless', 'Web'];
 	$effect(() => {
 		void project.id;
 		api().assets.scope(project.id).then((s) => (scope = s));
 	});
 	function editScope() {
-		scopeInclude = scope.include.join('\n');
+		groupDrafts = scope.groups.length ? scope.groups.map((g) => ({ name: g.name, text: g.include.join('\n') })) : [{ name: 'Scope', text: '' }];
 		scopeExclude = scope.exclude.join('\n');
 		scopeOpen = true;
 	}
+	function addGroup(name = '') {
+		groupDrafts = [...groupDrafts, { name, text: '' }];
+	}
 	async function saveScope() {
 		const lines = (t: string) => t.split(/[\n,]+/).map((x) => x.trim()).filter(Boolean);
+		const groups = groupDrafts.filter((g) => g.name.trim() || g.text.trim()).map((g) => ({ name: g.name.trim() || 'Scope', include: lines(g.text) }));
 		try {
-			scope = await api().assets.setScope(project.id, { include: lines(scopeInclude), exclude: lines(scopeExclude) });
+			scope = await api().assets.setScope(project.id, { groups, exclude: lines(scopeExclude) });
 			scopeOpen = false;
+			if (scopeFilter && scopeFilter !== '-' && !scope.groups.some((g) => g.name === scopeFilter)) scopeFilter = '';
 			void load();
 		} catch (err) {
 			snackbar.error(err instanceof ApiError ? err.message : 'Could not save the scope');
@@ -342,9 +351,26 @@
 			<!-- scope -->
 			<div class="flex flex-wrap items-center gap-2 rounded-md bg-surface-container-low px-4 py-2.5 body-medium">
 				<span class="flex items-center gap-1.5 text-on-surface-variant"><Icon name="verified" size={18} />Scope</span>
-				{#if scope.include.length}
-					{#each scope.include as s (s)}<span class="rounded-xs bg-primary-container px-2 py-0.5 font-mono text-[12px] text-on-primary-container">{s}</span>{/each}
-					{#each scope.exclude as s (s)}<span class="rounded-xs border border-outline-variant px-2 py-0.5 font-mono text-[12px] text-on-surface-variant line-through" title="Excluded">{s}</span>{/each}
+				{#if scope.groups.length}
+					{#each scope.groups as g (g.name)}
+						<button
+							type="button"
+							class="state-layer focus-ring flex max-w-full flex-wrap items-center gap-1 rounded-sm border px-1.5 py-1 {scopeFilter === g.name ? 'border-primary bg-primary-container/40' : 'border-outline-variant/70'}"
+							aria-pressed={scopeFilter === g.name}
+							title={scopeFilter === g.name ? 'Show everything again' : `Show only what's in ${g.name}`}
+							onclick={() => (scopeFilter = scopeFilter === g.name ? '' : g.name)}
+						>
+							<span class="px-0.5 label-medium text-on-surface">{g.name}</span>
+							{#each g.include as e (e)}<span class="rounded-xs bg-primary-container px-1.5 py-0.5 font-mono text-[12px] text-on-primary-container">{e}</span>{:else}<span class="body-small text-on-surface-variant">empty</span>{/each}
+						</button>
+					{/each}
+					{#if scope.exclude.length}
+						<span class="flex flex-wrap items-center gap-1 px-1">
+							<span class="label-medium text-on-surface-variant">Excluded</span>
+							{#each scope.exclude as e (e)}<span class="rounded-xs border border-outline-variant px-1.5 py-0.5 font-mono text-[12px] text-on-surface-variant line-through">{e}</span>{/each}
+						</span>
+					{/if}
+					<button type="button" class="rounded-full px-2 py-0.5 label-medium {scopeFilter === '-' ? 'bg-secondary-container text-on-secondary-container' : 'text-primary hover:underline'}" aria-pressed={scopeFilter === '-'} onclick={() => (scopeFilter = scopeFilter === '-' ? '' : '-')}>Outside scope</button>
 				{:else}
 					<span class="text-on-surface-variant">None set: triggered runs wait for approval.</span>
 				{/if}
@@ -499,8 +525,9 @@
 									<td class="px-3 py-2">
 										<span class="flex items-center gap-1.5 font-mono text-[13px] text-on-surface">
 											{a.label}
-											{#if a.in_scope}<Icon name="verified" size={14} class="text-primary" />{/if}
+											{#each a.scope_groups as g (g)}<span class="rounded-xs bg-primary-container px-1.5 py-px font-sans label-small text-on-primary-container" title="In the {g} scope">{g}</span>{/each}
 											{#if a.has_secret}<Icon name="key" size={14} class="text-tertiary" />{/if}
+											{#if a.description}<span title={a.description.slice(0, 200)}><Icon name="notes" size={14} class="text-on-surface-variant" /></span>{/if}
 										</span>
 									</td>
 									{#if current}
@@ -590,14 +617,30 @@
 	</div>
 </div>
 
-<AssetDialog bind:open={assetOpen} assetId={openId} projectId={project.id} onopenasset={openAsset} onchanged={() => void load(true)} />
+<AssetDialog bind:open={assetOpen} assetId={openId} projectId={project.id} onopenasset={openAsset} onchanged={() => { void load(true); void api().assets.scope(project.id).then((x) => (scope = x)); }} />
 <TriggerDialog bind:open={triggerOpen} projectId={project.id} trigger={editingTrigger} onsaved={() => void loadTriggers()} />
 
-<Dialog bind:open={scopeOpen} title="Project scope" icon="verified" size="sm">
-	<div class="flex flex-col gap-3 pt-2 pb-2">
-		<p class="body-small text-on-surface-variant">Addresses, CIDR ranges and domains (a domain covers its subdomains). Triggers run by themselves only for assets inside the scope; exclusions win.</p>
-		<TextField label="In scope" bind:value={scopeInclude} multiline rows={5} mono placeholder={'10.20.0.0/16\ncorp.local'} />
-		<TextField label="Excluded" bind:value={scopeExclude} multiline rows={3} mono placeholder="10.20.99.0/24" />
+<Dialog bind:open={scopeOpen} title="Project scope" icon="verified" size="md">
+	<div class="flex flex-col gap-4 pt-2 pb-2">
+		<p class="body-small text-on-surface-variant">
+			Group what's in scope by kind: Internal, External, Sensitive, OT… Each takes addresses, CIDR ranges and domains (a domain covers its subdomains), one per line. An asset in any group is in scope, and shows its groups; triggers run by themselves only for assets in scope. Exclusions win over every group.
+		</p>
+		{#each groupDrafts as g, i (i)}
+			<div class="flex flex-col gap-2 rounded-md border border-outline-variant/70 p-3">
+				<div class="flex items-center gap-2">
+					<TextField label="Group" bind:value={g.name} class="flex-1" placeholder="e.g. Internal" />
+					<IconButton icon="delete" label="Remove {g.name || 'this group'}" onclick={() => (groupDrafts = groupDrafts.filter((_, j) => j !== i))} />
+				</div>
+				<TextField label="In this group" bind:value={g.text} multiline rows={3} mono placeholder={'10.20.0.0/16\ncorp.local'} />
+			</div>
+		{/each}
+		<div class="flex flex-wrap items-center gap-1.5">
+			<Button variant="tonal" icon="add" onclick={() => addGroup()}>Add a group</Button>
+			{#each GROUP_IDEAS.filter((n) => !groupDrafts.some((g) => g.name.trim().toLowerCase() === n.toLowerCase())) as n (n)}
+				<button type="button" class="rounded-full border border-outline-variant px-2.5 py-1 label-medium text-on-surface-variant hover:bg-on-surface/5" onclick={() => addGroup(n)}>+ {n}</button>
+			{/each}
+		</div>
+		<TextField label="Excluded (from every group)" bind:value={scopeExclude} multiline rows={3} mono placeholder="10.20.99.0/24" />
 	</div>
 	{#snippet actions()}
 		<Button variant="text" onclick={() => (scopeOpen = false)}>Cancel</Button>

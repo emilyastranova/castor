@@ -172,6 +172,7 @@ RULES: list[tuple[str, str, str]] = [
     ("POST", "/api/projects/*/assets/suggested/sort", "ai:use"),  # asks the AI; changes nothing
     ("*", "/api/projects/*/assets/**", "assets:rw"),
     ("*", "/api/projects/*/scope", "assets:rw"),
+    ("*", "/api/projects/*/scope/add", "assets:rw"),
     ("*", "/api/projects/*/asset-triggers", "assets:rw"),
     ("*", "/api/projects/*/asset-trigger-fires", "assets:rw"),
     ("*", "/api/asset-triggers/**", "assets:rw"),

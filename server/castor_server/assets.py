@@ -105,8 +105,9 @@ ALIASES = {"ip": "host", "hosts": "host", "services": "service", "urls": "url", 
            "vulnerabilities": "vulnerability", "vuln": "vulnerability", "vulns": "vulnerability"}
 SEVERITIES = ("info", "low", "medium", "high", "critical")
 # How sure each kind of source is (0–100). Mentions only suggest; the rest confirm.
-CONFIDENCE = {"manual": 100, "import": 90, "parser": 85, "ai": 45, "comment": 50, "post": 50, "card": 50, "note": 50, "output": 40}
-SUGGESTING = {"ai", "comment", "post", "card", "note", "output"}
+CONFIDENCE = {"manual": 100, "import": 90, "parser": 85, "ai": 45, "comment": 50, "post": 50, "card": 50, "note": 50, "asset": 50,
+              "output": 40}
+SUGGESTING = {"ai", "comment", "post", "card", "note", "asset", "output"}
 # Link kinds, as shown from the "from" side and the "to" side.
 LINKS = {"on": ("on", "has"), "resolves_to": ("resolves to", "resolved from"), "valid_on": ("valid on", "accepts")}
 
@@ -807,9 +808,27 @@ def default_field(type_name: str) -> str:
 # ---------- scope ----------
 
 
-def scope_of(project: m.Project) -> dict[str, list[str]]:
+def scope_of(project: m.Project) -> dict[str, Any]:
+    """The project's scope: named groups of what's in it (Internal, External, OT…), one list of
+    exclusions that wins over every group, and `include` (every group's entries, for the checks
+    that don't care which). A scope from before groups is one group called "Scope"."""
     s = (project.settings or {}).get("scope") or {}
-    return {"include": list(s.get("include") or []), "exclude": list(s.get("exclude") or [])}
+    groups = s.get("groups")
+    if groups is None:
+        groups = [{"name": "Scope", "include": list(s.get("include") or [])}] if s.get("include") else []
+    groups = [{"name": str(g.get("name") or "Scope"), "include": [str(x) for x in g.get("include") or []]}
+              for g in groups if isinstance(g, dict)]
+    return {"groups": groups, "exclude": list(s.get("exclude") or []),
+            "include": [e for g in groups for e in g["include"]]}
+
+
+def scope_groups(project: m.Project, asset: m.Asset, scope: dict[str, Any] | None = None) -> list[str]:
+    """The scope groups an asset falls in (none when an exclusion covers it)."""
+    scope = scope or scope_of(project)
+    targets = _targets(asset)
+    if not targets or any(_matches(t, e) for t in targets for e in scope["exclude"]):
+        return []
+    return [g["name"] for g in scope["groups"] if any(_matches(t, e) for t in targets for e in g["include"])]
 
 
 def _targets(asset: m.Asset) -> list[str]:

@@ -718,6 +718,8 @@ class Asset(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(16), default="confirmed", server_default="confirmed", index=True)
     # How sure Castor is (0–100): the best of its observations (assets.CONFIDENCE).
     confidence: Mapped[int] = mapped_column(Integer, default=80, server_default="80")
+    # What people know about it (markdown): what it is, who owns it, why it matters.
+    description: Mapped[str] = mapped_column(Text, default="", server_default="")
 
 
 class AssetObservation(Base):

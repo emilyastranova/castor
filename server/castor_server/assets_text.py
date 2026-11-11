@@ -162,6 +162,7 @@ def pictures_on(project: m.Project | None) -> bool:
 # ---------- the places mentions come from ----------
 
 WHERE = {"comment": "a comment", "post": "a timeline post", "card": "a card's description", "note": "a pinned note",
+         "asset": "an asset's description",
          "output": "a run's output", "ai": "a picture"}
 
 

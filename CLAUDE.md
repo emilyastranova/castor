@@ -195,6 +195,10 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   parser read via `after_job_output`; pictures via the AI `after_picture` → `llm.complete(images=…)`, purpose `assets`),
   per-project `settings.asset_mentions` (on unless False) and `ai_read_pictures` (off). Web: the Suggested tab, whose
   Sort with AI (`assets_text.sort_suggestions`, `POST …/assets/suggested/sort`) only advises real/noise/unsure.
+  Scope is named groups plus shared exclusions (`settings.scope = {groups: [{name, include}], exclude}`; `scope_of`
+  also returns `include`, every group's entries, and reads an older `{include, exclude}` as one group "Scope");
+  `scope_groups(project, asset)` per asset, `?scope=<group>|*|-` on the list, `POST …/scope/add` for one entry.
+  Assets have a markdown `description` (PATCH `description`; mentions in it are suggested, source `asset`).
 - Search (Phase 3g): `search.py` (one permission-scoped query per kind of thing over the live
   tables; add new kinds to `TYPES` and a `Searcher` method) behind `GET /api/search`; web
   `CommandPalette.svelte` (Ctrl/Cmd+K, `lib/palette.svelte.ts`). `m3/Select` searches its

@@ -335,7 +335,7 @@ class Searcher:
         if not q.terms:
             return []
         rows = await self.rows(select(a).where(self.in_scope(a.project_id), a.status == "confirmed",
-                                               _match([a.label, a.key, _text(a.fields)], q.terms))
+                                               _match([a.label, a.key, _text(a.fields), a.description], q.terms))
                                .order_by(a.last_seen.desc()))
         out = []
         for (asset,) in rows:
