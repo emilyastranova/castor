@@ -85,8 +85,8 @@
 		<div>
 			<Switch bind:checked={summaries} label="AI summaries of runs" />
 			<p class="mt-1 body-small text-on-surface-variant">
-				When a command or playbook run finishes, the AI writes a few lines on its card: what was found, what failed and what to look at next.
-				{aiStatus.enabled ? 'It reads the parsed results and the end of the output (secrets stay masked).' : 'Needs an AI model (Settings → AI).'}
+				When a command or playbook run finishes, or a manual card reaches Done, the AI writes a few lines on its card: what was found, what failed and what to look at next.
+				{aiStatus.enabled ? 'It reads the parsed results and the end of the output, or a manual card\'s description and comments (secrets stay masked).' : 'Needs an AI model (Settings → AI).'}
 			</p>
 		</div>
 	</form>

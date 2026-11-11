@@ -199,7 +199,9 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   harmless exit 1, renamed flag, prompt injection, missing key) to watch the resolver; run an
   agent with `--allow-host` (the flaky scenarios remember attempt 1 in `$TMPDIR`).
 - AI summaries of runs: `summaries.py` (`after_job` from the gateway or the end of `outputs.parse_job`,
-  `after_run` from `services._settle_run`; automatic only when `projects.settings["ai_summaries"]`, any finished
+  `after_run` from `services._settle_run`, `after_card_done` from `services.move_task` for manual cards, whose
+  summary is the `ai_summaries` row with neither job nor run, written from description and comments run through
+  `_scrub_text`; automatic only when `projects.settings["ai_summaries"]`, any finished
   job or run on request), `ai_summaries` (one per job or run, written again in place), `api/summaries.py`
   (`/api/jobs/{id}/summary`, `/api/playbook-runs/{id}/summary`), chain purpose `summary`. Results go out through
   `_scrub` (secret-looking keys become `[secret]`); the feed shows `summary.written` (only the latest per summary).

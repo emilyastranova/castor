@@ -409,6 +409,8 @@ TOOLS += [
     # AI summaries of finished runs
     _auto("get_job_summary", "GET", "/api/jobs/{job_id}/summary", "The AI summary of a finished job (null if none).", **_UNTRUSTED),
     _auto("summarize_job", "POST", "/api/jobs/{job_id}/summary", "Have the AI summarise a finished job (again): found, problems, next.", **_UNTRUSTED),
+    _auto("get_card_summary", "GET", "/api/tasks/{task_id}/summary", "The AI summary of a manual card (null if none).", **_UNTRUSTED),
+    _auto("summarize_card", "POST", "/api/tasks/{task_id}/summary", "Have the AI summarise a manual card from its description and comments (again).", **_UNTRUSTED),
     _auto("get_run_summary", "GET", "/api/playbook-runs/{run_id}/summary", "The AI summary of a finished playbook run (null if none).", **_UNTRUSTED),
     _auto("summarize_run", "POST", "/api/playbook-runs/{run_id}/summary", "Have the AI summarise a finished playbook run (again).", **_UNTRUSTED),
     # Themes (docs/THEME_SPEC.md); changing them needs an admin

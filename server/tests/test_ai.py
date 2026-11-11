@@ -471,3 +471,33 @@ def test_a_finished_run_is_summarised_step_by_step(client, auth, fake_llm, clean
     assert s["status"] == "done" and "fake-small" in s["model"] and s["task_id"] == run["card_id"]
     sent = fake_llm["requests"][-1]["body"]["messages"][1]["content"]
     assert "A playbook run finished" in sent and "branching" in sent.lower()
+
+
+def test_a_manual_card_is_summarised_when_it_reaches_done(client, auth, fake_llm, clean_chains):
+    good = _provider(client, auth, "openai_compatible", base_url=f"{fake_llm['base']}/v1")
+    _chain(client, auth, "default", (good, "fake-large"))
+    p = _summary_project(client, auth)
+    card = client.post(f"/api/projects/{p['id']}/tasks", json={"title": "Review the firewall rules", "kind": "manual",
+                                                               "description": "Check the edge rules. Admin password: Winter2026!"}, headers=auth).json()
+    client.post(f"/api/tasks/{card['id']}/comments", json={"body": "Port 3389 is open to the world on fw-edge-02."}, headers=auth)
+    board = client.get(f"/api/projects/{p['id']}/board", headers=auth).json()
+    done = next(c for c in board["columns"] if c["role"] == "done")
+    fake_llm["replies"] = ["**Found** RDP (3389) open to the internet on fw-edge-02.\n\n**Next** Close it or restrict it."]
+    r = client.post(f"/api/tasks/{card['id']}/move", json={"column_id": done["id"], "position": 1}, headers=auth)
+    assert r.status_code == 200, r.text
+    import time
+
+    for _ in range(50):  # written in the background, on the app's own loop
+        s = client.get(f"/api/tasks/{card['id']}/summary", headers=auth).json()
+        if s and s["status"] != "writing":
+            break
+        time.sleep(0.2)
+    assert s["status"] == "done" and s["automatic"] and "fw-edge-02" in s["text"]
+    sent = fake_llm["requests"][-1]["body"]["messages"]
+    assert "worked through by hand" in sent[0]["content"]
+    assert "3389" in sent[1]["content"] and "Winter2026!" not in sent[1]["content"] and "password: [secret]" in sent[1]["content"]
+    feed = client.get(f"/api/dashboard/feed?project_id={p['id']}&kinds=job", headers=auth).json()["items"]
+    assert any(i["type"] == "summary.written" and i["message"] == "Summarised “Review the firewall rules”" for i in feed)
+
+    command = client.post(f"/api/projects/{p['id']}/tasks", json={"title": "Scan", "kind": "command", "command": "true"}, headers=auth).json()
+    assert client.post(f"/api/tasks/{command['id']}/summary", headers=auth).status_code == 409  # its runs have them

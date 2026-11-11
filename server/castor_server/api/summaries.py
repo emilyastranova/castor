@@ -1,4 +1,4 @@
-"""AI summaries of a finished job or playbook run (summaries.py): read one, or have it written
+"""AI summaries of a finished job or playbook run, or of a manual card (summaries.py): read one, or have it written
 (again). Reading needs only sight of the project; writing is for people who can change it."""
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from .. import llm, summaries
 from .. import models as m
-from ..access import job_or_404
+from ..access import job_or_404, task_or_404
 from ..deps import DB, CurrentUser, parse_uuid
 from .playbooks import _run_or_404
 
@@ -71,3 +71,27 @@ async def write_run_summary(run_id: str, db: DB, user: CurrentUser):
         raise HTTPException(409, "The run hasn't finished")
     await _needs_ai(db)
     return _out(await summaries.write(db, run=run, user=user))
+
+
+async def _card(db: DB, user: m.User, task_id: str, *, write: bool = False) -> m.Task:
+    task = await task_or_404(db, user, parse_uuid(task_id), write=write)
+    if not summaries.summarisable(task):
+        raise HTTPException(409, "Only manual cards have a summary of their own; a command card's runs each have one")
+    if await summaries.is_run_card(db, task):
+        raise HTTPException(409, "This is a playbook run's card: its summary is the run's")
+    return task
+
+
+@router.get("/tasks/{task_id}/summary", response_model=SummaryOut | None)
+async def card_summary(task_id: str, db: DB, user: CurrentUser):
+    """The AI summary of a manual card, or null."""
+    task = await _card(db, user, task_id)
+    return _out(await summaries.for_card(db, task.id))
+
+
+@router.post("/tasks/{task_id}/summary", response_model=SummaryOut)
+async def write_card_summary(task_id: str, db: DB, user: CurrentUser):
+    """Have the AI summarise a manual card (again) from its description and comments."""
+    task = await _card(db, user, task_id, write=True)
+    await _needs_ai(db)
+    return _out(await summaries.write(db, card=task, user=user))

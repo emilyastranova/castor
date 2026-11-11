@@ -1226,6 +1226,9 @@ export function api(fetchFn: Fetch = fetch) {
 				post<Task>(`/projects/${id}/tasks`, body)
 		},
 		tasks: {
+			/** A manual card's own AI summary (from its description and comments). */
+			summary: (id: UUID) => get<AiSummary | null>(`/tasks/${id}/summary`),
+			summarize: (id: UUID) => post<AiSummary>(`/tasks/${id}/summary`),
 			get: (id: UUID) => get<Task>(`/tasks/${id}`),
 			update: (id: UUID, body: Partial<Task>) => patch<Task>(`/tasks/${id}`, body),
 			remove: (id: UUID) => del(`/tasks/${id}`),

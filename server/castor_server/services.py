@@ -540,6 +540,10 @@ async def move_task(
         )
         if column.role == m.ColumnRole.done:
             await alerts.card_done(db, task, user)
+            if task.kind == m.TaskKind.manual:
+                from .summaries import after_card_done
+
+                after_card_done(task.id)  # once committed, if the project wants AI summaries
     return job
 
 

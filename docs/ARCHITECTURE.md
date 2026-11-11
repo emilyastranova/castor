@@ -422,10 +422,11 @@ published as `tool.status`, library edits as `tools.changed`.
 ## AI summaries of runs
 
 `ai_summaries` holds what the AI wrote about a finished job or playbook run (`job_id` or
-`run_id`, unique; `task_id` is the card it shows on; `status` writing|done|failed, `text`,
-`model`, `requested_by`, null when written automatically). `summaries.py` writes one when a
-project has `settings.ai_summaries` on (after a job's outputs are parsed, or when a run
-settles) or on `POST /api/jobs/{id}/summary` / `POST /api/playbook-runs/{id}/summary`, and
+`run_id`, each unique) or about a manual card (neither set). `task_id` is the card it shows on;
+`status` is writing|done|failed, with `text`, `model`, and `requested_by` (null when written
+automatically). `summaries.py` writes one when a project has `settings.ai_summaries` on (after a
+job's outputs are parsed, when a run settles, when a manual card reaches Done) or on
+`POST /api/jobs/{id}/summary`, `/api/playbook-runs/{id}/summary` or `/api/tasks/{id}/summary`, and
 publishes `summary.updated`; a written summary records `summary.written` in the feed.
 
 ## Themes

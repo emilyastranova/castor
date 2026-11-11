@@ -830,6 +830,10 @@
 				{/if}
 			</div>
 
+			{#if task.kind === 'manual' && !task.run && !task.playbook_step_id}
+				<AiSummary taskId={task.id} finished projectId={task.project_id} {editable} />
+			{/if}
+
 			<Tabs {tabs} bind:value={tab} />
 
 			{#if tab === 'run' && task.run}
