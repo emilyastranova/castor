@@ -541,3 +541,36 @@ def test_pictures_go_to_each_provider_in_its_own_shape():
     assert _with_images("ollama", msgs, pic)[-1]["images"] == ["iVBORw=="]
     assert _gemini_body("s", msgs, False, 100, 0.1, "gemini-3.6-flash", pic)["contents"][0]["parts"][1]["inlineData"]["mimeType"] == "image/png"
     assert _with_images("openai", msgs, None) is msgs
+
+
+def test_the_ai_sorts_suggested_assets_without_changing_them(client, auth, fake_llm, clean_chains):
+    import time
+
+    good = _provider(client, auth, "openai_compatible", base_url=f"{fake_llm['base']}/v1")
+    _chain(client, auth, "assets", (good, "fake-large"))
+    p = client.post("/api/projects", json={"codename": f"SO-{uuid.uuid4().hex[:6]}", "name": "Sort", "kind": "internal"}, headers=auth).json()
+    client.put(f"/api/projects/{p['id']}/scope", json={"include": ["10.30.0.0/16"], "exclude": []}, headers=auth)
+    card = client.post(f"/api/projects/{p['id']}/tasks", json={"title": "Notes", "kind": "manual"}, headers=auth).json()
+    client.post(f"/api/tasks/{card['id']}/comments", json={"body": "DC at 10.30.0.5; docs say see www.vendor-docs.com. password: hunter2 for 10.30.0.6"},
+                headers=auth)
+    for _ in range(40):
+        items = client.get(f"/api/projects/{p['id']}/assets?status=suggested", headers=auth).json()["items"]
+        if len(items) >= 3:
+            break
+        time.sleep(0.15)
+    labels = [a["label"] for a in items]
+    real, noise = labels.index("10.30.0.5") + 1, labels.index("www.vendor-docs.com") + 1
+    fake_llm["replies"] = [json.dumps({"items": [{"n": real, "verdict": "real", "reason": "In scope, named as the DC"},
+                                                 {"n": noise, "verdict": "noise", "reason": "A vendor documentation site"},
+                                                 {"n": 99, "verdict": "real", "reason": "not an item"}]})]
+    r = client.post(f"/api/projects/{p['id']}/assets/suggested/sort", json={"guidance": "Vendor sites are noise"}, headers=auth)
+    assert r.status_code == 200, r.text
+    out = r.json()
+    by_label = {items[[a["id"] for a in items].index(v["id"])]["label"]: v for v in out["verdicts"]}
+    assert by_label["10.30.0.5"]["verdict"] == "real" and by_label["www.vendor-docs.com"]["verdict"] == "noise"
+    assert by_label["10.30.0.6"]["verdict"] == "unsure"  # not judged
+    sent = fake_llm["requests"][-1]["body"]["messages"]
+    assert "Vendor sites are noise" in sent[1]["content"] and "10.30.0.0/16" in sent[1]["content"]
+    assert "hunter2" not in sent[1]["content"] and "treat" in sent[0]["content"]
+    still = client.get(f"/api/projects/{p['id']}/assets?status=suggested", headers=auth).json()["suggested"]
+    assert still == len(items)  # advice only

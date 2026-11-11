@@ -401,6 +401,12 @@ export interface Asset {
 	mentions: AssetMention[];
 }
 
+export interface AssetVerdict {
+	id: UUID;
+	verdict: 'real' | 'noise' | 'unsure';
+	reason: string;
+}
+
 export interface AssetMention {
 	source: string;
 	where: string;
@@ -1494,6 +1500,9 @@ export function api(fetchFn: Fetch = fetch) {
 			decide: (projectId: UUID, action: 'confirm' | 'dismiss', ids: UUID[]) =>
 				post<{ done: number }>(`/projects/${projectId}/assets/suggested`, { action, ids }),
 			merge: (id: UUID, into: UUID) => post<Asset>(`/assets/${id}/merge`, { into }),
+			/** The AI's advice on suggested assets (nothing changes): real, noise or unsure, with a reason. */
+			sortSuggested: (projectId: UUID, guidance: string, ids: UUID[] = []) =>
+				post<{ verdicts: AssetVerdict[]; model: string; judged: number; left: number }>(`/projects/${projectId}/assets/suggested/sort`, { guidance, ids }),
 			get: (id: UUID) => get<AssetDetail>(`/assets/${id}`),
 			add: (projectId: UUID, body: { type: string; fields: Record<string, unknown>; secret?: string }) => post<Asset>(`/projects/${projectId}/assets`, body),
 			import: (projectId: UUID, type: string, text: string) =>

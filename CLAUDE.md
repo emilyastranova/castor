@@ -193,7 +193,8 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   address is folded (`_find`, `_fold_host`, `merge`, `_rehome` moves its services and shares). Mentions:
   `assets_text.py` (`extract` from text: comments, posts, card descriptions, notes via `after_text`; job output no
   parser read via `after_job_output`; pictures via the AI `after_picture` → `llm.complete(images=…)`, purpose `assets`),
-  per-project `settings.asset_mentions` (on unless False) and `ai_read_pictures` (off). Web: the Suggested tab.
+  per-project `settings.asset_mentions` (on unless False) and `ai_read_pictures` (off). Web: the Suggested tab, whose
+  Sort with AI (`assets_text.sort_suggestions`, `POST …/assets/suggested/sort`) only advises real/noise/unsure.
 - Search (Phase 3g): `search.py` (one permission-scoped query per kind of thing over the live
   tables; add new kinds to `TYPES` and a `Searcher` method) behind `GET /api/search`; web
   `CommandPalette.svelte` (Ctrl/Cmd+K, `lib/palette.svelte.ts`). `m3/Select` searches its

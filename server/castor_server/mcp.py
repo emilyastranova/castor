@@ -389,6 +389,8 @@ TOOLS += [
     _auto("confirm_asset", "POST", "/api/assets/{asset_id}/confirm", "Confirm a suggested asset (only mentioned somewhere) as real."),
     _auto("dismiss_asset", "POST", "/api/assets/{asset_id}/dismiss", "Dismiss a suggested asset that isn't one."),
     _auto("decide_suggested_assets", "POST", "/api/projects/{project_id}/assets/suggested", "Confirm or dismiss several suggested assets."),
+    _auto("sort_suggested_assets", "POST", "/api/projects/{project_id}/assets/suggested/sort",
+          "Ask the AI which suggested assets look real and which look like noise (advice only; guidance steers it).", **_UNTRUSTED),
     _auto("merge_asset", "POST", "/api/assets/{asset_id}/merge", "Fold an asset into another of the same type (the same thing seen twice)."),
     _auto("get_scope", "GET", "/api/projects/{project_id}/scope", "A project's scope: what's in and out (ranges, domains)."),
     _auto("set_scope", "PUT", "/api/projects/{project_id}/scope", "Replace a project's scope."),

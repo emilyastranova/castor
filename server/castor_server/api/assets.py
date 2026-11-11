@@ -336,6 +336,37 @@ async def decide_suggestions(project_id: str, body: SuggestionsIn, db: DB, user:
     return {"done": len(rows)}
 
 
+class SortIn(BaseModel):
+    guidance: str = Field("", max_length=4000)
+    # Which suggestions to sort (the ones shown); all waiting ones when empty.
+    ids: list[uuid.UUID] = Field(default_factory=list, max_length=1000)
+
+
+@router.post("/projects/{project_id}/assets/suggested/sort")
+async def sort_suggestions(project_id: str, body: SortIn, db: DB, user: CurrentUser) -> dict[str, Any]:
+    """Ask the AI which suggested assets look real and which look like noise, steered by the
+    person's guidance and the project's scope. It only advises: nothing changes until someone
+    confirms or dismisses. Up to 200 at a time."""
+    from .. import llm
+    from ..assets_text import SORT_LIMIT
+    from ..assets_text import sort_suggestions as sort
+
+    project = await project_or_404(db, user, parse_uuid(project_id), write=True)
+    stmt = select(m.Asset).where(m.Asset.project_id == project.id, m.Asset.status == "suggested")
+    if body.ids:
+        stmt = stmt.where(m.Asset.id.in_(body.ids))
+    rows = sorted((await db.execute(stmt)).scalars().all(), key=A.sort_key)
+    if not rows:
+        return {"verdicts": [], "model": "", "judged": 0, "left": 0}
+    try:
+        out = await sort(db, project, rows, body.guidance, user)
+    except llm.NotConfigured as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except llm.AiError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {**out, "left": max(0, len(rows) - SORT_LIMIT)}
+
+
 class MergeIn(BaseModel):
     into: uuid.UUID
 

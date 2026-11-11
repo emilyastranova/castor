@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import type { Asset, AssetTrigger, AssetTriggerFire, UUID } from '$lib/api';
+	import type { Asset, AssetTrigger, AssetTriggerFire, AssetVerdict, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, Icon, IconButton, Select, Switch, Tabs, TextField, TopAppBar } from '$lib/m3';
 	import ProjectSwitcher from '$lib/components/ProjectSwitcher.svelte';
@@ -13,6 +13,7 @@
 	import { confirmAction } from '$lib/confirm.svelte';
 	import { relativeTime, absoluteTime } from '$lib/format';
 	import { canEdit } from '$lib/session';
+	import { aiStatus } from '$lib/ai.svelte';
 	import { enter, leave } from '$lib/motion';
 
 	let { data } = $props();
@@ -239,6 +240,73 @@
 			snackbar.error(err instanceof ApiError ? err.message : 'Could not do that');
 		}
 	}
+	// ---- sorting suggestions with the AI: advice only, people decide ----
+	$effect(() => void aiStatus.load());
+	const GUIDANCE_KEY = (id: UUID) => `castor.assets.guidance.${id}`;
+	let sortOpen = $state(false);
+	let sorting = $state(false);
+	let guidance = $state('');
+	let verdicts = $state<Record<UUID, AssetVerdict>>({});
+	let sortedBy = $state<{ model: string; left: number } | null>(null);
+	$effect(() => {
+		try {
+			guidance = localStorage.getItem(GUIDANCE_KEY(project.id)) ?? '';
+		} catch {
+			guidance = '';
+		}
+	});
+	async function sortWithAi() {
+		sorting = true;
+		try {
+			localStorage.setItem(GUIDANCE_KEY(project.id), guidance);
+		} catch {
+			/* not kept */
+		}
+		try {
+			const r = await api().assets.sortSuggested(project.id, guidance, items.map((a) => a.id));
+			verdicts = { ...verdicts, ...Object.fromEntries(r.verdicts.map((v) => [v.id, v])) };
+			sortedBy = { model: r.model, left: r.left };
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'The AI couldn’t sort them');
+		} finally {
+			sorting = false;
+		}
+	}
+	const VERDICT = {
+		real: { label: 'Likely real', icon: 'thumb_up', tone: 'bg-primary-container text-on-primary-container' },
+		noise: { label: 'Likely noise', icon: 'thumb_down', tone: 'bg-surface-container-highest text-on-surface-variant' },
+		unsure: { label: 'Not sure', icon: 'help', tone: 'bg-tertiary-container text-on-tertiary-container' }
+	} as const;
+	const ORDER = { real: 0, unsure: 1, noise: 2 } as const;
+	/** With verdicts, likely real first and likely noise last. */
+	let shown = $derived(
+		tab === 'suggested' && Object.keys(verdicts).length
+			? [...items].sort((a, b) => (ORDER[verdicts[a.id]?.verdict ?? 'unsure'] - ORDER[verdicts[b.id]?.verdict ?? 'unsure']))
+			: items
+	);
+	let tally = $derived.by(() => {
+		const out = { real: [] as UUID[], noise: [] as UUID[], unsure: [] as UUID[] };
+		for (const a of items) if (verdicts[a.id]) out[verdicts[a.id].verdict].push(a.id);
+		return out;
+	});
+	async function applyVerdict(kind: 'real' | 'noise') {
+		const ids = tally[kind];
+		if (!ids.length) return;
+		const confirm = kind === 'real';
+		if (!(await confirmAction({
+			title: confirm ? `Confirm ${ids.length} the AI thinks are real?` : `Dismiss ${ids.length} the AI thinks are noise?`,
+			message: confirm ? 'They join the inventory; triggers treat them as new. Check the list first: the AI can be wrong.' : 'They’re hidden, and mentions won’t bring them back. You can restore them under Show dismissed.',
+			confirmLabel: confirm ? 'Confirm' : 'Dismiss'
+		}))) return;
+		try {
+			const r = await api().assets.decide(project.id, confirm ? 'confirm' : 'dismiss', ids);
+			snackbar.show(`${confirm ? 'Confirmed' : 'Dismissed'} ${r.done}`);
+			void load(true);
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not do that');
+		}
+	}
+
 	const SOURCE_ICON: Record<string, string> = { comment: 'chat', post: 'forum', card: 'description', note: 'push_pin', output: 'terminal', ai: 'image' };
 
 	const FIRE: Record<string, string> = { started: 'text-primary', waiting: 'text-tertiary', failed: 'text-error', limited: 'text-on-surface-variant', skipped: 'text-on-surface-variant' };
@@ -296,6 +364,9 @@
 					</button>
 				{/each}
 				<span class="flex-1"></span>
+				{#if canEdit() && tab === 'suggested' && !showDismissed && items.length && aiStatus.enabled}
+					<Button variant={sortOpen ? 'tonal' : 'text'} icon="auto_awesome" onclick={() => (sortOpen = !sortOpen)}>Sort with AI</Button>
+				{/if}
 				{#if canEdit() && tab === 'suggested' && items.length > 1}
 					<Button variant="text" icon={showDismissed ? 'undo' : 'block'} onclick={() => decideAll(showDismissed)}>{showDismissed ? 'Restore all shown' : 'Dismiss all shown'}</Button>
 					{#if !showDismissed}<Button variant="tonal" icon="done_all" onclick={() => decideAll(true)}>Confirm all shown</Button>{/if}
@@ -313,6 +384,38 @@
 			{#if !loaded}
 				<p class="body-medium text-on-surface-variant">Loading…</p>
 			{:else if tab === 'suggested'}
+				{#if sortOpen && !showDismissed && items.length}
+					<section class="flex flex-col gap-3 rounded-md border border-outline-variant bg-surface-container px-4 py-3" aria-label="Sort with AI">
+						<div class="flex items-start gap-2">
+							<Icon name="auto_awesome" size={18} class="mt-0.5 text-primary" />
+							<p class="min-w-0 flex-1 body-medium text-on-surface-variant">
+								The AI reads the {items.length > 200 ? 'first 200 of the' : ''} {items.length} suggestion{items.length === 1 ? '' : 's'} shown, where each was mentioned and the project's scope, and marks each likely real, likely noise or not sure. It only advises: nothing changes until you confirm or dismiss.
+							</p>
+							<IconButton icon="close" label="Close" size="sm" onclick={() => (sortOpen = false)} />
+						</div>
+						<form class="flex flex-wrap items-end gap-2" onsubmit={(e) => { e.preventDefault(); void sortWithAi(); }}>
+							<TextField
+								label="Guidance (optional)"
+								bind:value={guidance}
+								class="min-w-[16rem] flex-1"
+								placeholder="e.g. Only 10.40.0.0/16 and acme.local are ours; vendor, CDN and tool sites are noise"
+								supporting="Saved for this project in this browser."
+							/>
+							<Button type="submit" icon="auto_awesome" loading={sorting}>{Object.keys(verdicts).length ? 'Sort again' : 'Sort'}</Button>
+						</form>
+						{#if sortedBy && (tally.real.length || tally.noise.length || tally.unsure.length)}
+							<div class="flex flex-wrap items-center gap-2 border-t border-outline-variant/60 pt-3">
+								<span class="body-small text-on-surface-variant">
+									{tally.real.length} likely real · {tally.noise.length} likely noise · {tally.unsure.length} not sure · by {sortedBy.model}{sortedBy.left ? ` · ${sortedBy.left} more not sorted; filter and sort again` : ''}
+								</span>
+								<span class="flex-1"></span>
+								{#if tally.noise.length}<Button variant="text" icon="block" onclick={() => applyVerdict('noise')}>Dismiss {tally.noise.length} likely noise</Button>{/if}
+								{#if tally.real.length}<Button variant="tonal" icon="done_all" onclick={() => applyVerdict('real')}>Confirm {tally.real.length} likely real</Button>{/if}
+								<Button variant="text" onclick={() => { verdicts = {}; sortedBy = null; }}>Clear</Button>
+							</div>
+						{/if}
+					</section>
+				{/if}
 				{#if !items.length}
 					<div class="flex flex-col items-center gap-2 py-16 text-center text-on-surface-variant">
 						<Icon name="lightbulb" size={40} />
@@ -324,13 +427,20 @@
 					</div>
 				{:else}
 					<ul class="flex flex-col divide-y divide-outline-variant/50 rounded-md border border-outline-variant/60">
-						{#each items as a (a.id)}
+						{#each shown as a (a.id)}
 							{@const m = a.mentions[0]}
+							{@const v = verdicts[a.id]}
 							<li class="flex flex-wrap items-start gap-x-3 gap-y-1 px-3 py-2.5" in:enter={{ enabled: live }} out:leave={{ enabled: live }}>
 								<Icon name={assetTypes.get(a.type)?.icon ?? 'radar'} size={18} class="mt-0.5 shrink-0 text-on-surface-variant" />
 								<div class="min-w-0 flex-1">
 									<button type="button" class="font-mono text-[13px] text-on-surface hover:underline" onclick={() => openAsset(a.id)}>{a.label}</button>
 									<span class="ml-1 body-small text-on-surface-variant">{assetTypes.get(a.type)?.label ?? a.type}</span>
+									{#if v}
+										<p class="mt-1 flex flex-wrap items-center gap-1.5 body-small">
+											<span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 label-small {VERDICT[v.verdict].tone}"><Icon name={VERDICT[v.verdict].icon} size={12} />{VERDICT[v.verdict].label}</span>
+											{#if v.reason}<span class="text-on-surface-variant">{v.reason}</span>{/if}
+										</p>
+									{/if}
 									{#if m}
 										<p class="mt-0.5 flex min-w-0 items-start gap-1.5 body-small text-on-surface-variant">
 											<Icon name={SOURCE_ICON[m.source] ?? 'notes'} size={14} class="mt-px shrink-0" />
