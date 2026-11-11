@@ -119,6 +119,13 @@ def test_gemini_request_and_answer_shapes():
     assert answer.text == "ab" and answer.input_tokens == 3
     with pytest.raises(llm.AiError, match="blocked: SAFETY"):
         llm._gemini_answer({"promptFeedback": {"blockReason": "SAFETY"}}, "g", "G")
+    # Thinking models: room for the thinking, thought parts left out, nothing left is an error.
+    config = llm._gemini_body("s", [], False, 20, 0.1, "gemini-3.6-flash")["generationConfig"]
+    assert config["maxOutputTokens"] >= 16000 and "temperature" not in config
+    assert llm._gemini_body("s", [], False, 20, 0.1, "gemini-2.5-flash-lite")["generationConfig"]["temperature"] == 0.1
+    assert llm._gemini_answer({"candidates": [{"content": {"parts": [{"text": "hmm", "thought": True}, {"text": "OK"}]}}]}, "g", "G").text == "OK"
+    with pytest.raises(llm.AiError, match="finish reason MAX_TOKENS"):
+        llm._gemini_answer({"candidates": [{"content": {"role": "model"}, "finishReason": "MAX_TOKENS"}]}, "g", "G")
     assert llm.parse_json('Sure!\n```json\n{"a": 1}\n```') == {"a": 1}
 
 

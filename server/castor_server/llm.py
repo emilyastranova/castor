@@ -72,19 +72,22 @@ def _compatible(kind: str, label: str, base: str, models: list[str], key_require
     return Kind(kind, label, "openai", [_base(base, True), _key(key_required)], models, help)
 
 
+# Suggestions only ("List models" asks Google); gemini-3.5-flash is deprecated and routes to 3.6.
+GEMINI_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-3.1-pro-preview"]
+
 KINDS: dict[str, Kind] = {k.kind: k for k in [
     Kind("openai", "OpenAI", "openai", [_key(), _base("https://api.openai.com/v1")],
          ["gpt-4.1", "gpt-4.1-mini", "gpt-4o-mini", "o4-mini"]),
     Kind("anthropic", "Anthropic", "anthropic", [_key(), _base("https://api.anthropic.com")],
          ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1"]),
     Kind("gemini", "Google Gemini (API key)", "gemini", [_key(help="From Google AI Studio.")],
-         ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"]),
+         GEMINI_MODELS),
     Kind("vertex", "Google Gemini on Vertex AI", "vertex", [
         Field("project", "Project id", placeholder="my-gcp-project"),
         Field("location", "Location", default="us-central1", placeholder="us-central1 or global"),
         Field("service_account", "Service account key (JSON)", "textarea", secret=True,
               help="A key for a service account with the Vertex AI User role."),
-    ], ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"]),
+    ], GEMINI_MODELS),
     Kind("azure_openai", "Azure OpenAI", "azure", [
         Field("endpoint", "Endpoint", "url", placeholder="https://my-resource.openai.azure.com"),
         _key(),
@@ -198,8 +201,14 @@ def _raise(r: httpx.Response, what: str) -> None:
         raise AiError(f"{what}: HTTP {r.status_code}: {str(detail)[:300]}")
 
 
-def _gemini_body(system: str, messages: list[dict[str, str]], want_json: bool, max_tokens: int, temperature: float) -> dict[str, Any]:
-    config: dict[str, Any] = {"temperature": temperature, "maxOutputTokens": max_tokens}
+def _gemini_body(system: str, messages: list[dict[str, str]], want_json: bool, max_tokens: int, temperature: float,
+                 model: str = "") -> dict[str, Any]:
+    # Gemini models think first, and the thinking counts against maxOutputTokens, so a short
+    # limit ends the answer before it starts: give them room.
+    config: dict[str, Any] = {"maxOutputTokens": max(max_tokens, 16000)}
+    # Gemini 3 and later ignore sampling parameters (and newer ones refuse them); older ones take it.
+    if re.match(r"^gemini-[12]\.", model):
+        config["temperature"] = temperature
     if want_json:
         config["responseMimeType"] = "application/json"
     return {
@@ -214,7 +223,11 @@ def _gemini_answer(data: dict[str, Any], model: str, provider: str) -> Answer:
     if not candidates:
         reason = (data.get("promptFeedback") or {}).get("blockReason")
         raise AiError(f"no answer{f' (blocked: {reason})' if reason else ''}")
-    text = "".join(p.get("text", "") for p in (candidates[0].get("content") or {}).get("parts", []))
+    parts = (candidates[0].get("content") or {}).get("parts") or []
+    text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
+    if not text.strip():
+        reason = candidates[0].get("finishReason")
+        raise AiError(f"{provider}: empty answer{f' (finish reason {reason})' if reason else ''}")
     usage = data.get("usageMetadata") or {}
     return Answer(text, model, provider, usage.get("promptTokenCount"), usage.get("candidatesTokenCount"))
 
@@ -273,7 +286,7 @@ async def call(provider: m.AiProvider, model: str, system: str, messages: list[d
             return Answer(text, model, provider.name, usage.get("input_tokens"), usage.get("output_tokens"))
         if spec.family == "gemini":
             r = await client.post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-                                  json=_gemini_body(system, messages, want_json, max_tokens, temperature),
+                                  json=_gemini_body(system, messages, want_json, max_tokens, temperature, model),
                                   headers={"x-goog-api-key": v["api_key"]})
             _raise(r, provider.name)
             return _gemini_answer(r.json(), model, provider.name)
@@ -283,7 +296,7 @@ async def call(provider: m.AiProvider, model: str, system: str, messages: list[d
             loc = v.get("location") or "us-central1"
             host = "aiplatform.googleapis.com" if loc == "global" else f"{loc}-aiplatform.googleapis.com"
             url = f"https://{host}/v1/projects/{v['project']}/locations/{loc}/publishers/google/models/{model}:generateContent"
-            r = await client.post(url, json=_gemini_body(system, messages, want_json, max_tokens, temperature),
+            r = await client.post(url, json=_gemini_body(system, messages, want_json, max_tokens, temperature, model),
                                   headers={"Authorization": f"Bearer {token}"})
             _raise(r, provider.name)
             return _gemini_answer(r.json(), model, provider.name)

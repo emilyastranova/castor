@@ -126,6 +126,8 @@ async def test_provider(body: TryIn, db: DB, _: Admin):
         answer = await llm.call(probe, body.model, "Reply with exactly: OK", [{"role": "user", "content": "Say OK."}], max_tokens=20)
     except llm.AiError as exc:
         return {"ok": False, "error": str(exc)}
+    if not answer.text.strip():
+        return {"ok": False, "error": f"{probe.name}: the model answered with nothing"}
     return {"ok": True, "text": answer.text.strip()[:200], "ms": int((time.monotonic() - started) * 1000)}
 
 
