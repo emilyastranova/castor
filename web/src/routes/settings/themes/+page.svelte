@@ -109,8 +109,8 @@ css: |
 		</p>
 		<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
 			{#each list as t (t.id)}
-				<Card variant="outlined" class="flex flex-col overflow-hidden">
-					<ThemePreview theme={t} />
+				<Card variant="outlined" class="flex flex-col">
+					<ThemePreview theme={t} class="rounded-t-md" />
 					<div class="flex items-start gap-2 px-3 pt-2.5 pb-2">
 						<div class="min-w-0 flex-1">
 							<p class="flex flex-wrap items-center gap-x-2 title-small text-on-surface">

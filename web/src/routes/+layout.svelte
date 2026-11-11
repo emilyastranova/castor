@@ -114,7 +114,7 @@
 
 {#if data.user}
 	<!-- Phones get a bottom bar (PhoneNav) instead of the rail. -->
-	<div class="flex h-dvh w-full flex-col overflow-hidden bg-surface md:flex-row">
+	<div class="app-shell flex h-dvh w-full flex-col overflow-hidden bg-surface md:flex-row">
 		<div class="hidden md:contents">
 		<NavigationRail items={nav} current={page.url.pathname}>
 			{#snippet top()}

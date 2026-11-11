@@ -150,6 +150,7 @@ Castor's components carry classes for themes to target:
 | `.m3-rail-ind` (`[data-active]`), `.m3-rail-label` | Navigation (rail and phone bar): the icon's indicator and the label |
 | `.m3-dialog` | Dialogs (`.m3-dialog::backdrop` for the scrim) |
 | `.m3-snackbar` | Snackbars (with `.bg-error-container` for errors) |
+| `.app-shell` | The page behind everything signed in (navigation and content); give it a background to draw on the page |
 | `.job-console` | The job output terminal's frame |
 | `.prose-m3` | Rendered markdown (comments, descriptions, notes) |
 | `.material-symbols-rounded` | Every icon |
