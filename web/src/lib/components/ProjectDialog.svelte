@@ -21,6 +21,8 @@
 	let newClient = $state('');
 	let description = $state('');
 	let summaries = $state(false);
+	let mentions = $state(true);
+	let pictures = $state(false);
 	$effect(() => void aiStatus.load());
 	let busy = $state(false);
 
@@ -32,6 +34,8 @@
 			clientId = project?.client_id ?? '';
 			description = project?.description ?? '';
 			summaries = !!project?.settings?.ai_summaries;
+			mentions = project?.settings?.asset_mentions !== false;
+			pictures = !!project?.settings?.ai_read_pictures;
 			newClient = '';
 		}
 	});
@@ -48,11 +52,11 @@
 				client_id = c.id;
 			}
 			if (project) {
-				const settings = { ...project.settings, ai_summaries: summaries };
+				const settings = { ...project.settings, ai_summaries: summaries, asset_mentions: mentions, ai_read_pictures: pictures };
 				const saved = await api().projects.update(project.id, { codename, name, kind, client_id, description, settings });
 				onsaved?.(saved);
 			} else {
-				const created = await api().projects.create({ codename, name, kind, client_id, description, ...(summaries ? { settings: { ai_summaries: true } } : {}) });
+				const created = await api().projects.create({ codename, name, kind, client_id, description, settings: { ai_summaries: summaries, asset_mentions: mentions, ai_read_pictures: pictures } });
 				oncreated?.(created);
 			}
 			open = false;
@@ -82,6 +86,18 @@
 			<TextField label="Client name" bind:value={newClient} required />
 		{/if}
 		<TextField label="Description" bind:value={description} multiline rows={3} />
+		<div>
+			<Switch bind:checked={mentions} label="Suggest assets that are mentioned" />
+			<p class="mt-1 body-small text-on-surface-variant">
+				Addresses, names, URLs and CVEs in comments, posts, card descriptions, notes and output no parser reads show up under Assets → Suggested to confirm. Read on this server; nothing is sent anywhere.
+			</p>
+		</div>
+		<div>
+			<Switch bind:checked={pictures} label="Read pictures for assets with AI" />
+			<p class="mt-1 body-small text-on-surface-variant">
+				Screenshots and other pictures added to the project are sent to the AI model, which suggests the assets it can read in them. {aiStatus.enabled ? 'Needs a model that reads images.' : 'Needs an AI model (Settings → AI).'}
+			</p>
+		</div>
 		<div>
 			<Switch bind:checked={summaries} label="AI summaries of runs" />
 			<p class="mt-1 body-small text-on-surface-variant">

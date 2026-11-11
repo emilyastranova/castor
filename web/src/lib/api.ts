@@ -393,15 +393,35 @@ export interface Asset {
 	first_seen: string;
 	last_seen: string;
 	links: number;
+	/** confirmed: in the inventory. suggested: only mentioned somewhere, waiting for someone. dismissed: not one. */
+	status: 'confirmed' | 'suggested' | 'dismissed';
+	/** How sure Castor is (0–100): a person 100, a tool's results 85, a mention 40–50. */
+	confidence: number;
+	/** Suggested ones: where they were mentioned, newest first. */
+	mentions: AssetMention[];
+}
+
+export interface AssetMention {
+	source: string;
+	where: string;
+	excerpt: string;
+	name?: string | null;
+	at: string;
+	link: string | null;
 }
 
 export interface AssetSource {
-	kind: 'parser' | 'manual' | 'import';
+	kind: 'parser' | 'manual' | 'import' | 'output' | 'comment' | 'post' | 'card' | 'note' | 'ai';
 	parser: string | null;
 	at: string;
 	job_id: UUID | null;
 	task: { id: UUID; title: string; link: string } | null;
 	by: string | null;
+	confidence: number;
+	/** In words: "a comment", "a tool's results"… */
+	where: string;
+	excerpt: string | null;
+	link: string | null;
 }
 
 export interface AssetDetail extends Omit<Asset, 'links'> {
@@ -1461,13 +1481,19 @@ export function api(fetchFn: Fetch = fetch) {
 		},
 		assets: {
 			types: () => get<AssetType[]>('/assets/types'),
-			list: (projectId: UUID, params: { type?: string; where?: string; limit?: number } = {}) => {
+			list: (projectId: UUID, params: { type?: string; where?: string; limit?: number; status?: Asset['status'] } = {}) => {
 				const q = new URLSearchParams();
 				if (params.type) q.set('type', params.type);
 				if (params.where) q.set('where', params.where);
 				if (params.limit !== undefined) q.set('limit', String(params.limit));
-				return get<{ items: Asset[]; total: number; counts: Record<string, number> }>(`/projects/${projectId}/assets?${q}`);
+				if (params.status) q.set('status', params.status);
+				return get<{ items: Asset[]; total: number; counts: Record<string, number>; suggested: number }>(`/projects/${projectId}/assets?${q}`);
 			},
+			confirm: (id: UUID) => post<Asset>(`/assets/${id}/confirm`),
+			dismiss: (id: UUID) => post<Asset>(`/assets/${id}/dismiss`),
+			decide: (projectId: UUID, action: 'confirm' | 'dismiss', ids: UUID[]) =>
+				post<{ done: number }>(`/projects/${projectId}/assets/suggested`, { action, ids }),
+			merge: (id: UUID, into: UUID) => post<Asset>(`/assets/${id}/merge`, { into }),
 			get: (id: UUID) => get<AssetDetail>(`/assets/${id}`),
 			add: (projectId: UUID, body: { type: string; fields: Record<string, unknown>; secret?: string }) => post<Asset>(`/projects/${projectId}/assets`, body),
 			import: (projectId: UUID, type: string, text: string) =>
@@ -1475,7 +1501,7 @@ export function api(fetchFn: Fetch = fetch) {
 			update: (id: UUID, fields: Record<string, unknown>) => patch<Asset>(`/assets/${id}`, { fields }),
 			remove: (id: UUID) => del(`/assets/${id}`),
 			reveal: (id: UUID) => post<{ secret: string }>(`/assets/${id}/reveal`),
-			collect: (projectId: UUID) => post<{ added: number; updated: number }>(`/projects/${projectId}/assets/collect`),
+			collect: (projectId: UUID) => post<{ added: number; updated: number; suggested: number }>(`/projects/${projectId}/assets/collect`),
 			scope: (projectId: UUID) => get<{ include: string[]; exclude: string[] }>(`/projects/${projectId}/scope`),
 			setScope: (projectId: UUID, body: { include: string[]; exclude: string[] }) =>
 				request<{ include: string[]; exclude: string[] }>(fetchFn, 'PUT', `/projects/${projectId}/scope`, body),

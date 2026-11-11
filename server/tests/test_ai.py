@@ -501,3 +501,43 @@ def test_a_manual_card_is_summarised_when_it_reaches_done(client, auth, fake_llm
 
     command = client.post(f"/api/projects/{p['id']}/tasks", json={"title": "Scan", "kind": "command", "command": "true"}, headers=auth).json()
     assert client.post(f"/api/tasks/{command['id']}/summary", headers=auth).status_code == 409  # its runs have them
+
+
+def test_the_ai_reads_assets_in_a_picture_when_the_project_wants(client, auth, fake_llm, clean_chains):
+    import base64
+    import time
+
+    good = _provider(client, auth, "openai_compatible", base_url=f"{fake_llm['base']}/v1")
+    _chain(client, auth, "default", (good, "fake-vision"))
+    png = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+    p = client.post("/api/projects", json={"codename": f"PI-{uuid.uuid4().hex[:6]}", "name": "Pics", "kind": "internal"}, headers=auth).json()
+    card = client.post(f"/api/projects/{p['id']}/tasks", json={"title": "Recon", "kind": "manual"}, headers=auth).json()
+    client.post(f"/api/tasks/{card['id']}/attachments", files={"file": ("off.png", png, "image/png")}, headers=auth)
+    time.sleep(0.6)
+    assert not any("image_url" in json.dumps(r["body"]) for r in fake_llm["requests"])  # off unless turned on
+
+    client.patch(f"/api/projects/{p['id']}", json={"settings": {**p["settings"], "ai_read_pictures": True}}, headers=auth)
+    fake_llm["replies"] = ['{"assets": [{"type": "host", "fields": {"ip": "10.66.0.4", "hostname": "jump01"}, "seen": "ssh admin@10.66.0.4"},'
+                           ' {"type": "service", "fields": {"host": "10.66.0.4", "port": 22, "name": "ssh"}}, {"type": "nonsense", "fields": {}}]}']
+    client.post(f"/api/tasks/{card['id']}/attachments", files={"file": ("term.png", png, "image/png")}, headers=auth)
+    for _ in range(40):
+        listed = client.get(f"/api/projects/{p['id']}/assets?status=suggested", headers=auth).json()["items"]
+        if len(listed) >= 2:
+            break
+        time.sleep(0.15)
+    assert {a["key"] for a in listed} == {"10.66.0.4", "10.66.0.4:22/tcp"}
+    host = next(a for a in listed if a["type"] == "host")
+    assert host["mentions"][0]["where"] == "a picture (read by the AI)" and host["confidence"] == 45
+    sent = fake_llm["requests"][-1]["body"]["messages"][-1]["content"]
+    assert sent[1]["type"] == "image_url" and sent[1]["image_url"]["url"].startswith("data:image/png;base64,")
+
+
+def test_pictures_go_to_each_provider_in_its_own_shape():
+    from castor_server.llm import _gemini_body, _with_images
+
+    msgs = [{"role": "user", "content": "What's here?"}]
+    pic = [("image/png", b"\x89PNG")]
+    assert _with_images("anthropic", msgs, pic)[-1]["content"][0]["source"]["media_type"] == "image/png"
+    assert _with_images("ollama", msgs, pic)[-1]["images"] == ["iVBORw=="]
+    assert _gemini_body("s", msgs, False, 100, 0.1, "gemini-3.6-flash", pic)["contents"][0]["parts"][1]["inlineData"]["mimeType"] == "image/png"
+    assert _with_images("openai", msgs, None) is msgs

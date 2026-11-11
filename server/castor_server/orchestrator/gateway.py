@@ -506,6 +506,10 @@ class AgentGateway:
                 await publish_task(db, task)
             if agent is not None:
                 await self._publish_agent(agent)
+            if task is not None and not job.output_specs and job.status != m.JobStatus.cancelled:
+                from ..assets_text import after_job_output
+
+                after_job_output(job.id)  # no parsers: assets its output mentions, suggested
             if job.output_specs and job.status != m.JobStatus.cancelled:
                 from ..outputs import schedule_parse
 

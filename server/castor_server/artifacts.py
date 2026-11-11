@@ -94,6 +94,10 @@ async def store(db: Any, job: Any, name: str, content_type: str | None, chunks: 
     )
     db.add(attachment)
     await db.commit()
+    if attachment.content_type.startswith("image/"):
+        from .assets_text import after_picture
+
+        after_picture(attachment.id)  # a screenshot a tool took: the AI reads it, if the project wants that
     out = AttachmentOut.model_validate(attachment)
     bus.publish("attachment.created", task.project_id, out)
     await publish_task(db, task)

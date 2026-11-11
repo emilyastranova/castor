@@ -120,6 +120,10 @@ class OutputSpec(BaseModel):
     # same); none = stdout. Stored as /work/... (work_path).
     source: str | None = None
     options: dict[str, Any] = Field(default_factory=dict)  # parser options (Parsers page)
+    # What each value of a list<string> output is, so it becomes one of the project's assets
+    # (assets.py `_map_hint`): one line per domain, host, URL, `host:port` service, `host share
+    # access` share, NetExec `[+]` login, or vulnerability (a CVE, a nuclei line, a check id).
+    asset: Literal["host", "domain", "url", "service", "share", "login", "vulnerability"] | None = None
     # A parser definition carried inline (parser_spec.ParserSpec as JSON): how a job reads an
     # output with a draft that isn't in the library. Only set on a job's output_specs.
     parser_spec: dict[str, Any] | None = Field(None, exclude=True)

@@ -38,3 +38,4 @@ outputs:
     type: list<string>
     parser: lines
     source: "{{ work }}/nuclei.txt"
+    asset: vulnerability

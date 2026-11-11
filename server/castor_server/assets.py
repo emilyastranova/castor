@@ -6,10 +6,19 @@ an observation (who said what, when); `fields` holds the merged current values, 
 first. Links connect them (a service *on* a host, a domain that *resolves to* a host).
 
 Parsed outputs become assets automatically (`ingest_outputs`, called after a job's outputs
-are parsed): nmap hosts and services, NetExec SMB hosts, ffuf URLs. Triggers then run a
-command or playbook for new or changed assets: automatically when the asset is inside the
-project's scope (`projects.settings.scope`), otherwise after someone approves it; once per
-asset and at most N per hour.
+are parsed): nmap hosts and services, NetExec SMB hosts, logins and shares, ffuf and httpx
+URLs (with their technologies), and lines a command says are domains, hosts, vulnerabilities…
+(an output's `asset:` hint). Triggers then run a command or playbook for new or changed assets:
+automatically when the asset is inside the project's scope (`projects.settings.scope`),
+otherwise after someone approves it; once per asset and at most N per hour.
+
+Mentions become *suggested* assets (assets_text.py): addresses, names, URLs, CVEs… in job output
+no parser read, comments, posts, card descriptions, pinned notes, and pictures the AI read. They
+stay apart (not in lists, arguments or triggers) until someone confirms them, or a tool or person
+reports the same thing. Every observation carries a confidence; the asset keeps the best.
+
+A host seen by its address and by its name is one asset: `observe` folds them together (and the
+services on the name follow the address); people can also merge two assets by hand.
 
 "ip" is accepted as a type and stored as a host keyed by its address.
 """
@@ -26,7 +35,7 @@ from datetime import timedelta
 from typing import Any
 from urllib.parse import urlsplit
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import alerts, notifications, vault
@@ -67,10 +76,11 @@ TYPES: dict[str, TypeDef] = {
         TypeDef("service", "Service", "Services", "lan", (
             F("host", "Host"), F("port", "Port", "number"), F("proto", "Protocol"), F("name", "Service"),
             F("product", "Product"), F("version", "Version"), F("state", "State"),
+            F("tls", "TLS"), F("cert_subject", "Certificate subject"), F("cert_expires", "Certificate expires"),
         ), ("host", "port")),
         TypeDef("url", "URL", "URLs", "link", (
             F("url", "URL"), F("status", "Status", "number"), F("title", "Title"), F("length", "Length", "number"),
-            F("content_type", "Content type"),
+            F("content_type", "Content type"), F("webserver", "Web server"), F("tech", "Technologies", "list"),
         ), ("url",)),
         TypeDef("domain", "Domain", "Domains", "language", (
             F("name", "Name"), F("ips", "Addresses", "list"),
@@ -84,10 +94,19 @@ TYPES: dict[str, TypeDef] = {
         TypeDef("share", "Share", "Shares", "folder_shared", (
             F("host", "Host"), F("name", "Share"), F("access", "Access"), F("remark", "Remark"),
         ), ("host", "name")),
+        TypeDef("vulnerability", "Vulnerability", "Vulnerabilities", "bug_report", (
+            F("id", "ID"), F("target", "Target"), F("title", "Title"), F("severity", "Severity"),
+            F("cves", "CVEs", "list"), F("tool", "Found by"), F("detail", "Detail"),
+        ), ("id",)),
     ]
 }
 ALIASES = {"ip": "host", "hosts": "host", "services": "service", "urls": "url", "domains": "domain",
-           "users": "user", "credentials": "credential", "creds": "credential", "shares": "share"}
+           "users": "user", "credentials": "credential", "creds": "credential", "shares": "share",
+           "vulnerabilities": "vulnerability", "vuln": "vulnerability", "vulns": "vulnerability"}
+SEVERITIES = ("info", "low", "medium", "high", "critical")
+# How sure each kind of source is (0–100). Mentions only suggest; the rest confirm.
+CONFIDENCE = {"manual": 100, "import": 90, "parser": 85, "ai": 45, "comment": 50, "post": 50, "card": 50, "note": 50, "output": 40}
+SUGGESTING = {"ai", "comment", "post", "card", "note", "output"}
 # Link kinds, as shown from the "from" side and the "to" side.
 LINKS = {"on": ("on", "has"), "resolves_to": ("resolves to", "resolved from"), "valid_on": ("valid on", "accepts")}
 
@@ -138,6 +157,16 @@ def _clean(t: TypeDef, fields: dict[str, Any]) -> dict[str, Any]:
             out["hostname"] = str(out["hostname"]).lower().rstrip(".")
     if t.name == "domain" and out.get("name"):
         out["name"] = str(out["name"]).lower().rstrip(".")
+    if t.name == "vulnerability":
+        if out.get("id"):
+            out["id"] = str(out["id"]).strip()[:200]
+            if re.fullmatch(r"(?i)cve-\d{4}-\d{4,}", out["id"]):
+                out["id"] = out["id"].upper()
+        if out.get("severity"):
+            sev = str(out["severity"]).lower()
+            out["severity"] = {"informational": "info", "moderate": "medium", "important": "high"}.get(sev, sev)
+        if out.get("target"):
+            out["target"] = str(out["target"]).strip().lower()
     if t.name == "service":
         out.setdefault("proto", "tcp")
         if out.get("host"):
@@ -180,6 +209,14 @@ def identity(type_name: str, fields: dict[str, Any], secret: str | None = None) 
                 f["fingerprint"] = hashlib.sha256(secret.encode()).hexdigest()[:12]
             key = f"{key}:{f['kind']}:{f.get('fingerprint', '')}"
             label = f"{who} ({f['kind']})"
+    elif t.name == "vulnerability":
+        if not f.get("id"):
+            raise AssetError("a vulnerability needs an id (a CVE, a template or a check)")
+        where = f.get("target") or ""
+        key = f"{f['id'].lower()}@{where}" if where else f["id"].lower()
+        label = f"{f['id']} on {where}" if where else f["id"]
+        if f.get("title") and f["title"].lower() != f["id"].lower():
+            label = f"{label} · {f['title']}"
     elif t.name == "share":
         if not (f.get("host") and f.get("name")):
             raise AssetError("a share needs a host and a name")
@@ -206,6 +243,8 @@ class Batch:
 
     project_id: uuid.UUID
     changes: dict[uuid.UUID, Change] = field(default_factory=dict)
+    suggested: dict[uuid.UUID, m.Asset] = field(default_factory=dict)
+    read: bool = False  # some output was one Castor reads as assets (parsed or hinted)
 
     def note(self, asset: m.Asset, created: bool, changed: list[str]) -> None:
         prev = self.changes.get(asset.id)
@@ -217,6 +256,11 @@ class Batch:
 
     def created(self) -> list[m.Asset]:
         return [c.asset for c in self.changes.values() if c.event == "created"]
+
+    def suggest(self, asset: m.Asset, created: bool) -> None:
+        """A mention: only suggested, so not to triggers; counted for the feed when new."""
+        if created:
+            self.suggested[asset.id] = asset
 
 
 async def observe(
@@ -232,31 +276,152 @@ async def observe(
     task_id: uuid.UUID | None = None,
     actor_id: uuid.UUID | None = None,
     secret: str | None = None,
+    confidence: int | None = None,
+    ref: dict[str, Any] | None = None,
 ) -> m.Asset:
     """Record what a source says about an asset: find it by identity (or create it), merge the
-    fields (newest wins), keep the observation. Flushes; the caller commits."""
+    fields (newest wins), keep the observation. A mention (SUGGESTING sources) only suggests a new
+    asset, and doesn't bring back a dismissed one; anything else confirms it. Flushes; the caller
+    commits."""
     t = type_of(type_name)
+    conf = confidence if confidence is not None else CONFIDENCE.get(source, 80)
+    suggesting = source in SUGGESTING
+    fields = await _resolve_names(db, project_id, t.name, fields)
     key, label, clean = identity(t.name, fields, secret)
-    asset = (
-        await db.execute(select(m.Asset).where(m.Asset.project_id == project_id, m.Asset.type == t.name, m.Asset.key == key))
-    ).scalar_one_or_none()
+    asset = await _find(db, project_id, t.name, key, clean)
     created = asset is None
     if asset is None:
-        asset = m.Asset(project_id=project_id, type=t.name, key=key, label=label, fields={})
+        asset = m.Asset(project_id=project_id, type=t.name, key=key, label=label, fields={},
+                        status="suggested" if suggesting else "confirmed", confidence=conf)
         db.add(asset)
+    elif asset.status == "dismissed" and suggesting:
+        return asset  # someone said it isn't one; a mention doesn't change that
+    was = asset.status
+    if not suggesting and asset.status != "confirmed":
+        asset.status = "confirmed"
     merged = dict(asset.fields or {})
     changed = [k for k, v in clean.items() if merged.get(k) != v]
     merged.update(clean)
     asset.fields = merged
+    if not created and t.name == "host":
+        # Found by its name, now with an address: key it by the address (unless that's taken:
+        # _fold_host then merges the two).
+        new_key, label, _ = identity("host", merged)
+        taken = (await db.execute(select(m.Asset.id).where(m.Asset.project_id == project_id, m.Asset.type == "host",
+                                                           m.Asset.key == new_key, m.Asset.id != asset.id))).first()
+        if new_key != asset.key and not taken:
+            asset.key = new_key
     asset.label = label if len(label) >= len(asset.label or "") else asset.label  # keep the richest label
     asset.last_seen = utcnow()
+    asset.confidence = max(asset.confidence or 0, conf)
     if secret:
         asset.secret = vault.encrypt(secret.encode())
     await db.flush()
     db.add(m.AssetObservation(asset_id=asset.id, source=source, parser=parser, job_id=job_id, task_id=task_id,
-                              actor_id=actor_id, fields=clean))
-    batch.note(asset, created, changed)
+                              actor_id=actor_id, fields=clean, confidence=conf, ref=ref))
+    if t.name == "host" and clean.get("ip") and clean.get("hostname"):
+        asset = await _fold_host(db, asset)
+    if asset.status == "suggested":
+        batch.suggest(asset, created)
+    else:
+        # Confirmed just now (it was only suggested): to triggers and the feed it's new.
+        batch.note(asset, created or was != "confirmed", changed)
     return asset
+
+
+async def _find(db: AsyncSession, project_id: uuid.UUID, type_name: str, key: str, clean: dict[str, Any]) -> m.Asset | None:
+    asset = (
+        await db.execute(select(m.Asset).where(m.Asset.project_id == project_id, m.Asset.type == type_name, m.Asset.key == key))
+    ).scalar_one_or_none()
+    if asset is None and type_name == "host":
+        # Known by its address under another name, or by its name under its address.
+        for value in (clean.get("ip"), clean.get("hostname")):
+            if value and (found := await _find_host(db, project_id, value)) is not None:
+                return found
+    return asset
+
+
+async def _resolve_names(db: AsyncSession, project_id: uuid.UUID, type_name: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """A service or share on a host named by hostname goes on the address it's known by."""
+    if type_name in ("service", "share") and fields.get("host") and not _ip(fields["host"]):
+        host = await _find_host(db, project_id, str(fields["host"]))
+        if host is not None and (host.fields or {}).get("ip"):
+            return {**fields, "host": host.fields["ip"]}
+    return fields
+
+
+async def _fold_host(db: AsyncSession, asset: m.Asset) -> m.Asset:
+    """Now that this host has an address and a name: another host recorded under the other one
+    is the same machine."""
+    f = asset.fields or {}
+    others = (await db.execute(select(m.Asset).where(m.Asset.project_id == asset.project_id, m.Asset.type == "host",
+                                                     m.Asset.id != asset.id))).scalars().all()
+    for other in others:
+        of = other.fields or {}
+        same_name = of.get("hostname") == f.get("hostname") and not (of.get("ip") and of.get("ip") != f.get("ip"))
+        if other.key == f.get("hostname") or (same_name and not of.get("ip")) or other.key == f.get("ip"):
+            await merge(db, other, into=asset)
+    return asset
+
+
+async def merge(db: AsyncSession, drop: m.Asset, *, into: m.Asset) -> m.Asset:
+    """Fold one asset into another of the same type: observations, links and trigger history move
+    over, fields merge (the more recently seen wins), and what was on a merged host follows it.
+    Flushes."""
+    if drop.id == into.id:
+        return into
+    if drop.type != into.type:
+        raise AssetError("only assets of the same type can be merged")
+    newer, older = (drop, into) if (drop.last_seen or utcnow()) > (into.last_seen or utcnow()) else (into, drop)
+    into.fields = {**(older.fields or {}), **(newer.fields or {})}
+    into.first_seen = min(x for x in (into.first_seen, drop.first_seen) if x)
+    into.last_seen = max(x for x in (into.last_seen, drop.last_seen) if x)
+    into.confidence = max(into.confidence or 0, drop.confidence or 0)
+    if "confirmed" in (into.status, drop.status):
+        into.status = "confirmed"
+    into.secret = into.secret or drop.secret
+    await db.execute(update(m.AssetObservation).where(m.AssetObservation.asset_id == drop.id).values(asset_id=into.id))
+    await db.execute(update(m.AssetTriggerFire).where(m.AssetTriggerFire.asset_id == drop.id).values(asset_id=into.id))
+    for row in (await db.execute(select(m.AssetLink).where(or_(m.AssetLink.from_id == drop.id, m.AssetLink.to_id == drop.id)))).scalars().all():
+        src = into.id if row.from_id == drop.id else row.from_id
+        dst = into.id if row.to_id == drop.id else row.to_id
+        dup = (await db.execute(select(m.AssetLink.id).where(m.AssetLink.from_id == src, m.AssetLink.to_id == dst,
+                                                             m.AssetLink.kind == row.kind, m.AssetLink.id != row.id))).first()
+        if src == dst or dup:
+            await db.delete(row)
+        else:
+            row.from_id, row.to_id = src, dst
+    old_names = {drop.key, (drop.fields or {}).get("hostname"), (drop.fields or {}).get("ip")} - {None, ""}
+    await db.delete(drop)
+    await db.flush()
+    key, label, _ = identity(into.type, into.fields or {})
+    if key != into.key and (await db.execute(select(m.Asset.id).where(m.Asset.project_id == into.project_id, m.Asset.type == into.type,
+                                                                        m.Asset.key == key))).first() is None:
+        into.key = key
+    into.label = label
+    if into.type == "host" and (into.fields or {}).get("ip"):
+        await _rehome(db, into, old_names)
+    await db.flush()
+    return into
+
+
+async def _rehome(db: AsyncSession, host: m.Asset, names: set[str]) -> None:
+    """Services and shares recorded on a merged host's other name move onto its address."""
+    ip = host.fields["ip"]
+    for kind in ("service", "share"):
+        rows = (await db.execute(select(m.Asset).where(m.Asset.project_id == host.project_id, m.Asset.type == kind))).scalars().all()
+        for a in rows:
+            if (a.fields or {}).get("host") not in names or (a.fields or {}).get("host") == ip:
+                continue
+            fields = {**a.fields, "host": ip}
+            key, label, _ = identity(kind, fields)
+            twin = (await db.execute(select(m.Asset).where(m.Asset.project_id == host.project_id, m.Asset.type == kind,
+                                                           m.Asset.key == key))).scalar_one_or_none()
+            if twin is not None and twin.id != a.id:
+                a.fields = fields
+                await merge(db, a, into=twin)
+            else:
+                a.fields, a.key, a.label = fields, key, label
 
 
 async def link(db: AsyncSession, project_id: uuid.UUID, src: m.Asset, dst: m.Asset, kind: str) -> None:
@@ -314,13 +479,94 @@ async def _map(db: AsyncSession, parser: str, rows: Any, project_id: uuid.UUID, 
                 svc = await observe(db, project_id, "service", {"host": row.get("host"), "port": row.get("port") or 445, "proto": "tcp", "name": "microsoft-ds", "state": "open"}, **obs)
                 await link(db, project_id, svc, host, "on")
             elif parser in ("ffuf.results", "httpx.results"):
-                url = await observe(db, project_id, "url", {k: row.get(k) for k in ("url", "status", "length", "title", "content_type")}, **obs)
+                url = await observe(db, project_id, "url", {k: row.get(k) for k in ("url", "status", "length", "title", "content_type",
+                                                                                       "webserver", "tech")}, **obs)
                 hostname = urlsplit(str(row.get("url") or "")).hostname
                 host = await _find_host(db, project_id, hostname) if hostname else None
                 if host is not None:
                     await link(db, project_id, url, host, "on")
         except AssetError:
             continue  # a row without an identity (e.g. no address) isn't an asset
+
+
+# ---------- lines a command says what they are (an output's `asset:` hint) ----------
+
+NUCLEI_LINE = re.compile(r"^\[(?P<id>[^\]]+)\](?:\s*\[(?P<proto>[^\]]+)\])?\s*\[(?P<sev>info|low|medium|high|critical|unknown)\]\s+(?P<target>\S+)(?P<rest>.*)$", re.IGNORECASE)
+NETEXEC_LOGIN = re.compile(r"^(?P<proto>[A-Z]+)\s+(?P<host>\S+)\s+(?P<port>\d+)\s+\S+\s+\[\+\]\s+(?:(?P<domain>[^\\\s]+)\\)?(?P<user>[^:\s]+)(?::(?P<secret>\S+))?(?P<rest>.*)$")
+CVE = re.compile(r"\b(CVE-\d{4}-\d{4,})\b", re.IGNORECASE)
+ANSI = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+
+
+def default_target(task: m.Task | None) -> str:
+    """What a card runs against, for results that don't say: its target/host/url/image argument."""
+    args = (task.command_args or {}) if task is not None else {}
+    for name in ("target", "targets", "host", "hosts", "url", "urls", "domain", "ip", "image"):
+        value = args.get(name)
+        if isinstance(value, str) and value.strip():
+            return _target_of(re.split(r"[\s,]+", value.strip())[0])
+    return ""
+
+
+async def _map_hint(db: AsyncSession, hint: str, values: Any, project_id: uuid.UUID, batch: Batch, *, target: str = "",
+                    tool: str = "", **src: Any) -> None:
+    if not isinstance(values, list):
+        return
+    obs = {"batch": batch, "parser": f"lines:{hint}", **src}
+    for raw in values:
+        line = ANSI.sub("", str(raw)).strip()
+        if not line:
+            continue
+        try:
+            if hint == "host":
+                await observe(db, project_id, "host", {"ip": line} if _ip(line) else {"hostname": line}, **obs)
+            elif hint == "domain":
+                await observe(db, project_id, "domain", {"name": line.split()[0]}, **obs)
+            elif hint == "url":
+                await observe(db, project_id, "url", {"url": line.split()[0]}, **obs)
+            elif hint == "service":
+                mt = re.match(r"^\[?([^\]\s]+?)\]?[:\s](\d{1,5})(?:/(tcp|udp))?", line)
+                if mt:
+                    svc = await observe(db, project_id, "service", {"host": mt[1], "port": mt[2], "proto": mt[3] or "tcp"}, **obs)
+                    host = await observe(db, project_id, "host", {"ip": mt[1]} if _ip(mt[1]) else {"hostname": mt[1]}, **obs)
+                    await link(db, project_id, svc, host, "on")
+            elif hint == "share":
+                parts = line.split()
+                if len(parts) >= 2:
+                    share = await observe(db, project_id, "share", {"host": parts[0], "name": parts[1], "access": " ".join(parts[2:3])}, **obs)
+                    host = await observe(db, project_id, "host", {"ip": parts[0]} if _ip(parts[0]) else {"hostname": parts[0]}, **obs)
+                    await link(db, project_id, share, host, "on")
+            elif hint == "login":
+                mt = NETEXEC_LOGIN.match(line)
+                if mt:
+                    secret = mt["secret"] or None
+                    if secret and set(secret) <= {"*"}:
+                        secret = None  # masked: Castor's own variable
+                    kind = "hash" if secret and re.fullmatch(r"[0-9a-fA-F]{32}(:[0-9a-fA-F]{32})?", secret) else "password"
+                    cred = await observe(db, project_id, "credential", {"username": mt["user"], "domain": mt["domain"], "kind": kind,
+                                                                        "admin": "Pwn3d" in (mt["rest"] or "") or None}, secret=secret, **obs)
+                    host = await observe(db, project_id, "host", {"ip": mt["host"]} if _ip(mt["host"]) else {"hostname": mt["host"]}, **obs)
+                    await link(db, project_id, cred, host, "valid_on")
+            elif hint == "vulnerability":
+                mt = NUCLEI_LINE.match(line)
+                if mt:
+                    rest = mt["rest"].strip()
+                    await observe(db, project_id, "vulnerability", {
+                        "id": mt["id"].split(":")[0], "target": _target_of(mt["target"]), "severity": mt["sev"].lower(),
+                        "title": mt["id"], "cves": [c.upper() for c in CVE.findall(line)], "tool": tool or "nuclei",
+                        "detail": rest[:500]}, **obs)
+                else:
+                    cves = [c.upper() for c in CVE.findall(line)]
+                    ident = cves[0] if cves else line[:120]
+                    await observe(db, project_id, "vulnerability", {"id": ident, "target": target, "cves": cves, "tool": tool,
+                                                                     "detail": line[:500] if line != ident else None}, **obs)
+        except AssetError:
+            continue
+
+
+def _target_of(value: str) -> str:
+    """A URL's host:port, or the value itself: what a vulnerability was found on."""
+    parts = urlsplit(value) if "://" in value else None
+    return (parts.netloc or value) if parts else value
 
 
 MAPPED_PARSERS = {"nmap.hosts", "nmap.services", "netexec.smb", "ffuf.results", "httpx.results"}
@@ -342,45 +588,75 @@ async def ingest_outputs(db: AsyncSession, job: m.Job, task: m.Task, outputs: li
     """Turn a job's parsed outputs into assets in its project, then tell browsers, write one
     feed entry and fire triggers. Commits."""
     batch = Batch(task.project_id)
-    for out in outputs:
-        kind = None if out.error else mapping_for(out.parser, out.type)
-        if kind is None:
-            continue
-        await _map(db, kind, out.value, task.project_id, batch, job_id=job.id, task_id=task.id)
-    if batch.changes:
+    batch.read = await _ingest(db, job, task, outputs, batch)
+    if batch.changes or batch.suggested:
         await settle(db, batch, task_id=task.id)
     return batch
 
 
-async def collect_past(db: AsyncSession, project_id: uuid.UUID, actor: m.User | None = None) -> Batch:
+async def _ingest(db: AsyncSession, job: m.Job, task: m.Task, outputs: list[m.JobOutput], batch: Batch) -> bool:
+    """Record what a job's outputs found; whether any output was one Castor reads as assets."""
+    hints = {o.get("name"): o.get("asset") for o in (job.output_specs or []) if isinstance(o, dict) and o.get("asset")}
+    target, tool = default_target(task), task.command_ref or ""
+    read = False
+    for out in outputs:
+        if out.error:
+            continue
+        kind = mapping_for(out.parser, out.type)
+        if kind is not None:
+            read = True
+            await _map(db, kind, out.value, task.project_id, batch, job_id=job.id, task_id=task.id)
+        elif hints.get(out.name):
+            read = True
+            await _map_hint(db, hints[out.name], out.value, task.project_id, batch, target=target, tool=tool, job_id=job.id, task_id=task.id)
+    return read
+
+
+async def collect_past(db: AsyncSession, project_id: uuid.UUID, actor: m.User | None = None, *, mentions: bool = True) -> Batch:
     """Record assets from every result the project's jobs already produced, oldest first
-    (results parsed before assets existed). Triggers don't fire for these. Commits."""
+    (results parsed before assets existed), and suggest the ones mentioned in its comments,
+    posts, cards and notes. Triggers don't fire for these. Commits."""
     batch = Batch(project_id)
     rows = (
         await db.execute(
-            select(m.JobOutput, m.Job)
+            select(m.JobOutput, m.Job, m.Task)
             .join(m.Job, m.Job.id == m.JobOutput.job_id)
             .join(m.Task, m.Task.id == m.Job.task_id)
             .where(m.Task.project_id == project_id, m.JobOutput.error.is_(None))
             .order_by(m.Job.finished_at, m.JobOutput.created_at)
         )
     ).all()
-    for out, job in rows:
-        kind = mapping_for(out.parser, out.type)
-        if kind is not None:
-            await _map(db, kind, out.value, project_id, batch, job_id=job.id, task_id=job.task_id)
-    if batch.changes:
+    by_job: dict[uuid.UUID, tuple[m.Job, m.Task, list[m.JobOutput]]] = {}
+    for out, job, task in rows:
+        by_job.setdefault(job.id, (job, task, []))[2].append(out)
+    for job, task, outs in by_job.values():
+        await _ingest(db, job, task, outs, batch)
+    if mentions:
+        from .assets_text import collect_mentions
+
+        await collect_mentions(db, project_id, batch)
+    if batch.changes or batch.suggested:
         from .services import actor_of, record_activity
 
         created: dict[str, int] = {}
         for a in batch.created():
             created[a.type] = created.get(a.type, 0) + 1
-        if created:
-            await record_activity(db, type="assets.found", message=f"Found {describe(created)} in past results",
-                                  project_id=project_id, payload={"counts": created}, **actor_of(actor))
+        suggested = _counts(batch.suggested.values())
+        said = " and ".join(x for x in (f"found {describe(created)}" if created else "",
+                                        f"spotted {describe(suggested)} to confirm" if suggested else "") if x)
+        if said:
+            await record_activity(db, type="assets.found", message=f"{said[0].upper()}{said[1:]} in past results and notes",
+                                  project_id=project_id, payload={"counts": created, "suggested": suggested}, **actor_of(actor))
     await db.commit()
     bus.publish("assets.changed", project_id, {"project_id": str(project_id)})
     return batch
+
+
+def _counts(assets: Any) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for a in assets:
+        out[a.type] = out.get(a.type, 0) + 1
+    return out
 
 
 def describe(counts: dict[str, int]) -> str:
@@ -388,20 +664,25 @@ def describe(counts: dict[str, int]) -> str:
     return ", ".join(parts[:-1]) + (" and " if len(parts) > 1 else "") + parts[-1] if parts else ""
 
 
-async def settle(db: AsyncSession, batch: Batch, *, task_id: uuid.UUID | None = None, actor: m.User | None = None) -> None:
+async def settle(db: AsyncSession, batch: Batch, *, task_id: uuid.UUID | None = None, actor: m.User | None = None,
+                 where: str = "") -> None:
     """After recording: the feed entry ("Found 3 hosts and 5 services"), the event, triggers."""
     from .services import actor_of, record_activity
 
-    created: dict[str, int] = {}
-    for a in batch.created():
-        created[a.type] = created.get(a.type, 0) + 1
+    created = _counts(batch.created())
+    suggested = _counts(batch.suggested.values())
     if created:
         await record_activity(
             db, type="assets.found", message=f"Found {describe(created)}", project_id=batch.project_id, task_id=task_id,
             payload={"counts": created}, **actor_of(actor),
         )
+    if suggested:
+        await record_activity(
+            db, type="assets.suggested", message=f"Spotted {describe(suggested)} to confirm{f' in {where}' if where else ''}",
+            project_id=batch.project_id, task_id=task_id, payload={"counts": suggested}, **actor_of(actor),
+        )
     await db.commit()
-    bus.publish("assets.changed", batch.project_id, {"project_id": str(batch.project_id), "created": created,
+    bus.publish("assets.changed", batch.project_id, {"project_id": str(batch.project_id), "created": created, "suggested": suggested,
                                                      "updated": sum(1 for c in batch.changes.values() if c.event == "updated")})
     try:
         await fire_triggers(db, batch)
@@ -466,9 +747,12 @@ def conditions_met(conds: list[dict[str, Any]], fields: dict[str, Any]) -> bool:
     return True
 
 
-async def query(db: AsyncSession, project_id: uuid.UUID, type_name: str | None, where: str = "") -> list[m.Asset]:
+async def query(db: AsyncSession, project_id: uuid.UUID, type_name: str | None, where: str = "",
+                status: str = "confirmed") -> list[m.Asset]:
+    """The project's assets of a type (or all) matching `where`; confirmed ones unless `status`
+    says suggested or dismissed. Only confirmed assets reach arguments and triggers."""
     conds, words = parse_where(where)
-    stmt = select(m.Asset).where(m.Asset.project_id == project_id)
+    stmt = select(m.Asset).where(m.Asset.project_id == project_id, m.Asset.status == status)
     if type_name:
         stmt = stmt.where(m.Asset.type == type_of(type_name).name)
     rows = (await db.execute(stmt)).scalars().all()
@@ -516,7 +800,8 @@ async def ref_values(db: AsyncSession, project_id: uuid.UUID, ref: dict[str, Any
 
 
 def default_field(type_name: str) -> str:
-    return {"host": "ip", "service": "key", "url": "url", "domain": "name", "user": "username", "credential": "username", "share": "key"}.get(type_name, "key")
+    return {"host": "ip", "service": "key", "url": "url", "domain": "name", "user": "username", "credential": "username", "share": "key",
+            "vulnerability": "id"}.get(type_name, "key")
 
 
 # ---------- scope ----------

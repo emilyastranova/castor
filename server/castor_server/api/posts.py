@@ -17,6 +17,7 @@ from sqlalchemy.orm import selectinload
 from .. import api_tokens, notifications, people
 from .. import models as m
 from ..access import check_project
+from ..assets_text import after_text
 from ..deps import DB, CurrentUser, parse_uuid
 from ..events import bus
 from ..models import utcnow
@@ -156,6 +157,7 @@ async def create_post(project_id: str, body: PostIn, db: DB, user: CurrentUser):
     await record_activity(db, type="post.created", message="Posted to the timeline", project_id=pid,
                           payload={"post_id": str(post.id)}, **actor_of(user))
     await db.commit()
+    after_text(pid, post.body, source="post", ref={"kind": "post", "id": str(post.id)}, actor_id=user.id)  # assets it mentions
     out = post_out(post)
     _publish("post.created", post, out)
     return out
@@ -176,6 +178,7 @@ async def update_post(post_id: str, body: PostIn, db: DB, user: CurrentUser):
         await record_activity(db, type="post.edited", message="Edited a post", project_id=post.project_id,
                               payload={"post_id": str(post.id)}, **actor_of(user))
         await db.commit()
+        after_text(post.project_id, post.body, source="post", ref={"kind": "post", "id": str(post.id)}, actor_id=post.author_id)
     out = post_out(post)
     _publish("post.updated", post, out)
     return out

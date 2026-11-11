@@ -186,6 +186,14 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `run_fire`), `api/assets.py`; ingest is called from `outputs.parse_job`. Credential secrets go
   through `vault`, never into `fields`. Web: `routes/projects/[id]/assets`, `AssetDialog`,
   `TriggerDialog`, `AssetRefDialog` (assets as list arguments via `ListArgInput`).
+  Detection: an output's `asset:` hint maps `list<string>` lines (`_map_hint`: host, domain, url, service, share,
+  NetExec login, vulnerability; target from `default_target`). `assets.status` is confirmed|suggested|dismissed and
+  `confidence` the best of its observations (`CONFIDENCE`; `SUGGESTING` sources only suggest, never fire triggers,
+  and don't revive a dismissed one); `query`/search/arguments see confirmed ones only. A host seen by name and by
+  address is folded (`_find`, `_fold_host`, `merge`, `_rehome` moves its services and shares). Mentions:
+  `assets_text.py` (`extract` from text: comments, posts, card descriptions, notes via `after_text`; job output no
+  parser read via `after_job_output`; pictures via the AI `after_picture` → `llm.complete(images=…)`, purpose `assets`),
+  per-project `settings.asset_mentions` (on unless False) and `ai_read_pictures` (off). Web: the Suggested tab.
 - Search (Phase 3g): `search.py` (one permission-scoped query per kind of thing over the live
   tables; add new kinds to `TYPES` and a `Searcher` method) behind `GET /api/search`; web
   `CommandPalette.svelte` (Ctrl/Cmd+K, `lib/palette.svelte.ts`). `m3/Select` searches its

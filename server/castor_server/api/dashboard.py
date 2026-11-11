@@ -243,6 +243,8 @@ def link_for(e: m.ActivityEvent, payload: dict, *, task: m.Task | None, has_comm
     head = e.type.split(".", 1)[0]
     if e.type.startswith("library."):
         return _library_link(e.type, payload)
+    if e.type == "assets.suggested" and pid:  # to confirm or dismiss, whatever card they came from
+        return f"/projects/{pid}/assets?tab=suggested"
     if head == "summary" and task is not None:  # the card it's on (a job's: its output)
         card = f"/projects/{task.project_id}?task={task.id}"
         return f"{card}&tab=output&job={payload['job_id']}" if _is_uuid(payload.get("job_id")) else card
@@ -748,7 +750,7 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
     ]
     found = dict(
         (await db.execute(
-            select(m.Asset.type, func.count()).where(in_scope(m.Asset.project_id), m.Asset.first_seen >= since).group_by(m.Asset.type)
+            select(m.Asset.type, func.count()).where(in_scope(m.Asset.project_id), m.Asset.status == "confirmed", m.Asset.first_seen >= since).group_by(m.Asset.type)
         )).all()
     )
 

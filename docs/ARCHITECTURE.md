@@ -440,11 +440,16 @@ for first paint. Changes publish `themes.changed`. Format: [THEME_SPEC.md](THEME
 ## Assets
 
 A project's inventory of what it found (`assets.py`, `api/assets.py`): hosts, services, URLs,
-domains, users, credentials and shares, one record per identity key with merged `fields`,
-`asset_observations` for provenance and `asset_links` between them. Parsed outputs from
-`nmap.hosts`, `nmap.services`, `netexec.smb` and `ffuf.results` are recorded after each job
-(`ingest_outputs`); events `assets.changed` and `asset_triggers.changed`; activity
-`assets.found`. Triggers run a command or playbook for new or changed assets: automatically
+domains, users, credentials, shares and vulnerabilities, one record per identity key with
+merged `fields`, `asset_observations` for provenance (each with a `confidence` and, for a
+mention, a `ref` to where it was) and `asset_links` between them. Parsed outputs from
+`nmap.hosts`, `nmap.services`, `netexec.smb`, `ffuf.results` and `httpx.results`, and
+`list<string>` outputs with an `asset:` hint, are recorded after each job (`ingest_outputs`).
+`assets.status` is confirmed, suggested (only mentioned: in comments, posts, card descriptions,
+notes, unparsed output or a picture the AI read; `assets_text.py`) or dismissed, and
+`assets.confidence` the best observation's. A host seen by name and by address is merged. Events
+`assets.changed` and `asset_triggers.changed`; activity `assets.found`, `assets.suggested`,
+`assets.confirmed`, `assets.merged`. Triggers run a command or playbook for new or changed assets: automatically
 inside the project's scope (`projects.settings.scope`), otherwise after approval; once per
 asset and rate-limited. Command arguments can take `{"assets": {type, where, field}}`.
 

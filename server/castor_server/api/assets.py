@@ -32,17 +32,66 @@ class AssetBrief(BaseModel):
     first_seen: datetime
     last_seen: datetime
     links: int = 0
+    status: str = "confirmed"  # confirmed | suggested | dismissed
+    confidence: int = 80
+    # Suggested ones: where they were mentioned, newest first (kind, excerpt, link, at).
+    mentions: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AssetList(BaseModel):
     items: list[AssetBrief]
     total: int
     counts: dict[str, int]
+    # Assets only mentioned (comments, output, pictures…), waiting to be confirmed or dismissed.
+    suggested: int = 0
 
 
-def _brief(a: m.Asset, project: m.Project, links: int = 0) -> AssetBrief:
+def _brief(a: m.Asset, project: m.Project, links: int = 0, mentions: list[dict[str, Any]] | None = None) -> AssetBrief:
     return AssetBrief(id=a.id, type=a.type, key=a.key, label=a.label, fields=a.fields or {}, has_secret=bool(a.secret),
-                      in_scope=A.in_scope(project, a), first_seen=a.first_seen, last_seen=a.last_seen, links=links)
+                      in_scope=A.in_scope(project, a), first_seen=a.first_seen, last_seen=a.last_seen, links=links,
+                      status=a.status or "confirmed", confidence=a.confidence or 0, mentions=mentions or [])
+
+
+SOURCE_WORDS = {"comment": "a comment", "post": "a timeline post", "card": "a card's description", "note": "a pinned note",
+                "output": "a run's output", "ai": "a picture (read by the AI)", "parser": "a tool's results", "manual": "added by hand",
+                "import": "an import"}
+
+
+def ref_link(project_id: uuid.UUID, ref: dict[str, Any] | None, task_id: uuid.UUID | None, job_id: uuid.UUID | None) -> str | None:
+    """Where a mention is: the comment, post, card, note, picture or run."""
+    ref = ref or {}
+    kind, rid = ref.get("kind"), ref.get("id")
+    card = f"/projects/{project_id}?task={task_id}" if task_id else None
+    if kind == "comment" and card:
+        return f"{card}&comment={rid}"
+    if kind == "post":
+        return f"/projects/{project_id}/dashboard?post={rid}"
+    if kind == "note":
+        return f"/projects/{project_id}/dashboard"
+    if kind == "job" and card:
+        return f"{card}&tab=output&job={job_id or rid}"
+    if kind == "attachment" and card:
+        return f"{card}&tab=attachments"
+    if kind == "attachment" and rid:
+        return f"/api/attachments/{rid}"
+    return card
+
+
+async def _mentions(db: DB, assets: list[m.Asset]) -> dict[uuid.UUID, list[dict[str, Any]]]:
+    """For suggested assets: the places they were mentioned (up to three each), newest first."""
+    if not assets:
+        return {}
+    rows = (await db.execute(select(m.AssetObservation).where(m.AssetObservation.asset_id.in_([a.id for a in assets]))
+                             .order_by(m.AssetObservation.observed_at.desc()))).scalars().all()
+    project_of = {a.id: a.project_id for a in assets}
+    out: dict[uuid.UUID, list[dict[str, Any]]] = {}
+    for o in rows:
+        seen = out.setdefault(o.asset_id, [])
+        if len(seen) < 3:
+            seen.append({"source": o.source, "where": SOURCE_WORDS.get(o.source, o.source), "excerpt": (o.ref or {}).get("excerpt", ""),
+                         "name": (o.ref or {}).get("name"), "at": o.observed_at,
+                         "link": ref_link(project_of[o.asset_id], o.ref, o.task_id, o.job_id)})
+    return out
 
 
 async def _asset_or_404(db: DB, user: m.User, asset_id: str, *, write: bool = False) -> m.Asset:
@@ -70,14 +119,18 @@ async def asset_types(_: CurrentUser) -> list[dict[str, Any]]:
 
 @router.get("/projects/{project_id}/assets", response_model=AssetList)
 async def list_assets(project_id: str, db: DB, user: CurrentUser, type: str | None = None, where: str = "",
-                      limit: int = 200, offset: int = 0):
-    """`where` takes `field:value`, `field!=value`, `port>1000` and free words."""
+                      limit: int = 200, offset: int = 0, status: Literal["confirmed", "suggested", "dismissed"] = "confirmed"):
+    """`where` takes `field:value`, `field!=value`, `port>1000` and free words. `status`: the
+    confirmed assets (the default), the suggested ones (only mentioned) or the dismissed ones."""
     project = await project_or_404(db, user, parse_uuid(project_id))
     try:
-        rows = await A.query(db, project.id, type, where)
+        rows = await A.query(db, project.id, type, where, status=status)
     except A.AssetError as exc:
         raise HTTPException(422, str(exc)) from exc
-    counts_rows = await db.execute(select(m.Asset.type, func.count()).where(m.Asset.project_id == project.id).group_by(m.Asset.type))
+    counts_rows = await db.execute(select(m.Asset.type, func.count()).where(m.Asset.project_id == project.id, m.Asset.status == status)
+                                   .group_by(m.Asset.type))
+    suggested = (await db.execute(select(func.count()).select_from(m.Asset).where(m.Asset.project_id == project.id,
+                                                                                  m.Asset.status == "suggested"))).scalar_one()
     page = rows[offset: offset + max(0, min(limit, 1000))]
     link_counts: dict[uuid.UUID, int] = {}
     if page:
@@ -86,8 +139,9 @@ async def list_assets(project_id: str, db: DB, user: CurrentUser, type: str | No
             for x in (fid, tid):
                 if x in ids:
                     link_counts[x] = link_counts.get(x, 0) + 1
-    return AssetList(items=[_brief(a, project, link_counts.get(a.id, 0)) for a in page], total=len(rows),
-                     counts={t: n for t, n in counts_rows.all()})
+    mentions = await _mentions(db, page) if status != "confirmed" else {}
+    return AssetList(items=[_brief(a, project, link_counts.get(a.id, 0), mentions.get(a.id)) for a in page], total=len(rows),
+                     counts={t: n for t, n in counts_rows.all()}, suggested=suggested)
 
 
 @router.get("/assets/{asset_id}")
@@ -104,7 +158,8 @@ async def get_asset(asset_id: str, db: DB, user: CurrentUser) -> dict[str, Any]:
         u = users.get(o.actor_id) if o.actor_id else None
         return {"kind": o.source, "parser": o.parser, "at": o.observed_at, "job_id": str(o.job_id) if o.job_id else None,
                 "task": {"id": str(t.id), "title": t.title, "link": f"/projects/{t.project_id}?task={t.id}"} if t else None,
-                "by": u.display_name if u else None}
+                "by": u.display_name if u else None, "confidence": o.confidence, "where": SOURCE_WORDS.get(o.source, o.source),
+                "excerpt": (o.ref or {}).get("excerpt"), "link": ref_link(a.project_id, o.ref, o.task_id, o.job_id)}
 
     provenance: dict[str, list[dict[str, Any]]] = {}
     for o in obs:  # newest first: the first value seen per field is the current one
@@ -179,11 +234,15 @@ async def import_assets(project_id: str, body: ImportIn, db: DB, user: CurrentUs
 
 @router.post("/projects/{project_id}/assets/collect")
 async def collect_assets(project_id: str, db: DB, user: CurrentUser) -> dict[str, int]:
-    """Record assets from the results the project's jobs already produced (once is enough;
-    new results are recorded as they come). Triggers don't fire for these."""
+    """Record assets from the results the project's jobs already produced, and suggest the ones
+    its comments, posts, cards and notes mention (once is enough; new ones are recorded as they
+    come). Triggers don't fire for these."""
+    from ..assets_text import mentions_on
+
     project = await project_or_404(db, user, parse_uuid(project_id), write=True)
-    batch = await A.collect_past(db, project.id, user)
-    return {"added": len(batch.created()), "updated": sum(1 for c in batch.changes.values() if c.event == "updated")}
+    batch = await A.collect_past(db, project.id, user, mentions=mentions_on(project))
+    return {"added": len(batch.created()), "updated": sum(1 for c in batch.changes.values() if c.event == "updated"),
+            "suggested": len(batch.suggested)}
 
 
 class AssetPatch(BaseModel):
@@ -211,6 +270,94 @@ async def delete_asset(asset_id: str, db: DB, user: CurrentUser):
     await record_activity(db, type="assets.deleted", message=f"Removed the {a.type} {label}", project_id=pid, **actor_of(user))
     await db.commit()
     bus.publish("assets.changed", pid, {"project_id": str(pid)})
+
+
+async def _confirm(db: DB, asset: m.Asset, user: m.User) -> None:
+    """A person says a suggested (or dismissed) asset is real: it joins the inventory, and to
+    triggers it's new."""
+    asset.status = "confirmed"
+    asset.confidence = max(asset.confidence or 0, A.CONFIDENCE["manual"])
+    db.add(m.AssetObservation(asset_id=asset.id, source="manual", actor_id=user.id, fields={}, confidence=A.CONFIDENCE["manual"]))
+    await db.flush()
+
+
+@router.post("/assets/{asset_id}/confirm", response_model=AssetBrief)
+async def confirm_asset(asset_id: str, db: DB, user: CurrentUser):
+    """A suggested asset is real: it joins the project's assets (and its triggers see it as new)."""
+    a = await _asset_or_404(db, user, asset_id, write=True)
+    project = await db.get(m.Project, a.project_id)
+    if a.status != "confirmed":
+        await _confirm(db, a, user)
+        batch = A.Batch(a.project_id)
+        batch.note(a, True, [])
+        await record_activity(db, type="assets.confirmed", message=f"Confirmed the {a.type} {a.label}", project_id=a.project_id, **actor_of(user))
+        await A.settle(db, batch, actor=None)
+    return _brief(a, project)
+
+
+@router.post("/assets/{asset_id}/dismiss", response_model=AssetBrief)
+async def dismiss_asset(asset_id: str, db: DB, user: CurrentUser):
+    """A suggestion isn't an asset (a version number, a typo…): hide it; mentions don't bring it
+    back, but a tool or a person reporting it does."""
+    a = await _asset_or_404(db, user, asset_id, write=True)
+    project = await db.get(m.Project, a.project_id)
+    if a.status != "dismissed":
+        a.status = "dismissed"
+        await db.commit()
+        bus.publish("assets.changed", a.project_id, {"project_id": str(a.project_id)})
+    return _brief(a, project)
+
+
+class SuggestionsIn(BaseModel):
+    action: Literal["confirm", "dismiss"]
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=1000)
+
+
+@router.post("/projects/{project_id}/assets/suggested")
+async def decide_suggestions(project_id: str, body: SuggestionsIn, db: DB, user: CurrentUser) -> dict[str, int]:
+    """Confirm or dismiss several suggested assets at once."""
+    project = await project_or_404(db, user, parse_uuid(project_id), write=True)
+    rows = (await db.execute(select(m.Asset).where(m.Asset.project_id == project.id, m.Asset.id.in_(body.ids),
+                                                   m.Asset.status != "confirmed"))).scalars().all()
+    batch = A.Batch(project.id)
+    for a in rows:
+        if body.action == "confirm":
+            await _confirm(db, a, user)
+            batch.note(a, True, [])
+        else:
+            a.status = "dismissed"
+    if body.action == "confirm" and rows:
+        await record_activity(db, type="assets.confirmed", message=f"Confirmed {A.describe(A._counts(rows))}", project_id=project.id,
+                              **actor_of(user))
+        await A.settle(db, batch, actor=None)
+    else:
+        await db.commit()
+        bus.publish("assets.changed", project.id, {"project_id": str(project.id)})
+    return {"done": len(rows)}
+
+
+class MergeIn(BaseModel):
+    into: uuid.UUID
+
+
+@router.post("/assets/{asset_id}/merge", response_model=AssetBrief)
+async def merge_asset(asset_id: str, body: MergeIn, db: DB, user: CurrentUser):
+    """This asset is the same thing as another (a host by name and by address, say): fold it
+    into that one, with its history, links and values."""
+    a = await _asset_or_404(db, user, asset_id, write=True)
+    into = await _asset_or_404(db, user, str(body.into), write=True)
+    if into.project_id != a.project_id:
+        raise HTTPException(422, "into: an asset in the same project")
+    label = a.label
+    try:
+        merged = await A.merge(db, a, into=into)
+    except A.AssetError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    await record_activity(db, type="assets.merged", message=f"Merged the {merged.type} {label} into {merged.label}",
+                          project_id=merged.project_id, **actor_of(user))
+    await db.commit()
+    bus.publish("assets.changed", merged.project_id, {"project_id": str(merged.project_id)})
+    return _brief(merged, await db.get(m.Project, merged.project_id))
 
 
 @router.post("/assets/{asset_id}/reveal")

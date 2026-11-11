@@ -12,6 +12,7 @@ answer that works; every attempt is an `ai_calls` row. Keys live in the vault, p
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 import time
@@ -201,8 +202,31 @@ def _raise(r: httpx.Response, what: str) -> None:
         raise AiError(f"{what}: HTTP {r.status_code}: {str(detail)[:300]}")
 
 
+Images = list[tuple[str, bytes]]
+
+
+def _with_images(family: str, messages: list[dict[str, Any]], images: Images | None) -> list[dict[str, Any]]:
+    """The messages with pictures attached to the last one, in the shape each family takes.
+    (Gemini's are added in _gemini_body.)"""
+    if not images or family in ("gemini", "vertex") or not messages:
+        return messages
+    *rest, last = messages
+    pics = [(mime, base64.b64encode(data).decode()) for mime, data in images]
+    if family in ("openai", "azure"):
+        content: Any = [{"type": "text", "text": last["content"]},
+                        *({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}} for mime, b64 in pics)]
+        return [*rest, {**last, "content": content}]
+    if family == "anthropic":
+        content = [*({"type": "image", "source": {"type": "base64", "media_type": mime, "data": b64}} for mime, b64 in pics),
+                   {"type": "text", "text": last["content"]}]
+        return [*rest, {**last, "content": content}]
+    if family == "ollama":
+        return [*rest, {**last, "images": [b64 for _, b64 in pics]}]
+    return messages
+
+
 def _gemini_body(system: str, messages: list[dict[str, str]], want_json: bool, max_tokens: int, temperature: float,
-                 model: str = "") -> dict[str, Any]:
+                 model: str = "", images: Images | None = None) -> dict[str, Any]:
     # Gemini models think first, and the thinking counts against maxOutputTokens, so a short
     # limit ends the answer before it starts: give them room.
     config: dict[str, Any] = {"maxOutputTokens": max(max_tokens, 16000)}
@@ -211,11 +235,10 @@ def _gemini_body(system: str, messages: list[dict[str, str]], want_json: bool, m
         config["temperature"] = temperature
     if want_json:
         config["responseMimeType"] = "application/json"
-    return {
-        "systemInstruction": {"parts": [{"text": system}]},
-        "contents": [{"role": "model" if mm["role"] == "assistant" else "user", "parts": [{"text": mm["content"]}]} for mm in messages],
-        "generationConfig": config,
-    }
+    contents = [{"role": "model" if mm["role"] == "assistant" else "user", "parts": [{"text": mm["content"]}]} for mm in messages]
+    if images and contents:
+        contents[-1]["parts"] += [{"inlineData": {"mimeType": mime, "data": base64.b64encode(data).decode()}} for mime, data in images]
+    return {"systemInstruction": {"parts": [{"text": system}]}, "contents": contents, "generationConfig": config}
 
 
 def _gemini_answer(data: dict[str, Any], model: str, provider: str) -> Answer:
@@ -233,11 +256,14 @@ def _gemini_answer(data: dict[str, Any], model: str, provider: str) -> Answer:
 
 
 async def call(provider: m.AiProvider, model: str, system: str, messages: list[dict[str, str]], *, want_json: bool = False,
-               max_tokens: int = 4000, temperature: float = 0.2, client: httpx.AsyncClient | None = None) -> Answer:
-    """One request to one model. Raises AiError with the provider's own message."""
+               max_tokens: int = 4000, temperature: float = 0.2, client: httpx.AsyncClient | None = None,
+               images: Images | None = None) -> Answer:
+    """One request to one model, with pictures (mime type, bytes) for the last message if given.
+    Raises AiError with the provider's own message."""
     spec = KINDS.get(provider.kind)
     if spec is None:
         raise AiError(f"Unknown provider kind {provider.kind}")
+    messages = _with_images(spec.family, messages, images)
     v = _values(provider)
     own = client is None
     client = client or httpx.AsyncClient(timeout=TIMEOUT)
@@ -286,7 +312,7 @@ async def call(provider: m.AiProvider, model: str, system: str, messages: list[d
             return Answer(text, model, provider.name, usage.get("input_tokens"), usage.get("output_tokens"))
         if spec.family == "gemini":
             r = await client.post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-                                  json=_gemini_body(system, messages, want_json, max_tokens, temperature, model),
+                                  json=_gemini_body(system, messages, want_json, max_tokens, temperature, model, images),
                                   headers={"x-goog-api-key": v["api_key"]})
             _raise(r, provider.name)
             return _gemini_answer(r.json(), model, provider.name)
@@ -296,7 +322,7 @@ async def call(provider: m.AiProvider, model: str, system: str, messages: list[d
             loc = v.get("location") or "us-central1"
             host = "aiplatform.googleapis.com" if loc == "global" else f"{loc}-aiplatform.googleapis.com"
             url = f"https://{host}/v1/projects/{v['project']}/locations/{loc}/publishers/google/models/{model}:generateContent"
-            r = await client.post(url, json=_gemini_body(system, messages, want_json, max_tokens, temperature, model),
+            r = await client.post(url, json=_gemini_body(system, messages, want_json, max_tokens, temperature, model, images),
                                   headers={"Authorization": f"Bearer {token}"})
             _raise(r, provider.name)
             return _gemini_answer(r.json(), model, provider.name)
@@ -395,7 +421,7 @@ async def enabled(db: AsyncSession, purpose: str = "default") -> bool:
 
 
 async def complete(db: AsyncSession, purpose: str, system: str, messages: list[dict[str, str]], *, want_json: bool = False,
-                   user: m.User | None = None, max_tokens: int = 4000, check=None) -> tuple[Answer, Any]:
+                   user: m.User | None = None, max_tokens: int = 4000, check=None, images: Images | None = None) -> tuple[Answer, Any]:
     """Ask the chain for `purpose`, model by model, until one gives a usable answer.
     `check(answer)` may raise AiError to reject an answer (bad JSON…) and move to the next
     model; its return value comes back with the answer. Commits the call log."""
@@ -408,7 +434,8 @@ async def complete(db: AsyncSession, purpose: str, system: str, messages: list[d
             started = time.monotonic()
             row = m.AiCall(purpose=purpose, provider_id=provider.id, provider_name=provider.name, model=model, user_id=user.id if user else None)
             try:
-                answer = await call(provider, model, system, messages, want_json=want_json, max_tokens=max_tokens, client=client)
+                answer = await call(provider, model, system, messages, want_json=want_json, max_tokens=max_tokens, client=client,
+                                    images=images)
                 row.input_tokens, row.output_tokens = answer.input_tokens, answer.output_tokens
                 result = check(answer) if check else None
                 row.ok = True

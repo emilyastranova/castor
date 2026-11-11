@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from .. import api_tokens, notifications, people, variables
 from .. import models as m
 from ..access import check_project, project_or_404
+from ..assets_text import after_text
 from ..command_library import apply_library, load_spec
 from ..command_render import ArgumentError
 from ..deps import DB, CurrentUser, parse_uuid
@@ -133,6 +134,8 @@ async def create_task(project_id: str, body: TaskIn, db: DB, user: CurrentUser):
     ):
         await enqueue_job(db, task, user, reason="created in In Progress")
     await db.commit()
+    after_text(task.project_id, task.description, source="card", ref={"kind": "card", "id": str(task.id)},
+               task_id=task.id, actor_id=user.id)  # assets its description mentions
     out = await publish_task(db, task, "task.created")
     dispatcher.wake()
     return out
@@ -201,6 +204,9 @@ async def update_task(task_id: str, body: TaskPatch, db: DB, user: CurrentUser):
         slots = {s.name for s in spec.vars} if spec else set()
         task.var_bindings = {k: v for k, v in task.var_bindings.items() if k in slots}
     await db.commit()
+    if "description" in body.model_fields_set:
+        after_text(task.project_id, task.description, source="card", ref={"kind": "card", "id": str(task.id)},
+                   task_id=task.id, actor_id=user.id)
     return await publish_task(db, task)
 
 
@@ -425,6 +431,8 @@ async def create_comment(task_id: str, body: CommentIn, db: DB, user: CurrentUse
         **actor_of(user),
     )
     await db.commit()
+    after_text(task.project_id, comment.body, source="comment", ref={"kind": "comment", "id": str(comment.id)},
+               task_id=task.id, actor_id=user.id)  # assets it mentions, suggested
     out = _comment_out(comment)
     bus.publish("comment.created", task.project_id, out)
     await publish_task(db, task)
@@ -454,6 +462,8 @@ async def update_comment(
         await record_activity(db, type="comment.edited", message=f"Edited a comment on “{task.title}”", project_id=task.project_id,
                               task_id=task.id, payload={"comment_id": str(comment.id)}, **actor_of(user))
         await db.commit()
+        after_text(task.project_id, comment.body, source="comment", ref={"kind": "comment", "id": str(comment.id)},
+                   task_id=task.id, actor_id=comment.author_id)
     await db.refresh(comment, ["author"])
     out = _comment_out(comment)
     bus.publish("comment.updated", task.project_id, out)

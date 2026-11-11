@@ -712,6 +712,12 @@ class Asset(Base, TimestampMixin):
     secret: Mapped[str | None] = mapped_column(Text, nullable=True)
     first_seen: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     last_seen: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+    # confirmed: a tool's parsed results or a person said so. suggested: only mentioned in text
+    # (output no parser read, a comment, a post, a picture the AI read), kept apart until someone
+    # confirms it. dismissed: someone said it isn't one; mentions don't bring it back.
+    status: Mapped[str] = mapped_column(String(16), default="confirmed", server_default="confirmed", index=True)
+    # How sure Castor is (0–100): the best of its observations (assets.CONFIDENCE).
+    confidence: Mapped[int] = mapped_column(Integer, default=80, server_default="80")
 
 
 class AssetObservation(Base):
@@ -721,13 +727,17 @@ class AssetObservation(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
     asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), index=True)
-    source: Mapped[str] = mapped_column(String(16))  # parser | manual | import
+    # parser | manual | import | output (plain job output) | comment | post | card | note | ai
+    source: Mapped[str] = mapped_column(String(16))
     parser: Mapped[str | None] = mapped_column(String(64), nullable=True)
     job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True)
     task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
     actor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     fields: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     observed_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    confidence: Mapped[int] = mapped_column(Integer, default=80, server_default="80")
+    # Where a mention was: {"kind": comment|post|card|note|attachment, "id": …, "excerpt": the text around it}.
+    ref: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
 
 
 class AssetLink(Base):

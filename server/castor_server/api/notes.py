@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from .. import app_settings
 from .. import models as m
 from ..access import check_project
+from ..assets_text import after_text
 from ..deps import DB, CurrentUser, parse_uuid
 from ..events import bus
 from ..models import utcnow
@@ -158,6 +159,7 @@ async def create_note(project_id: str, body: NoteIn, db: DB, user: CurrentUser):
         payload={"note_id": str(note.id)}, **actor_of(user),
     )
     await db.commit()
+    after_text(pid, f"{note.title}\n{note.body}", source="note", ref={"kind": "note", "id": str(note.id)}, actor_id=user.id)
     await db.refresh(note, ["editor"])
     await _changed(db, pid)
     return note_out(note)
@@ -187,6 +189,7 @@ async def update_note(note_id: str, body: NotePatch, db: DB, user: CurrentUser):
         payload={"note_id": str(note.id)}, **actor_of(user),
     )
     await db.commit()
+    after_text(note.project_id, f"{title}\n{text}", source="note", ref={"kind": "note", "id": str(note.id)}, actor_id=user.id)
     await db.refresh(note, ["editor"])
     await _changed(db, note.project_id)
     return note_out(note)

@@ -17,6 +17,7 @@ outputs:
   - name: resolved
     type: list<string>
     parser: regex
+    asset: domain
     source: "{{ work }}/resolved.txt"
     options:
       pattern: '^(\S+) \[A\]'
@@ -24,6 +25,7 @@ outputs:
   - name: ips
     type: list<string>
     parser: regex
+    asset: host
     source: "{{ work }}/resolved.txt"
     options:
       pattern: '\[([0-9]{1,3}(?:\.[0-9]{1,3}){3})\]'

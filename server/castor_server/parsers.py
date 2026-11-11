@@ -343,7 +343,7 @@ def httpx_results(data: bytes, options: HttpxOptions | None = None) -> list[dict
         out.append({
             "url": r["url"], "status": r.get("status_code"), "length": r.get("content_length"),
             "words": r.get("words"), "lines": r.get("lines"), "title": r.get("title") or "",
-            "content_type": r.get("content_type") or "", "tech": r.get("tech") or [],
+            "content_type": r.get("content_type") or "", "tech": r.get("tech") or [], "webserver": r.get("webserver") or "",
         })
     return out
 

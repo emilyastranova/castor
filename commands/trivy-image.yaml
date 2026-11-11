@@ -27,6 +27,7 @@ outputs:
   - name: vulnerabilities
     type: list<string>
     parser: regex
+    asset: vulnerability
     options:
       pattern: '\b(CVE-\d{4}-\d{4,}|GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4})\b'
       group: 1

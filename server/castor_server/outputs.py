@@ -173,7 +173,11 @@ async def parse_job(db: AsyncSession, job: m.Job) -> list[m.JobOutput]:
         try:
             from .assets import ingest_outputs
 
-            await ingest_outputs(db, job, task, results)
+            batch = await ingest_outputs(db, job, task, results)
+            if not batch.read:
+                from .assets_text import after_job_output
+
+                after_job_output(job.id)  # nothing read as assets: what its output mentions, suggested
         except Exception:
             log.exception("recording assets from job %s failed", job.id)
             await db.rollback()

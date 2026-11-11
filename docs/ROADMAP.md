@@ -40,14 +40,6 @@ listener, or a log tail:
 
 ## Data and results
 
-### Better asset detection
-- More parsers mapped to assets: web technologies, TLS details, SMB shares, credentials and
-  vulnerabilities from more tools.
-- Merging the same thing seen by different tools (a host by IP and by name).
-- Confidence and first-seen and last-seen times.
-- Pulling hosts and URLs out of plain output when no parser applies, kept apart as "suggested"
-  until someone confirms them.
-
 ### Relationships between findings
 Record how things are connected, not only that they exist:
 - these credentials worked on this host and service;

@@ -21,6 +21,7 @@ outputs:
   - name: missing
     type: list<string>
     parser: regex
+    asset: vulnerability
     options:
       pattern: '^missing: (.+)$'
       group: 1

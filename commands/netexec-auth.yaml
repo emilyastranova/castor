@@ -49,6 +49,7 @@ outputs:
   - name: successes
     type: list<string>
     parser: lines
+    asset: login
     options:
       match: '\[\+\]'
   - name: smb_hosts

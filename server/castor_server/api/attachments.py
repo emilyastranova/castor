@@ -59,6 +59,10 @@ async def _store(
     )
     db.add(attachment)
     await db.flush()
+    if content_type.startswith("image/"):
+        from ..assets_text import after_picture
+
+        after_picture(attachment.id)  # the AI reads it for assets, if the project wants that
     return attachment
 
 

@@ -24,6 +24,7 @@ outputs:
     type: list<string>
     parser: regex
     source: "{{ work }}/artifacts/testssl.json"
+    asset: vulnerability
     options:
       pattern: '"id"\s*:\s*"([^"]+)"[^}]*?"severity"\s*:\s*"(?:LOW|MEDIUM|HIGH|CRITICAL)"'
       group: 1

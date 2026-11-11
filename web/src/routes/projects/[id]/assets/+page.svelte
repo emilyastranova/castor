@@ -19,7 +19,13 @@
 	let project = $derived(data.project);
 	$effect(() => void assetTypes.load());
 
-	let tab = $state<'inventory' | 'triggers'>(page.url.searchParams.get('tab') === 'triggers' ? 'triggers' : 'inventory');
+	const TABS = ['inventory', 'suggested', 'triggers'] as const;
+	const asked = page.url.searchParams.get('tab');
+	let tab = $state<(typeof TABS)[number]>(TABS.find((t) => t === asked) ?? 'inventory');
+	/** Suggested tab: what's waiting, or what people dismissed. */
+	let showDismissed = $state(false);
+	let status = $derived<Asset['status']>(tab === 'suggested' ? (showDismissed ? 'dismissed' : 'suggested') : 'confirmed');
+	let suggestedCount = $state(0);
 
 	// ---- inventory ----
 	let type = $state('');
@@ -33,12 +39,13 @@
 	async function load(liveChange = false) {
 		const mine = ++seq;
 		try {
-			const res = await api().assets.list(project.id, { type: type || undefined, where, limit: 500 });
+			const res = await api().assets.list(project.id, { type: type || undefined, where, limit: 500, status });
 			if (mine !== seq) return;
 			live = liveChange;
 			items = res.items;
 			total = res.total;
 			counts = res.counts;
+			suggestedCount = res.suggested;
 			loaded = true;
 		} catch (err) {
 			if (mine === seq) snackbar.error(err instanceof ApiError ? err.message : 'Could not load the assets');
@@ -48,6 +55,7 @@
 	$effect(() => {
 		void type;
 		void where;
+		void status;
 		clearTimeout(timer);
 		timer = setTimeout(() => void load(), 200);
 	});
@@ -162,7 +170,8 @@
 	async function collect() {
 		try {
 			const r = await api().assets.collect(project.id);
-			snackbar.show(r.added ? `Found ${r.added} asset${r.added === 1 ? '' : 's'} in past results` : 'No assets in past results');
+			const found = r.added ? `Found ${r.added} asset${r.added === 1 ? '' : 's'} in past results` : 'No new assets in past results';
+			snackbar.show(r.suggested ? `${found}; ${r.suggested} mentioned in notes and comments to confirm` : found);
 			void load(true);
 		} catch (err) {
 			snackbar.error(err instanceof ApiError ? err.message : 'Could not collect');
@@ -199,6 +208,39 @@
 		const ifs = t.conditions.map((c) => `${c.field} ${({ equals: 'is', not_equals: 'is not', contains: 'contains', exists: 'is set', missing: 'is empty', gt: '>', lt: '<', gte: '≥', lte: '≤' })[c.op]}${c.value != null && c.value !== '' ? ` ${c.value}` : ''}`);
 		return `${when}${ifs.length ? `, if ${ifs.join(' and ')}` : ''}`;
 	};
+	// ---- suggested: confirm or dismiss ----
+	let deciding = $state<Set<UUID>>(new Set());
+	async function decideOne(a: Asset, confirm: boolean) {
+		deciding = new Set([...deciding, a.id]);
+		try {
+			if (confirm) await api().assets.confirm(a.id);
+			else await api().assets.dismiss(a.id);
+			items = items.filter((x) => x.id !== a.id);
+			suggestedCount = Math.max(0, suggestedCount - (status === 'suggested' ? 1 : 0));
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not do that');
+		} finally {
+			deciding = new Set([...deciding].filter((x) => x !== a.id));
+		}
+	}
+	async function decideAll(confirm: boolean) {
+		const ids = items.map((a) => a.id);
+		const what = `${ids.length} suggestion${ids.length === 1 ? '' : 's'}`;
+		if (!(await confirmAction({
+			title: confirm ? `Confirm ${what}?` : `Dismiss ${what}?`,
+			message: confirm ? 'They join the inventory; triggers treat them as new.' : 'They’re hidden, and mentions won’t bring them back.',
+			confirmLabel: confirm ? 'Confirm' : 'Dismiss'
+		}))) return;
+		try {
+			const r = await api().assets.decide(project.id, confirm ? 'confirm' : 'dismiss', ids);
+			snackbar.show(`${confirm ? 'Confirmed' : 'Dismissed'} ${r.done}`);
+			void load(true);
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not do that');
+		}
+	}
+	const SOURCE_ICON: Record<string, string> = { comment: 'chat', post: 'forum', card: 'description', note: 'push_pin', output: 'terminal', ai: 'image' };
+
 	const FIRE: Record<string, string> = { started: 'text-primary', waiting: 'text-tertiary', failed: 'text-error', limited: 'text-on-surface-variant', skipped: 'text-on-surface-variant' };
 </script>
 
@@ -212,13 +254,23 @@
 	<div class="mx-auto flex w-full max-w-7xl flex-col gap-4 px-6 pt-2 pb-10">
 		<Tabs
 			tabs={[
-				{ id: 'inventory', label: 'Inventory', icon: 'radar', badge: Object.values(counts).reduce((a, b) => a + b, 0) },
+				{ id: 'inventory', label: 'Inventory', icon: 'radar', badge: status === 'confirmed' ? Object.values(counts).reduce((a, b) => a + b, 0) : undefined },
+				{ id: 'suggested', label: 'Suggested', icon: 'lightbulb', badge: suggestedCount || undefined },
 				{ id: 'triggers', label: 'Triggers', icon: 'bolt', badge: waiting.length || undefined }
 			]}
 			bind:value={tab}
 		/>
 
-		{#if tab === 'inventory'}
+		{#if tab === 'inventory' || tab === 'suggested'}
+			{#if tab === 'suggested'}
+				<div class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md bg-surface-container-low px-4 py-2.5 body-medium">
+					<Icon name="lightbulb" size={18} class="text-on-surface-variant" />
+					<p class="min-w-0 flex-1 text-on-surface-variant">
+						Mentioned, not yet confirmed: addresses, names, URLs and CVEs in comments, posts, card descriptions, notes, output no parser read{project.settings?.ai_read_pictures ? ', and pictures the AI read' : ''}. They stay out of the inventory, arguments and triggers until someone confirms them.
+					</p>
+					<Switch checked={showDismissed} label="Show dismissed" onchange={(v) => (showDismissed = v)} />
+				</div>
+			{:else}
 			<!-- scope -->
 			<div class="flex flex-wrap items-center gap-2 rounded-md bg-surface-container-low px-4 py-2.5 body-medium">
 				<span class="flex items-center gap-1.5 text-on-surface-variant"><Icon name="verified" size={18} />Scope</span>
@@ -230,6 +282,7 @@
 				{/if}
 				{#if canEdit()}<Button variant="text" icon="edit" class="ml-auto" onclick={editScope}>Edit scope</Button>{/if}
 			</div>
+			{/if}
 
 			<div class="flex flex-wrap items-center gap-2">
 				<button type="button" class="rounded-full border px-3 py-1 label-large {type === '' ? 'border-transparent bg-secondary-container text-on-secondary-container' : 'border-outline-variant text-on-surface-variant'}" onclick={() => (type = '')}>All</button>
@@ -243,7 +296,10 @@
 					</button>
 				{/each}
 				<span class="flex-1"></span>
-				{#if canEdit()}
+				{#if canEdit() && tab === 'suggested' && items.length > 1}
+					<Button variant="text" icon={showDismissed ? 'undo' : 'block'} onclick={() => decideAll(showDismissed)}>{showDismissed ? 'Restore all shown' : 'Dismiss all shown'}</Button>
+					{#if !showDismissed}<Button variant="tonal" icon="done_all" onclick={() => decideAll(true)}>Confirm all shown</Button>{/if}
+				{:else if canEdit() && tab === 'inventory'}
 					<Button variant="tonal" icon="upload" onclick={() => (importOpen = true)}>Import</Button>
 					<Button icon="add" onclick={() => { addType = type || 'host'; addOpen = true; }}>Add</Button>
 				{/if}
@@ -256,12 +312,57 @@
 
 			{#if !loaded}
 				<p class="body-medium text-on-surface-variant">Loading…</p>
+			{:else if tab === 'suggested'}
+				{#if !items.length}
+					<div class="flex flex-col items-center gap-2 py-16 text-center text-on-surface-variant">
+						<Icon name="lightbulb" size={40} />
+						<p class="body-large">{showDismissed ? 'Nothing dismissed.' : where || type ? 'Nothing matches.' : 'No suggestions waiting.'}</p>
+						{#if !showDismissed && !where && !type}
+							<p class="max-w-md body-medium">When someone mentions an address, a name or a CVE in a comment, post or note, or a run prints one no parser reads, it shows up here to confirm.</p>
+							{#if canEdit()}<Button variant="tonal" icon="history" onclick={collect}>Look through past notes and results</Button>{/if}
+						{/if}
+					</div>
+				{:else}
+					<ul class="flex flex-col divide-y divide-outline-variant/50 rounded-md border border-outline-variant/60">
+						{#each items as a (a.id)}
+							{@const m = a.mentions[0]}
+							<li class="flex flex-wrap items-start gap-x-3 gap-y-1 px-3 py-2.5" in:enter={{ enabled: live }} out:leave={{ enabled: live }}>
+								<Icon name={assetTypes.get(a.type)?.icon ?? 'radar'} size={18} class="mt-0.5 shrink-0 text-on-surface-variant" />
+								<div class="min-w-0 flex-1">
+									<button type="button" class="font-mono text-[13px] text-on-surface hover:underline" onclick={() => openAsset(a.id)}>{a.label}</button>
+									<span class="ml-1 body-small text-on-surface-variant">{assetTypes.get(a.type)?.label ?? a.type}</span>
+									{#if m}
+										<p class="mt-0.5 flex min-w-0 items-start gap-1.5 body-small text-on-surface-variant">
+											<Icon name={SOURCE_ICON[m.source] ?? 'notes'} size={14} class="mt-px shrink-0" />
+											<span class="min-w-0">
+												{#if m.link}<a href={m.link} class="text-primary hover:underline">{m.where}</a>{:else}{m.where}{/if}
+												{relativeTime(m.at)}{#if m.excerpt}: <span class="text-on-surface">“{m.excerpt}”</span>{/if}
+												{#if a.mentions.length > 1}<span> · and {a.mentions.length - 1} more</span>{/if}
+											</span>
+										</p>
+									{/if}
+								</div>
+								{#if canEdit()}
+									<span class="flex shrink-0 gap-1">
+										{#if showDismissed}
+											<Button variant="text" icon="undo" loading={deciding.has(a.id)} onclick={() => decideOne(a, true)}>Confirm</Button>
+										{:else}
+											<Button variant="text" loading={deciding.has(a.id)} onclick={() => decideOne(a, false)}>Dismiss</Button>
+											<Button variant="tonal" icon="check" loading={deciding.has(a.id)} onclick={() => decideOne(a, true)}>Confirm</Button>
+										{/if}
+									</span>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+					{#if total > items.length}<p class="body-small text-on-surface-variant">Showing {items.length} of {total}; filter to narrow it down.</p>{/if}
+				{/if}
 			{:else if !items.length}
 				<div class="flex flex-col items-center gap-2 py-16 text-center text-on-surface-variant">
 					<Icon name="radar" size={40} />
 					<p class="body-large">{where || type ? 'Nothing matches.' : 'Nothing found yet.'}</p>
 					{#if !where && !type}
-						<p class="max-w-md body-medium">Hosts, services and URLs appear here as scans finish (nmap, NetExec and ffuf results are recorded automatically), or add and import them yourself.</p>
+						<p class="max-w-md body-medium">Hosts, services, URLs and vulnerabilities appear here as scans finish (nmap, NetExec, ffuf, httpx, nuclei and more are recorded automatically), or add and import them yourself. Things mentioned in comments and notes wait under Suggested.</p>
 						{#if canEdit()}<Button variant="tonal" icon="history" onclick={collect}>Collect from past results</Button>{/if}
 					{/if}
 				</div>
@@ -294,7 +395,7 @@
 									</td>
 									{#if current}
 										{#each columns as c (c.name)}
-											<td class="px-3 py-2 {c.name === 'smb_signing' && a.fields[c.name] === false ? 'font-medium text-error' : 'text-on-surface'}">{show(a.fields[c.name])}</td>
+											<td class="px-3 py-2 {(c.name === 'smb_signing' && a.fields[c.name] === false) || (c.name === 'severity' && ['critical', 'high'].includes(String(a.fields[c.name]))) ? 'font-medium text-error' : 'text-on-surface'}">{show(a.fields[c.name])}</td>
 										{/each}
 									{:else}
 										<td class="max-w-md truncate px-3 py-2 text-on-surface-variant">{summary(a)}</td>
@@ -379,7 +480,7 @@
 	</div>
 </div>
 
-<AssetDialog bind:open={assetOpen} assetId={openId} onopenasset={openAsset} onchanged={() => void load(true)} />
+<AssetDialog bind:open={assetOpen} assetId={openId} projectId={project.id} onopenasset={openAsset} onchanged={() => void load(true)} />
 <TriggerDialog bind:open={triggerOpen} projectId={project.id} trigger={editingTrigger} onsaved={() => void loadTriggers()} />
 
 <Dialog bind:open={scopeOpen} title="Project scope" icon="verified" size="sm">

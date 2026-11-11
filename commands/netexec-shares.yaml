@@ -29,6 +29,7 @@ outputs:
     type: list<string>
     parser: lines
     source: "{{ work }}/shares.txt"
+    asset: share
   - name: smb_hosts
     type: list<smb_host>
     parser: netexec.smb

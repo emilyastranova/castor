@@ -21,6 +21,7 @@
 	const PURPOSES = [
 		{ key: 'default', title: 'Default', detail: 'Generating commands, tools, playbooks and variable kinds, regex suggestions, explaining failures.' },
 		{ key: 'resolver', title: 'Playbook resolver', detail: 'Deciding paused steps (on_failure: ai, and Ask AI). Empty: uses Default.' },
+		{ key: 'assets', title: 'Reading pictures', detail: 'Finding assets in screenshots (projects that turn it on). Needs a model that reads images. Empty: uses Default.' },
 		{ key: 'summary', title: 'Run summaries', detail: 'A few lines on a card when a run finishes (projects that turn them on, or Summarise). Empty: uses Default.' }
 	];
 	const kindLabel = (k: string) => data.kinds.find((x) => x.kind === k)?.label ?? k;

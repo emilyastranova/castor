@@ -1,7 +1,7 @@
 <script lang="ts">
-	import type { AssetDetail, AssetSource, UUID } from '$lib/api';
+	import type { Asset, AssetDetail, AssetSource, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
-	import { Button, Dialog, Icon, IconButton, TextField } from '$lib/m3';
+	import { Button, Dialog, Icon, IconButton, Select, TextField } from '$lib/m3';
 	import { assetTypes, show } from '$lib/assetTypes.svelte';
 	import { confirmAction } from '$lib/confirm.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
@@ -13,10 +13,11 @@
 	interface Props {
 		open: boolean;
 		assetId: UUID | null;
+		projectId: UUID;
 		onopenasset: (id: UUID) => void;
 		onchanged?: () => void;
 	}
-	let { open = $bindable(false), assetId, onopenasset, onchanged }: Props = $props();
+	let { open = $bindable(false), assetId, projectId, onopenasset, onchanged }: Props = $props();
 
 	let asset = $state<AssetDetail | null>(null);
 	let secret = $state<string | null>(null);
@@ -50,7 +51,56 @@
 		return Object.entries(out);
 	});
 	const sourceText = (s: AssetSource) =>
-		s.kind === 'parser' ? (s.parser ?? 'a tool') : s.kind === 'import' ? `imported${s.by ? ` by ${s.by}` : ''}` : `set by ${s.by ?? 'someone'}`;
+		s.kind === 'parser'
+			? (s.parser?.startsWith('lines:') ? 'a tool’s output' : (s.parser ?? 'a tool'))
+			: s.kind === 'import'
+				? `imported${s.by ? ` by ${s.by}` : ''}`
+				: s.kind === 'manual'
+					? `set by ${s.by ?? 'someone'}`
+					: `${s.where}${s.by ? ` by ${s.by}` : ''}`;
+	/** How sure Castor is, in words. */
+	const sureness = (c: number) => (c >= 100 ? 'Confirmed by a person' : c >= 80 ? 'From a tool’s results' : c >= 45 ? 'Mentioned' : 'Mentioned in output');
+
+	// ---- suggested: confirm or dismiss ----
+	async function decide(confirm: boolean) {
+		if (!asset) return;
+		try {
+			if (confirm) await api().assets.confirm(asset.id);
+			else await api().assets.dismiss(asset.id);
+			await load(asset.id);
+			onchanged?.();
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not do that');
+		}
+	}
+
+	// ---- the same thing seen twice: merge ----
+	let mergeOpen = $state(false);
+	let mergeOptions = $state<Asset[]>([]);
+	let mergeInto = $state('');
+	async function startMerge() {
+		if (!asset) return;
+		try {
+			const res = await api().assets.list(projectId, { type: asset.type, limit: 1000 });
+			mergeOptions = res.items.filter((a) => a.id !== asset!.id);
+			mergeInto = '';
+			mergeOpen = true;
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not load the assets');
+		}
+	}
+	async function merge() {
+		if (!asset || !mergeInto) return;
+		try {
+			const into = await api().assets.merge(asset.id, mergeInto);
+			mergeOpen = false;
+			snackbar.show(`Merged into ${into.label}`);
+			onchanged?.();
+			onopenasset(into.id);
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not merge');
+		}
+	}
 
 	// ---- editing extra fields ----
 	let newKey = $state('');
@@ -95,9 +145,27 @@
 				{:else}
 					<span class="flex items-center gap-1 rounded-full border border-outline-variant px-2.5 py-0.5 label-medium"><Icon name="block" size={14} />Outside scope</span>
 				{/if}
+				<span class="flex items-center gap-1 rounded-full border border-outline-variant px-2.5 py-0.5 label-medium" title="How sure Castor is: {asset.confidence}/100">
+					<Icon name={asset.confidence >= 80 ? 'task_alt' : 'help'} size={14} />{sureness(asset.confidence)}
+				</span>
 				<span title={absoluteTime(asset.first_seen)}>first seen {relativeTime(asset.first_seen)}</span>·
 				<span title={absoluteTime(asset.last_seen)}>last seen {relativeTime(asset.last_seen)}</span>
 			</div>
+
+			{#if asset.status !== 'confirmed'}
+				<div class="flex flex-wrap items-center gap-2 rounded-md bg-tertiary-container/40 px-3 py-2.5 body-medium text-on-surface">
+					<Icon name={asset.status === 'dismissed' ? 'block' : 'lightbulb'} size={18} class="text-tertiary" />
+					<span class="min-w-0 flex-1">
+						{asset.status === 'dismissed'
+							? 'Dismissed: it isn’t in the inventory, and mentions don’t bring it back.'
+							: 'Suggested: only mentioned so far. It joins the inventory, arguments and triggers once confirmed.'}
+					</span>
+					{#if canEdit()}
+						{#if asset.status === 'suggested'}<Button variant="text" onclick={() => decide(false)}>Dismiss</Button>{/if}
+						<Button variant="tonal" icon="check" onclick={() => decide(true)}>Confirm</Button>
+					{/if}
+				</div>
+			{/if}
 
 			<!-- fields, each with where it came from -->
 			<section>
@@ -184,8 +252,9 @@
 					{#each asset.history as h, i (i)}
 						<li class="rounded-md bg-surface-container px-3 py-2 body-small">
 							<p class="text-on-surface-variant">
-								{sourceText(h.source)}{#if h.source.task}{' '}on <a href={h.source.task.link} class="text-primary hover:underline">{h.source.task.title}</a>{/if} · {relativeTime(h.source.at)}
+								{#if h.source.link && !['parser', 'manual', 'import'].includes(h.source.kind)}<a href={h.source.link} class="text-primary hover:underline">{sourceText(h.source)}</a>{:else}{sourceText(h.source)}{/if}{#if h.source.task}{' '}on <a href={h.source.task.link} class="text-primary hover:underline">{h.source.task.title}</a>{/if} · {relativeTime(h.source.at)}
 							</p>
+							{#if h.source.excerpt}<p class="mb-0.5 text-on-surface-variant italic">“{h.source.excerpt}”</p>{/if}
 							<p class="font-mono text-[12px] break-words text-on-surface">{Object.entries(h.fields).map(([k, v]) => `${k}=${show(v)}`).join('  ')}</p>
 						</li>
 					{/each}
@@ -196,7 +265,27 @@
 		<p class="py-6 body-medium text-on-surface-variant">Loading…</p>
 	{/if}
 	{#snippet actions()}
-		{#if asset && canEdit()}<Button variant="text" icon="delete" class="mr-auto text-error!" onclick={remove}>Remove</Button>{/if}
+		{#if asset && canEdit()}
+			<Button variant="text" icon="delete" class="text-error!" onclick={remove}>Remove</Button>
+			<Button variant="text" icon="merge" class="mr-auto" onclick={startMerge}>Same as…</Button>
+		{/if}
 		<Button variant="text" onclick={() => (open = false)}>Close</Button>
+	{/snippet}
+</Dialog>
+
+<Dialog bind:open={mergeOpen} title="The same {type?.label.toLowerCase() ?? 'asset'} as…" icon="merge" size="sm">
+	<div class="flex flex-col gap-3 pt-1 pb-2">
+		<p class="body-medium text-on-surface-variant">
+			{asset?.label} is folded into the one you pick: its history, links and values move over, and it’s removed. Use it for the same machine seen by name and by address, say.
+		</p>
+		{#if mergeOptions.length}
+			<Select label="Merge into" bind:value={mergeInto} options={[{ value: '', label: 'Pick one' }, ...mergeOptions.map((a) => ({ value: a.id, label: a.label }))]} />
+		{:else}
+			<p class="body-medium text-on-surface-variant">There’s no other {type?.label.toLowerCase() ?? 'asset'} in the inventory to merge it with.</p>
+		{/if}
+	</div>
+	{#snippet actions()}
+		<Button variant="text" onclick={() => (mergeOpen = false)}>Cancel</Button>
+		<Button icon="merge" disabled={!mergeInto} onclick={merge}>Merge</Button>
 	{/snippet}
 </Dialog>
