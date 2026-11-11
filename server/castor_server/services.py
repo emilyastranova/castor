@@ -1560,6 +1560,9 @@ async def _settle_run(db: AsyncSession, run: m.PlaybookRun, spec: PlaybookSpec, 
         payload={"run_id": str(run.id)},
     )
     await alerts.run_finished(db, run, ok, "" if ok else "Didn't finish: " + ", ".join(failed[:6]) + ("…" if len(failed) > 6 else ""), step_link(run))
+    from .summaries import after_run
+
+    after_run(run.id)  # once this is committed, if the project wants AI summaries
 
 
 # Advancing a run is one at a time: several jobs finishing together have their outputs

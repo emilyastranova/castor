@@ -20,6 +20,7 @@
 	import NameImageDialog from './NameImageDialog.svelte';
 	import MoveWritingDialog from './MoveWritingDialog.svelte';
 	import RunPanel from './RunPanel.svelte';
+	import AiSummary from './AiSummary.svelte';
 	import DuplicateDialog from './DuplicateDialog.svelte';
 	import AlertRulesDialog from './AlertRulesDialog.svelte';
 	import StepDecisions from './StepDecisions.svelte';
@@ -859,6 +860,7 @@
 								<RichText text={explanation.text} projectId={task.project_id} class="body-medium text-on-surface" />
 							</div>
 						{/if}
+						<AiSummary jobId={selectedJob.id} finished={['succeeded', 'failed', 'lost'].includes(selectedJob.status)} projectId={task.project_id} {editable} />
 						{#if hasResults}
 							<div class="flex h-9 w-fit shrink-0 overflow-hidden rounded-full border border-outline" role="group" aria-label="Run view">
 								{#each [{ id: 'console', label: 'Console', icon: 'terminal' }, { id: 'results', label: resultCount ? `Results · ${resultCount}` : 'Results', icon: 'table_view' }] as v, i (v.id)}

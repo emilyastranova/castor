@@ -419,6 +419,15 @@ Agents report cached tags in `hello` and heartbeats; the dispatcher prefers an a
 the tool ready. `POST /api/tools/{id}/prepare` sends `tool.prepare` ahead of time; state is
 published as `tool.status`, library edits as `tools.changed`.
 
+## AI summaries of runs
+
+`ai_summaries` holds what the AI wrote about a finished job or playbook run (`job_id` or
+`run_id`, unique; `task_id` is the card it shows on; `status` writing|done|failed, `text`,
+`model`, `requested_by`, null when written automatically). `summaries.py` writes one when a
+project has `settings.ai_summaries` on (after a job's outputs are parsed, or when a run
+settles) or on `POST /api/jobs/{id}/summary` / `POST /api/playbook-runs/{id}/summary`, and
+publishes `summary.updated`; a written summary records `summary.written` in the feed.
+
 ## Themes
 
 Themes for the web UI live in `theme_definitions` (`id`, `origin` builtin|user, `spec`,
@@ -671,7 +680,7 @@ server sends each domain event as
 see it (see Auth). Event names include `project.updated`, `column.*`,
 `task.created|updated|moved|deleted`, `job.updated`, `job.log`, `job.outputs`, `job.parser_proposal`, `job.resize`,
 `comment.created`, `attachment.created`, `agent.updated`, `playbook_run.updated`,
-`agent_tokens.changed`, `ssh_hosts.changed`, `api_tokens.changed`, `tool.status`, `tools.changed`, `themes.changed`,
+`agent_tokens.changed`, `ssh_hosts.changed`, `api_tokens.changed`, `tool.status`, `tools.changed`, `themes.changed`, `summary.updated`,
 `project.notes`, `notification.created|read`, `assets.changed`, `alert_channels.changed`,
 `settings.changed`, `project.members` and `user.changed`; each section above names its own.
 The client keeps page state in sync by applying these to its stores.

@@ -118,7 +118,7 @@
 		{/if}
 	{:else}
 		<span class="flex size-10 shrink-0 items-center justify-center rounded-full {meta.tone}">
-			<Icon name={outcome?.icon ?? meta.icon} size={20} />
+			<Icon name={item.summary ? 'auto_awesome' : (outcome?.icon ?? meta.icon)} size={20} />
 		</span>
 	{/if}
 	<!-- The whole entry opens what it's about; its own link (card, message) is the keyboard way in. -->
@@ -189,6 +189,10 @@
 					/>
 				{/if}
 			</div>
+		{:else if item.summary}
+			<!-- An AI summary of a run: what it found, what failed, what next. -->
+			<RichText text={item.summary.text} projectId={item.project?.id} class="mt-1.5 rounded-md border border-outline-variant/70 px-3.5 py-2.5 body-medium text-on-surface line-clamp-[10]" />
+			<p class="mt-1 body-small text-on-surface-variant">By {item.summary.model}</p>
 		{:else if item.kind === 'job' && item.job}
 			<div class="mt-1.5 flex flex-col gap-1.5 rounded-md border border-outline-variant/70 px-3.5 py-2.5">
 				<div class="flex flex-wrap items-center gap-x-3 gap-y-1 body-small">

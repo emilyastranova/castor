@@ -33,7 +33,7 @@ def kind_of(event_type: str) -> str:
     head = event_type.split(".", 1)[0]
     if head in ("comment", "post"):  # a post is a comment on nothing
         return "comment"
-    if head == "job":
+    if head in ("job", "summary"):  # an AI summary is about a run
         return "job"
     if event_type == "task.moved":
         return "move"
@@ -77,6 +77,8 @@ class FeedItem(BaseModel):
     run_id: str | None = None
     step_id: str | None = None
     via: str | None = None  # "mcp": done through an AI assistant
+    # An AI summary of a run (summaries.py): {id, text, model}.
+    summary: dict[str, Any] | None = None
     link: str | None = None  # where the thing it's about is (link_for)
 
 
@@ -241,6 +243,9 @@ def link_for(e: m.ActivityEvent, payload: dict, *, task: m.Task | None, has_comm
     head = e.type.split(".", 1)[0]
     if e.type.startswith("library."):
         return _library_link(e.type, payload)
+    if head == "summary" and task is not None:  # the card it's on (a job's: its output)
+        card = f"/projects/{task.project_id}?task={task.id}"
+        return f"{card}&tab=output&job={payload['job_id']}" if _is_uuid(payload.get("job_id")) else card
     if payload.get("run_id"):
         return f"/playbooks?run={payload['run_id']}" + (f"&step={quote(str(payload['step_id']))}" if payload.get("step_id") else "")
     if head == "post":
@@ -294,6 +299,7 @@ async def _enrich(db: DB, events: list[m.ActivityEvent], *, full: bool = False) 
     jobs = await by_id(m.Job, job_ids)
     posts = await by_id(m.ProjectPost, {uuid.UUID(e.payload["post_id"]) for e in events if _is_uuid((e.payload or {}).get("post_id"))})
     agents = await by_id(m.Agent, {j.agent_id for j in jobs.values() if j.agent_id})
+    written = await by_id(m.AiSummary, {uuid.UUID(e.payload["summary_id"]) for e in events if _is_uuid((e.payload or {}).get("summary_id"))})
     # Comment events from before comment ids were recorded: that author's comment on that
     # card nearest the event.
     legacy = [e for e in events if e.type == "comment.created" and not (e.payload or {}).get("comment_id") and e.task_id]
@@ -362,6 +368,11 @@ async def _enrich(db: DB, events: list[m.ActivityEvent], *, full: bool = False) 
                 "agent": agent.name if agent else None,
                 "command": (job.command[:4000] + ("…" if len(job.command) > 4000 else "")) if full else job.command[:300],
             }
+        summary = written.get(uuid.UUID(payload["summary_id"])) if _is_uuid(payload.get("summary_id")) else None
+        if e.type == "summary.written":
+            if summary is None or summary.status != "done":
+                continue  # written again since (that has its own entry) or gone
+            item.summary = {"id": str(summary.id), "text": summary.text, "model": summary.model}
         out.append(item)
     return out
 

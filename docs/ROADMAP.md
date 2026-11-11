@@ -40,12 +40,6 @@ listener, or a log tail:
 
 ## Data and results
 
-### AI summaries of runs
-When a job or playbook run finishes, Castor's AI writes a short summary on the card: what was
-found, what failed and what to look at next. It's based on the parsed results and the end of
-the output, and is just as careful with secrets as the rest of the AI features. It's optional
-per project, with a button to write one again.
-
 ### Better asset detection
 - More parsers mapped to assets: web technologies, TLS details, SMB shares, credentials and
   vulnerabilities from more tools.

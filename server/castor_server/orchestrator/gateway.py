@@ -509,7 +509,11 @@ class AgentGateway:
             if job.output_specs and job.status != m.JobStatus.cancelled:
                 from ..outputs import schedule_parse
 
-                schedule_parse(job.id)
+                schedule_parse(job.id)  # and then its AI summary, if the project wants one
+            elif task is not None and task.playbook_run_id is None and job.status != m.JobStatus.cancelled:
+                from ..summaries import after_job
+
+                after_job(job.id)
             elif task is not None and task.playbook_run_id is not None:
                 from ..orchestrator.dispatcher import dispatcher
                 from ..services import advance_playbook_run

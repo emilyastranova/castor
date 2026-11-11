@@ -55,6 +55,7 @@ PROJECT_TABLES: list[tuple[str, type]] = [
     ("jobs", m.Job),
     ("job_outputs", m.JobOutput),
     ("job_logs", m.JobLogChunk),
+    ("ai_summaries", m.AiSummary),
     ("comments", m.Comment),
     ("attachments", m.Attachment),
     ("notes", m.ProjectNote),
@@ -67,7 +68,7 @@ PROJECT_TABLES: list[tuple[str, type]] = [
     ("asset_trigger_fires", m.AssetTriggerFire),
     ("activity", m.ActivityEvent),
 ]
-JOB_TABLES = {"jobs", "job_outputs", "job_logs"}
+JOB_TABLES = {"jobs", "job_outputs", "job_logs", "ai_summaries"}  # summaries travel with the run history
 
 
 class TransferError(Exception):

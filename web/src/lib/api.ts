@@ -317,6 +317,23 @@ export interface FeedItem {
 	link?: string | null;
 	/** A post written straight into the timeline (type post.created), as it is now. */
 	post?: { id: UUID; body: string; edited: boolean; mentions: string[]; tags: string[]; author_id: UUID | null } | null;
+	/** An AI summary of a run (type summary.written), as it is now. */
+	summary?: { id: UUID; text: string; model: string } | null;
+}
+
+/** What the AI wrote about a finished job or playbook run (server summaries.py). */
+export interface AiSummary {
+	id: UUID;
+	job_id: UUID | null;
+	run_id: UUID | null;
+	task_id: UUID | null;
+	status: 'writing' | 'done' | 'failed';
+	text: string;
+	model: string;
+	error: string;
+	/** Written by itself (the project has summaries on), not asked for. */
+	automatic: boolean;
+	updated_at: string | null;
 }
 
 /** What a moved comment or post became. */
@@ -1244,6 +1261,8 @@ export function api(fetchFn: Fetch = fetch) {
 			list: (status?: JobStatus) => get<Job[]>(`/jobs${status ? `?status=${status}` : ''}`),
 			get: (id: UUID, afterSeq = -1) => get<JobDetail>(`/jobs/${id}?after_seq=${afterSeq}`),
 			cancel: (id: UUID) => post<Job>(`/jobs/${id}/cancel`),
+			summary: (id: UUID) => get<AiSummary | null>(`/jobs/${id}/summary`),
+			summarize: (id: UUID) => post<AiSummary>(`/jobs/${id}/summary`),
 			artifacts: (id: UUID) => get<Attachment[]>(`/jobs/${id}/artifacts`),
 			outputs: (id: UUID) => get<JobOutput[]>(`/jobs/${id}/outputs`),
 			parse: (id: UUID) => post<JobOutput[]>(`/jobs/${id}/outputs/parse`),
@@ -1295,6 +1314,8 @@ export function api(fetchFn: Fetch = fetch) {
 			toYaml: (spec: PlaybookSpec) => post<PlaybookCheck & { yaml: string }>('/playbooks/to-yaml', { spec })
 		},
 		playbookRuns: {
+			summary: (id: UUID) => get<AiSummary | null>(`/playbook-runs/${id}/summary`),
+			summarize: (id: UUID) => post<AiSummary>(`/playbook-runs/${id}/summary`),
 			list: (params?: { project_id?: string; playbook_id?: string; limit?: number }) => {
 				const q = new URLSearchParams();
 				if (params?.project_id) q.set('project_id', params.project_id);

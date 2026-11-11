@@ -135,7 +135,9 @@ RULES: list[tuple[str, str, str]] = [
     ("GET", "/api/tags/agents", "agents:read"),
     ("GET", "/api/tags/library", "library:read"),
     ("*", "/api/agents/**", "agents:rw"),
-    # Jobs and runs
+    # Jobs and runs (summaries are read like the job, written by the AI)
+    ("POST", "/api/jobs/*/summary", "ai:use"),
+    ("POST", "/api/playbook-runs/*/summary", "ai:use"),
     ("POST", "/api/tasks/*/run", "jobs:write"),
     ("GET", "/api/tasks/*/jobs", "jobs:read"),
     ("*", "/api/jobs/**", "jobs:rw"),

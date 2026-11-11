@@ -406,6 +406,11 @@ TOOLS += [
     _auto("delete_tool", "DELETE", "/api/tools/{tool_id}", "Delete a tool.", **_DESTRUCTIVE),
     _auto("check_tool", "POST", "/api/tools/validate", "Check a tool's YAML without saving it."),
     _auto("prepare_tool", "POST", "/api/tools/{tool_id}/prepare", "Get a tool ready on agents now (pull, build or install)."),
+    # AI summaries of finished runs
+    _auto("get_job_summary", "GET", "/api/jobs/{job_id}/summary", "The AI summary of a finished job (null if none).", **_UNTRUSTED),
+    _auto("summarize_job", "POST", "/api/jobs/{job_id}/summary", "Have the AI summarise a finished job (again): found, problems, next.", **_UNTRUSTED),
+    _auto("get_run_summary", "GET", "/api/playbook-runs/{run_id}/summary", "The AI summary of a finished playbook run (null if none).", **_UNTRUSTED),
+    _auto("summarize_run", "POST", "/api/playbook-runs/{run_id}/summary", "Have the AI summarise a finished playbook run (again).", **_UNTRUSTED),
     # Themes (docs/THEME_SPEC.md); changing them needs an admin
     _auto("list_themes", "GET", "/api/themes", "Themes for the web UI people can pick, with their YAML."),
     _auto("check_theme", "POST", "/api/themes/validate", "Check a theme's YAML and compile it, without saving it."),

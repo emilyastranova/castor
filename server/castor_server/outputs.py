@@ -184,6 +184,10 @@ async def parse_job(db: AsyncSession, job: m.Job) -> list[m.JobOutput]:
             _, enqueued = await advance_playbook_run(db, task.playbook_run_id)
             if enqueued:
                 dispatcher.wake()
+        else:
+            from .summaries import after_job
+
+            after_job(job.id)  # with its results read; if the project wants AI summaries
     return results
 
 

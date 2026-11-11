@@ -198,6 +198,12 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   The `ai-resolver-demo` fixture + `demo-trouble` (tests/fixtures) act out five realistic failures (timeout,
   harmless exit 1, renamed flag, prompt injection, missing key) to watch the resolver; run an
   agent with `--allow-host` (the flaky scenarios remember attempt 1 in `$TMPDIR`).
+- AI summaries of runs: `summaries.py` (`after_job` from the gateway or the end of `outputs.parse_job`,
+  `after_run` from `services._settle_run`; automatic only when `projects.settings["ai_summaries"]`, any finished
+  job or run on request), `ai_summaries` (one per job or run, written again in place), `api/summaries.py`
+  (`/api/jobs/{id}/summary`, `/api/playbook-runs/{id}/summary`), chain purpose `summary`. Results go out through
+  `_scrub` (secret-looking keys become `[secret]`); the feed shows `summary.written` (only the latest per summary).
+  Web: `AiSummary.svelte` (Output tab, `RunPanel`), `TimelineItem` `item.summary`, the switch in `ProjectDialog`.
 - Alerts (3k): `alerts.py` (`PRESETS` kinds, each building one request template; `render`
   escapes `{{ var }}` per content type, never format values in yourself; hooks `job_finished`,
   `run_finished`, `decision`, `approval`; `check_long_running` sweep started in `app.py`).

@@ -1004,6 +1004,26 @@ class ParserProposal(Base, TimestampMixin):
     saved_as: Mapped[str] = mapped_column(String(64), default="")
 
 
+class AiSummary(Base, TimestampMixin):
+    """What the AI wrote about a finished job or playbook run (summaries.py): what was found,
+    what failed and what to look at next. One per job or run, written again on request."""
+
+    __tablename__ = "ai_summaries"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    # The card it shows on: the job's card, or the run's card.
+    task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True, index=True)
+    job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), nullable=True, unique=True)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("playbook_runs.id", ondelete="CASCADE"), nullable=True, unique=True)
+    status: Mapped[str] = mapped_column(String(16), default="writing")  # writing | done | failed
+    text: Mapped[str] = mapped_column(Text, default="")
+    model: Mapped[str] = mapped_column(String(200), default="")
+    error: Mapped[str] = mapped_column(Text, default="")
+    # Who asked for it (None: written on its own when the project has summaries on).
+    requested_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+
 class ApiToken(Base):
     """A personal API token (api_tokens.py): acts as its user, narrowed to its scopes and,
     if set, to some projects. Only the SHA-256 of the token is stored."""

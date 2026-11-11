@@ -1,7 +1,8 @@
 <script lang="ts">
 	import type { Client, Project } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
-	import { Button, Dialog, TextField, Select } from '$lib/m3';
+	import { Button, Dialog, TextField, Select, Switch } from '$lib/m3';
+	import { aiStatus } from '$lib/ai.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
 
 	interface Props {
@@ -19,6 +20,8 @@
 	let clientId = $state('');
 	let newClient = $state('');
 	let description = $state('');
+	let summaries = $state(false);
+	$effect(() => void aiStatus.load());
 	let busy = $state(false);
 
 	$effect(() => {
@@ -28,6 +31,7 @@
 			kind = project?.kind ?? 'pipeline';
 			clientId = project?.client_id ?? '';
 			description = project?.description ?? '';
+			summaries = !!project?.settings?.ai_summaries;
 			newClient = '';
 		}
 	});
@@ -44,10 +48,11 @@
 				client_id = c.id;
 			}
 			if (project) {
-				const saved = await api().projects.update(project.id, { codename, name, kind, client_id, description });
+				const settings = { ...project.settings, ai_summaries: summaries };
+				const saved = await api().projects.update(project.id, { codename, name, kind, client_id, description, settings });
 				onsaved?.(saved);
 			} else {
-				const created = await api().projects.create({ codename, name, kind, client_id, description });
+				const created = await api().projects.create({ codename, name, kind, client_id, description, ...(summaries ? { settings: { ai_summaries: true } } : {}) });
 				oncreated?.(created);
 			}
 			open = false;
@@ -77,6 +82,13 @@
 			<TextField label="Client name" bind:value={newClient} required />
 		{/if}
 		<TextField label="Description" bind:value={description} multiline rows={3} />
+		<div>
+			<Switch bind:checked={summaries} label="AI summaries of runs" />
+			<p class="mt-1 body-small text-on-surface-variant">
+				When a command or playbook run finishes, the AI writes a few lines on its card: what was found, what failed and what to look at next.
+				{aiStatus.enabled ? 'It reads the parsed results and the end of the output (secrets stay masked).' : 'Needs an AI model (Settings → AI).'}
+			</p>
+		</div>
 	</form>
 	{#snippet actions()}
 		<Button variant="text" onclick={() => (open = false)}>Cancel</Button>
