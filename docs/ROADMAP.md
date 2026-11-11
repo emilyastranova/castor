@@ -78,17 +78,23 @@ Turn a project's findings into a deliverable:
 - **Findings:** findings with severity, evidence (attachments, output) and status, tied back to
   the cards and assets they came from.
 - **Review:** draft, review and final, with comments.
-- **Export:** to Markdown, HTML and PDF.
+- **Export:** to Markdown, HTML and PDF. A project's timeline already exports to HTML and PDF
+  (Home → Export), which the report export can build on.
 
 ### Renaming library tags
 Card tags (per project) and agent tags can be renamed and merged; library tags (commands and
 playbooks) can't yet, because they live in each definition's YAML and the built-in ones are
 re-read from files at startup.
 
-### Themes
-Beyond the colour seed each person can pick, a few complete looks: high contrast, a denser
-"compact" layout, and themes shipped as CSS files an instance can add to. They'd be built on
-the same Material 3 colour roles, so every page follows.
+### More themes
+Themes are built: a [theme spec](THEME_SPEC.md), AstraLabs as the first built-in, and custom
+themes admins add in Settings → Themes. Still to come:
+- **More looks:** high contrast, and a denser "compact" layout (which needs spacing and size
+  tokens in the spec, not only colours, type and shape).
+- **An instance default:** a theme admins choose for everyone who hasn't picked one, and for the
+  sign-in page on a browser that has never signed in.
+- **Moving themes between instances:** custom themes in library [import and export](https://github.com/emilyastranova/castor/wiki/Import-and-Export).
+- **A contrast check:** the editor warning when text roles fall below 4.5:1 on their surfaces.
 
 ## More
 
