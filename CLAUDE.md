@@ -64,6 +64,8 @@ connections turn it on.
 
 Regenerate the default Material 3 palette: `cd web && node scripts/gen-tokens.mjs '#4f5bd5'`
 writes `src/lib/m3/tokens.css` (committed, do not hand-edit).
+App icons for installing Castor (`static/manifest.webmanifest`, linked from `app.html`) come from `static/favicon.svg`:
+`cd web && sh scripts/gen-icons.sh` writes `static/icons/` (192/512, a maskable 512, Apple's 180; needs ImageMagick 7).
 
 README images (`.github/assets/*.svg`, each in dark and `-light`) are generated with fontTools
 in the app's look (colours from `tokens.css`, Roboto Flex/Mono and Material Symbols, cached in
