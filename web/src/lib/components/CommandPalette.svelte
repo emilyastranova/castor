@@ -101,7 +101,13 @@
 		});
 	});
 	let sections = $derived.by((): SearchGroup[] => {
-		if (typed) return [...(matchingPlaces.length ? [{ type: 'places', label: 'Pages', hits: matchingPlaces, more: false }] : []), ...groups];
+		// The server's best matches lead; then pages whose name matches; then the rest, ranked.
+		if (typed)
+			return [
+				...groups.filter((g) => g.type === 'best'),
+				...(matchingPlaces.length ? [{ type: 'places', label: 'Pages', hits: matchingPlaces, more: false }] : []),
+				...groups.filter((g) => g.type !== 'best')
+			];
 		const recent = palette.open ? palette.recent() : [];
 		return [
 			...(recent.length ? [{ type: 'recent', label: 'Recent', hits: recent, more: false }] : []),

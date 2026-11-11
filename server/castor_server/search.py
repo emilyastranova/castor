@@ -11,6 +11,14 @@ Postgres. Prefix filters narrow it:
     is:mine        yours (assigned to or opened by you; comments that mention you)
     status:failed  a run's status, or a card's latest run
 
+Ranking: every hit is scored (`score`) by how closely its name matches the query (the whole
+query being a thing's exact name or key, an asset's address or domain, a project's codename, a
+username… beats a name that starts with it, which beats a name that contains it, which beats
+text that only mentions it) plus a little for the kind of thing (things before mentions of them).
+Groups are ordered by their best hit, hits within a group by score, and the closest hits are also
+lifted into a "Best match" group at the top. Each query also fetches exact names first
+(`_closest_first`), so an exact match can't fall outside a group's limit.
+
 Never searched: secret values (variable-set secrets live in their own encrypted column),
 passwords, tokens.
 """
@@ -23,7 +31,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import String, and_, cast, false, or_, select, true
+from sqlalchemy import String, and_, case, cast, false, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import models as m
@@ -120,6 +128,45 @@ def _text(column):
     return cast(column, String)
 
 
+def _closest_first(columns: list, terms: list[str]):
+    """An ORDER BY that puts rows whose name is exactly the query first, then those starting
+    with it (before the table's own order)."""
+    if not terms:
+        return case((true(), 2), else_=2)
+    phrase = " ".join(terms)
+    exact = or_(*[func.lower(c) == phrase for c in columns])
+    starts = or_(*[c.ilike(_like(phrase)[1:], escape="\\") for c in columns])
+    return case((exact, 0), (starts, 1), else_=2)
+
+
+# How much each kind counts beyond how closely it matches: things before mentions of them.
+KIND_WEIGHT = {"asset": 8, "project": 8, "card": 6, "person": 6, "agent": 5, "command": 5, "playbook": 5, "tool": 5,
+               "parser": 4, "note": 4, "run": 4, "variable": 3, "post": 3, "comment": 2, "output": 2, "file": 2, "log": 0}
+BEST = 80  # a hit this close is a best match
+
+
+def score(kind: str, hit: dict[str, Any], terms: list[str]) -> int:
+    """How well a hit answers the query (0–108): its name or key exactly the query (100), starting
+    with it (80), or a word of it (70); its name holding every term (60), some (45); only its text (25)."""
+    if not terms:
+        return KIND_WEIGHT.get(kind, 0)
+    phrase = " ".join(terms)
+    names = [str(x).lower() for x in [hit.get("title"), *hit.get("keys", [])] if x]
+    if any(n == phrase for n in names):
+        base = 100
+    elif any(n.startswith(phrase) for n in names):
+        base = 80
+    elif any(phrase in re.split(r"[\s·,/@()\[\]]+", n) for n in names):
+        base = 70
+    elif any(all(t in n for t in terms) for n in names):
+        base = 60
+    elif any(any(t in n for t in terms) for n in names):
+        base = 45
+    else:
+        base = 25
+    return base + KIND_WEIGHT.get(kind, 0)
+
+
 def snippet(text: str | None, terms: list[str], width: int = 80) -> str:
     """The part of a text around the first matching term, on one line."""
     flat = " ".join((text or "").split())
@@ -208,7 +255,7 @@ class Searcher:
         if q.status:
             latest = select(m.Job.status).where(m.Job.task_id == t.id).order_by(m.Job.queued_at.desc()).limit(1).scalar_subquery()
             cond.append(cast(latest, String).ilike(q.status))
-        rows = await self.rows(select(t).where(*cond).order_by(t.updated_at.desc()))
+        rows = await self.rows(select(t).where(*cond).order_by(_closest_first([t.title], q.terms), t.updated_at.desc()))
         out = []
         for (task,) in rows:
             text = next((v for v in (task.title, task.description, task.command, " ".join(task.tags)) if any(x in (v or "").lower() for x in q.terms)), task.description)
@@ -336,12 +383,15 @@ class Searcher:
             return []
         rows = await self.rows(select(a).where(self.in_scope(a.project_id), a.status == "confirmed",
                                                _match([a.label, a.key, _text(a.fields), a.description], q.terms))
-                               .order_by(a.last_seen.desc()))
+                               .order_by(_closest_first([a.key, a.label], q.terms), a.last_seen.desc()))
         out = []
         for (asset,) in rows:
             t = A.TYPES.get(asset.type)
             extra = ", ".join(f"{k}={v}" for k, v in (asset.fields or {}).items() if any(x in f"{k} {v}".lower() for x in q.terms))
-            out.append({"id": str(asset.id), "title": asset.label, "snippet": f"{t.label if t else asset.type}" + (f" · {extra}" if extra else ""),
+            f = asset.fields or {}
+            keys = [asset.key, *(str(f[k]) for k in ("ip", "hostname", "name", "url", "username", "id") if f.get(k))]
+            out.append({"id": str(asset.id), "title": asset.label, "keys": keys,
+                        "snippet": f"{t.label if t else asset.type}" + (f" · {extra}" if extra else ""),
                         "project": self.project_ref(asset.project_id), "at": asset.last_seen, "icon": t.icon if t else "radar",
                         "link": f"/projects/{asset.project_id}/assets?asset={asset.id}"})
         return out
@@ -352,9 +402,10 @@ class Searcher:
             return []
         rows = await self.rows(select(p, m.Client.name).outerjoin(m.Client, m.Client.id == p.client_id)
                                .where(self.in_scope(p.id), _match([p.codename, p.name, p.description, m.Client.name], q.terms))
-                               .order_by(p.updated_at.desc()))
+                               .order_by(_closest_first([p.codename, p.name], q.terms), p.updated_at.desc()))
         return [{
-            "id": str(pr.id), "title": f"{pr.codename} · {pr.name}", "snippet": client or snippet(pr.description, q.terms),
+            "id": str(pr.id), "title": f"{pr.codename} · {pr.name}", "keys": [pr.codename, pr.name],
+            "snippet": client or snippet(pr.description, q.terms),
             "project": None, "at": pr.updated_at, "icon": "view_kanban", "link": f"/projects/{pr.id}",
         } for pr, client in rows]
 
@@ -362,24 +413,25 @@ class Searcher:
         q, p = self.q, m.PlaybookDefinition
         cond = [_match([p.id, p.name, p.description, _text(p.tags)], q.terms)]
         cond += [_text(p.tags).ilike(_like(f'"{tag}"'), escape="\\") for tag in q.tags]
-        rows = await self.rows(select(p).where(*cond).order_by(p.name))
-        return [{"id": pb.id, "title": pb.name, "snippet": pb.description, "project": None, "at": None,
+        rows = await self.rows(select(p).where(*cond).order_by(_closest_first([p.id, p.name], q.terms), p.name))
+        return [{"id": pb.id, "title": pb.name, "keys": [pb.id], "snippet": pb.description, "project": None, "at": None,
                  "icon": "account_tree", "link": f"/playbooks/edit/{pb.id}"} for (pb,) in rows]
 
     async def command(self) -> list[dict[str, Any]]:
         q, c = self.q, m.CommandDefinition
         cond = [_match([c.id, c.name, c.description, _text(c.tags)], q.terms)]
         cond += [_text(c.tags).ilike(_like(f'"{tag}"'), escape="\\") for tag in q.tags]
-        rows = await self.rows(select(c).where(*cond).order_by(c.name))
-        return [{"id": cd.id, "title": cd.name, "snippet": cd.description or cd.id, "project": None, "at": None,
+        rows = await self.rows(select(c).where(*cond).order_by(_closest_first([c.id, c.name], q.terms), c.name))
+        return [{"id": cd.id, "title": cd.name, "keys": [cd.id], "snippet": cd.description or cd.id, "project": None, "at": None,
                  "icon": "menu_book", "link": f"/library?c={cd.id}"} for (cd,) in rows]
 
     async def tool(self) -> list[dict[str, Any]]:
         q, t = self.q, m.ToolDefinition
         if not q.terms:
             return []
-        rows = await self.rows(select(t).where(_match([t.id, t.name, t.description], q.terms)).order_by(t.name))
-        return [{"id": td.id, "title": td.name, "snippet": td.description, "project": None, "at": None,
+        rows = await self.rows(select(t).where(_match([t.id, t.name, t.description], q.terms))
+                               .order_by(_closest_first([t.id, t.name], q.terms), t.name))
+        return [{"id": td.id, "title": td.name, "keys": [td.id], "snippet": td.description, "project": None, "at": None,
                  "icon": "handyman", "link": f"/library?t={td.id}"} for (td,) in rows]
 
     async def parser(self) -> list[dict[str, Any]]:
@@ -417,16 +469,17 @@ class Searcher:
         q, u = self.q, m.User
         if not q.terms:
             return []
-        rows = await self.rows(select(u).where(u.disabled_at.is_(None), _match([u.username, u.display_name], q.terms)).order_by(u.display_name))
-        return [{"id": str(p.id), "title": p.display_name, "snippet": f"@{p.username} · {p.role.value}", "project": None,
+        rows = await self.rows(select(u).where(u.disabled_at.is_(None), _match([u.username, u.display_name], q.terms))
+                               .order_by(_closest_first([u.username, u.display_name], q.terms), u.display_name))
+        return [{"id": str(p.id), "title": p.display_name, "keys": [p.username, f"@{p.username}"], "snippet": f"@{p.username} · {p.role.value}", "project": None,
                  "at": None, "icon": "person", "avatar": p.avatar_url, "link": f"/people/{p.username}"} for (p,) in rows]
 
     async def agent(self) -> list[dict[str, Any]]:
         q, a = self.q, m.Agent
         cond = [_match([a.name, a.hostname, a.os, _text(a.tags)], q.terms)]
         cond += [_text(a.tags).ilike(_like(f'"{tag}"'), escape="\\") for tag in q.tags]
-        rows = await self.rows(select(a).where(*cond).order_by(a.name))
-        return [{"id": str(ag.id), "title": ag.name, "snippet": " · ".join(x for x in (ag.hostname, ag.status.value, ", ".join(ag.tags or [])) if x),
+        rows = await self.rows(select(a).where(*cond).order_by(_closest_first([a.name, a.hostname], q.terms), a.name))
+        return [{"id": str(ag.id), "title": ag.name, "keys": [ag.hostname], "snippet": " · ".join(x for x in (ag.hostname, ag.status.value, ", ".join(ag.tags or [])) if x),
                  "project": None, "at": ag.last_seen_at, "icon": "dns", "link": "/agents"} for (ag,) in rows]
 
 
@@ -438,11 +491,33 @@ async def search(db: AsyncSession, user: m.User, text: str, limit: int = 6) -> d
     searcher = Searcher(db, user, q, limit=25 if single else limit)
     if not await searcher.prepare():
         return {"query": text, "groups": [], "note": f"No project {q.project} that you can see"}
-    groups = []
-    for kind, heading in TYPES:
+    scored: list[tuple[int, int, str, str, list[tuple[int, dict[str, Any]]], bool]] = []
+    for order, (kind, heading) in enumerate(TYPES):
         if not searcher.wants(kind):
             continue
         hits = await getattr(searcher, kind)()
+        if not hits:
+            continue
+        more = len(hits) > searcher.limit
+        # Score what was fetched (a group fetches one past its limit), best first, recency kept on ties.
+        ranked = sorted(((score(kind, h, q.terms), h) for h in hits), key=lambda x: -x[0])
+        scored.append((ranked[0][0], order, kind, heading, ranked, more))
+    # The closest hits of any kind lead, in a group of their own (and leave their own group).
+    best: list[tuple[int, int, dict[str, Any]]] = []
+    if q.terms and not single:
+        for _, order, kind, _, ranked, _ in scored:
+            best += [(s_, order, {**h, "type": kind}) for s_, h in ranked if s_ >= BEST]
+        best = sorted(best, key=lambda x: (-x[0], x[1]))[:3]
+    lifted = {(b[2]["type"], b[2]["id"]) for b in best}
+    groups = []
+    if best:
+        groups.append({"type": "best", "label": "Best match", "hits": [_public(h) for _, _, h in best], "more": False})
+    for top, order, kind, heading, ranked, more in sorted(scored, key=lambda x: (-x[0], x[1])):
+        hits = [_public(h) for _, h in ranked if (kind, h["id"]) not in lifted][: searcher.limit]
         if hits:
-            groups.append({"type": kind, "label": heading, "hits": hits[: searcher.limit], "more": len(hits) > searcher.limit})
+            groups.append({"type": kind, "label": heading, "hits": hits, "more": more})
     return {"query": text, "groups": groups}
+
+
+def _public(hit: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in hit.items() if k != "keys"}

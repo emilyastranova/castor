@@ -23,7 +23,14 @@ def _login(client, auth, role="operator"):
 def _search(client, headers, q):
     r = client.get("/api/search", params={"q": q}, headers=headers)
     assert r.status_code == 200, r.text
-    return {g["type"]: g["hits"] for g in r.json()["groups"]}
+    out: dict = {}
+    for g in r.json()["groups"]:  # best matches back with their kind, first
+        if g["type"] == "best":
+            for h in g["hits"]:
+                out.setdefault(h["type"], []).append(h)
+        else:
+            out.setdefault(g["type"], []).extend(g["hits"])
+    return out
 
 
 def test_parse():
@@ -121,3 +128,23 @@ def test_never_finds_secrets(client, auth):
     assert r.status_code == 201, r.text
     assert not _search(client, auth, secret)
     assert _search(client, auth, r.json()["name"])["variable"]  # the set itself is findable by name
+
+
+def test_an_exact_name_comes_first(client, auth):
+    """Typing a domain exactly finds the domain first, not the comments that mention it."""
+    p = _project(client, auth)
+    name = f"portal-{uuid.uuid4().hex[:5]}.acme-test.com"
+    card = client.post(f"/api/projects/{p['id']}/tasks", json={"title": "Recon"}, headers=auth).json()
+    for i in range(8):
+        client.post(f"/api/tasks/{card['id']}/comments", json={"body": f"Note {i}: {name} answers on 443"}, headers=auth)
+    client.post(f"/api/projects/{p['id']}/assets", json={"type": "domain", "fields": {"name": f"www.{name}"}}, headers=auth)
+    client.post(f"/api/projects/{p['id']}/assets", json={"type": "domain", "fields": {"name": name}}, headers=auth)
+    groups = client.get("/api/search", params={"q": name}, headers=auth).json()["groups"]
+    assert groups[0]["type"] == "best" and groups[0]["hits"][0]["title"] == name and groups[0]["hits"][0]["type"] == "asset"
+    kinds = [g["type"] for g in groups]
+    assert kinds.index("asset") < kinds.index("comment")  # the other domain before the mentions
+    # A word that's only mentioned: no best match, mentions still found.
+    word = f"zebra{uuid.uuid4().hex[:5]}"
+    client.post(f"/api/tasks/{card['id']}/comments", json={"body": f"saw a {word} today"}, headers=auth)
+    groups = client.get("/api/search", params={"q": word}, headers=auth).json()["groups"]
+    assert [g["type"] for g in groups] == ["comment"]

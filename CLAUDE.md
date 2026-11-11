@@ -200,7 +200,8 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `scope_groups(project, asset)` per asset, `?scope=<group>|*|-` on the list, `POST …/scope/add` for one entry.
   Assets have a markdown `description` (PATCH `description`; mentions in it are suggested, source `asset`).
 - Search (Phase 3g): `search.py` (one permission-scoped query per kind of thing over the live
-  tables; add new kinds to `TYPES` and a `Searcher` method) behind `GET /api/search`; web
+  tables; add new kinds to `TYPES` and a `Searcher` method; give hits `keys` (exact identifiers) and order the query
+  with `_closest_first` so `score` can rank them; `KIND_WEIGHT` for the kind; a "best" group leads) behind `GET /api/search`; web
   `CommandPalette.svelte` (Ctrl/Cmd+K, `lib/palette.svelte.ts`). `m3/Select` searches its
   options automatically past 7 (options can have `description`, `group`, `keywords`).
 - AI (3e): `llm.py` (provider `KINDS`, adapters in `call`, httpx only, no SDKs; `complete`
