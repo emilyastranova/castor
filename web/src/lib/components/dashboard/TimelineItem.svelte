@@ -168,13 +168,12 @@
 		{:else if item.kind === 'comment' && item.comment}
 			{@const forMe = !!myId && item.comment.mentions?.includes(myId)}
 			<div class="relative">
-				<!-- Perched: the words wrap around the corner under the legs (a float, which line-clamp's
-				     box layout would ignore, so that comment is clamped by height instead). -->
+				<!-- Shown in full. Perched, the words wrap around the corner under the legs (a float). -->
 				<RichText
 					text={item.comment.body}
 					projectId={item.project?.id}
 					room={perched}
-					class="mt-1.5 rounded-md bg-surface-container px-3.5 py-2.5 body-medium text-on-surface {perched ? 'max-h-[10.5rem] overflow-hidden' : 'line-clamp-6'} {forMe ? 'mentions-me quiet' : ''}"
+					class="mt-1.5 rounded-md bg-surface-container px-3.5 py-2.5 body-medium text-on-surface {forMe ? 'mentions-me quiet' : ''}"
 				/>
 				{#if perched}
 					<!-- The companion sits on the newest comment, legs over its front edge. -->
