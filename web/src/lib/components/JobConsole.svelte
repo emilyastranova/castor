@@ -7,6 +7,7 @@
 	import { Button, Icon, IconButton, Progress } from '$lib/m3';
 	import { duration } from '$lib/format';
 	import { snackbar } from '$lib/snackbar.svelte';
+	import { currentTheme } from '$lib/m3/theme';
 	import type { Terminal as XTerm } from '@xterm/xterm';
 	import type { FitAddon as XFit } from '@xterm/addon-fit';
 	import '@xterm/xterm/css/xterm.css';
@@ -190,10 +191,15 @@
 			]);
 			await document.fonts?.ready; // measure the monospace font once it's loaded
 			if (cancelled || !host) return;
+			// The AstraLabs theme: carbon, bone and an acid cursor, in Martian Mono.
+			const astra = currentTheme().id === 'astralabs';
+			const acid = getComputedStyle(document.documentElement).getPropertyValue('--al-acid').trim() || '#b6ff2e';
 			term = new Terminal({
-				theme: THEME,
-				fontFamily: '"Roboto Mono", ui-monospace, SFMono-Regular, Menlo, monospace',
-				fontSize: 12.5,
+				theme: astra
+					? { ...THEME, background: '#0a0909', foreground: '#ede6e1', cursor: acid, cursorAccent: '#0a0909', selectionBackground: `${acid}47`, black: '#1c1b1a', brightBlack: '#8e8380', red: '#ff5a63', yellow: '#ffa21f' }
+					: THEME,
+				fontFamily: astra ? '"Martian Mono", "Roboto Mono", ui-monospace, monospace' : '"Roboto Mono", ui-monospace, SFMono-Regular, Menlo, monospace',
+				fontSize: astra ? 11.5 : 12.5,
 				lineHeight: 1.25,
 				scrollback: 20000,
 				convertEol: false,
@@ -317,7 +323,7 @@
 <div bind:this={slot} class="flex min-h-0 flex-1 flex-col">
 	<div
 		bind:this={box}
-		class="flex min-h-0 flex-col overflow-hidden bg-[#101418] text-[#e2e8f0] {mode === 'inline'
+		class="job-console flex min-h-0 flex-col overflow-hidden bg-[#101418] text-[#e2e8f0] {mode === 'inline'
 			? 'flex-1 rounded-md'
 			: 'absolute z-30 rounded-xl'} {expanded ? 'inset-0' : ''} {controlling ? 'ring-2 ring-[#6cb6ff]' : ''}"
 		style:top={mode === 'collapsing' ? `${collapseTo.top}px` : undefined}

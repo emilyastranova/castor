@@ -59,7 +59,7 @@
 				<Icon name="notifications" filled={open || notifications.unread > 0} />
 				{@render badge()}
 			</span>
-			<span class="label-medium {open ? 'text-on-surface' : 'text-on-surface-variant'}">Inbox</span>
+			<span class="m3-rail-label label-medium {open ? 'text-on-surface' : 'text-on-surface-variant'}">Inbox</span>
 		{:else}
 			<Icon name="notifications" filled={notifications.unread > 0} />
 			{@render badge()}

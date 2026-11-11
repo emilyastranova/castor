@@ -21,7 +21,7 @@
 			type="button"
 			role="tab"
 			aria-selected={value === tab.id}
-			class="state-layer relative flex h-12 shrink-0 items-center gap-2 px-4 title-small whitespace-nowrap transition-colors {value === tab.id ? 'text-primary' : 'text-on-surface-variant'}"
+			class="m3-tab state-layer relative flex h-12 shrink-0 items-center gap-2 px-4 title-small whitespace-nowrap transition-colors {value === tab.id ? 'text-primary' : 'text-on-surface-variant'}"
 			onclick={() => {
 				value = tab.id;
 				onchange?.(tab.id);
@@ -31,7 +31,7 @@
 			{tab.label}
 			{#if tab.badge}<span class="rounded-full bg-surface-container-highest px-1.5 label-small">{tab.badge}</span>{/if}
 			{#if value === tab.id}
-				<span class="absolute inset-x-3 bottom-0 h-[3px] rounded-t-full bg-primary"></span>
+				<span class="m3-tab-ind absolute inset-x-3 bottom-0 h-[3px] rounded-t-full bg-primary"></span>
 			{/if}
 		</button>
 	{/each}

@@ -159,6 +159,8 @@ async def update_me(body: ProfilePatch, db: DB, user: CurrentUser):
         user.display_name = body.display_name.strip()
     if body.theme_seed is not None:
         user.theme_seed = body.theme_seed.lower()
+    if body.theme is not None:
+        user.theme = body.theme
     if body.companion is not None:
         user.companion = body.companion
     if body.companion_seat is not None:

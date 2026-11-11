@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import './lib/m3/tokens.css';
+@import './lib/m3/themes/astralabs.css';
 
 /* ---------- Sticky-note colors (pinned notes) ----------
    Pastels in light, muted shades in dark, so the themed text colors stay readable on both.

@@ -14,12 +14,31 @@
 		<script>
 			// Apply the saved theme before first paint to avoid a flash.
 			try {
+				const root = document.documentElement;
 				const t = localStorage.getItem('castor.theme');
-				if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+				if (t === 'light' || t === 'dark') root.dataset.theme = t;
+				// A theme (lib/m3/themes.ts): its attribute and fonts, and whether it takes the seed.
+				const skin = JSON.parse(localStorage.getItem('castor.skin') || 'null');
+				if (skin && skin.id) {
+					root.dataset.skin = skin.id;
+					for (const href of skin.fonts || []) {
+						const link = document.createElement('link');
+						link.rel = 'stylesheet';
+						link.href = href;
+						link.dataset.themeFont = href;
+						document.head.appendChild(link);
+					}
+				}
 				const seed = localStorage.getItem('castor.seed');
 				const vars = JSON.parse(localStorage.getItem('castor.seed.vars') || 'null');
-				if (seed && vars && vars.seed === seed) {
-					const root = document.documentElement;
+				const accent = JSON.parse(localStorage.getItem('castor.seed.accent') || 'null');
+				if (skin && skin.seed === 'accent') {
+					// The theme keeps its surfaces; the colour only replaces its accent.
+					if (seed && accent && accent.seed === seed && accent.v === 3) { // v: theme.ts ACCENT_VERSION
+						root.dataset.seed = seed;
+						for (const [name, value] of Object.entries(accent.vars)) root.style.setProperty(name, value);
+					}
+				} else if (seed && vars && vars.seed === seed) {
 					const dark = t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
 					root.dataset.seed = seed;
 					for (const [name, value] of Object.entries(dark ? vars.dark : vars.light)) root.style.setProperty(name, value);

@@ -7,6 +7,8 @@
 	import { ROLE_LABELS } from '$lib/session';
 	import AvatarEditor from './AvatarEditor.svelte';
 	import ThemeColorPicker from './ThemeColorPicker.svelte';
+	import ThemePicker from './ThemePicker.svelte';
+	import { themeById } from '$lib/m3/themes';
 	import CompanionSetup from './CompanionSetup.svelte';
 
 	/** The signed-in user's own account: display name and password. */
@@ -75,9 +77,17 @@
 		<AvatarEditor {user} onchange={() => invalidateAll()} />
 		<TextField label="Display name" bind:value={name} />
 		<div>
+			<p class="mb-2 label-large text-on-surface">Theme</p>
+			<ThemePicker {user} />
+		</div>
+		<div>
 			<p class="mb-2 label-large text-on-surface">Theme colour</p>
-			<ThemeColorPicker {user} />
-			<p class="mt-1.5 body-small text-on-surface-variant">The whole interface is coloured from it, in light and dark. Saved as you pick; only you see it.</p>
+			<ThemeColorPicker {user} defaultColour={themeById(user.theme).defaultColour} />
+			<p class="mt-1.5 body-small text-on-surface-variant">
+				{themeById(user.theme).seed === 'accent'
+					? `It takes the place of ${themeById(user.theme).name}'s accent: primary actions, focus and selection. Saved as you pick; only you see it.`
+					: 'The whole interface is coloured from it, in light and dark. Saved as you pick; only you see it.'}
+			</p>
 		</div>
 		<div class="flex flex-col gap-3 rounded-md bg-surface-container px-3 py-2.5">
 			<div class="flex items-start gap-3">

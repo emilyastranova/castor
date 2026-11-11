@@ -8,7 +8,7 @@
 
 	/** Your Material You colour: every colour role is generated from it, in light and dark.
 	 *  It applies straight away and is saved to your account, so it follows you. */
-	let { user }: { user: User } = $props();
+	let { user, defaultColour = '#4f5bd5' }: { user: User; defaultColour?: string } = $props();
 
 	const PRESETS = [
 		{ seed: '#1a73e8', name: 'Blue' },
@@ -22,7 +22,6 @@
 		{ seed: '#795548', name: 'Brown' },
 		{ seed: '#546e7a', name: 'Slate' }
 	];
-	const DEFAULT = '#4f5bd5'; // what tokens.css is generated from
 
 	// svelte-ignore state_referenced_locally
 	let current = $state(user.theme_seed);
@@ -57,7 +56,7 @@
 		aria-checked={!current}
 		title="Default"
 		class="swatch {!current ? 'chosen' : ''}"
-		style="--c: {DEFAULT}"
+		style="--c: {defaultColour}"
 		onclick={() => pick('')}
 	>
 		{#if !current}<Icon name="check" size={18} />{/if}
@@ -69,7 +68,7 @@
 	{/each}
 	<label class="swatch custom {custom ? 'chosen' : ''}" title="Your own colour" style="--c: {custom ? current : 'transparent'}">
 		<Icon name={custom ? 'check' : 'palette'} size={18} />
-		<input type="color" class="sr-only" value={current || DEFAULT} oninput={(e) => pick((e.currentTarget as HTMLInputElement).value, false)} aria-label="Your own colour" />
+		<input type="color" class="sr-only" value={current || defaultColour} oninput={(e) => pick((e.currentTarget as HTMLInputElement).value, false)} aria-label="Your own colour" />
 	</label>
 </div>
 

@@ -132,3 +132,14 @@ def test_theme_colour_is_per_user(client, auth):
     assert client.get("/api/auth/me", headers=uh).json()["display_name"] == name  # untouched
     assert client.get("/api/auth/me", headers=auth).json()["theme_seed"] == ""  # only theirs
     assert client.patch("/api/auth/me", json={"theme_seed": ""}, headers=uh).json()["theme_seed"] == ""
+
+
+def test_theme_is_per_user_and_keeps_the_colour(client, auth):
+    _, uh = _user(client, auth, "viewer")
+    assert client.get("/api/auth/me", headers=uh).json()["theme"] == ""
+    client.patch("/api/auth/me", json={"theme_seed": "#0b8043"}, headers=uh)
+    r = client.patch("/api/auth/me", json={"theme": "astralabs"}, headers=uh)
+    assert r.status_code == 200 and r.json()["theme"] == "astralabs" and r.json()["theme_seed"] == "#0b8043"
+    assert client.patch("/api/auth/me", json={"theme": "neon"}, headers=uh).status_code == 422
+    assert client.get("/api/auth/me", headers=auth).json()["theme"] == ""  # only theirs
+    assert client.patch("/api/auth/me", json={"theme": ""}, headers=uh).json()["theme"] == ""

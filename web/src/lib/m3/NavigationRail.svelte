@@ -36,7 +36,8 @@
 				aria-current={active(item) ? 'page' : undefined}
 			>
 				<span
-					class="state-layer relative flex h-8 w-14 items-center justify-center rounded-full transition-colors group-focus-visible:outline-3 group-focus-visible:outline-offset-2 group-focus-visible:outline-secondary {active(item)
+					data-active={active(item) || undefined}
+					class="m3-rail-ind state-layer relative flex h-8 w-14 items-center justify-center rounded-full transition-colors group-focus-visible:outline-3 group-focus-visible:outline-offset-2 group-focus-visible:outline-secondary {active(item)
 						? 'bg-secondary-container text-on-secondary-container'
 						: 'text-on-surface-variant group-hover:text-on-surface'}"
 				>
@@ -45,7 +46,7 @@
 						<span class="absolute -top-1 right-2 min-w-4 rounded-full bg-error px-1 text-center text-on-error label-small">{item.badge}</span>
 					{/if}
 				</span>
-				<span class="label-medium shorter:sr-only {active(item) ? 'text-on-surface' : 'text-on-surface-variant'}">{item.label}</span>
+				<span class="m3-rail-label label-medium shorter:sr-only {active(item) ? 'text-on-surface' : 'text-on-surface-variant'}">{item.label}</span>
 			</a>
 		{/each}
 	</div>

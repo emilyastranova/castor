@@ -14,7 +14,7 @@
 		user: { display_name: string; username: string; role: string; avatar_url?: string | null };
 		dark: boolean;
 		onaccount: () => void;
-		ontheme: () => void;
+		ontheme?: () => void;
 		onlogout: () => void;
 	}
 	let { items, current, user, dark, onaccount, ontheme, onlogout }: Props = $props();
@@ -42,14 +42,15 @@
 
 {#snippet item(icon: string, label: string, on: boolean, alert = false)}
 	<span
-		class="state-layer relative flex h-8 w-14 items-center justify-center rounded-full transition-colors group-focus-visible:outline-3 group-focus-visible:outline-offset-2 group-focus-visible:outline-secondary {on
+		data-active={on || undefined}
+		class="m3-rail-ind state-layer relative flex h-8 w-14 items-center justify-center rounded-full transition-colors group-focus-visible:outline-3 group-focus-visible:outline-offset-2 group-focus-visible:outline-secondary {on
 			? 'bg-secondary-container text-on-secondary-container'
 			: 'text-on-surface-variant'}"
 	>
 		<Icon name={icon} filled={on} />
 		{#if alert}<span class="absolute top-0.5 right-2.5 size-2 rounded-full bg-error" aria-hidden="true"></span>{/if}
 	</span>
-	<span class="label-medium {on ? 'text-on-surface' : 'text-on-surface-variant'}">{label}</span>
+	<span class="m3-rail-label label-medium {on ? 'text-on-surface' : 'text-on-surface-variant'}">{label}</span>
 {/snippet}
 
 <nav
@@ -134,11 +135,13 @@
 				<Icon name="key" class="text-on-surface-variant" />API tokens
 			</a>
 		</li>
+		{#if ontheme}
 		<li>
 			<button type="button" class="state-layer focus-ring flex h-12 w-full items-center gap-4 rounded-lg px-3 body-large text-on-surface" onclick={ontheme}>
 				<Icon name={dark ? 'light_mode' : 'dark_mode'} class="text-on-surface-variant" />{dark ? 'Light theme' : 'Dark theme'}
 			</button>
 		</li>
+		{/if}
 		<li>
 			<button type="button" class="state-layer focus-ring flex h-12 w-full items-center gap-4 rounded-lg px-3 body-large text-on-surface" onclick={() => then(onlogout)}>
 				<Icon name="logout" class="text-on-surface-variant" />Sign out

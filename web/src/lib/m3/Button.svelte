@@ -37,7 +37,7 @@
 		elevated: 'bg-surface-container-low text-primary shadow-e1 hover:shadow-e2',
 		danger: 'bg-error text-on-error hover:shadow-e1'
 	};
-	let cls = $derived(`${base} ${variants[variant]} ${icon ? 'pl-4' : ''} ${trailingIcon ? 'pr-4' : ''} ${klass}`);
+	let cls = $derived(`m3-btn m3-btn-${variant} ${base} ${variants[variant]} ${icon ? 'pl-4' : ''} ${trailingIcon ? 'pr-4' : ''} ${klass}`);
 </script>
 
 {#if href}

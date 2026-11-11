@@ -307,6 +307,13 @@ dependency; keep it that way so the agent stays trivially installable on target 
   `data-theme` on `<html>`, see `m3/theme.ts`); use the role tokens so light/dark both work.
   Each user can recolour every role from a seed (`users.theme_seed`, `m3/theme.ts` `applySeed`,
   `ThemeColorPicker`), so never hard-code a colour that should follow the theme.
+  Themes (`users.theme`, `m3/themes.ts` + `m3/themes/<id>.css`, server `schemas.ThemeId`): a theme is
+  unlayered CSS scoped to `:root[data-skin='<id>']` over the role tokens and the `m3-*` hook classes on
+  the components (`m3-btn-<variant>`, `m3-tab`, `m3-switch`, `m3-rail-ind`, `m3-snackbar`, `m3-dialog`), plus
+  the fonts it loads; `app.html` applies the saved one before first paint. A theme may be dark only, and its
+  `seed` says what the person's theme colour recolours: every role (`palette`) or just its accent (`accent`,
+  `theme.ts` `accent()`, the `--al-acid` family). AstraLabs (after astralabs.dev/design; Martian Mono in `static/fonts`, OFL) squares
+  every corner and swaps elevation for rule hairlines; add a new component's hook class if a theme needs it.
 - `lib/api.ts` is the typed client; pass SvelteKit's `fetch` in load functions
   (`api(fetch)`). `hooks.server.ts` rewrites server-side `/api/*` fetches to
   `API_INTERNAL_URL` and forwards the session cookie.

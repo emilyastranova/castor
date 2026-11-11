@@ -6,7 +6,8 @@
 	import { goto, invalidateAll } from '$app/navigation';
 	import { NavigationRail, Snackbar, Icon, IconButton, Menu, MenuItem, Avatar } from '$lib/m3';
 	import { realtime } from '$lib/realtime.svelte';
-	import { applySeed, getSeed, initTheme, toggleMode, isDark } from '$lib/m3/theme';
+	import { applySeed, applyTheme, currentTheme, getSeed, initTheme, toggleMode, isDark } from '$lib/m3/theme';
+	import { themeById } from '$lib/m3/themes';
 	import { api } from '$lib/api';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import ConfirmHost from '$lib/components/ConfirmHost.svelte';
@@ -47,6 +48,13 @@
 		const seed = data.user?.theme_seed;
 		if (seed !== undefined && (seed || null) !== getSeed()) void applySeed(seed || null);
 	});
+	// …and so does its theme. A dark-only theme has no light/dark switch.
+	$effect(() => {
+		const theme = data.user?.theme;
+		if (theme !== undefined && theme !== currentTheme().id) applyTheme(theme);
+		dark = isDark();
+	});
+	let darkOnly = $derived(themeById(data.user?.theme).darkOnly);
 
 	$effect.pre(() => {
 		if (data.user) currentProject.init(data.user.id);
@@ -115,14 +123,14 @@
 						</span>
 					{/if}
 					<NotificationBell />
-					<IconButton
+					{#if !darkOnly}<IconButton
 						icon={dark ? 'light_mode' : 'dark_mode'}
 						label="Toggle theme"
 						onclick={() => {
 							toggleMode();
 							dark = isDark();
 						}}
-					/>
+					/>{/if}
 					<Menu side>
 						{#snippet anchor()}
 							<button type="button" class="focus-ring rounded-full" aria-label="Account menu">
@@ -151,10 +159,12 @@
 			user={data.user}
 			{dark}
 			onaccount={() => (accountOpen = true)}
-			ontheme={() => {
-				toggleMode();
-				dark = isDark();
-			}}
+			ontheme={darkOnly
+				? undefined
+				: () => {
+						toggleMode();
+						dark = isDark();
+					}}
 			onlogout={logout}
 		/>
 	</div>

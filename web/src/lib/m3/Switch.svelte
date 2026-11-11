@@ -15,7 +15,7 @@
 		role="switch"
 		aria-checked={checked}
 		{disabled}
-		class="focus-ring relative h-8 w-13 shrink-0 rounded-full border-2 transition-colors {checked
+		class="m3-switch focus-ring relative h-8 w-13 shrink-0 rounded-full border-2 transition-colors {checked
 			? 'border-primary bg-primary'
 			: 'border-outline bg-surface-container-highest'}"
 		onclick={() => {
@@ -24,7 +24,7 @@
 		}}
 	>
 		<span
-			class="absolute top-1/2 flex -translate-y-1/2 items-center justify-center rounded-full shadow-e1 transition-all {checked
+			class="m3-switch-thumb absolute top-1/2 flex -translate-y-1/2 items-center justify-center rounded-full shadow-e1 transition-all {checked
 				? 'left-[22px] size-6 bg-on-primary text-on-primary-container'
 				: 'left-1 size-4 bg-outline'}"
 		>

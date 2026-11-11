@@ -60,7 +60,7 @@
 <dialog
 	bind:this={dialog}
 	tabindex="-1"
-	class="m-auto outline-none max-h-[calc(100dvh-2rem)] overflow-hidden rounded-xl bg-surface-container-high p-0 text-on-surface shadow-e3 backdrop:bg-scrim/40 open:flex open:flex-col {sizes[size]}"
+	class="m3-dialog m-auto outline-none max-h-[calc(100dvh-2rem)] overflow-hidden rounded-xl bg-surface-container-high p-0 text-on-surface shadow-e3 backdrop:bg-scrim/40 open:flex open:flex-col {sizes[size]}"
 	onclose={close}
 	onkeydown={(e) => {
 		// Handle Escape here and cancel the key, rather than relying on the browser's close
