@@ -4,6 +4,16 @@ What's planned for Castor, grouped by area rather than by date. Nothing here is 
 in a fixed order. What's already built is in [the wiki](https://github.com/emilyastranova/castor/wiki)
 and, for how it works, [ARCHITECTURE.md](ARCHITECTURE.md#milestones).
 
+## Plugins
+
+### A plugin system
+Let anyone extend Castor, the way Obsidian's community plugins work: plugins that add library
+content, actions on cards and assets, event handlers, hooks, settings and panels in the UI,
+published in a public directory and installed by admins. They run sandboxed (a Deno process with
+only the permissions they declare); one that needs more is marked unmistakably and stays off until
+an admin allows unrestricted plugins. The design and phases are in [PLUGINS.md](PLUGINS.md); the
+first plugin is a Nessus import, then Shodan enrichment and a BloodHound bridge.
+
 ## People and access
 
 ### SAML sign-on

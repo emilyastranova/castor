@@ -279,3 +279,63 @@ def test_mcp_work_shows_in_the_feed(client, auth):
     edit = next(i for i in items if i["type"] == "task.updated")
     assert "title" in edit["message"] and "priority" in edit["message"]
     client.delete(f"/api/commands/{cid}", headers=auth)
+
+
+def test_an_assistant_works_with_relationships(client, auth):
+    """Everything the Relationships tab and an asset's dialog do, through MCP: kinds, recording,
+    filtering, searching, notes, triggers on new ones, and removing them."""
+    writer = _token(client, auth, scopes=["projects:write", "assets:write"])
+
+    def call(tool, **args):
+        out = _rpc(client, writer, "tools/call", {"name": tool, "arguments": args})["result"]
+        assert not out["isError"], out
+        text = out["content"][0]["text"]
+        return None if text == "Done." else json.loads(text.removeprefix(mcp.UNTRUSTED))  # list_assets and links carry the note
+
+    tools = {t["name"]: t for t in _rpc(client, writer, "tools/list")["result"]["tools"]}
+    for name in ("list_link_kinds", "list_asset_links", "link_assets", "update_asset_link", "unlink_assets"):
+        assert name in tools, name
+    link_in = tools["link_assets"]["inputSchema"]
+    assert {"asset_id", "kind", "to_id"} <= set(link_in["required"]) and link_in["properties"]["direction"]["enum"] == ["out", "in"]
+    assert "linked" in tools["create_asset_trigger"]["inputSchema"]["properties"]["on_event"]["enum"]
+
+    p = call("create_project", codename=f"MR-{uuid.uuid4().hex[:6]}", name="Relations", kind="internal")
+    host = call("add_asset", project_id=p["id"], type="host", fields={"ip": "10.60.0.5", "hostname": "dc01"})
+    other = call("add_asset", project_id=p["id"], type="host", fields={"ip": "10.60.0.6"})
+    cred = call("add_asset", project_id=p["id"], type="credential", fields={"username": "svc", "domain": "CORP"}, secret="x")
+    user = call("add_asset", project_id=p["id"], type="user", fields={"username": "svc", "domain": "CORP"})
+
+    kinds = {k["name"]: k for k in call("list_link_kinds")}
+    assert kinds["admin_on"]["reverse"] == "has admin"
+    call("create_asset_trigger", project_id=p["id"], name="Where a login works", asset_type="credential", on_event="linked",
+         link_kind="valid_on", other_type="host", action="command", target="nmap-ping-sweep", args={"targets": "{{ other.ip }}"})
+
+    works = call("link_assets", asset_id=cred["id"], kind="valid_on", to_id=host["id"], note="tried by hand", fields={"protocol": "smb"})
+    assert works["label"] == "works on" and works["note"] == "tried by hand" and works["fields"] == {"protocol": "smb"}
+    call("link_assets", asset_id=host["id"], kind="admin_on", to_id=user["id"], direction="in")  # from the host's side
+    call("link_assets", asset_id=cred["id"], kind="belongs_to", to_id=user["id"])
+    wrong = _rpc(client, writer, "tools/call", {"name": "link_assets", "arguments": {"asset_id": host["id"], "kind": "valid_on", "to_id": cred["id"]}})
+    assert wrong["result"]["isError"] and "credential → host" in wrong["result"]["content"][0]["text"]
+
+    listed = call("list_asset_links", project_id=p["id"])
+    assert listed["counts"] == {"valid_on": 1, "admin_on": 1, "belongs_to": 1}
+    assert [x["kind"] for x in call("list_asset_links", project_id=p["id"], q="dc01 admin")["items"]] == ["admin_on"]
+    assert call("list_asset_links", project_id=p["id"], kind="belongs_to")["total"] == 1
+    assert call("list_asset_links", project_id=p["id"], asset=other["id"])["total"] == 0
+    hosts = call("list_assets", project_id=p["id"], type="host", where="has_admin:*")["items"]
+    assert [h["id"] for h in hosts] == [host["id"]]
+    assert [h["id"] for h in call("list_assets", project_id=p["id"], type="host", where="accepts!=*")["items"]] == [other["id"]]
+    seen = call("get_asset", asset_id=host["id"])
+    assert {lk["label"] for lk in seen["links"]} == {"accepts", "has admin"}
+
+    fires = call("list_trigger_fires", project_id=p["id"])
+    assert [(f["asset"]["id"], f["other"]["id"]) for f in fires] == [(cred["id"], host["id"])]  # the new login fired it
+
+    assert call("update_asset_link", link_id=works["id"], note="SMB and WinRM")["note"] == "SMB and WinRM"
+    call("unlink_assets", link_id=works["id"])
+    assert call("list_asset_links", project_id=p["id"])["total"] == 2
+
+    # Reading needs only assets:read; changing them isn't offered to such a token.
+    reader = _token(client, auth, scopes=["assets:read"])
+    names = {t["name"] for t in _rpc(client, reader, "tools/list")["result"]["tools"]}
+    assert {"list_link_kinds", "list_asset_links"} <= names and not {"link_assets", "unlink_assets"} & names
