@@ -7,6 +7,7 @@ export const SECTIONS = [
 	{ href: '/settings/sso', icon: 'login', label: 'Sign-on', detail: 'Single sign-on and passwords' },
 	{ href: '/settings/tokens', icon: 'key', label: 'API tokens', detail: "Everyone's personal tokens" },
 	{ href: '/settings/themes', icon: 'palette', label: 'Themes', detail: 'Looks people can pick' },
+	{ href: '/settings/plugins', icon: 'extension', label: 'Plugins', detail: 'What Castor can do, extended' },
 	{ href: '/settings/alerts', icon: 'campaign', label: 'Alerts', detail: 'Chat and webhook channels' },
 	{ href: '/settings/ai', icon: 'auto_awesome', label: 'AI', detail: 'Providers, models and fallbacks' },
 	{ href: '/settings/activity', icon: 'history', label: 'Activity log', detail: 'Everything, across projects' },

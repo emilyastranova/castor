@@ -11,8 +11,10 @@ Let anyone extend Castor, the way Obsidian's community plugins work: plugins tha
 content, actions on cards and assets, event handlers, hooks, settings and panels in the UI,
 published in a public directory and installed by admins. They run sandboxed (a Deno process with
 only the permissions they declare); one that needs more is marked unmistakably and stays off until
-an admin allows unrestricted plugins. The design and phases are in [PLUGINS.md](PLUGINS.md); the
-first plugin is a Nessus import, then Shodan enrichment and a BloodHound bridge.
+an admin allows unrestricted plugins. The design and phases are in [PLUGINS.md](PLUGINS.md).
+Phase A is built (sandboxed plugins with actions, settings and storage, Settings → Plugins, and the
+Nessus import); next are events and declared network access (Shodan enrichment), then UI panels
+(a BloodHound bridge), unrestricted plugins and the public directory.
 
 ## People and access
 

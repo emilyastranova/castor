@@ -27,6 +27,7 @@ dependencies = [
   "markdown-it-py>=3",  # markdown in exports
   "nh3>=0.2",  # sanitising that markdown
   "tzdata",  # time zones where the system has none (the slim image)
+  "deno>=2.9,<3",  # runs plugins, each in its own sandboxed process (plugin_runtime.py)
 ]
 
 [project.optional-dependencies]
@@ -44,7 +45,7 @@ build-backend = "setuptools.build_meta"
 include = ["castor_server*"]
 
 [tool.setuptools.package-data]
-castor_server = ["migrations/script.py.mako", "parser_samples/*"]
+castor_server = ["migrations/script.py.mako", "parser_samples/*", "plugin_sdk/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

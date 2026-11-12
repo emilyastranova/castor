@@ -62,32 +62,70 @@
 	function build(links: AssetLink[]) {
 		const old = new Map(nodes.map((n) => [n.id, n]));
 		const byId = new Map<UUID, Node>();
-		const add = (e: AssetEnd, i: number) => {
+		const add = (e: AssetEnd) => {
 			let n = byId.get(e.id);
 			if (n) return n;
 			if (byId.size >= MAX_NODES) return null;
 			const prev = old.get(e.id);
-			// A golden-angle spiral: a stable, even start.
-			const r = 30 * Math.sqrt(i + 1);
-			const t = i * 2.39996;
-			n = prev ? { ...prev, ...e, degree: 0 } : { ...e, x: r * Math.cos(t), y: r * Math.sin(t), vx: 0, vy: 0, pinned: false, degree: 0 };
+			n = prev ? { ...prev, ...e, degree: 0 } : { ...e, x: NaN, y: NaN, vx: 0, vy: 0, pinned: false, degree: 0 };
 			byId.set(e.id, n);
 			return n;
 		};
 		const list: Edge[] = [];
-		links.forEach((l, i) => {
-			const a = add(l.from, i * 2);
-			const b = add(l.to, i * 2 + 1);
-			if (!a || !b) return;
+		for (const l of links) {
+			const a = add(l.from);
+			const b = add(l.to);
+			if (!a || !b) continue;
 			a.degree++;
 			b.degree++;
 			list.push({ link: l, a, b });
-		});
+		}
+		place([...byId.values()], list);
 		capped = byId.size >= MAX_NODES;
 		nodes = [...byId.values()];
 		edges = list;
 		if (selected && !byId.has(selected)) selected = null;
 		heat(old.size ? 0.5 : 1);
+	}
+
+	/** Starting places for new nodes: each cluster grows out from its best-connected node (a host
+	 *  with its services, their vulnerabilities around them), and clusters sit on a spiral. Starting
+	 *  near the right place is most of a tidy layout for big imports. */
+	function place(all: Node[], list: Edge[]) {
+		const near = new Map<UUID, Node[]>();
+		for (const { a, b } of list) {
+			(near.get(a.id) ?? near.set(a.id, []).get(a.id)!).push(b);
+			(near.get(b.id) ?? near.set(b.id, []).get(b.id)!).push(a);
+		}
+		const todo = all.filter((n) => Number.isNaN(n.x)).sort((x, y) => y.degree - x.degree);
+		let cluster = 0;
+		for (const root of todo) {
+			if (!Number.isNaN(root.x)) continue;
+			const placedNear = (near.get(root.id) ?? []).find((m) => !Number.isNaN(m.x));
+			if (placedNear) {
+				root.x = placedNear.x + (Math.random() - 0.5) * 40;
+				root.y = placedNear.y + (Math.random() - 0.5) * 40;
+			} else {
+				const r = 260 * Math.sqrt(cluster);
+				const t = cluster * 2.39996;
+				root.x = r * Math.cos(t);
+				root.y = r * Math.sin(t);
+				cluster++;
+			}
+			// Breadth-first: each node's unplaced neighbours on a ring around it.
+			const queue = [root];
+			while (queue.length) {
+				const at = queue.shift()!;
+				const fresh = (near.get(at.id) ?? []).filter((m) => Number.isNaN(m.x));
+				fresh.forEach((m, i) => {
+					const t = (i / fresh.length) * Math.PI * 2 + Math.random() * 0.3;
+					const r = 55 + Math.min(fresh.length, 20) * 3;
+					m.x = at.x + r * Math.cos(t);
+					m.y = at.y + r * Math.sin(t);
+					queue.push(m);
+				});
+			}
+		}
 	}
 
 	// ---- the simulation ----
@@ -139,7 +177,7 @@
 			n.x += Math.max(-40, Math.min(40, n.vx));
 			n.y += Math.max(-40, Math.min(40, n.vy));
 		}
-		alpha *= 0.985;
+		alpha *= 0.99;
 	}
 	function heat(to: number) {
 		alpha = Math.max(alpha, to);

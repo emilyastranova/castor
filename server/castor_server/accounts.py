@@ -27,7 +27,8 @@ async def ensure_active_admin(db: AsyncSession) -> m.User | None:
     that re-enable the longest-standing user. Returns the user it changed. Commits."""
     if await active_admins(db):
         return None
-    users = (await db.execute(select(m.User).order_by(m.User.created_at, m.User.username))).scalars().all()
+    users = (await db.execute(select(m.User).where(m.User.plugin_id.is_(None))
+                              .order_by(m.User.created_at, m.User.username))).scalars().all()
     if not users:
         return None
     chosen = next((u for u in users if u.disabled_at is None), users[0])

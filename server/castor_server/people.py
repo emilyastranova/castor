@@ -28,7 +28,8 @@ async def project_people(db: AsyncSession, project_id: uuid.UUID) -> list[m.User
     )
     rows = await db.execute(
         select(m.User)
-        .where(m.User.disabled_at.is_(None), (m.User.role == m.UserRole.admin) | m.User.id.in_(members) | m.User.id.in_(via_groups))
+        .where(m.User.disabled_at.is_(None), m.User.plugin_id.is_(None),
+               (m.User.role == m.UserRole.admin) | m.User.id.in_(members) | m.User.id.in_(via_groups))
         .order_by(m.User.display_name)
     )
     return list(rows.scalars())

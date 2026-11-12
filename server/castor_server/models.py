@@ -145,6 +145,9 @@ class User(Base, TimestampMixin):
     # Their theme (a theme_definitions id): "" is Castor's own Material look; None (never picked)
     # follows the instance default (app_settings.default_theme).
     theme: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
+    # Set for a plugin's service account (plugins.py): the plugin it acts for. Such users never sign
+    # in, aren't listed as people, and see the projects the plugin is enabled in.
+    plugin_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     # The Companion who sits on the newest comment in a timeline; off unless they turn her on.
     companion: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     # Their own companion picture (avatars.companion_dir), or "" for the built-in one, and where
@@ -1156,3 +1159,94 @@ class AiCall(Base):
     ms: Mapped[int] = mapped_column(Integer, default=0)
     user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+
+
+class Plugin(Base, TimestampMixin):
+    """An installed plugin (docs/PLUGINS.md): its manifest, where it came from, what an admin
+    approved, its settings, and the service account it acts as."""
+
+    __tablename__ = "plugins"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    version: Mapped[str] = mapped_column(String(40))
+    publisher: Mapped[str] = mapped_column(String(80), default="", server_default="")
+    description: Mapped[str] = mapped_column(Text, default="", server_default="")
+    manifest: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    runtime: Mapped[str] = mapped_column(String(16), default="sandboxed", server_default="sandboxed")
+    # upload:<file name> or the URL it was installed from; the release's SHA-256.
+    source: Mapped[str] = mapped_column(String(500), default="", server_default="")
+    checksum: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    # Where its files are, under <data_dir>/plugins.
+    path: Mapped[str] = mapped_column(String(300))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Enabled in every project, or only those in plugin_projects.
+    all_projects: Mapped[bool] = mapped_column(Boolean, default=False)
+    # What the admin approved: {permissions, network, events}. Runs with no more than this.
+    granted: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    settings: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    # Secret settings, each vault-encrypted.
+    secrets: Mapped[dict[str, str]] = mapped_column(JSONType, default=dict)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # stopped | starting | running | crashed | error
+    status: Mapped[str] = mapped_column(String(16), default="stopped", server_default="stopped")
+    status_message: Mapped[str] = mapped_column(Text, default="", server_default="")
+    installed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+
+class PluginProject(Base):
+    """A project a plugin is enabled in."""
+
+    __tablename__ = "plugin_projects"
+
+    plugin_id: Mapped[str] = mapped_column(ForeignKey("plugins.id", ondelete="CASCADE"), primary_key=True)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True, index=True)
+
+
+class PluginStorage(Base):
+    """A plugin's own key-value space: instance-wide (scope "") or per project (its id)."""
+
+    __tablename__ = "plugin_storage"
+    __table_args__ = (UniqueConstraint("plugin_id", "scope", "key", name="uq_plugin_storage"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    plugin_id: Mapped[str] = mapped_column(ForeignKey("plugins.id", ondelete="CASCADE"), index=True)
+    scope: Mapped[str] = mapped_column(String(36), default="")
+    key: Mapped[str] = mapped_column(String(200))
+    value: Mapped[Any] = mapped_column(JSONType, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+
+
+class PluginRun(Base):
+    """One time someone ran a plugin's action: what on, with which file, how it went."""
+
+    __tablename__ = "plugin_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    plugin_id: Mapped[str] = mapped_column(ForeignKey("plugins.id", ondelete="CASCADE"), index=True)
+    action: Mapped[str] = mapped_column(String(64))
+    project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True)
+    task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
+    asset_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("assets.id", ondelete="SET NULL"), nullable=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="running")  # running | succeeded | failed
+    message: Mapped[str] = mapped_column(Text, default="")
+    # {done, total, text} as the plugin reports it.
+    progress: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    file_name: Mapped[str] = mapped_column(String(255), default="")
+    file_size: Mapped[int] = mapped_column(Integer, default=0)
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
+class PluginLog(Base):
+    """What a plugin logged (and printed), newest kept; plugins.prune_logs caps it."""
+
+    __tablename__ = "plugin_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    plugin_id: Mapped[str] = mapped_column(ForeignKey("plugins.id", ondelete="CASCADE"), index=True)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("plugin_runs.id", ondelete="CASCADE"), nullable=True, index=True)
+    level: Mapped[str] = mapped_column(String(8), default="info")  # debug | info | warn | error
+    message: Mapped[str] = mapped_column(Text)
+    at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)

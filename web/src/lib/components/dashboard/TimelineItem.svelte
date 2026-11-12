@@ -40,6 +40,7 @@
 		agent: { icon: 'dns', tone: 'bg-surface-container-highest text-on-surface-variant' },
 		note: { icon: 'push_pin', tone: 'bg-tertiary-container text-on-tertiary-container' },
 		asset: { icon: 'radar', tone: 'bg-primary-container text-on-primary-container' },
+		plugin: { icon: 'extension', tone: 'bg-secondary-container text-on-secondary-container' },
 		admin: { icon: 'shield_person', tone: 'bg-surface-container-highest text-on-surface-variant' }
 	};
 	const JOB: Record<string, { icon: string; text: string; label: string }> = {

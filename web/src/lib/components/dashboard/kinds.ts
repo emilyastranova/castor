@@ -13,9 +13,10 @@ export const ALL_KINDS: { kind: FeedKind; label: string; icon: string }[] = [
 	{ kind: 'file', label: 'Files', icon: 'attach_file' },
 	{ kind: 'note', label: 'Notes', icon: 'push_pin' },
 	{ kind: 'asset', label: 'Assets', icon: 'radar' },
+	{ kind: 'plugin', label: 'Plugins', icon: 'extension' },
 	{ kind: 'agent', label: 'Agents', icon: 'dns' },
 	{ kind: 'admin', label: 'Admin', icon: 'shield_person' }
 ];
 
 /** What the timeline shows by default: the work, not note edits, agent connections or admin. */
-export const WORK: FeedKind[] = ['comment', 'job', 'card', 'playbook', 'library', 'file', 'asset'];
+export const WORK: FeedKind[] = ['comment', 'job', 'card', 'playbook', 'library', 'file', 'asset', 'plugin'];

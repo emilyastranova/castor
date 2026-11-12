@@ -84,7 +84,8 @@ async def team(db: DB, user: CurrentUser):
     """Everyone active, with their open assigned cards and when they last did something
     (both counted in the projects the viewer can see)."""
     scope = await visible_project_ids(db, user)
-    people = (await db.execute(select(m.User).where(m.User.disabled_at.is_(None)).order_by(m.User.display_name))).scalars().all()
+    people = (await db.execute(select(m.User).where(m.User.disabled_at.is_(None), m.User.plugin_id.is_(None))
+                               .order_by(m.User.display_name))).scalars().all()
     ids = [p.id for p in people]
     assigned = await _open_assigned(db, scope, ids)
     active = await _last_active(db, scope, ids)

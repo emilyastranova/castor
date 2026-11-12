@@ -268,6 +268,14 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   Web: `ExportDialog`, `ImportDialog`, `LibraryTransfer`, `routes/settings/transfer`.
   Duplicating a card (3m), `services.duplicate_task`, reuses `values_for`/`remap`; a new
   table hanging off a card must decide whether a duplicate copies it.
+- Plugins (phase A of docs/PLUGINS.md): `plugin_manifest.py`, `plugin_package.py`, `plugin_runtime.py` (Deno, one
+  process per plugin, sandboxed: no permissions but the SDK over stdin/stdout; `check_graph` refuses imports from outside
+  its folder; never run plugin code as Python), `plugins.py` (service account = a user with `plugin_id`, seeing the
+  plugin's projects through `access.member_project_ids`, kept out of people lists and sign-in; a fresh token per start
+  with the approved scopes; `handle_call` answers the plugin), `api/plugins.py`, SDK `plugin_sdk/mod.ts` (shipped as
+  package data). Web: `routes/settings/plugins`, `PluginInstallDialog`, `PluginDialog`, `PluginActions` (project, card
+  menu, asset dialog) and `lib/plugins.svelte.ts`. Official plugins in `plugins/` (`nessus-import` with Deno tests:
+  `deno task test`; `pack.py`). `tests/test_plugins.py` runs real Deno plugins (skipped without Deno).
 - Instance settings admins change in the UI: `app_settings.py` (`AppSettings` fields are the
   keys and defaults), `api/app_settings.py`; web `lib/appSettings.svelte.ts`,
   `routes/settings/general`. Env-level config stays in `config.py`.

@@ -62,7 +62,7 @@ def _brief(a: m.Asset, project: m.Project, links: int = 0, mentions: list[dict[s
 SOURCE_WORDS = {"comment": "a comment", "post": "a timeline post", "card": "a card's description", "note": "a pinned note",
                 "asset": "an asset's description",
                 "output": "a run's output", "ai": "a picture (read by the AI)", "parser": "a tool's results", "manual": "added by hand",
-                "import": "an import"}
+                "import": "an import", "plugin": "a plugin"}
 
 
 def ref_link(project_id: uuid.UUID, ref: dict[str, Any] | None, task_id: uuid.UUID | None, job_id: uuid.UUID | None) -> str | None:
@@ -392,6 +392,90 @@ async def add_asset(project_id: str, body: AssetIn, db: DB, user: CurrentUser):
         raise HTTPException(422, str(exc)) from exc
     await A.settle(db, batch, actor=user)
     return _brief(asset, project)
+
+
+class BulkAsset(BaseModel):
+    # Names it within this call, so links can point at it.
+    ref: str | None = Field(None, max_length=100)
+    type: str
+    fields: dict[str, Any] = Field(default_factory=dict)
+    secret: str | None = Field(None, max_length=10_000)
+
+
+class BulkLink(BaseModel):
+    model_config = {"populate_by_name": True}
+    # A ref from this call's assets, or an asset id in the project.
+    from_: str = Field(alias="from", max_length=100)
+    to: str = Field(max_length=100)
+    kind: str = Field(max_length=24)
+    fields: dict[str, Any] = Field(default_factory=dict)
+    note: str = Field("", max_length=4000)
+
+
+class BulkIn(BaseModel):
+    assets: list[BulkAsset] = Field(default_factory=list, max_length=5000)
+    links: list[BulkLink] = Field(default_factory=list, max_length=20_000)
+    # The card the results belong to (the feed entry goes on it).
+    task_id: uuid.UUID | None = None
+
+
+@router.post("/projects/{project_id}/assets/bulk")
+async def bulk_assets(project_id: str, body: BulkIn, db: DB, user: CurrentUser) -> dict[str, Any]:
+    """Record many assets and the relationships between them at once, like a tool's results: each
+    merges with what the project knows (confirmed, confidence 90, or 85 from a plugin), new ones go
+    to triggers and one feed entry. What can't be recorded is skipped and listed, not refused."""
+    from sqlalchemy import inspect as sa_inspect
+
+    project = await project_or_404(db, user, parse_uuid(project_id), write=True)
+    if body.task_id is not None:
+        task = await db.get(m.Task, body.task_id)
+        if task is None or task.project_id != project.id:
+            raise HTTPException(422, "task_id: not a card in this project")
+    source = "plugin" if user.plugin_id else "import"
+    batch, refs, skipped = A.Batch(project.id), {}, []
+    for i, item in enumerate(body.assets):
+        ref = item.ref or None
+        try:
+            if item.secret and A.type_of(item.type).name != "credential":
+                raise A.AssetError("only credentials have a secret")
+            asset = await A.observe(db, project.id, item.type, item.fields, batch=batch, source=source, parser=user.plugin_id,
+                                    task_id=body.task_id, actor_id=user.id, secret=item.secret)
+        except A.AssetError as exc:
+            skipped.append({"ref": ref or f"assets[{i}]", "reason": str(exc)})
+            continue
+        if ref:
+            refs[ref] = asset
+
+    async def resolve(name: str) -> m.Asset | None:
+        if name in refs:
+            a = refs[name]
+            state = sa_inspect(a)
+            return None if state.deleted or state.was_deleted else a
+        try:
+            a = await db.get(m.Asset, uuid.UUID(name))
+        except ValueError:
+            return None
+        return a if a is not None and a.project_id == project.id else None
+
+    linked = 0
+    for i, lk in enumerate(body.links):
+        kind = A.LINK_KINDS.get(lk.kind)
+        src, dst = await resolve(lk.from_), await resolve(lk.to)
+        why = (f"no relationship {lk.kind!r}" if kind is None else f"no asset {lk.from_!r}" if src is None else f"no asset {lk.to!r}" if dst is None
+               else f"“{kind.forward}” doesn't go {src.type} → {dst.type}" if not kind.fits(src.type, dst.type) else "")
+        if why:
+            skipped.append({"ref": f"links[{i}]", "reason": why})
+            continue
+        if await A.link(db, project.id, src, dst, kind.name, batch=batch, source=source, parser=user.plugin_id, task_id=body.task_id,
+                        actor_id=user.id, fields=lk.fields, note=lk.note or None) is not None:
+            linked += 1
+    created = len(batch.created())
+    updated = sum(1 for c in batch.changes.values() if c.event == "updated")
+    out_refs = {k: str(v.id) for k, v in refs.items() if not (sa_inspect(v).deleted or sa_inspect(v).was_deleted)}
+    new_links = len(batch.links)
+    await A.settle(db, batch, task_id=body.task_id, actor=user)
+    return {"created": created, "updated": updated, "links": new_links, "seen_links": linked, "skipped": skipped[:500],
+            "refs": out_refs}
 
 
 class ImportIn(BaseModel):

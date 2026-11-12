@@ -110,7 +110,7 @@ ALIASES = {"ip": "host", "hosts": "host", "services": "service", "urls": "url", 
            "vulnerabilities": "vulnerability", "vuln": "vulnerability", "vulns": "vulnerability", "files": "file"}
 SEVERITIES = ("info", "low", "medium", "high", "critical")
 # How sure each kind of source is (0–100). Mentions only suggest; the rest confirm.
-CONFIDENCE = {"manual": 100, "import": 90, "parser": 85, "ai": 45, "comment": 50, "post": 50, "card": 50, "note": 50, "asset": 50,
+CONFIDENCE = {"manual": 100, "import": 90, "parser": 85, "plugin": 85, "ai": 45, "comment": 50, "post": 50, "card": 50, "note": 50, "asset": 50,
               "output": 40}
 SUGGESTING = {"ai", "comment", "post", "card", "note", "asset", "output"}
 

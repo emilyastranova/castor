@@ -1,7 +1,9 @@
 # Plugins (plan)
 
-Status: planned, not built. This is the design the plugin work follows; change it here first when a
-decision changes, then build. The roadmap entry points here.
+Status: **phase A is built** (sandboxed plugins with actions, settings and storage; Settings →
+Plugins; the Nessus import). Phases B–E are planned. This is the design the plugin work follows;
+change it here first when a decision changes, then build. The roadmap entry points here. Writing a
+plugin: the wiki's Plugins page and `plugins/nessus-import/`.
 
 Plugins let anyone extend Castor: bring in another tool's results, enrich assets from an outside
 service, sync cards with an issue tracker, add a panel to a card, ship a set of commands and
@@ -119,10 +121,18 @@ Making it extra clear:
 
 ## Runtime
 
-**Deno**, one process per enabled plugin, started and supervised by the server (a crash restarts
-it with backoff; three crashes in a minute stop it and tell the admins). Why Deno: its permission
+**Deno**, one process per enabled plugin, started and supervised by the server
+(`plugin_runtime.py`; the `deno` Python package, a server dependency, provides the binary). A
+plugin that stops by itself is started again when it's next needed; three crashes in a minute stop
+it until an admin starts it again (Settings → Plugins shows why). Why Deno: its permission
 flags are exactly the sandbox/unrestricted split, it runs TypeScript without a build step,
 `fetch` and Web APIs are built in, and it's MIT-licensed. It is one more binary in the server image.
+
+Static imports are the one thing Deno loads without a permission check, so before every start
+Castor lists the plugin's module graph (`deno info`) and refuses one that reaches outside the
+plugin's folder and the SDK (or doesn't resolve). Remote and npm imports are off (`--no-remote`,
+`--no-npm`): a plugin ships everything it needs in its `.zip`. The process gets a minimal
+environment (no secrets), 512 MB of heap, and its own Deno cache under `<data_dir>/plugins/.cache`.
 
 The existing V8 isolate (`js_sandbox.py`) stays for small inline code (a parser's `code:`); it has
 no network or async, so it can't host whole plugins.
@@ -131,11 +141,14 @@ no network or async, so it can't host whole plugins.
 
 JSON-RPC 2.0 over the process's stdin/stdout, both ways:
 
-- **Castor → plugin:** `activate {settings, castor_version}`, `action {id, context, file?}`,
-  `event {name, data}`, `hook {kind, input}`, `deactivate`.
-- **Plugin → Castor:** `api {method, path, body}` (checked against its token, exactly like an HTTP
-  call), `storage.get|set|delete|list`, `log {level, message}`, `progress {action, done, total}`,
-  `notify {…}`.
+- **Castor → plugin:** `activate {plugin, settings, castor_version}`,
+  `action {run_id, action, user, project, task, asset, file?}`, `deactivate`; later `event`, `hook`.
+- **Plugin → Castor:** `api {method, path, query, body}` (made in-process with the plugin's token,
+  exactly like an HTTP call; `/api/auth`, `/api/tokens`, `/api/plugins` and `/api/mcp` are refused
+  whatever the token says), `storage.get|set|delete|list`, `file.read {run_id, offset, length}`
+  (the action's file, in chunks), `log {level, message, run_id}`, `progress {run_id, done, total, text}`.
+
+Anything else a plugin prints goes to its log, so stray output can't break the wire.
 
 Hooks have a deadline (2 s by default, configurable per hook kind); a hook that misses it is
 skipped and logged. Actions and events run in the background with progress shown on the button
@@ -143,27 +156,32 @@ and in the feed.
 
 ### The SDK
 
-`@castor/plugin` (published to JSR/npm), what plugin authors import:
+`@castor/plugin`, what plugin authors import. Castor ships it (`server/castor_server/plugin_sdk/mod.ts`)
+and maps the name to it at run time; for working on a plugin, a `deno.json` import map points at
+the same file (see `plugins/nessus-import/deno.json`).
 
 ```ts
-import { definePlugin } from "jsr:@castor/plugin";
+import { definePlugin } from "@castor/plugin";
 
-export default definePlugin({
-  async activate(ctx) {
-    ctx.actions.on("import", async ({ project, file }) => {
-      const xml = await file.text();
-      const found = parseNessus(xml);            // the plugin's own code
-      await ctx.assets.bulk(project.id, found);  // assets, observations and relationships in one call
-      ctx.progress.done(`${found.hosts.length} hosts, ${found.vulnerabilities.length} findings`);
+definePlugin({
+  activate(ctx) {
+    ctx.actions.on("import", async (run) => {
+      const found = parseNessus(await run.file!.text());           // the plugin's own code
+      const r = await ctx.assets.bulk(run.project!.id, found);     // assets and relationships in one call
+      run.progress({ text: "done" });
+      return `Imported ${r.created} assets`;                       // shown to the person who ran it
     });
   },
 });
 ```
 
-It wraps the REST API with types generated from Castor's OpenAPI (`ctx.api` for anything, plus
-helpers: `ctx.assets`, `ctx.cards`, `ctx.comments`, `ctx.jobs`, `ctx.storage`, `ctx.settings`,
-`ctx.log`). A `castor-plugin` CLI scaffolds a plugin, runs it against a local Castor with live
-reload, checks the manifest and packs a release.
+`ctx`: `plugin`, `castorVersion`, `settings` (secret ones included), `api` (`request`, `get`,
+`post`, `patch`, `put`, `delete`: any REST endpoint, throwing `CastorError` on 4xx/5xx), `assets.bulk`,
+`storage` (`get`, `set`, `delete`, `list`, instance-wide or `{project}`), `log`, `actions.on`. An
+action gets `run`: `runId`, `user`, `project`, `task`, `asset`, `file` (`name`, `size`, `text()`,
+`bytes()`, `stream()`), `progress()`, `log`. `console.log` goes to the plugin's log.
+`plugins/pack.py <folder>` packs a release (leaving out tests, samples and `deno.json`). Types
+generated from the OpenAPI and a scaffolding CLI come later.
 
 ### UI slots
 
@@ -179,34 +197,46 @@ colour roles as CSS variables (so panels match every theme), resize, and navigat
 
 | Table | Holds |
 | --- | --- |
-| `plugins` | id, name, version, publisher, manifest (JSON), runtime, source (directory, URL, upload), checksum, signature, installed_by/at, enabled, approved permissions, the service account's user id, status (running, stopped, crashed, needs approval) |
-| `plugin_projects` | which projects a plugin is enabled in (or all) |
-| `plugin_settings` | settings values; secret ones as vault references |
-| `plugin_storage` | plugin id, project id (nullable), key, JSON value; size-capped |
-| `plugin_events` | the audit trail: installed, updated, permission changes, started, crashed, stopped |
+| `plugins` | id, name, version, publisher, manifest (JSON), runtime, source (URL or upload), checksum, path, enabled, `all_projects`, `granted` (the approved permissions, network, events), `settings`, `secrets` (vault-sealed), the service account (`user_id`), status (stopped, starting, running, crashed, error) and why, installed_by |
+| `plugin_projects` | which projects a plugin is enabled in (unless `all_projects`) |
+| `plugin_storage` | plugin id, scope ("" or a project id), key, JSON value (≤ 1 MB) |
+| `plugin_runs` | each time someone ran an action: on what, the file's name and size, status, progress, message |
+| `plugin_logs` | what it logged or printed (the newest 2000 per plugin) |
+| `users.plugin_id` | marks a plugin's service account: never signs in, isn't listed among people; `access.member_project_ids` makes it see the plugin's projects |
+
+The audit trail is the activity log (`plugin.installed`, `plugin.updated`, `plugin.changed`,
+`plugin.removed`; runs as `plugin.action.succeeded|failed` in their project's timeline, feed kind
+Plugins).
 
 Library items a plugin ships get `origin = "plugin:<id>"` and are removed with it. Assets,
 relationships, cards and comments a plugin creates are the project's: they stay when the plugin
 goes (their observations say "via Nessus import").
 
-Plugin files live under `<data_dir>/plugins/<id>/<version>/`, unpacked from the release and never
-modified; updates unpack beside the old version and switch over once the new one activates.
+Plugin files live under `<data_dir>/plugins/<id>/<version>-<sha12>/`, unpacked from the release
+(no paths outside it, no links, 100 MB zipped, 300 MB unpacked, 2000 files) and never modified; an
+update unpacks beside the old version, which is removed once it's switched over.
 
 ## API
 
-Admins only, session or a token with a new `plugins:admin` scope:
+Admins only (session, or a token with the `admin` scope):
 
 - `GET /api/plugins` (installed), `GET /api/plugins/{id}`
-- `POST /api/plugins/preview` (upload or URL → manifest, permissions, what it ships, warnings),
-  `POST /api/plugins` (install the previewed one, with the admin's approval of its permissions)
-- `PATCH /api/plugins/{id}` (enable/disable, projects, settings), `POST /api/plugins/{id}/update`,
-  `DELETE /api/plugins/{id}`
-- `GET /api/plugins/{id}/logs`, `GET /api/plugins/{id}/events`
-- `GET /api/plugin-directory` (the directory, cached), `GET /api/plugin-directory/{id}`
+- `POST /api/plugins/preview` (an upload or an https URL → the manifest, its permissions in words,
+  what this Castor can't run yet, and for an update what's new), then `POST /api/plugins` with the
+  preview's token and `approve: true` (installs, or updates the plugin with that id)
+- `PATCH /api/plugins/{id}` (on/off, projects, settings and secrets; it restarts),
+  `POST /api/plugins/{id}/restart`, `DELETE /api/plugins/{id}`
+- `GET /api/plugins/{id}/logs`, `GET /api/plugins/{id}/runs`
+- later: `GET /api/plugin-directory`
 
-Everyone in an enabled project: `GET /api/projects/{id}/plugin-actions`, and
-`POST /api/plugins/{id}/actions/{action}` (with the context and an optional file). Each gets a
-token rule and an MCP tool, like every endpoint.
+Anyone who can change an enabled project: `GET /api/projects/{id}/plugin-actions`,
+`POST /api/plugins/{id}/actions/{action}` (a form: `project_id`, optional `task_id`/`asset_id`, the
+file), or `POST /api/plugin-actions/run` (the same as JSON, the file as base64); then
+`GET /api/plugin-runs/{id}` and `GET /api/projects/{id}/plugin-runs`. `POST /api/projects/{id}/assets/bulk`
+records many assets and relationships at once (what `ctx.assets.bulk` calls, open to everyone who
+can change assets). MCP: `list_plugin_actions`, `run_plugin_action`, `get_plugin_run`,
+`list_plugin_runs`, `bulk_assets`, and `list_plugins` for admins; installing, configuring and
+removing plugins stay in the UI, where an admin approves them.
 
 ## The directory
 
@@ -226,7 +256,7 @@ Each phase ships with real plugins in `plugins/` (the official examples, which d
 
 | Phase | Builds | Ships |
 | --- | --- | --- |
-| **A** | Manifest and checks; install from a file or URL; Settings → Plugins with the permission review; service accounts; the Deno runner (sandboxed only) and protocol; the SDK's API, storage, settings and logs; actions (with files); `ctx.assets.bulk` | **Nessus import**: no network, writes hosts, services, vulnerabilities and `affects` relationships. Test data: `plugins/nessus-import/samples/` |
+| **A** (built) | Manifest and checks; install from a file or URL; Settings → Plugins with the permission review; service accounts; the Deno runner (sandboxed only) and protocol; the SDK's API, storage, settings and logs; actions (with files); `ctx.assets.bulk` | **Nessus import**: no network, writes hosts, services, vulnerabilities and `affects` relationships. Test data: `plugins/nessus-import/samples/` |
 | **B** | Event delivery; declared network; secret settings; rate limits | **Shodan enrichment**: new external hosts get ports, banners and CVEs |
 | **C** | UI slots and the iframe SDK; theme variables | **BloodHound bridge**: users, groups, computers, `admin on` and sessions in; an attack-path panel on an asset |
 | **D** | Unrestricted runtime, the warning flow, restricted and safe mode, `ui.script` | **DOCX report**: a plugin that legitimately needs document libraries |

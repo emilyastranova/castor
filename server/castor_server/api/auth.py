@@ -17,7 +17,7 @@ async def login(body: LoginRequest, response: Response, db: DB):
     user = (
         await db.execute(select(m.User).where(m.User.username == body.username))
     ).scalar_one_or_none()
-    if user is None or not verify_password(body.password, user.password_hash):
+    if user is None or user.plugin_id or not verify_password(body.password, user.password_hash):  # plugins never sign in
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid username or password")
     if user.disabled_at is not None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "This account is disabled")

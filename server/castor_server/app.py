@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from sqlalchemy import select
 
-from . import alerts, api_tokens
+from . import alerts, api_tokens, plugins
 from . import models as m
 from .accounts import ensure_active_admin
 from .api import api_router
@@ -91,12 +91,16 @@ async def lifespan(app: FastAPI):
     log.info("themes: %d built-in", loaded_themes)
     await dispatcher.start()
     await ssh_hosts.start()  # hosts Castor connects to over SSH
+    plugins.APP = app  # plugins call the API in-process, as their own accounts
+    plugin_start = asyncio.create_task(plugins.start_enabled())
     sweeper = asyncio.create_task(alerts.sweep_forever())  # alerts for runs going long
     log.info("castor server ready")
     try:
         yield
     finally:
         sweeper.cancel()
+        plugin_start.cancel()
+        await plugins.stop_all()
         await ssh_hosts.stop()
         await dispatcher.stop()
 

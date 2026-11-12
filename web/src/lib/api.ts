@@ -290,7 +290,7 @@ export interface PlaybookStepResult {
 	items?: number;
 }
 
-export type FeedKind = 'comment' | 'job' | 'card' | 'move' | 'board' | 'file' | 'playbook' | 'library' | 'note' | 'asset' | 'agent' | 'admin';
+export type FeedKind = 'comment' | 'job' | 'card' | 'move' | 'board' | 'file' | 'playbook' | 'library' | 'note' | 'asset' | 'plugin' | 'agent' | 'admin';
 
 export interface ProjectRef {
 	id: UUID;
@@ -1549,6 +1549,37 @@ export function api(fetchFn: Fetch = fetch) {
 			/** The instance default (public: the sign-in page shows it). */
 			default: () => get<DefaultTheme>('/themes/default')
 		},
+		plugins: {
+			list: () => get<Plugin[]>('/plugins'),
+			get: (id: string) => get<Plugin>(`/plugins/${id}`),
+			/** A .zip (or an https URL to one): what it is and asks for, before anything runs. */
+			preview: (src: { file?: File; url?: string }) => {
+				const form = new FormData();
+				if (src.file) form.append('file', src.file);
+				if (src.url) form.append('url', src.url);
+				return request<PluginPreview>(fetchFn, 'POST', '/plugins/preview', form);
+			},
+			install: (body: { token: string; source: string; approve: boolean; project_ids: UUID[]; all_projects: boolean; settings?: Record<string, unknown>; secrets?: Record<string, string | null> }) =>
+				post<Plugin>('/plugins', body),
+			update: (id: string, body: { enabled?: boolean; all_projects?: boolean; project_ids?: UUID[]; settings?: Record<string, unknown>; secrets?: Record<string, string | null> }) =>
+				patch<Plugin>(`/plugins/${id}`, body),
+			restart: (id: string) => post<Plugin>(`/plugins/${id}/restart`),
+			remove: (id: string) => del(`/plugins/${id}`),
+			logs: (id: string, limit = 200) => get<PluginLogEntry[]>(`/plugins/${id}/logs?limit=${limit}`),
+			runs: (id: string) => get<PluginRun[]>(`/plugins/${id}/runs`),
+			/** The actions of the plugins enabled in a project. */
+			actions: (projectId: UUID) => get<ProjectPluginAction[]>(`/projects/${projectId}/plugin-actions`),
+			run: (pluginId: string, action: string, ctx: { project_id: UUID; task_id?: UUID; asset_id?: UUID }, file?: File) => {
+				const form = new FormData();
+				form.append('project_id', ctx.project_id);
+				if (ctx.task_id) form.append('task_id', ctx.task_id);
+				if (ctx.asset_id) form.append('asset_id', ctx.asset_id);
+				if (file) form.append('file', file);
+				return request<PluginRun>(fetchFn, 'POST', `/plugins/${pluginId}/actions/${action}`, form);
+			},
+			getRun: (id: UUID) => get<PluginRun>(`/plugin-runs/${id}`),
+			projectRuns: (projectId: UUID) => get<PluginRun[]>(`/projects/${projectId}/plugin-runs`)
+		},
 		tools: {
 			list: () => get<ToolDefinition[]>('/tools'),
 			get: (id: string) => get<ToolDefinition>(`/tools/${id}`),
@@ -1903,6 +1934,125 @@ export interface ThemeContrast {
 	surface: string;
 	ratio: number;
 	message: string;
+}
+
+/** A plugin's action (castor-plugin.yaml `actions`). */
+export interface PluginActionSpec {
+	id: string;
+	label: string;
+	description: string;
+	icon: string;
+	on: ('project' | 'card' | 'asset')[];
+	asset_types: string[];
+	file: { accept: string[]; max_mb: number; required: boolean } | null;
+	timeout_minutes: number;
+}
+
+export interface PluginSettingSpec {
+	name: string;
+	label: string;
+	description: string;
+	type: 'text' | 'number' | 'bool' | 'select' | 'secret';
+	default: unknown;
+	options: string[];
+	required: boolean;
+}
+
+export interface ScopeDetail {
+	name: string;
+	label: string;
+	description: string;
+}
+
+/** An installed plugin (Settings → Plugins; docs/PLUGINS.md). */
+export interface Plugin {
+	id: string;
+	name: string;
+	version: string;
+	publisher: string;
+	description: string;
+	homepage: string;
+	license: string;
+	runtime: 'sandboxed' | 'unrestricted';
+	source: string;
+	checksum: string;
+	enabled: boolean;
+	all_projects: boolean;
+	project_ids: UUID[];
+	status: 'stopped' | 'starting' | 'running' | 'crashed' | 'error';
+	status_message: string;
+	running: boolean;
+	granted: { permissions?: string[]; network?: string[]; events?: string[] };
+	permission_details: ScopeDetail[];
+	actions: PluginActionSpec[];
+	settings_spec: PluginSettingSpec[];
+	settings: Record<string, unknown>;
+	secrets_set: string[];
+	missing_settings: string[];
+	account: { id: UUID; username: string } | null;
+	installed_by: string | null;
+	installed_at: string;
+	updated_at: string;
+}
+
+/** What a plugin release is and asks for, before it's installed. */
+export interface PluginPreview {
+	token: string;
+	source: string;
+	checksum: string;
+	size: number;
+	files: number;
+	manifest: {
+		id: string;
+		name: string;
+		version: string;
+		publisher: string;
+		description: string;
+		homepage: string;
+		license: string;
+		runtime: 'sandboxed' | 'unrestricted';
+		permissions: string[];
+		permission_details: ScopeDetail[];
+		network: string[];
+		events: string[];
+		actions: PluginActionSpec[];
+		settings: PluginSettingSpec[];
+	};
+	/** What this Castor can't do yet: installing is refused while there are any. */
+	problems: string[];
+	existing: { version: string; same: boolean } | null;
+	/** For an update: what it asks for that wasn't approved before. */
+	new_permissions: Record<string, string[]>;
+}
+
+export interface ProjectPluginAction extends PluginActionSpec {
+	plugin: { id: string; name: string; status: Plugin['status'] };
+}
+
+export interface PluginRun {
+	id: UUID;
+	plugin_id: string;
+	plugin_name: string | null;
+	action: string;
+	label: string | null;
+	project_id: UUID | null;
+	task_id: UUID | null;
+	asset_id: UUID | null;
+	status: 'running' | 'succeeded' | 'failed';
+	message: string;
+	progress: { done?: number; total?: number; text?: string };
+	file_name: string;
+	file_size: number;
+	started_at: string | null;
+	finished_at: string | null;
+}
+
+export interface PluginLogEntry {
+	id: number;
+	level: 'debug' | 'info' | 'warn' | 'error';
+	message: string;
+	at: string;
+	run_id: UUID | null;
 }
 
 /** What the browser needs to show the instance's default theme ("" id: Castor's own). */

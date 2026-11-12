@@ -25,14 +25,14 @@ router = APIRouter(tags=["users"])
 
 @router.get("/users", response_model=list[UserOut])
 async def list_users(db: DB, _: Admin):
-    rows = await db.execute(select(m.User).order_by(m.User.username))
+    rows = await db.execute(select(m.User).where(m.User.plugin_id.is_(None)).order_by(m.User.username))  # plugins: Settings → Plugins
     return [UserOut.model_validate(u) for u in rows.scalars()]
 
 
 @router.get("/users/directory", response_model=list[UserBrief])
 async def directory(db: DB, _: CurrentUser):
     """Active users, for pickers such as project members and assignees."""
-    rows = await db.execute(select(m.User).where(m.User.disabled_at.is_(None)).order_by(m.User.display_name))
+    rows = await db.execute(select(m.User).where(m.User.disabled_at.is_(None), m.User.plugin_id.is_(None)).order_by(m.User.display_name))
     return [UserBrief.model_validate(u) for u in rows.scalars()]
 
 

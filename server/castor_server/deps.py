@@ -91,6 +91,8 @@ async def current_user(request: Request, db: DB) -> User:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "This account is disabled")
     if secrets.compare_digest(request.headers.get(api_tokens.VIA_HEADER, ""), api_tokens.MCP_KEY):
         api_tokens.via.set("mcp")
+    elif user.plugin_id and secrets.compare_digest(request.headers.get(api_tokens.VIA_HEADER, ""), api_tokens.PLUGIN_KEY):
+        api_tokens.via.set("plugin")
     return user
 
 

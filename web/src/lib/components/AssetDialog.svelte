@@ -11,6 +11,7 @@
 	import { people } from '$lib/people.svelte';
 	import { PastedImages } from '$lib/pastedImages.svelte';
 	import RichText from './RichText.svelte';
+	import PluginActions from './PluginActions.svelte';
 
 	/** One asset: every field with where its value came from (and other values tools
 	 *  reported), what it's linked to, triggered runs and its history. */
@@ -503,7 +504,9 @@
 	{#snippet actions()}
 		{#if asset && canEdit()}
 			<Button variant="text" icon="delete" class="text-error!" onclick={remove}>Remove</Button>
-			<Button variant="text" icon="merge" class="mr-auto" onclick={startMerge}>Same as…</Button>
+			<Button variant="text" icon="merge" onclick={startMerge}>Same as…</Button>
+			{#if asset.status === 'confirmed'}<PluginActions {projectId} place="asset" assetId={asset.id} assetType={asset.type} />{/if}
+			<span class="mr-auto"></span>
 		{/if}
 		<Button variant="text" onclick={() => (open = false)}>Close</Button>
 	{/snippet}

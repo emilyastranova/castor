@@ -8,6 +8,8 @@
 	import AssetDialog from '$lib/components/AssetDialog.svelte';
 	import TriggerDialog from '$lib/components/TriggerDialog.svelte';
 	import AssetRelationships from '$lib/components/AssetRelationships.svelte';
+	import PluginActions from '$lib/components/PluginActions.svelte';
+	import PluginRunsBar from '$lib/components/PluginRunsBar.svelte';
 	import { assetTypes, show } from '$lib/assetTypes.svelte';
 	import { realtime } from '$lib/realtime.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
@@ -351,6 +353,7 @@
 			]}
 			bind:value={tab}
 		/>
+		<PluginRunsBar projectId={project.id} />
 
 		{#if tab === 'inventory' || tab === 'suggested'}
 			{#if tab === 'suggested'}
@@ -411,6 +414,7 @@
 					<Button variant="text" icon={showDismissed ? 'undo' : 'block'} onclick={() => decideAll(showDismissed)}>{showDismissed ? 'Restore all shown' : 'Dismiss all shown'}</Button>
 					{#if !showDismissed}<Button variant="tonal" icon="done_all" onclick={() => decideAll(true)}>Confirm all shown</Button>{/if}
 				{:else if canEdit() && tab === 'inventory'}
+					<PluginActions projectId={project.id} place="project" />
 					<Button variant="tonal" icon="upload" onclick={() => (importOpen = true)}>Import</Button>
 					<Button icon="add" onclick={() => { addType = type || 'host'; addOpen = true; }}>Add</Button>
 				{/if}

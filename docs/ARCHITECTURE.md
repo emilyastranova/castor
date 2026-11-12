@@ -476,6 +476,22 @@ and to triggers with `on_event: linked` (`link_kind`, optional `other_type`; onc
 `asset_trigger_fires.other_id`; scope is checked on the other end; templates take `{{ other.x }}`
 and `{{ link.x }}`). The `file` type is a path (`\\host\share\path`, or `host:/path`).
 
+## Plugins
+
+Design and status: [PLUGINS.md](PLUGINS.md). `plugin_manifest.py` (`castor-plugin.yaml`; `not_yet`
+lists what this version can't run: network, events, hooks, UI, unrestricted), `plugin_package.py`
+(checking, staging and unpacking a release under `<data_dir>/plugins`), `plugin_runtime.py` (a
+Deno process per plugin with only its approved permissions, JSON-RPC over stdin/stdout, the module
+graph check, crash counting), `plugins.py` (install/update/uninstall, settings and vault-sealed
+secrets, the service account and its per-start token, answering the plugin's calls: `api` made
+in-process through `httpx.ASGITransport` as the plugin, `storage.*`, `file.read`, `progress`, `log`;
+running actions), `api/plugins.py`, SDK `plugin_sdk/mod.ts`. Tables `plugins`, `plugin_projects`,
+`plugin_storage`, `plugin_runs`, `plugin_logs`; `users.plugin_id`. Events `plugins.changed`,
+`plugin_run.updated` (project); activity `plugin.*` (installs in the admin feed, runs as feed kind
+`plugin`). `POST /api/projects/{id}/assets/bulk` records assets and relationships at once (source
+`plugin` for a plugin's account, else `import`). Official plugins live in `plugins/` (`pack.py`
+makes their `.zip`).
+
 ## AI
 
 `llm.py` (providers: `KINDS`, one adapter per family in `call`, `complete` walks a chain with

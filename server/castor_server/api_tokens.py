@@ -29,6 +29,7 @@ PREFIX = "castor_pat_"
 via: ContextVar[str | None] = ContextVar("via", default=None)
 VIA_HEADER = "X-Castor-Via"
 MCP_KEY = secrets.token_hex(16)
+PLUGIN_KEY = secrets.token_hex(16)  # in-process calls from plugins (plugins.py)
 
 
 def new_token() -> tuple[str, str, str]:
@@ -179,6 +180,13 @@ RULES: list[tuple[str, str, str]] = [
     ("*", "/api/asset-triggers/**", "assets:rw"),
     ("*", "/api/asset-trigger-fires/**", "assets:rw"),
     ("*", "/api/projects/*/asset-links", "assets:rw"),
+    ("POST", "/api/plugins/*/actions/*", "projects:write"),  # a plugin's action on a project you can change
+    ("GET", "/api/projects/*/plugin-actions", "projects:read"),
+    ("GET", "/api/projects/*/plugin-runs", "projects:read"),
+    ("GET", "/api/plugin-runs/*", "projects:read"),
+    ("POST", "/api/plugin-actions/run", "projects:write"),
+    ("*", "/api/plugins", "admin"),
+    ("*", "/api/plugins/**", "admin"),
     ("*", "/api/asset-links/**", "assets:rw"),
     # You
     ("*", "/api/notifications/**", "notifications:rw"),

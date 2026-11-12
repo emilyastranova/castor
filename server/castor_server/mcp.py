@@ -321,7 +321,8 @@ _FILE = {"filename": _s("File name"), "content_base64": _s("The file's bytes, ba
 
 # Everything else a person can do in the UI, one endpoint each. Left out on purpose: revealing
 # secrets, user accounts, AI providers and alert channels (they hold keys and webhook secrets),
-# import/export and file downloads.
+# import/export, file downloads, and installing, configuring or removing plugins (an admin
+# approves what a plugin may do, in Settings → Plugins).
 TOOLS += [
     # Cards
     _auto("update_card", "PATCH", "/api/tasks/{task_id}",
@@ -398,6 +399,9 @@ TOOLS += [
     _auto("add_to_scope", "POST", "/api/projects/{project_id}/scope/add",
           "Add one address, CIDR range or domain to a scope group (Internal, External, OT…; made if new)."),
     _auto("set_scope", "PUT", "/api/projects/{project_id}/scope", "Replace a project's scope: groups [{name, include}] and exclude (exclusions win over every group)."),
+    _auto("bulk_assets", "POST", "/api/projects/{project_id}/assets/bulk",
+          "Record many assets and their relationships at once (like a tool's results): assets with a ref, links from/to refs "
+          "or asset ids. Returns what it created, updated and skipped."),
     _auto("list_link_kinds", "GET", "/api/assets/link-kinds",
           "Kinds of relationship between assets (works on, admin on, downloaded from, affects…) and the types each connects."),
     _auto("list_asset_links", "GET", "/api/projects/{project_id}/asset-links",
@@ -407,6 +411,16 @@ TOOLS += [
           "Record a relationship from this asset to another (direction 'in' for the other way round), with an optional note."),
     _auto("update_asset_link", "PATCH", "/api/asset-links/{link_id}", "Change a relationship's note or details."),
     _auto("unlink_assets", "DELETE", "/api/asset-links/{link_id}", "Remove a relationship between two assets.", **_DESTRUCTIVE),
+    # Plugins: run what an admin installed in the project; installing them is the admin's, in the UI.
+    _auto("list_plugins", "GET", "/api/plugins", "Installed plugins (admins): status, what they're allowed, their actions and projects."),
+    _auto("list_plugin_actions", "GET", "/api/projects/{project_id}/plugin-actions",
+          "What the project's plugins offer: each action, where (project, card, asset) and whether it takes a file."),
+    _auto("run_plugin_action", "POST", "/api/plugin-actions/run",
+          "Run a plugin's action on a project (or a card or asset of it), with a file as base64 if it takes one. "
+          "It runs in the background: follow it with get_plugin_run."),
+    _auto("get_plugin_run", "GET", "/api/plugin-runs/{run_id}", "A plugin action's run: running, succeeded or failed, progress, message.",
+          **_UNTRUSTED),
+    _auto("list_plugin_runs", "GET", "/api/projects/{project_id}/plugin-runs", "A project's recent plugin runs.", **_UNTRUSTED),
     _auto("list_asset_triggers", "GET", "/api/projects/{project_id}/asset-triggers", "Rules that run a command or playbook on new assets."),
     _auto("create_asset_trigger", "POST", "/api/projects/{project_id}/asset-triggers", "Add a rule that runs something on new assets."),
     _auto("update_asset_trigger", "PUT", "/api/asset-triggers/{trigger_id}", "Change an asset trigger."),

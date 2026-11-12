@@ -20,14 +20,18 @@ from .deps import ROLE_ERRORS
 
 
 def member_project_ids(user_id: uuid.UUID):
-    """A query of the projects someone is in: as a member, or through one of their groups."""
+    """A query of the projects someone is in: as a member, or through one of their groups. A
+    plugin's service account is "in" the projects the plugin is enabled in (plugins.py)."""
     direct = select(m.ProjectMember.project_id).where(m.ProjectMember.user_id == user_id)
     by_group = (
         select(m.ProjectGroup.project_id)
         .join(m.GroupMember, m.GroupMember.group_id == m.ProjectGroup.group_id)
         .where(m.GroupMember.user_id == user_id)
     )
-    return direct.union(by_group)
+    live = (m.Plugin.user_id == user_id, m.Plugin.enabled.is_(True))
+    by_plugin = select(m.PluginProject.project_id).join(m.Plugin, m.Plugin.id == m.PluginProject.plugin_id).where(*live)
+    everywhere = select(m.Project.id).where(select(m.Plugin.id).where(*live, m.Plugin.all_projects.is_(True)).exists())
+    return direct.union(by_group, by_plugin, everywhere)
 
 
 async def visible_project_ids(db: AsyncSession, user: m.User) -> set[uuid.UUID] | None:

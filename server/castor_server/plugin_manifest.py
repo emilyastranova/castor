@@ -1,0 +1,151 @@
+"""A plugin's manifest, `castor-plugin.yaml` (docs/PLUGINS.md): who it is, what it runs, what it
+asks for. Castor refuses a manifest it doesn't understand rather than guessing, and refuses what
+this version can't do yet (network, events, hooks, UI, unrestricted plugins) with a clear reason."""
+
+from __future__ import annotations
+
+import re
+from typing import Any, Literal
+
+import yaml
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+
+from .api_tokens import SCOPES
+
+MANIFEST = "castor-plugin.yaml"
+ID = r"^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$"
+VERSION = r"^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$"
+# Scopes a plugin can't have: administering Castor stays with people.
+NEVER = {"admin", "agents:write"}
+# What this version runs; the rest of the manifest format arrives in later phases.
+SUPPORTED_RUNTIMES = {"sandboxed"}
+CONTEXTS = ("project", "card", "asset")
+
+
+class FileSpec(BaseModel):
+    """An action that takes a file."""
+
+    model_config = ConfigDict(extra="forbid")
+    accept: list[str] = Field(default_factory=list)  # extensions (".nessus") or media types
+    max_mb: int = Field(50, ge=1, le=1024)
+    required: bool = True
+
+
+class ActionSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")
+    label: str = Field(min_length=1, max_length=60)
+    description: str = Field("", max_length=300)
+    icon: str = Field("extension", pattern=r"^[a-z0-9_]{1,40}$")  # a Material Symbols name
+    on: list[Literal["project", "card", "asset"]] = Field(default_factory=lambda: ["project"])
+    # Asset types it applies to (on: asset); empty: any.
+    asset_types: list[str] = Field(default_factory=list)
+    file: FileSpec | None = None
+    timeout_minutes: int = Field(30, ge=1, le=720)
+
+
+class SettingSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")
+    label: str = Field(min_length=1, max_length=80)
+    description: str = Field("", max_length=300)
+    type: Literal["text", "number", "bool", "select", "secret"] = "text"
+    default: Any = None
+    options: list[str] = Field(default_factory=list)  # for select
+    required: bool = False
+
+    @model_validator(mode="after")
+    def _check(self) -> SettingSpec:
+        if self.type == "select" and not self.options:
+            raise ValueError(f"{self.name}: a select needs options")
+        if self.type == "secret" and self.default not in (None, ""):
+            raise ValueError(f"{self.name}: a secret can't have a default")
+        return self
+
+
+class Manifest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(pattern=ID)
+    name: str = Field(min_length=1, max_length=120)
+    version: str = Field(pattern=VERSION)
+    castor: str = Field(">=0.1", max_length=40)  # the Castor versions it works with
+    publisher: str = Field("", max_length=80)
+    description: str = Field("", max_length=500)
+    homepage: str = Field("", max_length=300)
+    license: str = Field("", max_length=60)
+    main: str = Field("main.ts", pattern=r"^[A-Za-z0-9_./-]+\.(ts|js|mts|mjs)$")
+    runtime: Literal["sandboxed", "unrestricted"] = "sandboxed"
+    permissions: list[str] = Field(default_factory=list)
+    network: list[str] = Field(default_factory=list)
+    events: list[str] = Field(default_factory=list)
+    actions: list[ActionSpec] = Field(default_factory=list)
+    hooks: list[dict[str, Any]] = Field(default_factory=list)
+    ui: list[dict[str, Any]] = Field(default_factory=list)
+    settings: list[SettingSpec] = Field(default_factory=list)
+    contents: list[str] = Field(default_factory=list)
+
+    @field_validator("main")
+    @classmethod
+    def _main(cls, v: str) -> str:
+        if v.startswith("/") or ".." in v.split("/"):
+            raise ValueError("a path inside the plugin")
+        return v
+
+    @field_validator("homepage")
+    @classmethod
+    def _homepage(cls, v: str) -> str:
+        if v and not re.match(r"^https://\S+$", v):
+            raise ValueError("an https:// URL")
+        return v
+
+    @field_validator("permissions")
+    @classmethod
+    def _permissions(cls, v: list[str]) -> list[str]:
+        for name in v:
+            if name not in SCOPES:
+                raise ValueError(f"{name}: not a Castor scope ({', '.join(sorted(SCOPES))})")
+            if name in NEVER:
+                raise ValueError(f"{name}: plugins can't have it")
+        return sorted(set(v))
+
+    @model_validator(mode="after")
+    def _unique(self) -> Manifest:
+        for what, names in (("actions", [a.id for a in self.actions]), ("settings", [s.name for s in self.settings])):
+            if len(names) != len(set(names)):
+                raise ValueError(f"{what}: two have the same id")
+        return self
+
+    def not_yet(self) -> list[str]:
+        """What this manifest asks for that this Castor can't do yet (phase A)."""
+        out = []
+        if self.runtime not in SUPPORTED_RUNTIMES:
+            out.append("runtime: unrestricted plugins aren't supported yet; this Castor runs sandboxed plugins only")
+        for field, phase in (("network", "B"), ("events", "B"), ("hooks", "B"), ("ui", "C"), ("contents", "E")):
+            if getattr(self, field):
+                out.append(f"{field}: not supported yet (plugins phase {phase}, see docs/PLUGINS.md)")
+        return out
+
+    def action(self, action_id: str) -> ActionSpec | None:
+        return next((a for a in self.actions if a.id == action_id), None)
+
+
+def parse_manifest(text: str) -> Manifest:
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"{MANIFEST} isn't valid YAML: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"{MANIFEST} is a YAML mapping (id, name, version…)")  # noqa: TRY004 (callers catch ValueError)
+    for action in data.get("actions") or []:
+        if isinstance(action, dict) and True in action:  # YAML 1.1 reads a bare `on:` key as true
+            action["on"] = action.pop(True)
+    try:
+        return Manifest.model_validate(data)
+    except ValidationError as exc:
+        raise ValueError("; ".join(
+            f"{'.'.join(str(p) for p in e['loc']) or 'manifest'}: {e['msg'].removeprefix('Value error, ')}" for e in exc.errors()
+        )) from exc
+
+
+def version_key(v: str) -> tuple[int, ...]:
+    return tuple(int(x) for x in re.match(r"^(\d+)\.(\d+)\.(\d+)", v).groups())  # type: ignore[union-attr]

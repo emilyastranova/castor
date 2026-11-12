@@ -11,6 +11,7 @@
 	import { lightbox, openImagesIn } from '$lib/lightbox.svelte';
 	import { PastedImages } from '$lib/pastedImages.svelte';
 	import { relativeTime, absoluteTime, bytes, duration } from '$lib/format';
+	import PluginActions from './PluginActions.svelte';
 	import { Button, Chip, Dialog, Icon, IconButton, Menu, MenuItem, Select, Switch, Tabs, TextField, Avatar, TagInput } from '$lib/m3';
 	import StatusChip from './StatusChip.svelte';
 	import JobConsole from './JobConsole.svelte';
@@ -681,6 +682,7 @@
 						<MenuItem icon="content_copy" onclick={() => (duplicateOpen = true)}>Duplicate…</MenuItem>
 					{/if}
 				{/if}
+				{#if editable && !task.playbook_step_id}<PluginActions projectId={task.project_id} place="card" taskId={task.id} as="menu" />{/if}
 				<MenuItem icon="link" onclick={() => { navigator.clipboard.writeText(location.href); snackbar.show('Link copied'); }}>Copy link</MenuItem>
 				{#if editable}<MenuItem icon="delete" danger onclick={remove}>Delete card</MenuItem>{/if}
 			</Menu>
