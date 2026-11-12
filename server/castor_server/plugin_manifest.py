@@ -93,6 +93,67 @@ class SettingSpec(BaseModel):
         return self
 
 
+# Names fit the database columns (assets.type is 16 characters, asset_links.kind 24).
+TYPE_NAME = r"^[a-z][a-z0-9_]{1,15}$"
+KIND_NAME = r"^[a-z][a-z0-9_]{1,23}$"
+
+
+class AssetFieldSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")
+    label: str = Field(min_length=1, max_length=60)
+    type: Literal["text", "number", "bool", "list"] = "text"
+
+
+class AssetTypeSpec(BaseModel):
+    """A kind of asset the plugin adds (a source file, a cloud account…): it's an asset like any
+    other, in lists, search, the graph, triggers and arguments."""
+
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(pattern=TYPE_NAME)
+    label: str = Field(min_length=1, max_length=40)
+    plural: str = Field("", max_length=40)
+    icon: str = Field("category", pattern=r"^[a-z0-9_]{1,40}$")  # a Material Symbols name
+    description: str = Field("", max_length=300)
+    fields: list[AssetFieldSpec] = Field(min_length=1, max_length=40)
+    # The fields that identify one (all must be set): the same values are the same asset.
+    identity: list[str] = Field(min_length=1, max_length=4)
+    # How its label reads, from its fields: "{repo}/{path}" (default: the identity, joined).
+    label_template: str = Field("", max_length=200)
+
+    @model_validator(mode="after")
+    def _check(self) -> AssetTypeSpec:
+        names = [f.name for f in self.fields]
+        if len(names) != len(set(names)):
+            raise ValueError(f"{self.name}: two fields have the same name")
+        for n in self.identity:
+            if n not in names:
+                raise ValueError(f"{self.name}: identity names {n}, which isn't one of its fields")
+        for n in re.findall(r"\{(\w+)\}", self.label_template):
+            if n not in names:
+                raise ValueError(f"{self.name}: label_template names {n}, which isn't one of its fields")
+        return self
+
+
+class LinkDetailSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")
+    label: str = Field(min_length=1, max_length=80)
+
+
+class LinkKindSpec(BaseModel):
+    """A kind of relationship the plugin adds ("imports", read back as "imported by"), or, with the
+    name of one Castor has and only `pairs`, more types that kind connects ("affects" a source file)."""
+
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(pattern=KIND_NAME)
+    forward: str = Field("", max_length=40)
+    reverse: str = Field("", max_length=40)
+    pairs: list[tuple[str, str]] = Field(default_factory=list, max_length=60)  # (from type, to type); none: any two
+    description: str = Field("", max_length=300)
+    details: list[LinkDetailSpec] = Field(default_factory=list, max_length=12)
+
+
 class Manifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str = Field(pattern=ID)
@@ -115,6 +176,9 @@ class Manifest(BaseModel):
     ui: list[UiSpec] = Field(default_factory=list)
     settings: list[SettingSpec] = Field(default_factory=list)
     contents: list[str] = Field(default_factory=list)
+    # Kinds of asset and of relationship it adds (they stay registered while it's installed).
+    asset_types: list[AssetTypeSpec] = Field(default_factory=list, max_length=20)
+    link_kinds: list[LinkKindSpec] = Field(default_factory=list, max_length=40)
 
     @field_validator("main", "icon")
     @classmethod
@@ -176,7 +240,35 @@ class Manifest(BaseModel):
                 raise ValueError(f"ui.{u.id}: page.script takes a .js file, the other slots an .html page")
             if script and self.runtime != "unrestricted":
                 raise ValueError(f"ui.{u.id}: page.script runs in Castor's own page, which only unrestricted plugins may do")
+        self._check_kinds()
         return self
+
+    def _check_kinds(self) -> None:
+        from .assets import ALIASES, CORE_LINK_KINDS, CORE_TYPES
+
+        own = [t.name for t in self.asset_types]
+        for what, names in (("asset_types", own), ("link_kinds", [k.name for k in self.link_kinds])):
+            if len(names) != len(set(names)):
+                raise ValueError(f"{what}: two have the same name")
+        for n in own:
+            if n in CORE_TYPES or n in ALIASES:
+                raise ValueError(f"asset_types.{n}: Castor has its own {n}; give the plugin's another name")
+        known = set(CORE_TYPES) | set(own)
+        for k in self.link_kinds:
+            for a, b in k.pairs:
+                for t in (a, b):
+                    if t not in known:
+                        raise ValueError(f"link_kinds.{k.name}: {t} is neither Castor's type nor one of the plugin's")
+            if k.name in CORE_LINK_KINDS:
+                if k.forward or k.reverse or k.details or k.description or not k.pairs:
+                    raise ValueError(f"link_kinds.{k.name}: Castor has this kind; a plugin can only add pairs to it")
+                if not CORE_LINK_KINDS[k.name].pairs:
+                    raise ValueError(f"link_kinds.{k.name}: it already connects any two assets")
+                for a, b in k.pairs:
+                    if a not in own and b not in own:
+                        raise ValueError(f"link_kinds.{k.name}: {a} → {b} needs one of the plugin's own types")
+            elif not k.forward:
+                raise ValueError(f"link_kinds.{k.name}: how it reads (forward, and reverse from the other end)")
 
     def not_yet(self) -> list[str]:
         """What this manifest asks for that this Castor can't do yet (phase A)."""
@@ -203,6 +295,9 @@ def parse_manifest(text: str) -> Manifest:
     for action in data.get("actions") or []:
         if isinstance(action, dict) and True in action:  # YAML 1.1 reads a bare `on:` key as true
             action["on"] = action.pop(True)
+    for kind in data.get("link_kinds") or []:
+        if isinstance(kind, dict) and kind.get("name") is True:  # `name: on` (Castor's "on" kind) reads as true too
+            kind["name"] = "on"
     try:
         return Manifest.model_validate(data)
     except ValidationError as exc:

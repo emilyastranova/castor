@@ -92,6 +92,7 @@ async def lifespan(app: FastAPI):
     await dispatcher.start()
     await ssh_hosts.start()  # hosts Castor connects to over SSH
     plugins.APP = app  # plugins call the API in-process, as their own accounts
+    await plugins.load_types()  # the asset types and relationship kinds plugins add
     plugin_start = asyncio.create_task(plugins.start_enabled())
     sweeper = asyncio.create_task(alerts.sweep_forever())  # alerts for runs going long
     log.info("castor server ready")

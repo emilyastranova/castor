@@ -2,8 +2,9 @@
 
 Status: **phases A to D are built** (sandboxed plugins with actions, settings, storage, events,
 declared network and panels; unrestricted plugins behind restricted mode, safe mode and page
-scripts; the Nessus import, Shodan enrichment, BloodHound bridge, DOCX report and Watch folder).
-Phase E (the directory) is planned. This is the design the plugin work follows;
+scripts; the Nessus import, Shodan enrichment, BloodHound bridge, DOCX report and Watch folder),
+and plugins can add asset types and relationship kinds (Source Code Review). Phase E (the
+directory) is planned. This is the design the plugin work follows;
 change it here first when a decision changes, then build. The roadmap entry points here. Writing a
 plugin: the wiki's Plugins page and `plugins/nessus-import/`.
 
@@ -39,6 +40,7 @@ allows more.
 | **UI slots** | A panel in a sandboxed iframe: a card tab, an asset dialog panel, a project Home tile, a settings page, a Relationships graph overlay | A BloodHound attack-path tab; a Jira tab on a card |
 | **Settings** | Fields the admin fills in at install (per instance, optionally per project); secret ones go to the vault | An API key, a base URL, a default severity |
 | **Storage** | A key-value space per plugin, and per plugin and project | Last sync time, an id map between Castor and Jira |
+| **Asset types and relationship kinds** | Kinds of asset and of relationship Castor doesn't have, which then work like its own; more pairs for Castor's kinds | Source files and symbols, with "imports" and "calls"; a vulnerability that "affects" a file |
 
 Agents need nothing new: a plugin brings software into jobs the way the library does today,
 as tools (container images or build recipes) with commands that use them.
@@ -83,9 +85,15 @@ ui:                            # its pages, shown in Castor in sandboxed frames 
 settings:
   - { name: info_findings, label: "Record informational findings", type: bool, default: false }
 contents: []                   # folders of library items it ships: commands/, parsers/, …
+asset_types:                   # kinds of asset it adds (see below)
+  - { name: source_file, label: Source file, icon: code, identity: [repo, path], label_template: "{repo}/{path}",
+      fields: [{ name: repo, label: Repository }, { name: path, label: Path }, { name: lines, label: Lines, type: number }] }
+link_kinds:                    # kinds of relationship it adds, or more pairs for Castor's
+  - { name: imports, forward: imports, reverse: imported by, pairs: [[source_file, source_file]], details: [{ name: line, label: Line }] }
+  - { name: affects, pairs: [[vulnerability, source_file]] }
 ```
 
-`network`, `events`, `actions`, `hooks`, `ui` and `settings` are all optional. Castor rejects a
+`network`, `events`, `actions`, `hooks`, `ui`, `settings`, `asset_types` and `link_kinds` are all optional. Castor rejects a
 manifest with unknown fields, a permission it doesn't know, or an `id` that's taken by another
 publisher.
 
@@ -154,6 +162,38 @@ session only; none in safe or restricted mode). It runs as the person looking, s
 anything they can; the manifest refuses one on a sandboxed plugin. It gets `window.castorPage`:
 `user`, `notify(text)`, `goto(path)` (Castor's own paths), `onNavigate(fn)` (after every
 navigation), `onEvent(fn)` (live events), and calls the API with `fetch` and the session.
+
+### Asset types and relationship kinds
+
+A manifest's `asset_types` adds kinds of asset, and `link_kinds` kinds of relationship. They're
+data, not code: Castor registers them when the plugin is installed (on or off, and in safe mode,
+since they describe what's in projects) and they work everywhere Castor's own do: the Assets
+page, adding one by hand, search, `where` filters, the Relationships graph, triggers, command
+arguments, import and export, the MCP tools (`add_asset`, `link_assets`, `bulk_assets`,
+`list_asset_types`, `list_link_kinds`). `GET /api/assets/types` and `GET /api/assets/link-kinds`
+say which plugin added each (`plugin`).
+
+- **A type:** `name` (lowercase, up to 16 characters; not one of Castor's or their aliases), `label`,
+  `plural`, `icon` (Material Symbols), `description`, `fields` (`text`, `number`, `bool` or `list`;
+  numbers and booleans are converted, lists sorted), `identity` (the fields that make two reports
+  the same asset; all must be set) and `label_template` (`"{repo}/{path}"`; a part whose field is
+  empty drops out; by default the identity, joined).
+- **A kind:** `name` (up to 24 characters), `forward` and `reverse` (how it reads from each end),
+  `pairs` (`[from type, to type]`, Castor's types or the plugin's; none means any two),
+  `description` and `details` (fields usually recorded on it).
+- **More pairs for Castor's kinds:** an entry with the name of one of Castor's kinds and only
+  `pairs`, each with one of the plugin's own types (`affects: [[vulnerability, source_file]]`).
+  Kinds that already connect anything (`related`) can't be extended.
+- **Names are unique:** a plugin can't install while another installed plugin adds a type or kind
+  of the same name (the preview lists the clash).
+- **Removing the plugin** removes its types and kinds; assets of its types stay in their projects
+  (as everything a plugin made does) and show as a plain type with no fields (`plugin: "removed"`)
+  until a plugin adds it again. They can't be added or edited meanwhile. Relationships of a removed
+  kind stay too, read by their name.
+
+The install review lists the types and kinds a plugin adds. `assets.py` keeps them
+(`register_plugin`, `CORE_TYPES` and `CORE_LINK_KINDS` plus the plugins'); the manifest checks
+are in `plugin_manifest.py`.
 
 ## Runtime
 
@@ -448,6 +488,29 @@ with a message to slow down. Events are capped by the queue above.
   server (`/data/inbox`), a folder per project by code name; a file there becomes a card with the
   file attached, is handed to a plugin action that takes its extension (`POST /api/plugin-actions/run`,
   as its own account), and moves to `.imported/`.
+
+## Source Code Review (asset types)
+
+The example of asset types and relationship kinds (`plugins/source-code-review/`, sandboxed, no
+network):
+
+- **Types:** `repository` (name), `source_file` (repository + path: language, lines, roles,
+  review state, packages it uses, SHA-256) and `code_symbol` (repository + file + name: a function,
+  class, route or query, with its line and signature).
+- **Kinds:** `in_repo`, `imports`, `defines`, `calls`, `flows_to` ("passes data to", with what
+  passes), `tests`, `serves` (→ a URL), `deployed_to` (→ a host, URL or service), and Castor's
+  `affects` from a vulnerability to a file, symbol or repository.
+- **Import source code** (project or card, a `.zip`, `.tar.gz` or `.tar`): lists code and
+  configuration files, works out imports for JavaScript/TypeScript (with Svelte and Vue), Python,
+  Go, Java/Kotlin/Scala, C/C++, C#, PHP, Ruby and Rust (`code.ts`, regular expressions and a
+  resolver that knows every path, Python packages, `go.mod` modules and C# namespaces), records
+  outside packages per file, matches tests to what they test by name, and gives files roles
+  (entry point, routes, auth, sql, test, config).
+- **Code map** (`project.page`): folder trees per repository with filters, each file's or symbol's
+  relationships, review states (not started, in progress, reviewed, flagged), and forms to add
+  files, symbols and relationships. Its handlers (`map`, read-only; `add_files`, `add_symbol`,
+  `link`, `unlink`, `review`) do the writing as the plugin.
+- **Test data:** `samples/shop`, a small app in Python, TypeScript, Svelte and Go.
 
 ## Open questions
 

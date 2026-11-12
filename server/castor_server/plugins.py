@@ -27,7 +27,7 @@ import httpx
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import api_tokens, plugin_events, plugin_package, vault
+from . import api_tokens, assets, plugin_events, plugin_package, vault
 from . import models as m
 from .config import settings as config
 from .db import SessionLocal
@@ -276,7 +276,7 @@ async def install(db: AsyncSession, user: m.User, pkg: plugin_package.Package, *
     from .services import actor_of, record_activity
 
     man = pkg.manifest
-    if problems := man.not_yet():
+    if problems := man.not_yet() + type_conflicts(man):
         raise PluginError("; ".join(problems))
     check_runtime(man, await restricted(db))
     existing = await db.get(m.Plugin, man.id)
@@ -314,12 +314,34 @@ async def install(db: AsyncSession, user: m.User, pkg: plugin_package.Package, *
     if existing is None or project_ids_in or all_projects != p.all_projects:
         await set_projects(db, p, project_ids_in, all_projects)
     await db.commit()
+    register_types(p.id, man)
     host.forget_crashes(p.id)
     bus.publish("plugins.changed", None, {"id": p.id})
     _soon(start(p.id))
     with contextlib.suppress(Exception):
         plugin_package.prune(p.id, folder)
     return p
+
+
+def type_conflicts(man: Manifest) -> list[str]:
+    """Asset types and relationship kinds another installed plugin already adds."""
+    return assets.conflicts(man.id, [t.name for t in man.asset_types], [k.name for k in man.link_kinds if k.forward])
+
+
+def register_types(plugin_id: str, man: Manifest) -> None:
+    assets.register_plugin(plugin_id, [t.model_dump(mode="json") for t in man.asset_types],
+                           [k.model_dump(mode="json") for k in man.link_kinds])
+
+
+async def load_types() -> None:
+    """At startup: every installed plugin's asset types and relationship kinds (on or off, and in
+    safe mode too: they describe data that's there, and run nothing)."""
+    async with SessionLocal() as db:
+        for p in (await db.execute(select(m.Plugin))).scalars():
+            try:
+                register_types(p.id, manifest_of(p))
+            except Exception:  # a manifest this version can't read: the plugin shows its own error
+                log.exception("Plugin %s: couldn't read its asset types", p.id)
 
 
 async def set_projects(db: AsyncSession, p: m.Plugin, ids: list[uuid.UUID], all_projects: bool) -> None:
@@ -350,6 +372,7 @@ async def uninstall(db: AsyncSession, user: m.User, p: m.Plugin) -> None:
     await record_activity(db, type="plugin.removed", message=f"Removed the plugin {name}", project_id=None,
                           payload={"id": p.id}, **actor_of(user))
     await db.commit()
+    assets.unregister_plugin(p.id)
     plugin_package.remove(p.id)
     bus.publish("plugins.changed", None, {"id": p.id, "removed": True})
 

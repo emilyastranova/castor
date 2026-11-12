@@ -1,14 +1,25 @@
 /** The asset types (host, service, url…) with their fields, and the kinds of relationship
- *  between them, loaded once. */
+ *  between them, loaded once (and again when plugins, which can add both, change). */
 import type { AssetLinkKind, AssetType } from '$lib/api';
 import { api } from '$lib/api';
+import { realtime } from '$lib/realtime.svelte';
 
 class AssetTypes {
 	list = $state<AssetType[]>([]);
 	kinds = $state<AssetLinkKind[]>([]);
 	private loading: Promise<void> | null = null;
 
+	private watching = false;
+
 	load(): Promise<void> {
+		if (!this.watching && typeof window !== 'undefined') {
+			this.watching = true;
+			realtime.subscribe((e) => {
+				if (e.name !== 'plugins.changed' || !this.loading) return;
+				this.loading = null;
+				void this.load();
+			});
+		}
 		this.loading ??= Promise.all([api().assets.types(), api().assets.linkKinds()])
 			.then(([t, k]) => {
 				this.list = t;

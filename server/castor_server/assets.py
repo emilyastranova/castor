@@ -60,12 +60,17 @@ class TypeDef:
     plural: str
     icon: str
     fields: tuple[FieldDef, ...]
-    # The fields that identify it (one of them must be set).
+    # The fields that identify it (one of them must be set; all of them for a plugin's type).
     identity: tuple[str, ...]
+    # A type a plugin declares (its manifest's `asset_types`), and how its label reads ("{repo}/{path}").
+    plugin: str | None = None
+    label_template: str = ""
+    description: str = ""
 
 
 F = FieldDef
-TYPES: dict[str, TypeDef] = {
+# Castor's own types; plugins add theirs (`register_plugin`), and TYPES is both.
+CORE_TYPES: dict[str, TypeDef] = {
     t.name: t
     for t in [
         TypeDef("host", "Host", "Hosts", "dns", (
@@ -113,6 +118,7 @@ TYPES: dict[str, TypeDef] = {
         ), ("path",)),
     ]
 }
+TYPES: dict[str, TypeDef] = dict(CORE_TYPES)
 ALIASES = {"ip": "host", "hosts": "host", "services": "service", "urls": "url", "domains": "domain",
            "users": "user", "credentials": "credential", "creds": "credential", "shares": "share",
            "vulnerabilities": "vulnerability", "vuln": "vulnerability", "vulns": "vulnerability", "files": "file"}
@@ -135,6 +141,7 @@ class LinkKind:
     description: str
     # Details people (and tools) usually record on it, as (field, label): offered when adding one by hand.
     details: tuple[tuple[str, str], ...] = ()
+    plugin: str | None = None  # a kind a plugin declares (its manifest's `link_kinds`)
 
     @property
     def reverse_name(self) -> str:
@@ -145,7 +152,7 @@ class LinkKind:
 
 
 L = LinkKind
-LINK_KINDS: dict[str, LinkKind] = {
+CORE_LINK_KINDS: dict[str, LinkKind] = {
     k.name: k
     for k in [
         L("on", "on", "has", (("service", "host"), ("share", "host"), ("url", "host"), ("file", "share"), ("file", "host")),
@@ -187,11 +194,86 @@ LINK_KINDS: dict[str, LinkKind] = {
         L("related", "related to", "related to", (), "Anything else people want to note."),
     ]
 }
+LINK_KINDS: dict[str, LinkKind] = dict(CORE_LINK_KINDS)
 # The words each kind is filtered by (`where`): its name, and its reverse ("accepts", "has_admin").
-LINK_WORDS: dict[str, tuple[str, bool]] = {
-    **{k.name: (k.name, True) for k in LINK_KINDS.values()},
-    **{k.reverse_name: (k.name, False) for k in LINK_KINDS.values() if k.reverse_name != k.name},
-}
+LINK_WORDS: dict[str, tuple[str, bool]] = {}
+
+
+# ---------- types and kinds plugins declare ----------
+
+# What each installed plugin adds: its types, its kinds, and pairs it adds to kinds that exist.
+_PLUGINS: dict[str, tuple[list[TypeDef], list[LinkKind]]] = {}
+
+
+def _rebuild() -> None:
+    """TYPES, LINK_KINDS, LINK_WORDS and ORDER from Castor's own and the plugins' (in place, so
+    modules that imported them see the change). A name already taken is skipped: install refuses
+    those (`conflicts`), so that only happens if two were installed by hand into the database."""
+    TYPES.clear()
+    TYPES.update(CORE_TYPES)
+    LINK_KINDS.clear()
+    LINK_KINDS.update(CORE_LINK_KINDS)
+    extra: list[LinkKind] = []
+    for pid in sorted(_PLUGINS):
+        types, kinds = _PLUGINS[pid]
+        for t in types:
+            TYPES.setdefault(t.name, t)
+        for k in kinds:
+            if k.forward:
+                LINK_KINDS.setdefault(k.name, k)
+            else:
+                extra.append(k)
+    for k in extra:  # more pairs for a kind that's there ("affects" a source file)
+        base = LINK_KINDS.get(k.name)
+        if base is not None and base.pairs:
+            LINK_KINDS[k.name] = LinkKind(base.name, base.forward, base.reverse, tuple(dict.fromkeys(base.pairs + k.pairs)),
+                                          base.description, base.details, base.plugin)
+    LINK_WORDS.clear()
+    LINK_WORDS.update({k.name: (k.name, True) for k in LINK_KINDS.values()})
+    LINK_WORDS.update({k.reverse_name: (k.name, False) for k in LINK_KINDS.values() if k.reverse_name != k.name})
+    ORDER.clear()
+    ORDER.update({name: i for i, name in enumerate(TYPES)})
+
+
+def register_plugin(plugin_id: str, asset_types: list[dict[str, Any]], link_kinds: list[dict[str, Any]]) -> None:
+    """A plugin's `asset_types` and `link_kinds` (its manifest, already checked), from now on."""
+    types = [TypeDef(t["name"], t["label"], t.get("plural") or t["label"] + "s", t.get("icon") or "category",
+                     tuple(FieldDef(f["name"], f["label"], f.get("type") or "text") for f in t["fields"]),
+                     tuple(t["identity"]), plugin_id, t.get("label_template") or "", t.get("description") or "")
+             for t in asset_types]
+    kinds = [LinkKind(k["name"], k.get("forward") or "", k.get("reverse") or k.get("forward") or "",
+                      tuple((a, b) for a, b in k.get("pairs") or []), k.get("description") or "",
+                      tuple((d["name"], d["label"]) for d in k.get("details") or []), plugin_id)
+             for k in link_kinds]
+    if types or kinds:
+        _PLUGINS[plugin_id] = (types, kinds)
+    else:
+        _PLUGINS.pop(plugin_id, None)
+    _rebuild()
+
+
+def unregister_plugin(plugin_id: str) -> None:
+    """The plugin is gone: its types and kinds go too (assets of them stay, see `orphan_type`)."""
+    if _PLUGINS.pop(plugin_id, None) is not None:
+        _rebuild()
+
+
+def conflicts(plugin_id: str, type_names: list[str], kind_names: list[str]) -> list[str]:
+    """Names another plugin already declared (Castor's own are refused by the manifest)."""
+    out = []
+    for pid, (types, kinds) in _PLUGINS.items():
+        if pid == plugin_id:
+            continue
+        out += [f"asset type {n}: the plugin {pid} already adds it" for n in type_names if any(t.name == n for t in types)]
+        out += [f"relationship {n}: the plugin {pid} already adds it" for n in kind_names
+                if any(k.name == n and k.forward for k in kinds)]
+    return out
+
+
+def orphan_type(name: str) -> TypeDef:
+    """A type nobody declares any more (its plugin was removed): its assets stay, shown plainly."""
+    label = name.replace("_", " ").capitalize()
+    return TypeDef(name, label, label + "s", "category", (), (), "removed")
 
 
 class AssetError(ValueError):
@@ -335,9 +417,26 @@ def identity(type_name: str, fields: dict[str, Any], secret: str | None = None) 
         if f.get("host") and not label.startswith("\\\\"):  # a path on a host, not on a share
             label = f"{f['host']}:{label}"
         key = label.lower()
-    else:  # pragma: no cover - TYPES is closed
+    elif t.plugin:
+        missing = [n for n in t.identity if f.get(n) in (None, "", [])]
+        if missing:
+            labels = {x.name: x.label.lower() for x in t.fields}
+            raise AssetError(f"a {t.label.lower()} needs its {' and '.join(labels.get(n, n) for n in missing)}")
+        key = "|".join(str(f[n]) for n in t.identity)
+        label = _template(t.label_template, f) if t.label_template else " · ".join(str(f[n]) for n in t.identity)
+    else:  # pragma: no cover - every type is one of the above
         raise AssetError(f"unknown asset type {type_name}")
     return key[:400], label[:400], f
+
+
+PLACEHOLDER = re.compile(r"\{(\w+)\}")
+
+
+def _template(template: str, fields: dict[str, Any]) -> str:
+    """"{repo}/{path}" with the fields; a part whose field is empty goes, with what joins it."""
+    out = PLACEHOLDER.sub(lambda mt: str(fields.get(mt.group(1)) or "\x00"), template)
+    out = re.sub(r"[^\x00\w]*\x00[^\x00\w({\[]*", "", out)
+    return out.strip(" ·/:-|") or "?"
 
 
 # ---------- recording ----------
@@ -1042,7 +1141,8 @@ async def _relations(db: AsyncSession, project_id: uuid.UUID, rels: list[dict[st
     return lambda asset_id: all((asset_id in hits) != negate for hits, negate in tests)
 
 
-ORDER = {name: i for i, name in enumerate(TYPES)}
+ORDER: dict[str, int] = {}
+_rebuild()
 
 
 def sort_key(a: m.Asset) -> tuple:
@@ -1078,6 +1178,9 @@ async def ref_values(db: AsyncSession, project_id: uuid.UUID, ref: dict[str, Any
 
 
 def default_field(type_name: str) -> str:
+    t = TYPES.get(type_name)
+    if t is not None and t.plugin:
+        return t.identity[-1] if t.identity else "key"
     return {"host": "ip", "service": "key", "url": "url", "domain": "name", "user": "username", "credential": "username", "share": "key",
             "vulnerability": "id", "file": "path"}.get(type_name, "key")
 

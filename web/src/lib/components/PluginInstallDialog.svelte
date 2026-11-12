@@ -112,6 +112,8 @@
 		}
 	}
 	const PLACES: Record<string, string> = { project: 'the Assets page', card: 'cards', asset: 'assets' };
+	/** A type's name as words: the plugin's own label, or Castor's (source_file → source file). */
+	const typeWord = (name: string) => (preview?.manifest.asset_types?.find((t) => t.name === name)?.label ?? name.replaceAll('_', ' ')).toLowerCase();
 	const SLOTS: Record<string, string> = {
 		'project.page': 'a tab on the Assets page',
 		'card.tab': 'a tab on cards',
@@ -239,7 +241,7 @@
 				</section>
 			{/if}
 
-			{#if m.actions.length || m.ui?.length}
+			{#if m.actions.length || m.ui?.length || m.asset_types?.length || m.link_kinds?.length}
 				<section aria-label="What it adds">
 					<h3 class="mb-1.5 label-large text-on-surface-variant">It adds</h3>
 					<ul class="flex flex-col gap-1.5">
@@ -261,6 +263,24 @@
 								</span>
 							</li>
 						{/each}
+						{#each m.asset_types ?? [] as t (t.name)}
+							<li class="flex items-start gap-2 body-medium text-on-surface">
+								<Icon name={t.icon} size={18} class="mt-0.5 shrink-0 text-on-surface-variant" />
+								<span>
+									<b class="font-medium">{t.plural || `${t.label}s`}</b>, a kind of asset ({t.fields.map((f) => f.label.toLowerCase()).join(', ')})
+									{#if t.description}<span class="block body-small text-on-surface-variant">{t.description}</span>{/if}
+								</span>
+							</li>
+						{/each}
+						{#if m.link_kinds?.length}
+							<li class="flex items-start gap-2 body-medium text-on-surface">
+								<Icon name="share" size={18} class="mt-0.5 shrink-0 text-on-surface-variant" />
+								<span>
+									<b class="font-medium">Relationships</b>: {m.link_kinds.map((k) => k.forward || `${k.name.replaceAll('_', ' ')} (${k.pairs.map((p) => p.map(typeWord).join(' → ')).join(', ')})`).join(', ')}
+									<span class="block body-small text-on-surface-variant">Assets of these kinds stay in projects if the plugin is removed.</span>
+								</span>
+							</li>
+						{/if}
 					</ul>
 				</section>
 			{/if}

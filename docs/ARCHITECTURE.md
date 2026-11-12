@@ -501,6 +501,16 @@ rate-limited. Per-person settings: `plugins.per_user` (the admin's choice, withi
 `plugin` for a plugin's account, else `import`). Official plugins live in `plugins/` (`pack.py`
 makes their `.zip`).
 
+Asset types and relationship kinds from plugins: a manifest's `asset_types` and `link_kinds`
+(checked in `plugin_manifest.py`: names fit `assets.type` (16) and `asset_links.kind` (24), never
+Castor's own; a kind with Castor's name only adds pairs). `assets.TYPES`, `LINK_KINDS`, `LINK_WORDS`
+and `ORDER` are Castor's (`CORE_TYPES`, `CORE_LINK_KINDS`) plus every installed plugin's, rebuilt
+in place by `assets.register_plugin`/`unregister_plugin` (`plugins.install`/`uninstall`, and
+`plugins.load_types` at startup); `assets.conflicts` refuses a name another plugin has. A plugin
+type's key is its identity fields joined with `|` and its label `label_template`. Assets of a type
+no plugin declares any more are listed by `GET /api/assets/types` as `orphan_type` (`plugin:
+"removed"`). Web `assetTypes` reloads on `plugins.changed`.
+
 Unrestricted plugins (phase D): `runtime: unrestricted` runs with `UNRESTRICTED_FLAGS` (`--allow-all`, no
 module graph check). `plugins.restricted(db)` is `config.plugins_restricted` (env lock) or `app_settings.plugins_restricted`
 (default on, changed only by `PUT /api/plugin-mode`, which stops unrestricted plugins when it goes on); `check_runtime`

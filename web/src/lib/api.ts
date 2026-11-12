@@ -381,6 +381,9 @@ export interface AssetType {
 	identity: string[];
 	default_field: string;
 	fields: { name: string; label: string; type: 'text' | 'number' | 'bool' | 'list' }[];
+	/** The plugin that adds it; "removed" when that plugin is gone but assets of the type remain. */
+	plugin: string | null;
+	description: string;
 }
 
 export interface Asset {
@@ -457,6 +460,8 @@ export interface AssetLinkKind {
 	description: string;
 	/** Details usually recorded on it (offered when adding one by hand). */
 	details: { name: string; label: string }[];
+	/** The plugin that adds it. */
+	plugin: string | null;
 }
 
 export interface AssetEnd {
@@ -2057,6 +2062,8 @@ export interface PluginPreview {
 		actions: PluginActionSpec[];
 		/** Its pages shown in Castor (sandboxed frames). */
 		ui: Pick<PluginPanel, 'id' | 'slot' | 'title' | 'icon' | 'asset_types'>[];
+		asset_types?: { name: string; label: string; plural: string; icon: string; description: string; fields: { name: string; label: string }[] }[];
+		link_kinds?: { name: string; forward: string; reverse: string; pairs: [string, string][] }[];
 		settings: PluginSettingSpec[];
 	};
 	/** What this Castor can't do yet: installing is refused while there are any. */

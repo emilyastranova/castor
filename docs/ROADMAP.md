@@ -15,7 +15,9 @@ an admin allows unrestricted plugins. The design and phases are in [PLUGINS.md](
 Phases A to D are built (sandboxed plugins with actions, settings, storage, events, declared
 network access and their own pages in sandboxed frames; unrestricted plugins behind restricted
 mode, with safe mode and page scripts; Settings → Plugins; the Nessus import, Shodan enrichment,
-BloodHound bridge, DOCX report and Watch folder); next is the public directory.
+BloodHound bridge, DOCX report and Watch folder), and plugins can add asset types and relationship
+kinds (Source Code Review: repositories, source files and symbols, with imports, calls and data
+flow); next is the public directory.
 
 ## People and access
 

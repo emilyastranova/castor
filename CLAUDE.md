@@ -287,7 +287,11 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   (skipped without Deno; a fake Shodan on localhost). Plugin events: `plugin_events.emit(db, …)` where the thing happens
   (delivered after commit, never to the plugin that caused it); add new ones to `plugin_events.EVENTS`. Per-person
   settings (`plugins.per_user`, `plugin_user_settings`, `/api/auth/me/plugins`, web `routes/plugins`): `ctx.settings` is
-  only the shared ones; actions and events carry the person's merged `settings`.
+  only the shared ones; actions and events carry the person's merged `settings`. Asset types and relationship kinds
+  from plugins (manifest `asset_types`/`link_kinds`): `assets.register_plugin` rebuilds `TYPES`/`LINK_KINDS`/`LINK_WORDS`/
+  `ORDER` in place (Castor's are `CORE_TYPES`/`CORE_LINK_KINDS`), so read those dicts at call time, never copy them at
+  import; a removed plugin's assets show as `orphan_type`. `source-code-review` is the example (repositories, source
+  files, symbols; repo archive import in `code.ts`; a Code map panel).
 - Instance settings admins change in the UI: `app_settings.py` (`AppSettings` fields are the
   keys and defaults), `api/app_settings.py`; web `lib/appSettings.svelte.ts`,
   `routes/settings/general`. Env-level config stays in `config.py`.

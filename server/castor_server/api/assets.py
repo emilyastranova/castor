@@ -118,12 +118,16 @@ async def _asset_or_404(db: DB, user: m.User, asset_id: str, *, write: bool = Fa
 
 
 @router.get("/assets/types")
-async def asset_types(_: CurrentUser) -> list[dict[str, Any]]:
+async def asset_types(db: DB, _: CurrentUser) -> list[dict[str, Any]]:
+    """Castor's own types, those installed plugins add (`plugin`), and any a removed plugin left
+    assets of (`plugin: "removed"`, no fields)."""
+    there = set((await db.execute(select(m.Asset.type).distinct())).scalars())
+    types = [*A.TYPES.values(), *(A.orphan_type(n) for n in sorted(there - set(A.TYPES)))]
     return [
         {"name": t.name, "label": t.label, "plural": t.plural, "icon": t.icon, "identity": list(t.identity),
-         "default_field": A.default_field(t.name),
+         "default_field": A.default_field(t.name), "plugin": t.plugin, "description": t.description,
          "fields": [{"name": f.name, "label": f.label, "type": f.type} for f in t.fields]}
-        for t in A.TYPES.values()
+        for t in types
     ]
 
 
@@ -131,7 +135,7 @@ async def asset_types(_: CurrentUser) -> list[dict[str, Any]]:
 async def link_kinds(_: CurrentUser) -> list[dict[str, Any]]:
     """Kinds of relationship between assets: how each reads from both ends, and which types it connects."""
     return [{"name": k.name, "forward": k.forward, "reverse": k.reverse, "reverse_name": k.reverse_name,
-             "pairs": [list(p) for p in k.pairs], "description": k.description,
+             "pairs": [list(p) for p in k.pairs], "description": k.description, "plugin": k.plugin,
              "details": [{"name": n, "label": label} for n, label in k.details]} for k in A.LINK_KINDS.values()]
 
 

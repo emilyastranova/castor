@@ -382,7 +382,7 @@ TOOLS += [
     _auto("delete_post", "DELETE", "/api/posts/{post_id}", "Delete a timeline post.", **_DESTRUCTIVE),
     _auto("reorder_notes", "POST", "/api/projects/{project_id}/notes/order", "Put a project's notes in this order."),
     # Assets
-    _auto("list_asset_types", "GET", "/api/assets/types", "Kinds of asset (host, service, url…) and their fields."),
+    _auto("list_asset_types", "GET", "/api/assets/types", "Kinds of asset (host, service, url…, and those plugins add) and their fields."),
     _auto("get_asset", "GET", "/api/assets/{asset_id}", "One asset with where it was seen.", **_UNTRUSTED),
     _auto("add_asset", "POST", "/api/projects/{project_id}/assets", "Record an asset by hand."),
     _auto("update_asset", "PATCH", "/api/assets/{asset_id}", "Set an asset's fields (not its identity) and/or its description (markdown)."),

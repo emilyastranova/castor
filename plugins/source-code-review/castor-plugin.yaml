@@ -1,0 +1,142 @@
+# Map a code base for review: repositories, source files and symbols as assets, and how they
+# connect. The format is docs/PLUGINS.md.
+id: source-code-review
+name: Source Code Review
+version: 1.0.0
+castor: ">=0.1"
+publisher: castor
+description: "Source files, repositories and symbols as assets, with imports, calls, data flow and tests as relationships. Import a repository archive to map its files and imports, or add them by hand in the Code map."
+homepage: https://github.com/emilyastranova/castor/tree/main/plugins/source-code-review
+license: MIT
+main: main.ts
+icon: icon.svg
+runtime: sandboxed
+# As its own account: read the projects it's enabled in, record assets.
+permissions:
+  - projects:read
+  - assets:write
+
+asset_types:
+  - name: repository
+    label: Repository
+    plural: Repositories
+    icon: source
+    description: A code base under review.
+    fields:
+      - { name: name, label: Name }
+      - { name: url, label: URL }
+      - { name: branch, label: Branch }
+      - { name: commit, label: Commit }
+      - { name: languages, label: Languages, type: list }
+      - { name: files, label: Files, type: number }
+    identity: [name]
+  - name: source_file
+    label: Source file
+    plural: Source files
+    icon: code
+    description: A file in a repository, by its path.
+    fields:
+      - { name: repo, label: Repository }
+      - { name: path, label: Path }
+      - { name: language, label: Language }
+      - { name: lines, label: Lines, type: number }
+      - { name: roles, label: Roles, type: list }
+      - { name: review, label: Review }
+      - { name: dependencies, label: Packages it uses, type: list }
+      - { name: sha256, label: SHA-256 }
+    identity: [repo, path]
+    label_template: "{repo}/{path}"
+  - name: code_symbol
+    label: Symbol
+    plural: Symbols
+    icon: function
+    description: "A function, class, method, route or query in a file: the places a review points at."
+    fields:
+      - { name: repo, label: Repository }
+      - { name: file, label: File }
+      - { name: name, label: Name }
+      - { name: kind, label: Kind }
+      - { name: line, label: Line, type: number }
+      - { name: signature, label: Signature }
+      - { name: review, label: Review }
+    identity: [repo, file, name]
+    label_template: "{name} ({file})"
+
+link_kinds:
+  - name: in_repo
+    forward: in repository
+    reverse: contains
+    pairs: [[source_file, repository]]
+    description: A file of a repository.
+  - name: imports
+    forward: imports
+    reverse: imported by
+    pairs: [[source_file, source_file]]
+    description: "One file imports, includes or requires another."
+    details: [{ name: line, label: Line }]
+  - name: defines
+    forward: defines
+    reverse: defined in
+    pairs: [[source_file, code_symbol], [code_symbol, code_symbol]]
+    description: Where a symbol is written (a file, or the class a method belongs to).
+    details: [{ name: line, label: Line }]
+  - name: calls
+    forward: calls
+    reverse: called by
+    pairs: [[code_symbol, code_symbol], [source_file, code_symbol]]
+    description: One symbol calls another.
+    details: [{ name: line, label: Line }]
+  - name: flows_to
+    forward: passes data to
+    reverse: gets data from
+    pairs: [[code_symbol, code_symbol], [source_file, source_file], [code_symbol, source_file], [source_file, code_symbol]]
+    description: "Data moves from one place to the next: follow user input to where it's used."
+    details: [{ name: data, label: "What (user input, a token…)" }, { name: line, label: Line }]
+  - name: tests
+    forward: tests
+    reverse: tested by
+    pairs: [[source_file, source_file], [source_file, code_symbol]]
+    description: A test file and what it tests.
+  - name: serves
+    forward: serves
+    reverse: served by
+    pairs: [[code_symbol, url], [source_file, url]]
+    description: The code behind a URL (a route handler and the page it answers).
+  - name: deployed_to
+    forward: deployed to
+    reverse: runs
+    pairs: [[repository, host], [repository, url], [repository, service]]
+    description: Where the code runs.
+  # Findings on code: Castor's "affects" also reaches files, symbols and repositories.
+  - name: affects
+    pairs: [[vulnerability, source_file], [vulnerability, code_symbol], [vulnerability, repository]]
+
+actions:
+  - id: import
+    label: Import source code
+    description: "A repository as a .zip, .tar.gz or .tar (GitHub's Download ZIP, git archive). Lists its files, works out what imports what (JavaScript, TypeScript, Python, Go, Java, Kotlin, C, C++, C#, PHP, Ruby, Rust), and marks entry points, tests and configuration. Importing again adds what's new."
+    icon: upload_file
+    on: [project, card]
+    file:
+      accept: [".zip", ".tar.gz", ".tgz", ".tar"]
+      max_mb: 200
+    timeout_minutes: 30
+
+ui:
+  - id: map
+    slot: project.page
+    title: Code map
+    path: ui/map.html
+    icon: account_tree
+
+settings:
+  - name: skip
+    label: Folders to leave out
+    description: Comma-separated folder names skipped wherever they are.
+    default: "node_modules, vendor, .git, dist, build, target, out, __pycache__, .venv, venv, .tox, .next, .svelte-kit, coverage, bower_components"
+    per_user: never
+  - name: max_files
+    label: Most files per import
+    type: number
+    default: 5000
+    per_user: never

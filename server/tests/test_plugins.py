@@ -908,3 +908,200 @@ def test_safe_mode(client, auth, monkeypatch):
     finally:
         monkeypatch.setattr(settings, "plugins_safe_mode", False)
         client.delete(f"/api/plugins/{plugin['id']}", headers=auth)
+
+
+# ---------- asset types and relationship kinds plugins add ----------
+
+TYPES_MANIFEST = """
+id: types-{n}
+name: Types probe
+version: 1.0.0
+publisher: tests
+main: main.ts
+asset_types:
+  - name: {t}
+    label: Widget
+    icon: widgets
+    fields:
+      - {{ name: name, label: Name }}
+      - {{ name: size, label: Size, type: number }}
+      - {{ name: shelf, label: Shelf }}
+    identity: [shelf, name]
+    label_template: "{{shelf}}/{{name}}"
+link_kinds:
+  - name: {k}
+    forward: feeds
+    reverse: fed by
+    pairs: [[{t}, {t}], [{t}, host]]
+    details: [{{ name: rate, label: Rate }}]
+  - name: affects
+    pairs: [[vulnerability, {t}]]
+{extra}
+"""
+
+
+def types_plugin(n: str, t: str, k: str, extra: str = "", swap: tuple[str, str] = ("", "")) -> bytes:
+    return zip_files({"castor-plugin.yaml": TYPES_MANIFEST.format(n=n, t=t, k=k, extra=extra).replace(*swap),
+                      "main.ts": 'import { definePlugin } from "@castor/plugin";\ndefinePlugin({ activate() {} });\n'})
+
+
+def test_plugins_add_asset_types_and_kinds(client, auth):
+    n = uuid.uuid4().hex[:6]
+    t, k = f"w{n}", f"feeds_{n}"
+    # What a manifest may declare.
+    for bad, why in [
+        (types_plugin(n, "host", k), "Castor has its own host"),
+        (types_plugin(n, t, k, swap=("identity: [shelf, name]", "identity: [colour]")), "identity names colour"),
+        (types_plugin(n, t, k, swap=("[[vulnerability", "[[gadget")), "gadget is neither"),
+        (types_plugin(n, t, k, "  - { name: on, forward: sits on, pairs: [[" + t + ", host]] }"), "a plugin can only add pairs"),
+        (types_plugin(n, t, k, "  - { name: related, pairs: [[" + t + ", host]] }"), "already connects any two"),
+        (types_plugin(n, t, k, "  - { name: valid_on, pairs: [[credential, host]] }"), "needs one of the plugin's own types"),
+        (types_plugin(n, "averyveryverylongname", k), "asset_types.0.name"),
+    ]:
+        r = preview(client, auth, bad)
+        assert r.status_code == 422 and why in r.text, (why, r.text)
+
+    p = project(client, auth)
+    pid = install(client, auth, types_plugin(n, t, k), project_ids=[p["id"]])["id"]
+    try:
+        types = {x["name"]: x for x in client.get("/api/assets/types", headers=auth).json()}
+        assert types[t]["plugin"] == pid and types[t]["identity"] == ["shelf", "name"] and types[t]["default_field"] == "name"
+        assert types["host"]["plugin"] is None
+        kinds = {x["name"]: x for x in client.get("/api/assets/link-kinds", headers=auth).json()}
+        assert kinds[k]["forward"] == "feeds" and kinds[k]["plugin"] == pid and [t, "host"] in kinds[k]["pairs"]
+        assert ["vulnerability", t] in kinds["affects"]["pairs"] and ["vulnerability", "host"] in kinds["affects"]["pairs"]
+
+        # Assets of it, like any other: identity, typed fields, label, relationships, filters.
+        url = f"/api/projects/{p['id']}/assets"
+        assert client.post(url, json={"type": t, "fields": {"name": "W1"}}, headers=auth).status_code == 422  # no shelf
+        a = client.post(url, json={"type": t, "fields": {"name": "W1", "shelf": "top", "size": "3"}}, headers=auth).json()
+        assert a["label"] == "top/W1" and a["fields"]["size"] == 3
+        again = client.post(url, json={"type": t, "fields": {"name": "W1", "shelf": "top", "size": 4}}, headers=auth).json()
+        assert again["id"] == a["id"]
+        b = client.post(url, json={"type": t, "fields": {"name": "W2", "shelf": "low"}}, headers=auth).json()
+        host = client.post(url, json={"type": "host", "fields": {"ip": "10.66.0.1"}}, headers=auth).json()
+        vuln = client.post(url, json={"type": "vulnerability", "fields": {"id": "W-1", "title": "Wobbly"}}, headers=auth).json()
+        assert client.post(f"/api/assets/{a['id']}/links", json={"kind": k, "to_id": b["id"], "fields": {"rate": "fast"}}, headers=auth).status_code == 201
+        assert client.post(f"/api/assets/{a['id']}/links", json={"kind": k, "to_id": host["id"]}, headers=auth).status_code == 201
+        assert client.post(f"/api/assets/{host['id']}/links", json={"kind": k, "to_id": a["id"]}, headers=auth).status_code == 422
+        assert client.post(f"/api/assets/{vuln['id']}/links", json={"kind": "affects", "to_id": a["id"]}, headers=auth).status_code == 201
+        fed = client.get(url, params={"type": t, "where": "fed_by:*"}, headers=auth).json()["items"]
+        assert [x["label"] for x in fed] == ["low/W2"]
+        assert [x["label"] for x in client.get(url, params={"type": t, "where": "size>3"}, headers=auth).json()["items"]] == ["top/W1"]
+        found = client.get("/api/search", params={"q": "top/W1"}, headers=auth).json()["groups"]
+        assert any(h.get("id") == a["id"] for g in found for h in g["hits"]), found
+
+        # Another plugin can't take the same names.
+        clash = types_plugin(uuid.uuid4().hex[:6], t, f"other_{n}")
+        assert any("already adds it" in x for x in preview(client, auth, clash).json()["problems"])
+        r = client.post("/api/plugins", json={"token": preview(client, auth, clash).json()["token"], "approve": True}, headers=auth)
+        assert r.status_code == 422 and "already adds it" in r.text
+    finally:
+        client.delete(f"/api/plugins/{pid}", headers=auth)
+
+    # Removed: its kinds go, its assets stay, shown as a plain type.
+    types = {x["name"]: x for x in client.get("/api/assets/types", headers=auth).json()}
+    assert types[t]["plugin"] == "removed" and types[t]["fields"] == []
+    assert k not in {x["name"] for x in client.get("/api/assets/link-kinds", headers=auth).json()}
+    affects = next(x for x in client.get("/api/assets/link-kinds", headers=auth).json() if x["name"] == "affects")
+    assert ["vulnerability", t] not in affects["pairs"]
+    assert client.get(f"/api/assets/{a['id']}", headers=auth).json()["label"] == "top/W1"
+    assert client.post(f"/api/projects/{p['id']}/assets", json={"type": t, "fields": {"name": "W3", "shelf": "x"}}, headers=auth).status_code == 422
+
+
+SOURCE_REVIEW = ROOT / "plugins" / "source-code-review"
+
+
+def test_source_code_review(client, auth):
+    import json
+
+    p = project(client, auth)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path in sorted((SOURCE_REVIEW / "samples" / "shop").rglob("*")):
+            if path.is_file():
+                zf.write(path, "shop-main/" + str(path.relative_to(SOURCE_REVIEW / "samples" / "shop")))
+    install(client, auth, zip_folder(SOURCE_REVIEW), project_ids=[p["id"]])
+    try:
+        running(client, auth, "source-code-review")
+        out = run(client, auth, "source-code-review", "import", p["id"], file=("shop-main.zip", buf.getvalue()))
+        assert out["status"] == "succeeded", out
+        assert out["message"].startswith("Mapped shop: 20 files (Python 8, TypeScript 4, Go 3"), out["message"]
+        assert "3 tests matched" in out["message"] and "1 file about sign-in" in out["message"], out["message"]
+
+        url = f"/api/projects/{p['id']}/assets"
+        files = {a["fields"]["path"]: a for a in client.get(url, params={"type": "source_file", "limit": 100}, headers=auth).json()["items"]}
+        assert files["app/api/orders.py"]["label"] == "shop/app/api/orders.py"
+        assert files["app/api/orders.py"]["fields"]["roles"] == ["routes", "sql"]
+        assert files["app/main.py"]["fields"]["dependencies"] == ["flask"]
+        repo = client.get(url, params={"type": "repository"}, headers=auth).json()["items"]
+        assert [r["label"] for r in repo] == ["shop"] and repo[0]["fields"]["files"] == 20
+        imports = client.get(f"/api/projects/{p['id']}/asset-links", params={"kind": "imports", "limit": 100}, headers=auth).json()["items"]
+        pairs = {(x["from"]["label"], x["to"]["label"]) for x in imports}
+        assert ("shop/app/main.py", "shop/app/db/session.py") in pairs and ("shop/cmd/server/main.go", "shop/internal/store/store.go") in pairs
+        tests = client.get(f"/api/projects/{p['id']}/asset-links", params={"kind": "tests"}, headers=auth).json()["items"]
+        assert {(x["from"]["label"], x["to"]["label"]) for x in tests} >= {("shop/internal/store/store_test.go", "shop/internal/store/store.go"),
+                                                                           ("shop/web/src/lib/format.spec.ts", "shop/web/src/lib/format.ts")}
+
+        # The Code map's handlers.
+        call = "/api/plugins/source-code-review/panels/map/call"
+
+        def ui(handler, **args):
+            r = client.post(call, json={"project_id": p["id"], "kind": "call", "name": handler, "args": args}, headers=auth)
+            assert r.status_code == 200, r.text
+            return r.json()["result"]
+
+        m = ui("map")
+        assert len(m["files"]) == 20 and m["repos"][0]["name"] == "shop" and m["can_write"]
+        orders = next(f for f in m["files"] if f["path"] == "app/api/orders.py")
+        session = next(f for f in m["files"] if f["path"] == "app/db/session.py")
+        added = ui("add_files", repo="shop", paths=["app/payments/stripe.py", "./app/payments/../x.py", "app\\payments\\refund.py"])
+        assert added["created"] == 2 and len(added["ids"]) == 2  # the repository was there; ../ is refused
+        sym = ui("add_symbol", file=orders["id"], name="show", kind="route", line=11)["id"]
+        q = ui("add_symbol", file=session["id"], name="query", kind="function", line=12)["id"]
+        assert ui("link", **{"from": sym, "to": q, "kind": "flows_to", "fields": {"data": "order_id from the URL", "line": "13"}})["linked"] == 1
+        bad = client.post(call, json={"project_id": p["id"], "kind": "call", "name": "link", "args": {"from": q, "to": sym, "kind": "tests"}}, headers=auth)
+        assert bad.status_code == 422 and "doesn't go" in bad.text
+        ui("review", id=orders["id"], review="flagged")
+        # A finding on the code, the way an assistant would add it through MCP.
+        token = client.post("/api/tokens", json={"name": "reviewer", "scopes": ["projects:write", "assets:write"]}, headers=auth).json()["token"]
+
+        def mcp(tool, **args):
+            r = client.post("/api/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": args}},
+                            headers={"Authorization": f"Bearer {token}"}).json()["result"]
+            assert not r["isError"], r
+            from castor_server import mcp as M
+
+            return json.loads(r["content"][0]["text"].removeprefix(M.UNTRUSTED))
+
+        assert any(t["name"] == "code_symbol" for t in mcp("list_asset_types"))
+        got = mcp("bulk_assets", project_id=p["id"], assets=[
+            {"ref": "v", "type": "vulnerability", "fields": {"id": "SQLI-1", "title": "SQL injection in show()", "severity": "high"}},
+            {"ref": "f", "type": "source_file", "fields": {"repo": "shop", "path": "app/auth.py"}}],
+            links=[{"from": "v", "to": sym, "kind": "affects"}, {"from": "v", "to": "f", "kind": "affects"}])
+        assert got["links"] == 2 and not got["skipped"], got
+        m = ui("map")
+        assert len(m["files"]) == 22 and len(m["symbols"]) == 2
+        assert next(f for f in m["files"] if f["id"] == orders["id"])["review"] == "flagged"
+        kinds = {(x["kind"], x["from"]["type"], x["to"]["type"]) for x in m["links"]}
+        assert {("defines", "source_file", "code_symbol"), ("flows_to", "code_symbol", "code_symbol"), ("affects", "vulnerability", "code_symbol"),
+                ("affects", "vulnerability", "source_file")} <= kinds
+
+        # Importing again changes nothing it already knew, and keeps the review.
+        again = run(client, auth, "source-code-review", "import", p["id"], file=("shop-main.zip", buf.getvalue()))
+        assert again["status"] == "succeeded", again
+        assert client.get(f"/api/assets/{orders['id']}", headers=auth).json()["fields"]["review"] == "flagged"
+
+        # Viewers read the map, and can't change it.
+        name = f"scr-{uuid.uuid4().hex[:6]}"
+        viewer = client.post("/api/users", json={"username": name, "role": "viewer", "password": "correct horse"}, headers=auth).json()
+        client.put(f"/api/projects/{p['id']}/members", json=[viewer["id"]], headers=auth)
+        vh = {"Authorization": f"Bearer {client.post('/api/auth/login', json={'username': name, 'password': 'correct horse'}).json()['token']}"}
+        client.cookies.clear()
+        r = client.post(call, json={"project_id": p["id"], "kind": "call", "name": "map"}, headers=vh)
+        assert r.status_code == 200 and r.json()["result"]["can_write"] is False
+        r = client.post(call, json={"project_id": p["id"], "kind": "call", "name": "review", "args": {"id": orders["id"], "review": "reviewed"}},
+                        headers=vh)
+        assert r.status_code == 403, r.text
+    finally:
+        client.delete("/api/plugins/source-code-review", headers=auth)

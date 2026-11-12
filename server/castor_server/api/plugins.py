@@ -53,6 +53,8 @@ async def _plugin_out(db: DB, p: m.Plugin) -> dict[str, Any]:
         "status": status, "status_message": p.status_message, "running": running,
         "granted": p.granted or {}, "permission_details": _scopes(list((p.granted or {}).get("permissions") or [])),
         "actions": [a.model_dump(mode="json") for a in man.actions],
+        "asset_types": [{"name": t.name, "label": t.label, "plural": t.plural or t.label + "s", "icon": t.icon} for t in man.asset_types],
+        "link_kinds": [{"name": k.name, "forward": k.forward, "reverse": k.reverse} for k in man.link_kinds if k.forward],
         "settings_spec": [s.model_dump(mode="json") for s in man.settings],
         "settings": p.settings or {}, "secrets_set": sorted((p.secrets or {}).keys()),
         "per_user": sorted(P.per_user_names(p, man)),
@@ -183,7 +185,8 @@ async def preview(db: DB, _: Admin, file: Annotated[UploadFile | None, File()] =
         icon = f"data:{plugin_package.icon_type(man.icon)};base64,{base64.b64encode(pkg.files[man.icon]).decode()}"
     out: dict[str, Any] = {"token": token, "source": source, "checksum": pkg.checksum, "size": pkg.size, "files": len(pkg.files),
                            "icon": icon,
-                           "manifest": _manifest_out(man), "problems": man.not_yet(), "existing": None, "new_permissions": {}}
+                           "manifest": _manifest_out(man), "problems": man.not_yet() + P.type_conflicts(man), "existing": None,
+                           "new_permissions": {}}
     try:
         P.check_runtime(man, await P.restricted(db))
     except P.PluginError as exc:
