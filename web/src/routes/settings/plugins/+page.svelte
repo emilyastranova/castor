@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Plugin } from '$lib/api';
+	import type { Plugin, PluginMode } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Card, Icon, IconButton, Menu, MenuItem, Switch, TopAppBar } from '$lib/m3';
 	import { confirmAction } from '$lib/confirm.svelte';
@@ -22,9 +22,11 @@
 			list = data.plugins;
 		}
 	});
+	// svelte-ignore state_referenced_locally
+	let mode = $state<PluginMode>(data.mode);
 	async function reload() {
 		try {
-			list = await api().plugins.list();
+			[list, mode] = await Promise.all([api().plugins.list(), api().plugins.mode()]);
 		} catch {
 			/* keep what's shown */
 		}
@@ -49,6 +51,28 @@
 	const put = (p: Plugin) => {
 		list = [...list.filter((x) => x.id !== p.id), p].sort((a, b) => a.name.localeCompare(b.name));
 	};
+
+	async function setRestricted(on: boolean) {
+		if (!on) {
+			const ok = await confirmAction({
+				title: 'Allow unrestricted plugins?',
+				message:
+					'An unrestricted plugin runs with full access to this server: its files (Castor’s configuration, the database password, the vault key), its programs and any network, and it can put script in Castor’s own page, acting as whoever is looking. Castor can’t limit or watch what it does. Turn this off only to install a plugin you trust as much as Castor itself.',
+				confirmLabel: 'Allow them'
+			});
+			if (!ok) {
+				mode = { ...mode }; // the switch goes back
+				return;
+			}
+		}
+		try {
+			mode = await api().plugins.setMode(on);
+			snackbar.show(on ? 'Restricted mode is on: unrestricted plugins are stopped' : 'Unrestricted plugins can be installed');
+			void reload();
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not change it');
+		}
+	}
 
 	async function setEnabled(p: Plugin, on: boolean) {
 		try {
@@ -112,6 +136,32 @@
 			process with no access to this server, and acts in Castor only as its own account with the permissions you approved, in the projects you choose. See
 			<a class="text-primary underline" href="https://github.com/emilyastranova/castor/wiki/Plugins" target="_blank" rel="noopener">Plugins</a> in the wiki to write one.
 		</p>
+		{#if mode.safe_mode}
+			<div class="flex items-start gap-3 rounded-lg bg-tertiary-container px-4 py-3 text-on-tertiary-container" role="status">
+				<Icon name="health_and_safety" class="mt-0.5 shrink-0" />
+				<p class="body-medium">
+					<b class="font-medium">Safe mode.</b> Castor started with every plugin stopped (<code class="font-mono">CASTOR_PLUGINS_SAFE_MODE</code>), so you can remove or
+					turn off one that misbehaves. Nothing here runs until the server starts without it.
+				</p>
+			</div>
+		{/if}
+		<Card variant="outlined" class="flex items-start gap-3 px-4 py-3.5 {mode.restricted ? '' : 'border-error!'}">
+			<Icon name={mode.restricted ? 'shield' : 'gpp_maybe'} class="mt-0.5 shrink-0 {mode.restricted ? 'text-primary' : 'text-error'}" />
+			<div class="min-w-0 flex-1">
+				<p class="title-small text-on-surface">Restricted mode</p>
+				<p class="mt-0.5 body-small text-on-surface-variant">
+					{#if mode.restricted}
+						Only sandboxed plugins run. Unrestricted ones, which get full access to this server, can't be installed or turned on{mode.restricted_locked
+							? ': this server keeps it on (CASTOR_PLUGINS_RESTRICTED)'
+							: ''}.
+					{:else}
+						<span class="text-error">Off: unrestricted plugins can be installed, with full access to this server and script in Castor’s own page.</span> Turning it back on stops
+						them.
+					{/if}
+				</p>
+			</div>
+			<Switch checked={mode.restricted} label="On" disabled={mode.restricted_locked} onchange={(on) => setRestricted(on)} />
+		</Card>
 		{#each list as p (p.id)}
 			{@const st = STATUS[p.status] ?? STATUS.stopped}
 			<Card variant="outlined" class="flex flex-col gap-3 px-4 py-3.5">
@@ -122,16 +172,22 @@
 							{p.name}
 							<span class="body-medium text-on-surface-variant">{p.version}</span>
 							<span class="flex items-center gap-1 rounded-full px-2 py-0.5 label-medium {st.tone}"><Icon name={st.icon} size={14} />{st.label}</span>
-							<span class="flex items-center gap-1 rounded-full border border-outline-variant px-2 py-0.5 label-medium text-on-surface-variant" title={p.granted.network?.length ? `It runs with no access to this server's files or programs; its network is only ${p.granted.network.join(', ')}` : "It runs with no access to this server's files, network or programs"}>
-								<Icon name="shield" size={14} />Sandboxed
-							</span>
+							{#if p.runtime === 'unrestricted'}
+								<span class="flex items-center gap-1 rounded-full bg-error px-2 py-0.5 label-medium text-on-error" title="It runs with full access to this server: files, programs, any network. Castor can't limit what it does.">
+									<Icon name="gpp_maybe" size={14} />Unrestricted
+								</span>
+							{:else}
+								<span class="flex items-center gap-1 rounded-full border border-outline-variant px-2 py-0.5 label-medium text-on-surface-variant" title={p.granted.network?.length ? `It runs with no access to this server's files or programs; its network is only ${p.granted.network.join(', ')}` : "It runs with no access to this server's files, network or programs"}>
+									<Icon name="shield" size={14} />Sandboxed
+								</span>
+							{/if}
 						</p>
 						<p class="mt-0.5 body-small text-on-surface-variant">
 							{p.publisher ? `by ${p.publisher} · ` : ''}<code class="font-mono">{p.id}</code> · in {where(p)} · installed {relativeTime(p.installed_at)}{p.installed_by ? ` by ${p.installed_by}` : ''}
 						</p>
 						{#if p.description}<p class="mt-1 body-medium text-on-surface">{p.description}</p>{/if}
 					</div>
-					<Switch checked={p.enabled} label="On" onchange={(on) => setEnabled(p, on)} />
+					<Switch checked={p.enabled} label="On" disabled={!p.enabled && p.runtime === 'unrestricted' && mode.restricted} onchange={(on) => setEnabled(p, on)} />
 					<Menu>
 						{#snippet anchor()}<IconButton icon="more_vert" label="More for {p.name}" />{/snippet}
 						<MenuItem icon="restart_alt" onclick={() => restart(p)}>Start again</MenuItem>
@@ -147,7 +203,12 @@
 						· {p.people_set ? `${p.people_set} ${p.people_set === 1 ? 'has' : 'have'}` : 'nobody has yet'}
 					</p>
 				{/if}
-				{#if p.status === 'error' || p.status === 'crashed'}
+				{#if p.runtime === 'unrestricted' && mode.restricted}
+					<div class="flex items-start gap-2 rounded-md bg-surface-container-high px-3 py-2 body-small text-on-surface-variant">
+						<Icon name="block" size={16} class="mt-px shrink-0" />
+						<span>Stopped: restricted mode is on, and this plugin is unrestricted.</span>
+					</div>
+				{:else if p.status === 'error' || p.status === 'crashed'}
 					<div class="flex items-start gap-2 rounded-md bg-error-container/60 px-3 py-2 body-small text-on-error-container" role="alert">
 						<Icon name="error" size={16} class="mt-px shrink-0" />
 						<span class="min-w-0 flex-1 break-words">{p.status_message || 'It stopped.'}</span>

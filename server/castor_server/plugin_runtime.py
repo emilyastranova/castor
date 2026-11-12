@@ -31,6 +31,8 @@ log = logging.getLogger(__name__)
 SDK_DIR = Path(__file__).resolve().parent / "plugin_sdk"
 SDK = SDK_DIR / "mod.ts"
 BASE_FLAGS = ["--no-remote", "--no-npm", "--no-config", "--no-lock", "--quiet"]
+# Unrestricted plugins (docs/PLUGINS.md): every permission, and remote and npm imports.
+UNRESTRICTED_FLAGS = ["--allow-all", "--no-config", "--no-lock", "--quiet"]
 MEMORY_MB = 512
 START_TIMEOUT = 20.0
 LINE_LIMIT = 32 * 1024**2
@@ -122,13 +124,14 @@ class PluginProcess:
     """One running plugin."""
 
     def __init__(self, plugin_id: str, folder: Path, main: str, on_call: CallHandler, on_exit: Callable[[PluginProcess, int], None],
-                 network: list[str] | None = None) -> None:
+                 network: list[str] | None = None, unrestricted: bool = False) -> None:
         self.plugin_id = plugin_id
         self.folder = folder
         self.main = main
         self.on_call = on_call
         self.on_exit = on_exit
         self.network = network or []
+        self.unrestricted = unrestricted
         self.proc: asyncio.subprocess.Process | None = None
         self.pending: dict[int, asyncio.Future[Any]] = {}
         self.next_id = 1
@@ -145,9 +148,10 @@ class PluginProcess:
         return self.proc is not None and self.proc.returncode is None
 
     def command(self) -> list[str]:
-        cmd = [deno_bin(), "run", "--no-prompt", *BASE_FLAGS, f"--import-map={import_map(self.plugin_id)}",
+        flags = UNRESTRICTED_FLAGS if self.unrestricted else BASE_FLAGS
+        cmd = [deno_bin(), "run", "--no-prompt", *flags, f"--import-map={import_map(self.plugin_id)}",
                f"--v8-flags=--max-old-space-size={MEMORY_MB}"]
-        if self.network:
+        if self.network and not self.unrestricted:
             cmd.append("--allow-net=" + ",".join(self.network))
         return [*cmd, self.main]
 

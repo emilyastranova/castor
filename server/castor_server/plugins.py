@@ -13,6 +13,7 @@ import asyncio
 import base64
 import contextlib
 import logging
+import mimetypes
 import re
 import secrets
 import time
@@ -28,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import api_tokens, plugin_events, plugin_package, vault
 from . import models as m
+from .config import settings as config
 from .db import SessionLocal
 from .events import bus
 from .models import utcnow
@@ -42,11 +44,16 @@ LOG_KEEP = 2000
 STORAGE_VALUE_MAX = 1024**2
 # Calls to Castor's API per plugin per minute: enough for any import, not enough to swamp Castor.
 API_PER_MINUTE = 1200
+UPLOAD_MAX = 20 * 1024**2  # a file a plugin uploads (ctx.api.upload)
 _calls: dict[str, deque[float]] = {}
 
 
 class PluginError(ValueError):
     pass
+
+
+class PluginBlocked(PluginError):
+    """Not allowed to run now: safe mode, or an unrestricted plugin in restricted mode."""
 
 
 # ---------- records ----------
@@ -61,7 +68,43 @@ def folder_of(p: m.Plugin) -> Path:
 
 
 def grants(man: Manifest) -> dict[str, Any]:
-    return {"permissions": sorted(man.permissions), "network": sorted(man.network), "events": sorted(man.events)}
+    # "runtime" lists "unrestricted" when it is, so an update that becomes unrestricted asks again.
+    return {"permissions": sorted(man.permissions), "network": sorted(man.network), "events": sorted(man.events),
+            "runtime": ["unrestricted"] if man.runtime == "unrestricted" else []}
+
+
+# ---------- restricted and safe mode ----------
+
+def safe_mode() -> bool:
+    """CASTOR_PLUGINS_SAFE_MODE: Castor started with every plugin stopped, to recover from a bad one."""
+    return config.plugins_safe_mode
+
+
+def restricted_locked() -> bool:
+    return config.plugins_restricted
+
+
+async def restricted(db: AsyncSession) -> bool:
+    """While on, unrestricted plugins can't be installed, turned on or run."""
+    from . import app_settings
+
+    return restricted_locked() or (await app_settings.load(db)).plugins_restricted
+
+
+def check_runtime(man: Manifest, is_restricted: bool) -> None:
+    if man.runtime == "unrestricted" and is_restricted:
+        raise PluginBlocked(f"{man.name} is an unrestricted plugin, and restricted mode is on"
+                          + (" (CASTOR_PLUGINS_RESTRICTED)" if restricted_locked() else "; an admin can turn it off in Settings → Plugins"))
+
+
+async def stop_unrestricted() -> None:
+    """Restricted mode was turned on: stop the unrestricted plugins that are running."""
+    async with SessionLocal() as db:
+        ids = list((await db.execute(select(m.Plugin.id).where(m.Plugin.runtime == "unrestricted"))).scalars())
+    for pid in ids:
+        if host.running(pid) is not None:
+            await host.stop(pid)
+        await _status(pid, "stopped", "Restricted mode is on")
 
 
 def new_grants(old: dict[str, Any], man: Manifest) -> dict[str, list[str]]:
@@ -235,6 +278,7 @@ async def install(db: AsyncSession, user: m.User, pkg: plugin_package.Package, *
     man = pkg.manifest
     if problems := man.not_yet():
         raise PluginError("; ".join(problems))
+    check_runtime(man, await restricted(db))
     existing = await db.get(m.Plugin, man.id)
     folder = plugin_package.unpack(pkg)
     rel = str(folder.relative_to(plugin_package.root()))
@@ -337,6 +381,8 @@ async def start(plugin_id: str, *, force: bool = False) -> PluginProcess | None:
         return await ensure_running(plugin_id, force=force)
     except (PluginError, PluginRuntimeError) as exc:
         log.info("plugin %s didn't start: %s", plugin_id, exc)
+        if isinstance(exc, PluginBlocked):
+            await _status(plugin_id, "stopped", str(exc))
         return None
 
 
@@ -349,6 +395,8 @@ async def ensure_running(plugin_id: str, *, force: bool = False) -> PluginProces
             p = await db.get(m.Plugin, plugin_id)
             if p is None:
                 raise PluginError("No such plugin")
+            if safe_mode():
+                raise PluginBlocked("Castor is in safe mode (CASTOR_PLUGINS_SAFE_MODE): no plugin runs")
             if not p.enabled:
                 raise PluginError(f"{p.name} is turned off")
             if host.crashed_too_often(plugin_id) and not force:
@@ -356,6 +404,7 @@ async def ensure_running(plugin_id: str, *, force: bool = False) -> PluginProces
             man = manifest_of(p)
             if problems := man.not_yet():
                 raise PluginError("; ".join(problems))
+            check_runtime(man, await restricted(db))
             if missing := missing_settings(man, p):
                 raise PluginError(f"{p.name} needs its settings first: {', '.join(missing)}")
             folder = folder_of(p)
@@ -367,8 +416,10 @@ async def ensure_running(plugin_id: str, *, force: bool = False) -> PluginProces
             host.forget_crashes(plugin_id)
         await _status(plugin_id, "starting")
         try:
-            await check_graph(plugin_id, folder, man.main)
-            proc = PluginProcess(plugin_id, folder, man.main, handle_call, host.exited, network=network)
+            unrestricted = man.runtime == "unrestricted"
+            if not unrestricted:  # an unrestricted plugin may import anything; the sandbox's check doesn't apply
+                await check_graph(plugin_id, folder, man.main)
+            proc = PluginProcess(plugin_id, folder, man.main, handle_call, host.exited, network=network, unrestricted=unrestricted)
             proc.token = token
             await proc.start()
             host.procs[plugin_id] = proc
@@ -384,7 +435,19 @@ async def ensure_running(plugin_id: str, *, force: bool = False) -> PluginProces
             await plugin_log(plugin_id, "error", f"Didn't start: {exc}")
             raise PluginRuntimeError(str(exc)) from exc
         await _status(plugin_id, "running")
+        if unrestricted:
+            await _audit_start(plugin_id, man)
         return proc
+
+
+async def _audit_start(plugin_id: str, man: Manifest) -> None:
+    """Each start of an unrestricted plugin goes in the activity log: it can do anything on this server."""
+    from .services import record_activity
+
+    async with SessionLocal() as db:
+        await record_activity(db, type="plugin.started", message=f"Started the unrestricted plugin {man.name} {man.version}",
+                              project_id=None, payload={"id": plugin_id, "runtime": "unrestricted"})
+        await db.commit()
 
 
 async def restart(plugin_id: str) -> PluginProcess:
@@ -401,7 +464,10 @@ async def on_crash(plugin_id: str, code: int, too_often: bool) -> None:
 
 
 async def start_enabled() -> None:
-    """At startup: every enabled plugin, in the background."""
+    """At startup: every enabled plugin, in the background (none in safe mode)."""
+    if safe_mode():
+        log.warning("Plugins safe mode (CASTOR_PLUGINS_SAFE_MODE): no plugin is started")
+        return
     async with SessionLocal() as db:
         ids = list((await db.execute(select(m.Plugin.id).where(m.Plugin.enabled.is_(True)))).scalars())
     for pid in ids:
@@ -488,10 +554,23 @@ async def _api(proc: PluginProcess, params: dict[str, Any]) -> dict[str, Any]:
         raise PluginError(f"Plugins can't call {path}")
     headers = {"Authorization": f"Bearer {proc.token}", api_tokens.VIA_HEADER: api_tokens.PLUGIN_KEY}
     query = {k: v for k, v in (params.get("query") or {}).items() if v is not None}
+    upload = params.get("file")
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=APP), base_url="http://castor", timeout=300) as client:
         body = params.get("body")
-        r = await client.request(method, path, headers=headers, params=query or None,
-                                 json=body if method != "GET" and body is not None else None)
+        if isinstance(upload, dict) and method == "POST":  # ctx.api.upload: multipart, a file and form fields
+            name = str(upload.get("name") or "file")[:255]
+            try:
+                content = base64.b64decode(str(upload.get("base64") or ""), validate=True)
+            except ValueError as exc:
+                raise PluginError("upload: the file isn't valid base64") from exc
+            if len(content) > UPLOAD_MAX:
+                raise PluginError(f"upload: {name} is over {UPLOAD_MAX // 1024**2} MB")
+            kind = str(upload.get("content_type") or "") or mimetypes.guess_type(name)[0] or "application/octet-stream"
+            form = {str(k): str(v) for k, v in (params.get("form") or {}).items()}
+            r = await client.post(path, headers=headers, params=query or None, data=form, files={"file": (name, content, kind)})
+        else:
+            r = await client.request(method, path, headers=headers, params=query or None,
+                                     json=body if method != "GET" and body is not None else None)
     try:
         out = r.json() if r.content else None
     except ValueError:

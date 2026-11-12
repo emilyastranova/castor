@@ -189,6 +189,8 @@ RULES: list[tuple[str, str, str]] = [
     ("GET", "/api/projects/*/plugin-runs", "projects:read"),
     ("GET", "/api/plugin-runs/*", "projects:read"),
     ("POST", "/api/plugin-actions/run", "projects:write"),
+    ("GET", "/api/plugin-scripts", SESSION),  # unrestricted plugins' scripts for Castor's own page
+    ("*", "/api/plugin-mode", "admin"),
     ("*", "/api/plugins", "admin"),
     ("*", "/api/plugins/**", "admin"),
     ("*", "/api/asset-links/**", "assets:rw"),

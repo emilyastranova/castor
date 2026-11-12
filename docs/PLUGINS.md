@@ -1,8 +1,9 @@
 # Plugins (plan)
 
-Status: **phases A and B are built** (sandboxed plugins with actions, settings, storage, events and
-declared network; Settings → Plugins; the Nessus import and Shodan enrichment). Phases C–E are
-planned. This is the design the plugin work follows;
+Status: **phases A to D are built** (sandboxed plugins with actions, settings, storage, events,
+declared network and panels; unrestricted plugins behind restricted mode, safe mode and page
+scripts; the Nessus import, Shodan enrichment, BloodHound bridge, DOCX report and Watch folder).
+Phase E (the directory) is planned. This is the design the plugin work follows;
 change it here first when a decision changes, then build. The roadmap entry points here. Writing a
 plugin: the wiki's Plugins page and `plugins/nessus-import/`.
 
@@ -114,7 +115,7 @@ Beyond API scopes, a manifest can ask for:
 | `events: [assets.changed]` | Delivery of those events for its enabled projects | Yes |
 | `secrets: read` | Reading the values of variable sets it's given (not every set) | Yes, loudly marked |
 | `ui: […]` | Its slots | Yes (iframes) |
-| `runtime: unrestricted` | Files, programs, any network, environment, and `ui.script` in Castor's own page | **No** |
+| `runtime: unrestricted` | Files, programs, any network, environment, and a `page.script` in Castor's own page | **No** |
 
 ### Restricted and unrestricted
 
@@ -123,20 +124,36 @@ Beyond API scopes, a manifest can ask for:
   `--allow-run`, `--allow-env`, `--allow-ffi`). It reaches Castor only through the SDK, over its
   stdin/stdout, so it can't call the API with more than its token allows. Memory, CPU time and
   concurrency are capped per plugin.
-- **Unrestricted (opt-in).** The same process with `--allow-all`: it can read the server's files
-  (including Castor's configuration and database credentials), run programs and reach anything. It
-  may also ship `ui.script`, which runs inside Castor's own page with the viewer's session.
+- **Unrestricted (opt-in, phase D).** The same process with `--allow-all`, and remote and npm
+  imports allowed (the module graph check is skipped): it can read the server's files (including
+  Castor's configuration, database credentials and the vault key), run programs and reach anything.
+  It may also ship a `page.script` (below), which runs inside Castor's own page with the viewer's
+  session. It still reaches Castor's API only as its own account, with its approved permissions.
 
 Making it extra clear:
 
-- **Restricted mode** is on by default (Settings → Plugins; `CASTOR_PLUGINS_RESTRICTED=1` locks it
-  on). While it's on, unrestricted plugins can't be installed or enabled.
+- **Restricted mode** is on by default (Settings → Plugins, a switch that asks before turning it
+  off; `PUT /api/plugin-mode`; the general settings endpoint refuses `plugins_restricted`).
+  `CASTOR_PLUGINS_RESTRICTED=true` locks it on. While it's on, unrestricted plugins can't be
+  installed, turned on or started, their panels' and scripts' files aren't served, and turning it
+  on stops those that run. Turning it off or on is in the activity log (`plugin.mode`).
 - **Installing** an unrestricted plugin shows a red section above everything else: what it can do,
-  in plain words, and that Castor can't limit it. The admin types the plugin's id to confirm.
-- **Afterwards** it carries a permanent "Unrestricted" badge on the Plugins page and in its
-  actions' tooltips, and each start writes an audit entry.
-- **Safe mode:** `CASTOR_PLUGINS_SAFE_MODE=1` starts Castor with every plugin stopped, to recover
-  from a bad one.
+  in plain words, and that Castor can't limit it. The admin types the plugin's id to confirm (`confirm`
+  in `POST /api/plugins`). The approved grants record `runtime: [unrestricted]`, so a sandboxed
+  plugin whose update becomes unrestricted is reviewed as something new.
+- **Afterwards** it carries a red "Unrestricted" badge on the Plugins page and in its actions'
+  tooltips, and each start writes an audit entry (`plugin.started`, the admin feed).
+- **Safe mode:** `CASTOR_PLUGINS_SAFE_MODE=true` starts Castor with every plugin stopped and none
+  startable (Settings → Plugins says so), to recover from a bad one.
+
+### Page scripts (`page.script`, unrestricted only)
+
+A `ui` entry with `slot: page.script` and a `.js` `path` is loaded as a module script into Castor's
+own page for everyone who can see a project the plugin is enabled in (`GET /api/plugin-scripts`,
+session only; none in safe or restricted mode). It runs as the person looking, so it can do
+anything they can; the manifest refuses one on a sandboxed plugin. It gets `window.castorPage`:
+`user`, `notify(text)`, `goto(path)` (Castor's own paths), `onNavigate(fn)` (after every
+navigation), `onEvent(fn)` (live events), and calls the API with `fetch` and the session.
 
 ## Runtime
 
@@ -165,7 +182,8 @@ JSON-RPC 2.0 over the process's stdin/stdout, both ways:
   `action {run_id, action, user, project, task, asset, file?}`, `event {name, at, project, data}`,
   `ui {name, args, panel, user, project, task, asset, settings}` (a panel's `Castor.call`),
   `deactivate`; later `hook`.
-- **Plugin → Castor:** `api {method, path, query, body}` (made in-process with the plugin's token,
+- **Plugin → Castor:** `api {method, path, query, body}` or `api {method: POST, path, form, file:
+  {name, content_type, base64}}` (a multipart upload) (made in-process with the plugin's token,
   exactly like an HTTP call; `/api/auth`, `/api/tokens`, `/api/plugins` and `/api/mcp` are refused
   whatever the token says), `storage.get|set|delete|list`, `file.read {run_id, offset, length}`
   (the action's file, in chunks), `log {level, message, run_id}`, `progress {run_id, done, total, text}`.
@@ -198,7 +216,8 @@ definePlugin({
 ```
 
 `ctx`: `plugin`, `castorVersion`, `settings` (secret ones included), `api` (`request`, `get`,
-`post`, `patch`, `put`, `delete`: any REST endpoint, throwing `CastorError` on 4xx/5xx), `assets.bulk`,
+`post`, `patch`, `put`, `delete`: any REST endpoint, throwing `CastorError` on 4xx/5xx; `upload(path,
+{name, bytes, contentType}, fields?)` for endpoints that take a file, up to 20 MB), `assets.bulk`,
 `storage` (`get`, `set`, `delete`, `list`, instance-wide or `{project}`), `log`, `actions.on`,
 `events.on`, `ui.on` (handlers for its pages, below). With `network:`, plain `fetch` reaches those hosts (and only those). An
 action gets `run`: `runId`, `user`, `project`, `task`, `asset`, `file` (`name`, `size`, `text()`,
@@ -295,6 +314,8 @@ Admins only (session, or a token with the `admin` scope):
 - `PATCH /api/plugins/{id}` (on/off, projects, settings and secrets; it restarts),
   `POST /api/plugins/{id}/restart`, `DELETE /api/plugins/{id}`
 - `GET /api/plugins/{id}/logs`, `GET /api/plugins/{id}/runs`
+- `GET /api/plugin-mode` (restricted mode, whether it's locked, safe mode), `PUT /api/plugin-mode`
+  `{restricted}`
 - later: `GET /api/plugin-directory`
 
 Anyone who can change an enabled project: `GET /api/projects/{id}/plugin-actions`,
@@ -327,7 +348,7 @@ Each phase ships with real plugins in `plugins/` (the official examples, which d
 | **A** (built) | Manifest and checks; install from a file or URL; Settings → Plugins with the permission review; service accounts; the Deno runner (sandboxed only) and protocol; the SDK's API, storage, settings and logs; actions (with files); `ctx.assets.bulk` | **Nessus import**: no network, writes hosts, services, vulnerabilities and `affects` relationships. Test data: `plugins/nessus-import/samples/` |
 | **B** (built) | Event delivery; declared network; secret settings (done in A); rate limits | **Shodan enrichment**: new external hosts get ports, banners and CVEs |
 | **C** (built) | UI slots (`project.page`, `card.tab`, `asset.panel`) in sandboxed frames; the page SDK and its handlers; theme variables | **BloodHound bridge**: users, computers and domains in, with `admin on`, sessions, membership and trusts; an attack-path tab and a panel on users and hosts |
-| **D** | Unrestricted runtime, the warning flow, restricted and safe mode, `ui.script` | **DOCX report**: a plugin that legitimately needs document libraries |
+| **D** (built) | Unrestricted runtime, the warning flow, restricted and safe mode, `page.script`; `ctx.api.upload` | **DOCX report** (sandboxed: it writes the document itself, no library needed) and **Watch folder** (unrestricted: it reads a folder on the server) |
 | **E** | The directory, update checks, publisher pages; library content in plugins (packs) | The directory repository and its checks |
 
 Hooks (asset mappers, transforms, trigger conditions) arrive with the phase that first needs one,
@@ -414,6 +435,19 @@ with a message to slow down. Events are capped by the queue above.
   Admins groups and the domains. Chips open the asset.
 - **Test data:** `plugins/bloodhound/samples/corp-sharphound.zip`, a made-up domain written by
   `samples/make_sample.py`.
+
+## DOCX report and Watch folder (phase D)
+
+- **DOCX report** (sandboxed): "Write DOCX report" on a project or a card. A title page, a summary
+  (the project's description, findings by severity), each finding (severity, what it `affects`,
+  CVEs, tool, detail), the hosts with their services, the pinned notes. Its own writer (`docx.ts`:
+  WordprocessingML and a zip with `CompressionStream`), so no document library: the plan expected
+  one, but a `.docx` is a zip of XML. Attached to the card it ran on, or to a new "Report: <date>"
+  card, through `ctx.api.upload`.
+- **Watch folder** (unrestricted, the example of why one would be): watches a folder on the
+  server (`/data/inbox`), a folder per project by code name; a file there becomes a card with the
+  file attached, is handed to a plugin action that takes its extension (`POST /api/plugin-actions/run`,
+  as its own account), and moves to `.imported/`.
 
 ## Open questions
 

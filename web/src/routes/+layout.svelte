@@ -3,7 +3,8 @@
 	import '../app.css';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { goto, invalidateAll } from '$app/navigation';
+	import { afterNavigate, goto, invalidateAll } from '$app/navigation';
+	import { loadPluginScripts, navigated } from '$lib/pluginScripts';
 	import { NavigationRail, Snackbar, Icon, IconButton, Menu, MenuItem, Avatar } from '$lib/m3';
 	import { realtime } from '$lib/realtime.svelte';
 	import { applySeed, applyTheme, currentTheme, getSeed, initTheme, toggleMode, isDark } from '$lib/m3/theme';
@@ -67,6 +68,12 @@
 	$effect.pre(() => {
 		if (data.user) currentProject.init(data.user.id);
 	});
+
+	// Unrestricted plugins' scripts (page.script), if an admin installed any.
+	$effect(() => {
+		if (data.user) void loadPluginScripts(data.user);
+	});
+	afterNavigate(() => navigated(new URL(page.url)));
 
 	$effect(() => {
 		if (data.user) {

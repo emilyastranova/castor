@@ -501,6 +501,14 @@ rate-limited. Per-person settings: `plugins.per_user` (the admin's choice, withi
 `plugin` for a plugin's account, else `import`). Official plugins live in `plugins/` (`pack.py`
 makes their `.zip`).
 
+Unrestricted plugins (phase D): `runtime: unrestricted` runs with `UNRESTRICTED_FLAGS` (`--allow-all`, no
+module graph check). `plugins.restricted(db)` is `config.plugins_restricted` (env lock) or `app_settings.plugins_restricted`
+(default on, changed only by `PUT /api/plugin-mode`, which stops unrestricted plugins when it goes on); `check_runtime`
+raises `PluginBlocked` at preview, install, enable and start. Installing one needs `confirm` = its id; grants record
+`runtime`. Each start records `plugin.started`. `config.plugins_safe_mode`: `start_enabled` starts none and
+`ensure_running` refuses. `ctx.api.upload` is the `api` call with `file` (multipart, `UPLOAD_MAX`). `page.script`
+(unrestricted only): `GET /api/plugin-scripts`, loaded by web `lib/pluginScripts.ts` (`window.castorPage`).
+
 Panels (manifest `ui`, slots `project.page`, `card.tab`, `asset.panel`): `api/plugin_panels.py`
 serves a plugin's static files at `/api/plugin-ui/<id>/<sig>/<path>` (public; `sig` is an HMAC of
 id and checksum under `secret_key`), HTML with `plugin_sdk/ui.js` inline and a CSP that sandboxes

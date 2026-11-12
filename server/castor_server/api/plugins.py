@@ -84,6 +84,42 @@ async def list_plugins(db: DB, _: Admin) -> list[dict[str, Any]]:
     return [await _plugin_out(db, p) for p in rows]
 
 
+@router.get("/plugin-mode")
+async def plugin_mode(db: DB, _: Admin) -> dict[str, Any]:
+    """Restricted mode (unrestricted plugins can't be installed or run) and safe mode (none runs)."""
+    return {"restricted": await P.restricted(db), "restricted_locked": P.restricted_locked(), "safe_mode": P.safe_mode()}
+
+
+class ModeIn(BaseModel):
+    restricted: bool
+
+
+@router.put("/plugin-mode")
+async def set_plugin_mode(body: ModeIn, db: DB, user: Admin) -> dict[str, Any]:
+    """Turn restricted mode on or off. Turning it on stops the unrestricted plugins that run."""
+    from .. import app_settings
+    from ..services import actor_of, record_activity
+
+    if not body.restricted and P.restricted_locked():
+        raise HTTPException(422, "Restricted mode is locked on by CASTOR_PLUGINS_RESTRICTED on this server")
+    current = await app_settings.load(db)
+    if current.plugins_restricted != body.restricted:
+        await app_settings.save(db, {"plugins_restricted": body.restricted}, user.id)
+        await record_activity(db, type="plugin.mode", project_id=None, payload={"restricted": body.restricted},
+                              message="Turned plugins' restricted mode " + ("on" if body.restricted else
+                                                                             "off: unrestricted plugins can be installed"),
+                              **actor_of(user))
+        await db.commit()
+        if body.restricted:
+            await P.stop_unrestricted()
+        else:
+            for pid in (await db.execute(select(m.Plugin.id).where(m.Plugin.runtime == "unrestricted",
+                                                                   m.Plugin.enabled.is_(True)))).scalars():
+                P._soon(P.start(pid))
+        bus.publish("plugins.changed", None, {"mode": True})
+    return await plugin_mode(db, user)
+
+
 @router.get("/plugins/{plugin_id}")
 async def get_plugin(plugin_id: str, db: DB, _: Admin) -> dict[str, Any]:
     return await _plugin_out(db, await _or_404(db, plugin_id))
@@ -148,6 +184,10 @@ async def preview(db: DB, _: Admin, file: Annotated[UploadFile | None, File()] =
     out: dict[str, Any] = {"token": token, "source": source, "checksum": pkg.checksum, "size": pkg.size, "files": len(pkg.files),
                            "icon": icon,
                            "manifest": _manifest_out(man), "problems": man.not_yet(), "existing": None, "new_permissions": {}}
+    try:
+        P.check_runtime(man, await P.restricted(db))
+    except P.PluginError as exc:
+        out["problems"].append(str(exc))
     if existing is not None:
         out["existing"] = {"version": existing.version, "same": existing.checksum == pkg.checksum}
         out["new_permissions"] = P.new_grants(existing.granted or {}, man)
@@ -165,6 +205,8 @@ class InstallIn(BaseModel):
     secrets: dict[str, str | None] = Field(default_factory=dict)
     # Settings each person sets for themselves (an API key everyone brings) instead of one shared value.
     per_user: list[str] = Field(default_factory=list)
+    # An unrestricted plugin: the admin types its id, to show they know it can do anything here.
+    confirm: str = Field("", max_length=80)
 
 
 @router.post("/plugins", status_code=201)
@@ -174,6 +216,9 @@ async def install(body: InstallIn, db: DB, user: Admin) -> dict[str, Any]:
         raise HTTPException(422, "approve: confirm what the plugin asks for first")
     try:
         _, pkg = plugin_package.staged(body.token)
+        if pkg.manifest.runtime == "unrestricted" and body.confirm.strip() != pkg.manifest.id:
+            raise ValueError(f"confirm: {pkg.manifest.name} is unrestricted (it can do anything on this server); "
+                             f"type its id, {pkg.manifest.id}, to install it")
         p = await P.install(db, user, pkg, source=body.source or "upload", project_ids_in=body.project_ids,
                             all_projects=body.all_projects, values=body.settings, secrets_in=body.secrets, per_user=body.per_user)
     except ValueError as exc:
@@ -218,6 +263,12 @@ async def update_plugin(plugin_id: str, body: PluginPatch, db: DB, user: Admin) 
         await db.rollback()
         raise HTTPException(422, str(exc)) from exc
     if body.enabled is not None and body.enabled != p.enabled:
+        if body.enabled:
+            try:
+                P.check_runtime(man, await P.restricted(db))
+            except P.PluginError as exc:
+                await db.rollback()
+                raise HTTPException(422, str(exc)) from exc
         p.enabled = body.enabled
         said.append("turned it on" if body.enabled else "turned it off")
     if said:
@@ -343,7 +394,8 @@ async def project_actions(project_id: str, db: DB, user: CurrentUser) -> list[di
         if not await P.enabled_in(db, p, project.id):
             continue
         for a in P.manifest_of(p).actions:
-            out.append({"plugin": {"id": p.id, "name": p.name, "status": p.status, "icon_url": icon_url(p)}, **a.model_dump(mode="json")})
+            out.append({"plugin": {"id": p.id, "name": p.name, "status": p.status, "icon_url": icon_url(p), "runtime": p.runtime},
+                        **a.model_dump(mode="json")})
     return out
 
 

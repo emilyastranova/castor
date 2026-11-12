@@ -20,7 +20,7 @@ from sqlalchemy import select
 
 from .. import models as m
 from .. import plugins as P
-from ..access import can_see, project_or_404
+from ..access import can_see, project_or_404, visible_project_ids
 from ..config import settings
 from ..deps import DB, CurrentUser, parse_uuid
 from ..plugin_runtime import SDK_DIR, PluginRuntimeError
@@ -63,6 +63,11 @@ def csp_for(request: Request) -> str:
     return CSP.format(here=" ".join(sources))
 
 
+async def _may_run(db: DB, p: m.Plugin) -> bool:
+    """Not in safe mode, nor an unrestricted plugin while restricted mode is on."""
+    return not P.safe_mode() and not (p.runtime == "unrestricted" and await P.restricted(db))
+
+
 def _sdk() -> str:
     return (SDK_DIR / "ui.js").read_text()
 
@@ -72,7 +77,7 @@ async def plugin_file(plugin_id: str, sig: str, path: str, request: Request, db:
     """A plugin page's file. Public on purpose: a sandboxed iframe sends no cookies; the address
     itself (signed per plugin and release) is what only signed-in people are given."""
     p = await db.get(m.Plugin, plugin_id)
-    if p is None or not p.enabled or not hmac.compare_digest(sig, _sig(p)):
+    if p is None or not p.enabled or not hmac.compare_digest(sig, _sig(p)) or not await _may_run(db, p):
         raise HTTPException(404, "Not found")
     folder = P.folder_of(p).resolve()
     target = (folder / path).resolve()
@@ -103,8 +108,30 @@ async def project_panels(project_id: str, db: DB, user: CurrentUser) -> list[dic
         if not await P.enabled_in(db, p, project.id):
             continue
         for ui in P.manifest_of(p).ui:
+            if ui.slot == "page.script":
+                continue
             out.append({"plugin": {"id": p.id, "name": p.name, "icon_url": icon_url(p)}, **ui.model_dump(mode="json"),
                         "url": page_url(p, ui.path)})
+    return out
+
+
+@router.get("/plugin-scripts")
+async def plugin_scripts(db: DB, user: CurrentUser) -> list[dict[str, Any]]:
+    """The scripts unrestricted plugins run in Castor's own page (`page.script`), for the plugins
+    enabled in a project this person can see. None in safe mode or restricted mode."""
+    if P.safe_mode() or await P.restricted(db):
+        return []
+    visible = await visible_project_ids(db, user)
+    rows = (await db.execute(select(m.Plugin).where(m.Plugin.enabled.is_(True), m.Plugin.runtime == "unrestricted")
+                             .order_by(m.Plugin.name))).scalars().all()
+    out = []
+    for p in rows:
+        scripts = [u for u in P.manifest_of(p).ui if u.slot == "page.script"]
+        if not scripts:
+            continue
+        if not p.all_projects and visible is not None and not set(await P.project_ids(db, p.id)) & visible:
+            continue
+        out += [{"plugin": {"id": p.id, "name": p.name}, "id": u.id, "url": page_url(p, u.path)} for u in scripts]
     return out
 
 

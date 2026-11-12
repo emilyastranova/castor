@@ -1,6 +1,6 @@
 """A plugin's manifest, `castor-plugin.yaml` (docs/PLUGINS.md): who it is, what it runs, what it
 asks for. Castor refuses a manifest it doesn't understand rather than guessing, and refuses what
-this version can't do yet (hooks, UI, contents, unrestricted plugins) with a clear reason."""
+this version can't do yet (hooks, library contents) with a clear reason."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ VERSION = r"^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$"
 # Scopes a plugin can't have: administering Castor stays with people.
 NEVER = {"admin", "agents:write"}
 # What this version runs; the rest of the manifest format arrives in later phases.
-SUPPORTED_RUNTIMES = {"sandboxed"}
+SUPPORTED_RUNTIMES = {"sandboxed", "unrestricted"}
 CONTEXTS = ("project", "card", "asset")
 
 
@@ -44,18 +44,19 @@ class ActionSpec(BaseModel):
     timeout_minutes: int = Field(30, ge=1, le=720)
 
 
-SLOTS = ("asset.panel", "card.tab", "project.page")
+SLOTS = ("asset.panel", "card.tab", "project.page", "page.script")
 
 
 class UiSpec(BaseModel):
-    """A panel the plugin shows in Castor: an HTML page in the plugin, in a sandboxed iframe."""
+    """A panel the plugin shows in Castor: an HTML page in the plugin, in a sandboxed iframe. Or,
+    for unrestricted plugins only, `page.script`: a script that runs in Castor's own page."""
 
     model_config = ConfigDict(extra="forbid")
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")
     # Where: a panel in an asset's dialog, a tab on a card, or a page of its own in a project.
-    slot: Literal["asset.panel", "card.tab", "project.page"]
+    slot: Literal["asset.panel", "card.tab", "project.page", "page.script"]
     title: str = Field(min_length=1, max_length=60)
-    path: str = Field(pattern=r"^[A-Za-z0-9_./-]+\.html?$")  # the page, in the plugin
+    path: str = Field(pattern=r"^[A-Za-z0-9_./-]+\.(html?|m?js)$")  # the page (or page.script's script), in the plugin
     icon: str = Field("extension", pattern=r"^[a-z0-9_]{1,40}$")  # a Material Symbols name
     # asset.panel: the asset types it's shown for (empty: every type).
     asset_types: list[str] = Field(default_factory=list)
@@ -169,16 +170,20 @@ class Manifest(BaseModel):
                             ("ui", [u.id for u in self.ui])):
             if len(names) != len(set(names)):
                 raise ValueError(f"{what}: two have the same id")
+        for u in self.ui:
+            script = u.slot == "page.script"
+            if script != u.path.endswith(("js", "mjs")) or (not script and not u.path.endswith(("html", "htm"))):
+                raise ValueError(f"ui.{u.id}: page.script takes a .js file, the other slots an .html page")
+            if script and self.runtime != "unrestricted":
+                raise ValueError(f"ui.{u.id}: page.script runs in Castor's own page, which only unrestricted plugins may do")
         return self
 
     def not_yet(self) -> list[str]:
         """What this manifest asks for that this Castor can't do yet (phase A)."""
         out = []
-        if self.runtime not in SUPPORTED_RUNTIMES:
-            out.append("runtime: unrestricted plugins aren't supported yet; this Castor runs sandboxed plugins only")
-        for field, phase in (("hooks", "D"), ("contents", "E")):
+        for field in ("hooks", "contents"):
             if getattr(self, field):
-                out.append(f"{field}: not supported yet (plugins phase {phase}, see docs/PLUGINS.md)")
+                out.append(f"{field}: not supported yet (see docs/PLUGINS.md)")
         return out
 
     def action(self, action_id: str) -> ActionSpec | None:

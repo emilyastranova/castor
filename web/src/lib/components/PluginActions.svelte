@@ -21,7 +21,8 @@
 	let actions = $derived(pluginActions.for(projectId, place, assetType));
 	const run = (a: (typeof actions)[number]) =>
 		pluginActions.start(a, { project_id: projectId, task_id: taskId, asset_id: assetId });
-	const title = (a: (typeof actions)[number]) => `${a.description || a.label} (plugin: ${a.plugin.name})`;
+	const title = (a: (typeof actions)[number]) =>
+		`${a.description || a.label} (plugin: ${a.plugin.name}${a.plugin.runtime === 'unrestricted' ? ', unrestricted: full access to the server' : ''})`;
 </script>
 
 {#each actions as a (`${a.plugin.id}:${a.id}`)}

@@ -756,3 +756,155 @@ def test_bloodhound_bridge(client, auth):
         assert client.post(call, json={"project_id": p["id"], "kind": "call", "name": "summary"}, headers=auth).json()["result"] == {"imported": False}
     finally:
         client.delete("/api/plugins/bloodhound", headers=auth)
+
+
+DOCX = ROOT / "plugins" / "docx-report"
+FOLDER_WATCH = ROOT / "plugins" / "folder-watch"
+
+
+def set_restricted(client, auth, on: bool):
+    r = client.put("/api/plugin-mode", json={"restricted": on}, headers=auth)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_docx_report(client, auth):
+    p = project(client, auth)
+    client.post(f"/api/projects/{p['id']}/assets/bulk", headers=auth, json={
+        "assets": [{"ref": "h", "type": "host", "fields": {"ip": "203.0.113.10", "hostname": "mail.example"}},
+                   {"ref": "s", "type": "service", "fields": {"host": "203.0.113.10", "port": 445, "proto": "tcp", "name": "smb"}},
+                   {"ref": "v", "type": "vulnerability", "fields": {"id": "nessus-57608", "title": "SMB signing not required",
+                                                                     "severity": "medium", "target": "203.0.113.10"}},
+                   {"ref": "i", "type": "vulnerability", "fields": {"id": "nessus-1", "title": "Banner seen", "severity": "info"}}],
+        "links": [{"from": "s", "to": "h", "kind": "on"}, {"from": "v", "to": "s", "kind": "affects"}]})
+    install(client, auth, zip_folder(DOCX), project_ids=[p["id"]], settings={"author": "Report Tester"})
+    try:
+        running(client, auth, "docx-report")
+        out = run(client, auth, "docx-report", "write", p["id"])
+        assert out["status"] == "succeeded", out
+        assert "(1 finding)" in out["message"], out["message"]  # info is below the default (low)
+        board = client.get(f"/api/projects/{p['id']}/board", headers=auth).json()
+        card = next(t for t in board["tasks"] if t["title"].startswith("Report: "))
+        files = client.get(f"/api/tasks/{card['id']}/attachments", headers=auth).json()
+        assert files[0]["filename"].endswith(".docx")
+        doc = client.get(f"/api/attachments/{files[0]['id']}/download", headers=auth).content
+        with zipfile.ZipFile(io.BytesIO(doc)) as z:
+            assert z.testzip() is None
+            body = z.read("word/document.xml").decode()
+            core = z.read("docProps/core.xml").decode()
+        assert "SMB signing not required" in body and "203.0.113.10:445/tcp" in body and "Banner seen" not in body
+        assert "mail.example" in body and "Report Tester" in core
+        # On a card: attached there.
+        mine = client.post(f"/api/projects/{p['id']}/tasks", json={"title": "Write-up"}, headers=auth).json()
+        assert run(client, auth, "docx-report", "write", p["id"], task_id=mine["id"])["status"] == "succeeded"
+        assert len(client.get(f"/api/tasks/{mine['id']}/attachments", headers=auth).json()) == 1
+    finally:
+        client.delete("/api/plugins/docx-report", headers=auth)
+
+
+SCRIPT_MANIFEST = """
+id: page-script-{n}
+name: Page script probe
+version: 1.0.0
+publisher: tests
+main: main.ts
+runtime: {runtime}
+permissions: [projects:read]
+actions:
+  - {{id: read, label: Read a file}}
+ui:
+  - {{id: badge, slot: page.script, title: Badge, path: ui/badge.js}}
+"""
+SCRIPT_MAIN = """
+import { definePlugin } from "@castor/plugin";
+definePlugin({ activate(ctx) { ctx.actions.on("read", () => Deno.readTextFileSync("/etc/passwd").includes("root") ? "read it" : "empty"); } });
+"""
+
+
+def test_unrestricted_plugins(client, auth, tmp_path):
+    n = uuid.uuid4().hex[:6]
+    script = {"castor-plugin.yaml": SCRIPT_MANIFEST.format(n=n, runtime="unrestricted"), "main.ts": SCRIPT_MAIN,
+              "ui/badge.js": "window.castorPage?.notify('hello')"}
+    # A sandboxed plugin can't have a page script.
+    sandboxed = dict(script, **{"castor-plugin.yaml": SCRIPT_MANIFEST.format(n=n, runtime="sandboxed")})
+    assert "only unrestricted plugins" in preview(client, auth, zip_files(sandboxed)).json()["detail"]
+
+    # Restricted mode (the default): previewed with the reason, not installed.
+    assert client.get("/api/plugin-mode", headers=auth).json() == {"restricted": True, "restricted_locked": False, "safe_mode": False}
+    pv = preview(client, auth, zip_files(script)).json()
+    assert any("restricted mode is on" in x for x in pv["problems"])
+    r = client.post("/api/plugins", json={"token": pv["token"], "approve": True, "all_projects": True, "confirm": f"page-script-{n}"}, headers=auth)
+    assert r.status_code == 422 and "restricted mode is on" in r.json()["detail"]
+    assert client.patch("/api/settings", json={"plugins_restricted": False}, headers=auth).status_code == 422
+
+    p = project(client, auth)
+    try:
+        assert set_restricted(client, auth, False)["restricted"] is False
+        feed = client.get("/api/activity", params={"limit": 20}, headers=auth).json()
+        assert any(e["type"] == "plugin.mode" for e in (feed["items"] if isinstance(feed, dict) else feed))
+        # The admin types its id.
+        pv = preview(client, auth, zip_files(script)).json()
+        assert pv["problems"] == []
+        r = client.post("/api/plugins", json={"token": pv["token"], "approve": True, "all_projects": True}, headers=auth)
+        assert r.status_code == 422 and "type its id" in r.json()["detail"]
+        r = client.post("/api/plugins", json={"token": pv["token"], "approve": True, "all_projects": True, "confirm": f"page-script-{n}"},
+                        headers=auth)
+        assert r.status_code == 201 and r.json()["runtime"] == "unrestricted" and r.json()["granted"]["runtime"] == ["unrestricted"]
+        running(client, auth, f"page-script-{n}")
+        assert run(client, auth, f"page-script-{n}", "read", p["id"])["message"] == "read it"  # no sandbox
+        scripts = [s for s in client.get("/api/plugin-scripts", headers=auth).json() if s["plugin"]["id"] == f"page-script-{n}"]
+        assert len(scripts) == 1 and client.get(scripts[0]["url"]).text.startswith("window.castorPage")
+        assert not [x for x in client.get(f"/api/projects/{p['id']}/plugin-panels", headers=auth).json() if x["slot"] == "page.script"]
+        feed = client.get("/api/activity", params={"limit": 50}, headers=auth).json()
+        assert any(e["type"] == "plugin.started" and f"page-script-{n}" in str(e.get("payload")) for e in (feed["items"] if isinstance(feed, dict) else feed))
+
+        # Watch folder: a file dropped in the project's folder becomes a card, and Nessus import runs on it.
+        install(client, auth, zip_folder(NESSUS), project_ids=[p["id"]])
+        pv = preview(client, auth, zip_folder(FOLDER_WATCH)).json()
+        r = client.post("/api/plugins", json={"token": pv["token"], "approve": True, "project_ids": [p["id"]], "confirm": "folder-watch",
+                                              "settings": {"folder": str(tmp_path), "every": 5}}, headers=auth)
+        assert r.status_code == 201, r.text
+        running(client, auth, "folder-watch")
+        drop = tmp_path / p["codename"]
+        wait(drop.is_dir, "the project's folder")
+        (drop / "scan.nessus").write_bytes((NESSUS / "samples" / "cerno-demo-expanded.nessus").read_bytes())
+
+        def card():
+            board = client.get(f"/api/projects/{p['id']}/board", headers=auth).json()
+            return next((t for t in board["tasks"] if t["title"] == "Dropped: scan.nessus"), None)
+        found = wait(card, "the dropped file's card", 40)
+        assert client.get(f"/api/tasks/{found['id']}/attachments", headers=auth).json()[0]["filename"] == "scan.nessus"
+        wait(lambda: client.get(f"/api/projects/{p['id']}/assets", params={"type": "host"}, headers=auth).json()["total"] == 42,
+             "Nessus import to run on it", 60)
+        assert not (drop / "scan.nessus").exists() and len(list((drop / ".imported").iterdir())) == 1
+
+        # Restricted mode back on: they stop, can't be turned on, their scripts and files go.
+        set_restricted(client, auth, True)
+        st = client.get("/api/plugins/folder-watch", headers=auth).json()
+        assert st["status"] == "stopped" and "Restricted mode" in st["status_message"]
+        assert not [s for s in client.get("/api/plugin-scripts", headers=auth).json() if s["plugin"]["id"] == f"page-script-{n}"]
+        assert client.get(scripts[0]["url"]).status_code == 404
+        client.patch("/api/plugins/folder-watch", json={"enabled": False}, headers=auth)
+        r = client.patch("/api/plugins/folder-watch", json={"enabled": True}, headers=auth)
+        assert r.status_code == 422 and "restricted mode is on" in r.json()["detail"]
+        assert client.post(f"/api/plugins/page-script-{n}/restart", headers=auth).status_code == 409
+    finally:
+        set_restricted(client, auth, True)
+        for pid in (f"page-script-{n}", "folder-watch", "nessus-import"):
+            client.delete(f"/api/plugins/{pid}", headers=auth)
+
+
+def test_safe_mode(client, auth, monkeypatch):
+    from castor_server.config import settings
+
+    plugin = install(client, auth, probe(f"safe-{uuid.uuid4().hex[:5]}"))
+    try:
+        running(client, auth, plugin["id"])
+        monkeypatch.setattr(settings, "plugins_safe_mode", True)
+        assert client.get("/api/plugin-mode", headers=auth).json()["safe_mode"] is True
+        r = client.post(f"/api/plugins/{plugin['id']}/restart", headers=auth)
+        assert r.status_code == 409 and "safe mode" in r.json()["detail"]
+        assert client.get(f"/api/plugins/{plugin['id']}", headers=auth).json()["status"] == "stopped"
+    finally:
+        monkeypatch.setattr(settings, "plugins_safe_mode", False)
+        client.delete(f"/api/plugins/{plugin['id']}", headers=auth)

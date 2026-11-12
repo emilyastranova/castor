@@ -44,6 +44,8 @@ services:
       CASTOR_VAULT_KEY: ${CASTOR_VAULT_KEY:-}
       CASTOR_NOTIFY_WEBHOOKS: ${CASTOR_NOTIFY_WEBHOOKS:-}
       CASTOR_PUBLIC_URL: ${CASTOR_PUBLIC_URL:-http://localhost:8080}
+      CASTOR_PLUGINS_RESTRICTED: ${CASTOR_PLUGINS_RESTRICTED:-false}
+      CASTOR_PLUGINS_SAFE_MODE: ${CASTOR_PLUGINS_SAFE_MODE:-false}
     volumes:
       - serverdata:/data
       - ./commands:/commands:ro

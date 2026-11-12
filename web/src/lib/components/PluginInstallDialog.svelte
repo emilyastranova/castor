@@ -28,6 +28,8 @@
 	let projectIds = $state<UUID[]>([]);
 	let allProjects = $state(false);
 	let approved = $state(false);
+	/** An unrestricted plugin: the admin types its id. */
+	let confirmId = $state('');
 	let installing = $state(false);
 	let dragging = $state(false);
 
@@ -41,6 +43,7 @@
 			error = null;
 			preview = null;
 			approved = false;
+			confirmId = '';
 		}
 	});
 
@@ -56,6 +59,7 @@
 			projectIds = [];
 			allProjects = false;
 			approved = false;
+			confirmId = '';
 		} catch (err) {
 			error = err instanceof ApiError ? err.message : 'Could not read the plugin';
 		} finally {
@@ -76,7 +80,10 @@
 	let newPerms = $derived(new Set(preview?.new_permissions.permissions ?? []));
 	let newHosts = $derived(new Set(preview?.new_permissions.network ?? []));
 	let newEvents = $derived(new Set(preview?.new_permissions.events ?? []));
-	let anythingNew = $derived(newPerms.size + newHosts.size + newEvents.size > 0);
+	let unrestricted = $derived(preview?.manifest.runtime === 'unrestricted');
+	let newlyUnrestricted = $derived(!!preview?.new_permissions.runtime?.length);
+	let confirmed = $derived(!unrestricted || confirmId.trim() === preview?.manifest.id);
+	let anythingNew = $derived(newPerms.size + newHosts.size + newEvents.size > 0 || newlyUnrestricted);
 	/** Settings each person sets for themselves (the admin's choice, and those the plugin insists on). */
 	let own = $derived(new Set([...perUser, ...(preview?.manifest.settings ?? []).filter((s) => s.per_user === 'required').map((s) => s.name)]));
 	let blocked = $derived(!preview || preview.problems.length > 0 || !!preview.existing?.same);
@@ -93,7 +100,8 @@
 				all_projects: allProjects,
 				settings: Object.fromEntries(Object.entries(values).filter(([k]) => !own.has(k))),
 				secrets: Object.fromEntries(Object.entries(secrets).filter(([k, v]) => v !== '' && !own.has(k))),
-				per_user: perUser
+				per_user: perUser,
+				confirm: unrestricted ? confirmId.trim() : undefined
 			});
 			open = false;
 			oninstalled(p);
@@ -104,7 +112,12 @@
 		}
 	}
 	const PLACES: Record<string, string> = { project: 'the Assets page', card: 'cards', asset: 'assets' };
-	const SLOTS: Record<string, string> = { 'project.page': 'a tab on the Assets page', 'card.tab': 'a tab on cards', 'asset.panel': 'a panel on assets' };
+	const SLOTS: Record<string, string> = {
+		'project.page': 'a tab on the Assets page',
+		'card.tab': 'a tab on cards',
+		'asset.panel': 'a panel on assets',
+		'page.script': 'a script in Castor’s own page'
+	};
 </script>
 
 <Dialog bind:open title={preview ? (isUpdate ? `Update ${preview.manifest.name}` : `Install ${preview.manifest.name}`) : 'Install a plugin'} icon="extension" size="md">
@@ -143,6 +156,18 @@
 				</div>
 			</div>
 
+			{#if unrestricted}
+				<section class="flex flex-col gap-2 rounded-md bg-error px-4 py-3 text-on-error" aria-label="Unrestricted" role="alert">
+					<p class="flex items-center gap-2 title-small"><Icon name="gpp_maybe" />Unrestricted: full access to this server{newlyUnrestricted ? ' (new in this release)' : ''}</p>
+					<ul class="flex list-disc flex-col gap-0.5 pl-5 body-medium">
+						<li>It can read and change any file Castor can: its configuration, the database password, the vault key, every project's data.</li>
+						<li>It can run programs on this server and reach any network.</li>
+						{#if m.ui?.some((u) => u.slot === 'page.script')}<li>It puts script in Castor’s own page, which acts as whoever is looking, admins included.</li>{/if}
+						<li>Castor can’t limit or watch what it does. Install it only if you trust {m.publisher || 'its publisher'} as much as Castor itself.</li>
+					</ul>
+				</section>
+			{/if}
+
 			{#if preview.existing}
 				<p class="rounded-md bg-surface-container px-3 py-2 body-medium text-on-surface">
 					{preview.existing.same ? `This exact release (${m.version}) is already installed.` : `Installed: ${preview.existing.version}. This replaces it with ${m.version}; its settings and projects stay.`}
@@ -156,13 +181,15 @@
 				</div>
 			{/if}
 
-			<section class="flex gap-3 rounded-md border border-outline-variant px-3 py-2.5" aria-label="How it runs">
-				<Icon name="shield" class="mt-0.5 shrink-0 text-primary" />
-				<p class="body-medium text-on-surface">
-					<b class="font-medium">Sandboxed.</b> It runs in its own process with no access to this server's files or programs{m.network.length ? ', and no network beyond the hosts below' : ', and no network'}.
-					It can only use Castor through its own account, with the permissions below, in the projects you choose.
-				</p>
-			</section>
+			{#if !unrestricted}
+				<section class="flex gap-3 rounded-md border border-outline-variant px-3 py-2.5" aria-label="How it runs">
+					<Icon name="shield" class="mt-0.5 shrink-0 text-primary" />
+					<p class="body-medium text-on-surface">
+						<b class="font-medium">Sandboxed.</b> It runs in its own process with no access to this server's files or programs{m.network.length ? ', and no network beyond the hosts below' : ', and no network'}.
+						It can only use Castor through its own account, with the permissions below, in the projects you choose.
+					</p>
+				</section>
+			{/if}
 
 			<section aria-label="What it can do">
 				<h3 class="mb-1.5 label-large text-on-surface-variant">It can</h3>
@@ -256,6 +283,9 @@
 					<input type="checkbox" bind:checked={approved} class="mt-1 accent-primary" />
 					<span>I've read what {m.name} can do{anythingNew ? ', including what’s new,' : ''} and allow it{isUpdate ? '' : ' in the projects above'}.</span>
 				</label>
+				{#if unrestricted}
+					<TextField label="Type {m.id} to confirm it can do anything on this server" bind:value={confirmId} autocomplete="off" />
+				{/if}
 			{/if}
 		{/if}
 		{#if error}<p class="body-small text-error" role="alert">{error}</p>{/if}
@@ -266,7 +296,7 @@
 		{#if !preview}
 			<Button icon="search" loading={checking} disabled={!file && !url.trim().startsWith('https://')} onclick={check}>Check it</Button>
 		{:else}
-			<Button icon={isUpdate ? 'upgrade' : 'download'} loading={installing} disabled={blocked || !approved || (!isUpdate && !allProjects && !projectIds.length)} onclick={install}>
+			<Button icon={isUpdate ? 'upgrade' : 'download'} loading={installing} disabled={blocked || !approved || !confirmed || (!isUpdate && !allProjects && !projectIds.length)} onclick={install}>
 				{isUpdate ? 'Update' : 'Install'}
 			</Button>
 		{/if}

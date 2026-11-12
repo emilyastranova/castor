@@ -12,9 +12,10 @@ content, actions on cards and assets, event handlers, hooks, settings and panels
 published in a public directory and installed by admins. They run sandboxed (a Deno process with
 only the permissions they declare); one that needs more is marked unmistakably and stays off until
 an admin allows unrestricted plugins. The design and phases are in [PLUGINS.md](PLUGINS.md).
-Phases A to C are built (sandboxed plugins with actions, settings, storage, events, declared
-network access and their own pages in sandboxed frames; Settings → Plugins; the Nessus import,
-Shodan enrichment and BloodHound bridge); next are unrestricted plugins and the public directory.
+Phases A to D are built (sandboxed plugins with actions, settings, storage, events, declared
+network access and their own pages in sandboxed frames; unrestricted plugins behind restricted
+mode, with safe mode and page scripts; Settings → Plugins; the Nessus import, Shodan enrichment,
+BloodHound bridge, DOCX report and Watch folder); next is the public directory.
 
 ## People and access
 

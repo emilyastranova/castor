@@ -26,6 +26,8 @@ async def update(body: dict[str, Any], db: DB, user: Admin):
     unknown = set(body) - set(AppSettings.model_fields)
     if unknown:
         raise HTTPException(422, f"Unknown setting: {', '.join(sorted(unknown))}")
+    if "plugins_restricted" in body:
+        raise HTTPException(422, "plugins_restricted: change it with PUT /api/plugin-mode (Settings → Plugins)")
     if body.get("password_login") is False:
         # Never lock everyone out: a provider must be on, and the admin turning passwords off
         # must have signed in through one (so they know it works for them).

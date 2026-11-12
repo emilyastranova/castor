@@ -278,7 +278,12 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `deno task test`; `pack.py`; `shodan-enrich`, events and network; `bloodhound`, panels). Panels (phase C):
   `api/plugin_panels.py` serves `ui:` pages sandboxed (signed address, CSP with no network, `plugin_sdk/ui.js` inline),
   `…/panels/{ui}/call` answers them (REST as the plugin, or `ctx.ui.on` handlers; viewers only GET and `readOnly`); web
-  `PluginFrame.svelte` is the postMessage bridge (in AssetDialog, TaskDialog tabs, Assets page tabs). `tests/test_plugins.py` runs real Deno plugins
+  `PluginFrame.svelte` is the postMessage bridge (in AssetDialog, TaskDialog tabs, Assets page tabs). Unrestricted plugins
+  (phase D): `runtime: unrestricted` runs with `--allow-all`, only while restricted mode is off (`plugins.restricted`:
+  `CASTOR_PLUGINS_RESTRICTED` lock or `app_settings.plugins_restricted`, changed only via `PUT /api/plugin-mode`);
+  install needs the id typed (`confirm`); `CASTOR_PLUGINS_SAFE_MODE` runs none; `page.script` (unrestricted only) loads
+  into Castor's page via `lib/pluginScripts.ts`. `docx-report` (sandboxed, writes the .docx itself, `ctx.api.upload`)
+  and `folder-watch` (unrestricted) are the phase D plugins. `tests/test_plugins.py` runs real Deno plugins
   (skipped without Deno; a fake Shodan on localhost). Plugin events: `plugin_events.emit(db, …)` where the thing happens
   (delivered after commit, never to the plugin that caused it); add new ones to `plugin_events.EVENTS`. Per-person
   settings (`plugins.per_user`, `plugin_user_settings`, `/api/auth/me/plugins`, web `routes/plugins`): `ctx.settings` is

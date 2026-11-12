@@ -1561,8 +1561,13 @@ export function api(fetchFn: Fetch = fetch) {
 				if (src.url) form.append('url', src.url);
 				return request<PluginPreview>(fetchFn, 'POST', '/plugins/preview', form);
 			},
-			install: (body: { token: string; source: string; approve: boolean; project_ids: UUID[]; all_projects: boolean; settings?: Record<string, unknown>; secrets?: Record<string, string | null>; per_user?: string[] }) =>
+			install: (body: { token: string; source: string; approve: boolean; project_ids: UUID[]; all_projects: boolean; settings?: Record<string, unknown>; secrets?: Record<string, string | null>; per_user?: string[]; confirm?: string }) =>
 				post<Plugin>('/plugins', body),
+			/** Restricted mode (no unrestricted plugins) and safe mode (no plugin runs). */
+			mode: () => get<PluginMode>('/plugin-mode'),
+			setMode: (restricted: boolean) => request<PluginMode>(fetchFn, 'PUT', '/plugin-mode', { restricted }),
+			/** Unrestricted plugins' scripts for Castor's own page (manifest ui slot page.script). */
+			scripts: () => get<{ plugin: { id: string; name: string }; id: string; url: string }[]>('/plugin-scripts'),
 			update: (id: string, body: { enabled?: boolean; all_projects?: boolean; project_ids?: UUID[]; settings?: Record<string, unknown>; secrets?: Record<string, string | null>; per_user?: string[] }) =>
 				patch<Plugin>(`/plugins/${id}`, body),
 			restart: (id: string) => post<Plugin>(`/plugins/${id}/restart`),
@@ -2010,7 +2015,7 @@ export interface Plugin {
 	status: 'stopped' | 'starting' | 'running' | 'crashed' | 'error';
 	status_message: string;
 	running: boolean;
-	granted: { permissions?: string[]; network?: string[]; events?: string[] };
+	granted: { permissions?: string[]; network?: string[]; events?: string[]; runtime?: string[] };
 	permission_details: ScopeDetail[];
 	actions: PluginActionSpec[];
 	settings_spec: PluginSettingSpec[];
@@ -2061,15 +2066,24 @@ export interface PluginPreview {
 	new_permissions: Record<string, string[]>;
 }
 
+export interface PluginMode {
+	/** Unrestricted plugins can't be installed or run. */
+	restricted: boolean;
+	/** CASTOR_PLUGINS_RESTRICTED keeps it on. */
+	restricted_locked: boolean;
+	/** CASTOR_PLUGINS_SAFE_MODE: no plugin runs. */
+	safe_mode: boolean;
+}
+
 export interface ProjectPluginAction extends PluginActionSpec {
-	plugin: { id: string; name: string; status: Plugin['status']; icon_url: string | null };
+	plugin: { id: string; name: string; status: Plugin['status']; icon_url: string | null; runtime?: Plugin['runtime'] };
 }
 
 /** A plugin's page shown in Castor (castor-plugin.yaml `ui`), in a sandboxed frame. */
 export interface PluginPanel {
 	plugin: { id: string; name: string; icon_url: string | null };
 	id: string;
-	slot: 'asset.panel' | 'card.tab' | 'project.page';
+	slot: 'asset.panel' | 'card.tab' | 'project.page' | 'page.script';
 	title: string;
 	path: string;
 	icon: string;

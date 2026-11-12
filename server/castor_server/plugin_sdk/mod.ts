@@ -48,6 +48,9 @@ export interface Api {
   patch<T = unknown>(path: string, body?: unknown): Promise<T>;
   put<T = unknown>(path: string, body?: unknown): Promise<T>;
   delete<T = unknown>(path: string): Promise<T>;
+  /** A file to an endpoint that takes one (multipart `file`, plus form fields), up to 20 MB:
+   *  `ctx.api.upload(`/api/tasks/${id}/attachments`, { name: "report.docx", bytes })`. */
+  upload<T = unknown>(path: string, file: { name: string; bytes: Uint8Array; contentType?: string }, fields?: Record<string, string>): Promise<T>;
 }
 
 /** An asset to record: `ref` names it within the call so links can point at it. */
@@ -238,6 +241,19 @@ const api: Api = {
   patch: (path, body) => api.request("PATCH", path, { body }),
   put: (path, body) => api.request("PUT", path, { body }),
   delete: (path) => api.request("DELETE", path),
+  async upload<T>(path: string, file: { name: string; bytes: Uint8Array; contentType?: string }, fields: Record<string, string> = {}): Promise<T> {
+    if (file.bytes.length > 20 * 1024 * 1024) throw new CastorError(`${file.name} is over 20 MB`);
+    let binary = "";
+    for (let i = 0; i < file.bytes.length; i += 0x8000) binary += String.fromCharCode(...file.bytes.subarray(i, i + 0x8000));
+    const r = await call<{ status: number; body: unknown }>("api", {
+      method: "POST", path, form: fields, file: { name: file.name, content_type: file.contentType ?? "", base64: btoa(binary) },
+    });
+    if (r.status >= 400) {
+      const detail = (r.body as { detail?: unknown } | null)?.detail ?? r.body;
+      throw new CastorError(`POST ${path}: HTTP ${r.status}: ${typeof detail === "string" ? detail : JSON.stringify(detail)}`, r.status, detail);
+    }
+    return r.body as T;
+  },
 };
 
 const storage: Storage = {

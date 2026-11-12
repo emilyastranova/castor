@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     admin_username: str = "admin"
     admin_password: str = "castor"
 
+    # Plugins. Restricted mode on here locks it on (admins can't turn it off in Settings), so
+    # unrestricted plugins can't be installed or run. Safe mode starts with every plugin stopped,
+    # to recover from a bad one.
+    plugins_restricted: bool = False
+    plugins_safe_mode: bool = False
+
     # Agents
     agent_secret: str = "change-me-agent-secret"
     # Let agents connect with the shared secret above as well as with their own tokens.

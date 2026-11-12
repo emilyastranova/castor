@@ -29,6 +29,9 @@ class AppSettings(BaseModel):
     # The theme for everyone who hasn't picked one, and for the sign-in page on a browser that has
     # never signed in: a theme_definitions id, or "" for Castor's own.
     default_theme: str = Field(default="", max_length=64)
+    # Plugins: while on, unrestricted plugins (full access to this server) can't be installed or run.
+    # CASTOR_PLUGINS_RESTRICTED=1 keeps it on whatever this says.
+    plugins_restricted: bool = True
 
 
 async def load(db: AsyncSession) -> AppSettings:
