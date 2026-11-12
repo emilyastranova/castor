@@ -440,7 +440,7 @@ for first paint. Changes publish `themes.changed`. Format: [THEME_SPEC.md](THEME
 ## Assets
 
 A project's inventory of what it found (`assets.py`, `api/assets.py`): hosts, services, URLs,
-domains, users, credentials, shares and vulnerabilities, one record per identity key with
+domains, users, credentials, shares, files and vulnerabilities, one record per identity key with
 merged `fields`, `asset_observations` for provenance (each with a `confidence` and, for a
 mention, a `ref` to where it was) and `asset_links` between them. Parsed outputs from
 `nmap.hosts`, `nmap.services`, `netexec.smb`, `ffuf.results` and `httpx.results`, and
@@ -454,6 +454,23 @@ scope (`projects.settings.scope`) is named groups of entries (`groups: [{name, i
 exclusions that win over every group; an asset reports the groups it falls in. Triggers run a command or playbook for new or changed assets: automatically
 inside the project's scope (`projects.settings.scope`), otherwise after approval; once per
 asset and rate-limited. Command arguments can take `{"assets": {type, where, field}}`.
+
+Relationships (`asset_links`, kinds in `assets.LINK_KINDS`, each read both ways: `on`/has,
+`resolves_to`, `valid_on` (works on / accepts), `admin_on`, `belongs_to`, `downloaded_from`/gave,
+`affects`, and `related` for any two) carry where they came from (`source`, `parser`, `job_id`,
+`task_id`, `actor_id`, `confidence`), details (`fields`: the protocol and port a login worked
+over) and a `note`; `created_at` is first seen, `last_seen` the latest. Results record them
+(`assets.link`: a NetExec login gives credential works on host and service, credential belongs to
+user, and with Pwn3d! user admin on host; `file`/`download` hints give files on or downloaded
+from shares, pointing at the job's artifact of the same name; a vulnerability affects the URL,
+service or host it was found on); people add them (`POST /api/assets/{id}/links`, the kind must
+fit the two types). `GET /api/assets/link-kinds`, `GET /api/projects/{id}/asset-links`
+(`kind`, `type`, `asset`, `q`; counts per kind), `PATCH|DELETE /api/asset-links/{id}`. In `where`,
+a kind or its reverse works as a field (`valid_on:dc01`, `has_admin:*`, `linked!=*`). New ones
+between confirmed assets go to the feed (`assets.linked`, also a person's own; `assets.unlinked`)
+and to triggers with `on_event: linked` (`link_kind`, optional `other_type`; once per pair,
+`asset_trigger_fires.other_id`; scope is checked on the other end; templates take `{{ other.x }}`
+and `{{ link.x }}`). The `file` type is a path (`\\host\share\path`, or `host:/path`).
 
 ## AI
 

@@ -1,8 +1,8 @@
 <script lang="ts">
-	import type { Asset, AssetDetail, AssetSource, UUID } from '$lib/api';
+	import type { Asset, AssetDetail, AssetRelation, AssetSource, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, Icon, IconButton, Select, TextField } from '$lib/m3';
-	import { assetTypes, show } from '$lib/assetTypes.svelte';
+	import { assetTypes, linkDetails as details, show } from '$lib/assetTypes.svelte';
 	import { confirmAction } from '$lib/confirm.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { relativeTime, absoluteTime } from '$lib/format';
@@ -19,9 +19,11 @@
 		assetId: UUID | null;
 		projectId: UUID;
 		onopenasset: (id: UUID) => void;
+		/** Show this asset in the relationships graph. */
+		onshowgraph?: (id: UUID) => void;
 		onchanged?: () => void;
 	}
-	let { open = $bindable(false), assetId, projectId, onopenasset, onchanged }: Props = $props();
+	let { open = $bindable(false), assetId, projectId, onopenasset, onshowgraph, onchanged }: Props = $props();
 
 	let asset = $state<AssetDetail | null>(null);
 	let secret = $state<string | null>(null);
@@ -54,6 +56,62 @@
 		for (const l of asset?.links ?? []) (out[l.label] ??= []).push(l);
 		return Object.entries(out);
 	});
+	/** A relationship's details in a few words: "smb · port 445 · admin". */
+
+	const linkSource = (l: AssetRelation) =>
+		l.source === 'manual' ? `noted by ${l.by ?? 'someone'}` : l.source === 'parser' ? 'from a tool’s results' : `from ${l.where}`;
+
+	// ---- relationships: add one by hand, remove one ----
+	let relating = $state(false);
+	let relation = $state('');
+	let relateTo = $state('');
+	let relateNote = $state('');
+	let candidates = $state<Asset[]>([]);
+	let relations = $derived(asset ? assetTypes.relationsOf(asset.type) : []);
+	let chosen = $derived(relations.find((r) => `${r.direction}:${r.kind}` === relation));
+	let targets = $derived(
+		candidates
+			.filter((a) => a.id !== asset?.id && (!chosen?.others.length || chosen.others.includes(a.type)))
+			.map((a) => ({ value: a.id, label: a.label, group: assetTypes.get(a.type)?.plural ?? a.type }))
+	);
+	async function startRelating() {
+		relating = !relating;
+		if (!relating) return;
+		relation = relations[0] ? `${relations[0].direction}:${relations[0].kind}` : '';
+		relateTo = relateNote = '';
+		try {
+			candidates = (await api().assets.list(projectId, { limit: 1000 })).items;
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not load the assets');
+		}
+	}
+	async function relate() {
+		if (!asset || !chosen || !relateTo) return;
+		try {
+			await api().assets.link(asset.id, { kind: chosen.kind, direction: chosen.direction, to_id: relateTo, note: relateNote.trim() });
+			relating = false;
+			await load(asset.id);
+			onchanged?.();
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not add the relationship');
+		}
+	}
+	async function unrelate(l: AssetRelation) {
+		if (!asset) return;
+		const ok = await confirmAction({
+			title: 'Remove this relationship?',
+			message: `${asset.label} ${l.label} ${l.asset.label}. A tool that reports it again adds it back.`,
+			confirmLabel: 'Remove'
+		});
+		if (!ok) return;
+		try {
+			await api().assets.unlink(l.id);
+			await load(asset.id);
+			onchanged?.();
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not remove it');
+		}
+	}
 	const sourceText = (s: AssetSource) =>
 		s.kind === 'parser'
 			? (s.parser?.startsWith('lines:') ? 'a tool’s output' : (s.parser ?? 'a tool'))
@@ -342,25 +400,71 @@
 				{/if}
 			</section>
 
-			{#if linkGroups.length}
-				<section>
-					<h3 class="mb-1.5 label-large text-on-surface-variant">Linked</h3>
-					<div class="flex flex-col gap-2">
+			{#if asset.attachment}
+				<a href={api().attachments.url(asset.attachment.id)} class="state-layer flex w-fit items-center gap-2 rounded-md border border-outline-variant px-3 py-2 body-medium text-on-surface">
+					<Icon name="download" size={18} class="text-primary" />Downloaded copy: {asset.attachment.filename}
+				</a>
+			{/if}
+
+			<section aria-label="Relationships">
+				<div class="mb-1.5 flex items-center gap-2">
+					<h3 class="flex-1 label-large text-on-surface-variant">Relationships</h3>
+					{#if onshowgraph && asset.links.length}
+						<Button variant="text" icon="hub" onclick={() => onshowgraph(asset!.id)}>Graph</Button>
+					{/if}
+					{#if canEdit() && asset.status === 'confirmed' && relations.length}
+						<Button variant="text" icon={relating ? 'close' : 'add_link'} aria-expanded={relating} onclick={startRelating}>{relating ? 'Cancel' : 'Add'}</Button>
+					{/if}
+				</div>
+				{#if relating}
+					<form class="mb-3 flex flex-col gap-3 rounded-md border border-outline-variant bg-surface-container px-3 py-3" onsubmit={(e) => { e.preventDefault(); void relate(); }}>
+						<div class="flex flex-wrap items-end gap-2">
+							<Select
+								label="{asset.label} …"
+								bind:value={relation}
+								onchange={() => (relateTo = '')}
+								class="min-w-44 flex-1"
+								options={relations.map((r) => ({
+									value: `${r.direction}:${r.kind}`,
+									label: r.label,
+									description: r.others.length ? r.others.map((t) => assetTypes.get(t)?.label.toLowerCase() ?? t).join(', ') : 'anything',
+									group: r.kind === 'related' ? 'Other' : undefined
+								}))}
+							/>
+							<Select label="…this asset" bind:value={relateTo} class="min-w-56 flex-[2]" options={targets} supporting={targets.length ? undefined : 'No asset of the right type yet'} disabled={!targets.length} />
+						</div>
+						<TextField label="Note (optional)" bind:value={relateNote} placeholder="How you know, what you did with it…" />
+						<div class="flex justify-end"><Button type="submit" icon="add_link" disabled={!chosen || !relateTo}>Add relationship</Button></div>
+					</form>
+				{/if}
+				{#if linkGroups.length}
+					<div class="flex flex-col gap-3">
 						{#each linkGroups as [label, links] (label)}
 							<div>
-								<p class="mb-1 body-small text-on-surface-variant">{label}</p>
-								<div class="flex flex-wrap gap-1.5">
-									{#each links as l (l.asset.id)}
-										<button type="button" class="state-layer flex items-center gap-1.5 rounded-full border border-outline-variant px-2.5 py-1 body-small text-on-surface" onclick={() => onopenasset(l.asset.id)}>
-											<Icon name={assetTypes.get(l.asset.type)?.icon ?? 'radar'} size={16} />{l.asset.label}
-										</button>
+								<p class="mb-1 body-small font-medium text-on-surface-variant">{asset.label} <span class="text-on-surface">{label}</span></p>
+								<ul class="flex flex-col divide-y divide-outline-variant/50 rounded-md bg-surface-container">
+									{#each links as l (l.id)}
+										<li class="flex items-start gap-2 px-3 py-2">
+											<Icon name={assetTypes.get(l.asset.type)?.icon ?? 'radar'} size={18} class="mt-0.5 shrink-0 text-on-surface-variant" />
+											<div class="min-w-0 flex-1">
+												<button type="button" class="text-left body-medium break-all text-on-surface hover:text-primary hover:underline" onclick={() => onopenasset(l.asset.id)}>{l.asset.label}</button>
+												<p class="body-small text-on-surface-variant">
+													{#if details(l.fields)}<span class="font-medium text-on-surface">{details(l.fields)}</span> · {/if}{linkSource(l)}{#if l.task}{' '}on <a href={l.task.link} class="text-primary hover:underline">{l.task.title}</a>{/if}
+													· <span title={absoluteTime(l.first_seen)}>{relativeTime(l.first_seen)}</span>
+												</p>
+												{#if l.note}<p class="mt-0.5 body-small text-on-surface italic">{l.note}</p>{/if}
+											</div>
+											{#if canEdit()}<IconButton icon="link_off" label="Remove this relationship" size="sm" onclick={() => unrelate(l)} />{/if}
+										</li>
 									{/each}
-								</div>
+								</ul>
 							</div>
 						{/each}
 					</div>
-				</section>
-			{/if}
+				{:else if !relating}
+					<p class="body-small text-on-surface-variant italic">None yet. Tools add them (a login that worked, a file taken from a share), or add one.</p>
+				{/if}
+			</section>
 
 			{#if asset.triggers.length}
 				<section>

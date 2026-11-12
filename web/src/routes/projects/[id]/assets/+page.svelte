@@ -7,6 +7,7 @@
 	import ProjectSwitcher from '$lib/components/ProjectSwitcher.svelte';
 	import AssetDialog from '$lib/components/AssetDialog.svelte';
 	import TriggerDialog from '$lib/components/TriggerDialog.svelte';
+	import AssetRelationships from '$lib/components/AssetRelationships.svelte';
 	import { assetTypes, show } from '$lib/assetTypes.svelte';
 	import { realtime } from '$lib/realtime.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
@@ -20,9 +21,18 @@
 	let project = $derived(data.project);
 	$effect(() => void assetTypes.load());
 
-	const TABS = ['inventory', 'suggested', 'triggers'] as const;
+	const TABS = ['inventory', 'suggested', 'relationships', 'triggers'] as const;
 	const asked = page.url.searchParams.get('tab');
 	let tab = $state<(typeof TABS)[number]>(TABS.find((t) => t === asked) ?? 'inventory');
+	/** Relationships tab: a list or a graph, and the asset to select in the graph. */
+	let relView = $state<'list' | 'graph'>(page.url.searchParams.get('view') === 'graph' ? 'graph' : 'list');
+	let relFocus = $state<UUID | null>(page.url.searchParams.get('focus'));
+	function showInGraph(id: UUID) {
+		relFocus = id;
+		relView = 'graph';
+		tab = 'relationships';
+		assetOpen = false;
+	}
 	/** Suggested tab: what's waiting, or what people dismissed. */
 	let showDismissed = $state(false);
 	let status = $derived<Asset['status']>(tab === 'suggested' ? (showDismissed ? 'dismissed' : 'suggested') : 'confirmed');
@@ -333,6 +343,7 @@
 			tabs={[
 				{ id: 'inventory', label: 'Inventory', icon: 'radar', badge: status === 'confirmed' ? Object.values(counts).reduce((a, b) => a + b, 0) : undefined },
 				{ id: 'suggested', label: 'Suggested', icon: 'lightbulb', badge: suggestedCount || undefined },
+				{ id: 'relationships', label: 'Relationships', icon: 'hub' },
 				{ id: 'triggers', label: 'Triggers', icon: 'bolt', badge: waiting.length || undefined }
 			]}
 			bind:value={tab}
@@ -403,7 +414,7 @@
 			</div>
 			<label class="flex items-center gap-2 rounded-full bg-surface-container-high px-4">
 				<Icon name="filter_list" size={20} class="text-on-surface-variant" />
-				<input class="h-11 min-w-0 flex-1 bg-transparent body-medium text-on-surface outline-none placeholder:text-on-surface-variant" placeholder="Filter: words, or field:value (smb_signing:false, port:445, port>1000, os:windows)" bind:value={where} autocomplete="off" spellcheck="false" />
+				<input class="h-11 min-w-0 flex-1 bg-transparent body-medium text-on-surface outline-none placeholder:text-on-surface-variant" placeholder="Filter: words, field:value (smb_signing:false, port>1000), relationships (accepts:*, has_admin:alice)" bind:value={where} autocomplete="off" spellcheck="false" />
 				{#if where}<IconButton icon="close" label="Clear" size="sm" onclick={() => (where = '')} />{/if}
 			</label>
 
@@ -546,6 +557,8 @@
 				</div>
 				{#if total > items.length}<p class="body-small text-on-surface-variant">Showing {items.length} of {total}; filter to narrow it down.</p>{/if}
 			{/if}
+		{:else if tab === 'relationships'}
+			<AssetRelationships projectId={project.id} bind:view={relView} focus={relFocus} onopenasset={openAsset} />
 		{:else}
 			{#if waiting.length}
 				<section class="rounded-lg border border-tertiary/50 bg-tertiary-container/30 p-4">
@@ -553,7 +566,7 @@
 					<ul class="flex flex-col gap-1.5">
 						{#each waiting as f (f.id)}
 							<li class="flex flex-wrap items-center gap-2 rounded-md bg-surface-container px-3 py-2" in:enter out:leave>
-								<span class="body-medium text-on-surface">“{f.trigger.name}” on <button type="button" class="font-mono text-primary hover:underline" onclick={() => openAsset(f.asset.id)}>{f.asset.label}</button></span>
+								<span class="body-medium text-on-surface">“{f.trigger.name}” on <button type="button" class="font-mono text-primary hover:underline" onclick={() => openAsset(f.asset.id)}>{f.asset.label}</button>{#if f.other}{' '}→ <button type="button" class="font-mono text-primary hover:underline" onclick={() => openAsset(f.other!.id)}>{f.other.label}</button>{/if}</span>
 								<span class="body-small text-on-surface-variant">{f.reason} · {relativeTime(f.at)}</span>
 								{#if canEdit()}
 									<span class="ml-auto flex gap-2">
@@ -595,7 +608,7 @@
 				</div>
 			{:else}
 				<p class="rounded-md border border-dashed border-outline-variant p-6 text-center body-medium text-on-surface-variant">
-					No triggers yet. A trigger runs a command or playbook when an asset is found or changes, e.g. “every new host → ping it” or “SMB signing is off → queue the relay check”.
+					No triggers yet. A trigger runs a command or playbook when an asset is found or changes, or gets a new relationship, e.g. “every new host → ping it”, “SMB signing is off → queue the relay check” or “a credential works on a new host → list its shares”.
 				</p>
 			{/if}
 
@@ -605,7 +618,7 @@
 					{#each fires.slice(0, 30) as f (f.id)}
 						<li class="flex items-center gap-3 px-3 py-2 body-small">
 							<span class="w-16 shrink-0 font-medium {FIRE[f.status] ?? ''}">{f.status}</span>
-							<span class="min-w-0 flex-1 truncate text-on-surface">“{f.trigger.name}” on <button type="button" class="font-mono text-primary hover:underline" onclick={() => openAsset(f.asset.id)}>{f.asset.label}</button>{f.reason ? ` · ${f.reason}` : ''}</span>
+							<span class="min-w-0 flex-1 truncate text-on-surface">“{f.trigger.name}” on <button type="button" class="font-mono text-primary hover:underline" onclick={() => openAsset(f.asset.id)}>{f.asset.label}</button>{#if f.other}{' '}→ <button type="button" class="font-mono text-primary hover:underline" onclick={() => openAsset(f.other!.id)}>{f.other.label}</button>{/if}{f.reason ? ` · ${f.reason}` : ''}</span>
 							{#if f.task_id}<a href="/projects/{project.id}?task={f.task_id}" class="shrink-0 text-primary hover:underline">Open card</a>{/if}
 							{#if f.run_id}<a href="/playbooks?run={f.run_id}" class="shrink-0 text-primary hover:underline">Open run</a>{/if}
 							<span class="shrink-0 text-on-surface-variant">{relativeTime(f.at)}</span>
@@ -617,7 +630,7 @@
 	</div>
 </div>
 
-<AssetDialog bind:open={assetOpen} assetId={openId} projectId={project.id} onopenasset={openAsset} onchanged={() => { void load(true); void api().assets.scope(project.id).then((x) => (scope = x)); }} />
+<AssetDialog bind:open={assetOpen} assetId={openId} projectId={project.id} onopenasset={openAsset} onshowgraph={showInGraph} onchanged={() => { void load(true); void api().assets.scope(project.id).then((x) => (scope = x)); }} />
 <TriggerDialog bind:open={triggerOpen} projectId={project.id} trigger={editingTrigger} onsaved={() => void loadTriggers()} />
 
 <Dialog bind:open={scopeOpen} title="Project scope" icon="verified" size="md">

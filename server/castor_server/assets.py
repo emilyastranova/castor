@@ -98,18 +98,69 @@ TYPES: dict[str, TypeDef] = {
             F("id", "ID"), F("target", "Target"), F("title", "Title"), F("severity", "Severity"),
             F("cves", "CVEs", "list"), F("tool", "Found by"), F("detail", "Detail"),
         ), ("id",)),
+        # A file found or taken somewhere: on a share (\\host\share\path), a host or a web server.
+        TypeDef("file", "File", "Files", "description", (
+            F("path", "Path"), F("name", "Name"), F("host", "Host"), F("share", "Share"), F("size", "Size", "number"),
+            F("sha256", "SHA-256"), F("attachment", "Downloaded copy"),
+        ), ("path",)),
     ]
 }
 ALIASES = {"ip": "host", "hosts": "host", "services": "service", "urls": "url", "domains": "domain",
            "users": "user", "credentials": "credential", "creds": "credential", "shares": "share",
-           "vulnerabilities": "vulnerability", "vuln": "vulnerability", "vulns": "vulnerability"}
+           "vulnerabilities": "vulnerability", "vuln": "vulnerability", "vulns": "vulnerability", "files": "file"}
 SEVERITIES = ("info", "low", "medium", "high", "critical")
 # How sure each kind of source is (0–100). Mentions only suggest; the rest confirm.
 CONFIDENCE = {"manual": 100, "import": 90, "parser": 85, "ai": 45, "comment": 50, "post": 50, "card": 50, "note": 50, "asset": 50,
               "output": 40}
 SUGGESTING = {"ai", "comment", "post", "card", "note", "asset", "output"}
-# Link kinds, as shown from the "from" side and the "to" side.
-LINKS = {"on": ("on", "has"), "resolves_to": ("resolves to", "resolved from"), "valid_on": ("valid on", "accepts")}
+
+
+@dataclass(frozen=True)
+class LinkKind:
+    """A kind of relationship, read from the "from" asset to the "to" one ("works on") and back
+    ("accepts"). `pairs` are the (from type, to type) it connects; none means any two assets."""
+
+    name: str
+    forward: str
+    reverse: str
+    pairs: tuple[tuple[str, str], ...]
+    description: str
+
+    @property
+    def reverse_name(self) -> str:
+        return self.reverse.replace(" ", "_")
+
+    def fits(self, src: str, dst: str) -> bool:
+        return not self.pairs or (src, dst) in self.pairs
+
+
+L = LinkKind
+LINK_KINDS: dict[str, LinkKind] = {
+    k.name: k
+    for k in [
+        L("on", "on", "has", (("service", "host"), ("share", "host"), ("url", "host"), ("file", "share"), ("file", "host")),
+          "Where something is: a service or share on a host, a file on a share."),
+        L("resolves_to", "resolves to", "resolved from", (("domain", "host"),), "A name that resolves to a host."),
+        L("valid_on", "works on", "accepts", (("credential", "host"), ("credential", "service"), ("credential", "url"),
+                                              ("credential", "share")),
+          "A credential that logged in somewhere."),
+        L("admin_on", "admin on", "has admin", (("user", "host"), ("credential", "host"), ("user", "service"),
+                                                ("credential", "service")),
+          "Administrator rights on a host (NetExec's Pwn3d!)."),
+        L("belongs_to", "belongs to", "has credential", (("credential", "user"),), "A credential of a user."),
+        L("downloaded_from", "downloaded from", "gave", (("file", "share"), ("file", "host"), ("file", "url"), ("file", "service")),
+          "A file taken from a share, a host or a web server."),
+        L("affects", "affects", "affected by", (("vulnerability", "host"), ("vulnerability", "service"), ("vulnerability", "url"),
+                                                ("vulnerability", "domain")),
+          "Where a vulnerability was found."),
+        L("related", "related to", "related to", (), "Anything else people want to note."),
+    ]
+}
+# The words each kind is filtered by (`where`): its name, and its reverse ("accepts", "has_admin").
+LINK_WORDS: dict[str, tuple[str, bool]] = {
+    **{k.name: (k.name, True) for k in LINK_KINDS.values()},
+    **{k.reverse_name: (k.name, False) for k in LINK_KINDS.values() if k.reverse_name != k.name},
+}
 
 
 class AssetError(ValueError):
@@ -172,7 +223,30 @@ def _clean(t: TypeDef, fields: dict[str, Any]) -> dict[str, Any]:
         out.setdefault("proto", "tcp")
         if out.get("host"):
             out["host"] = _ip(out["host"]) or str(out["host"]).lower()
+    if t.name == "file":
+        _clean_file(out)
     return out
+
+
+UNC = re.compile(r"^(?:smb:)?[\\/]{2}(?P<host>[^\\/\s]+)[\\/](?P<share>[^\\/]+)(?:[\\/](?P<path>.*))?$", re.IGNORECASE)
+
+
+def _clean_file(out: dict[str, Any]) -> None:
+    """A file on a share is \\\\host\\share\\path, whichever way it was written (//host/share/path,
+    smb://…, or a path plus host and share); its name is the last part."""
+    path = str(out.get("path") or "").strip()
+    mt = UNC.match(path)
+    if mt:
+        out.setdefault("host", mt["host"])
+        out.setdefault("share", mt["share"])
+        path = (mt["path"] or "").replace("/", "\\")
+        out["path"] = f"\\\\{mt['host']}\\{mt['share']}" + (f"\\{path}" if path else "")
+    elif path and out.get("host") and out.get("share") and "://" not in path:
+        out["path"] = f"\\\\{out['host']}\\{out['share']}\\" + path.replace("/", "\\").lstrip("\\")
+    if out.get("host"):
+        out["host"] = _ip(out["host"]) or str(out["host"]).lower()
+    if out.get("path") and not out.get("name"):
+        out["name"] = re.split(r"[\\/]", str(out["path"]).rstrip("\\/"))[-1][:300]
 
 
 def identity(type_name: str, fields: dict[str, Any], secret: str | None = None) -> tuple[str, str, dict[str, Any]]:
@@ -223,6 +297,13 @@ def identity(type_name: str, fields: dict[str, Any], secret: str | None = None) 
             raise AssetError("a share needs a host and a name")
         key = label = f"\\\\{f['host']}\\{f['name']}"
         key = key.lower()
+    elif t.name == "file":
+        if not f.get("path"):
+            raise AssetError("a file needs its path")
+        label = f["path"]
+        if f.get("host") and not label.startswith("\\\\"):  # a path on a host, not on a share
+            label = f"{f['host']}:{label}"
+        key = label.lower()
     else:  # pragma: no cover - TYPES is closed
         raise AssetError(f"unknown asset type {type_name}")
     return key[:400], label[:400], f
@@ -245,6 +326,8 @@ class Batch:
     project_id: uuid.UUID
     changes: dict[uuid.UUID, Change] = field(default_factory=dict)
     suggested: dict[uuid.UUID, m.Asset] = field(default_factory=dict)
+    # Relationships recorded for the first time: (link, from asset, to asset).
+    links: list[tuple[m.AssetLink, m.Asset, m.Asset]] = field(default_factory=list)
     read: bool = False  # some output was one Castor reads as assets (parsed or hinted)
 
     def note(self, asset: m.Asset, created: bool, changed: list[str]) -> None:
@@ -254,6 +337,10 @@ class Batch:
                 self.changes[asset.id] = Change(asset, "created" if created else "updated", changed)
         else:
             prev.fields = sorted({*prev.fields, *changed})
+
+    def new_links(self) -> list[tuple[m.AssetLink, m.Asset, m.Asset]]:
+        """New relationships between confirmed assets (the ones the feed and triggers see)."""
+        return [x for x in self.links if x[1].status == "confirmed" and x[2].status == "confirmed"]
 
     def created(self) -> list[m.Asset]:
         return [c.asset for c in self.changes.values() if c.event == "created"]
@@ -383,6 +470,7 @@ async def merge(db: AsyncSession, drop: m.Asset, *, into: m.Asset) -> m.Asset:
     into.secret = into.secret or drop.secret
     await db.execute(update(m.AssetObservation).where(m.AssetObservation.asset_id == drop.id).values(asset_id=into.id))
     await db.execute(update(m.AssetTriggerFire).where(m.AssetTriggerFire.asset_id == drop.id).values(asset_id=into.id))
+    await db.execute(update(m.AssetTriggerFire).where(m.AssetTriggerFire.other_id == drop.id).values(other_id=into.id))
     for row in (await db.execute(select(m.AssetLink).where(or_(m.AssetLink.from_id == drop.id, m.AssetLink.to_id == drop.id)))).scalars().all():
         src = into.id if row.from_id == drop.id else row.from_id
         dst = into.id if row.to_id == drop.id else row.to_id
@@ -425,15 +513,39 @@ async def _rehome(db: AsyncSession, host: m.Asset, names: set[str]) -> None:
                 a.fields, a.key, a.label = fields, key, label
 
 
-async def link(db: AsyncSession, project_id: uuid.UUID, src: m.Asset, dst: m.Asset, kind: str) -> None:
-    if src.id == dst.id:
-        return
-    exists = (
-        await db.execute(select(m.AssetLink.id).where(m.AssetLink.from_id == src.id, m.AssetLink.to_id == dst.id, m.AssetLink.kind == kind))
-    ).first()
-    if exists is None:
-        db.add(m.AssetLink(project_id=project_id, from_id=src.id, to_id=dst.id, kind=kind))
+async def link(db: AsyncSession, project_id: uuid.UUID, src: m.Asset, dst: m.Asset, kind: str, *, batch: Batch | None = None,
+               source: str = "parser", parser: str | None = None, job_id: uuid.UUID | None = None, task_id: uuid.UUID | None = None,
+               actor_id: uuid.UUID | None = None, confidence: int | None = None, fields: dict[str, Any] | None = None,
+               note: str | None = None) -> m.AssetLink | None:
+    """Record that `src` relates to `dst` (LINK_KINDS): new ones go to the batch (feed, triggers);
+    one seen again is seen later, as sure as its surest source, with any new details. Flushes."""
+    if src.id == dst.id or kind not in LINK_KINDS:
+        return None
+    conf = confidence if confidence is not None else CONFIDENCE.get(source, 80)
+    details = {k: v for k, v in (fields or {}).items() if v not in (None, "", [])}
+    row = (await db.execute(select(m.AssetLink).where(m.AssetLink.from_id == src.id, m.AssetLink.to_id == dst.id,
+                                                      m.AssetLink.kind == kind))).scalar_one_or_none()
+    if row is None:
+        row = m.AssetLink(project_id=project_id, from_id=src.id, to_id=dst.id, kind=kind, source=source, parser=parser, job_id=job_id,
+                          task_id=task_id, actor_id=actor_id, confidence=conf, fields=details, note=note or "", last_seen=utcnow())
+        db.add(row)
         await db.flush()
+        if batch is not None:
+            batch.links.append((row, src, dst))
+        return row
+    row.last_seen = utcnow()
+    row.confidence = max(row.confidence or 0, conf)
+    if details:
+        row.fields = {**(row.fields or {}), **details}
+    if note is not None:
+        row.note = note
+    await db.flush()
+    return row
+
+
+def _link_src(src: dict[str, Any]) -> dict[str, Any]:
+    """The parts of an observation's source a relationship keeps."""
+    return {k: src[k] for k in ("batch", "source", "parser", "job_id", "task_id", "actor_id") if k in src}
 
 
 # ---------- from parsed outputs ----------
@@ -465,27 +577,27 @@ async def _map(db: AsyncSession, parser: str, rows: Any, project_id: uuid.UUID, 
                 host = await observe(db, project_id, "host", {"ip": row.get("ip"), "hostname": names[0] if names else None, "status": "up"}, **obs)
                 for name in names:
                     domain = await observe(db, project_id, "domain", {"name": name, "ips": [row.get("ip")]}, **obs)
-                    await link(db, project_id, domain, host, "resolves_to")
+                    await link(db, project_id, domain, host, "resolves_to", **_link_src(obs))
             elif parser == "nmap.services":
                 if row.get("state", "open") != "open":
                     continue
                 host = await observe(db, project_id, "host", {"ip": row.get("host"), "status": "up"}, **obs)
                 svc = await observe(db, project_id, "service", {k: row.get(k) for k in ("host", "port", "proto", "name", "product", "version", "state")}, **obs)
-                await link(db, project_id, svc, host, "on")
+                await link(db, project_id, svc, host, "on", **_link_src(obs))
             elif parser == "netexec.smb":
                 host = await observe(db, project_id, "host", {
                     "ip": row.get("host"), "hostname": row.get("name"), "domain": row.get("domain"), "os": row.get("os"),
                     "smb_signing": row.get("signing"), "smbv1": row.get("smbv1"), "status": "up",
                 }, **obs)
                 svc = await observe(db, project_id, "service", {"host": row.get("host"), "port": row.get("port") or 445, "proto": "tcp", "name": "microsoft-ds", "state": "open"}, **obs)
-                await link(db, project_id, svc, host, "on")
+                await link(db, project_id, svc, host, "on", **_link_src(obs))
             elif parser in ("ffuf.results", "httpx.results"):
                 url = await observe(db, project_id, "url", {k: row.get(k) for k in ("url", "status", "length", "title", "content_type",
                                                                                        "webserver", "tech")}, **obs)
                 hostname = urlsplit(str(row.get("url") or "")).hostname
                 host = await _find_host(db, project_id, hostname) if hostname else None
                 if host is not None:
-                    await link(db, project_id, url, host, "on")
+                    await link(db, project_id, url, host, "on", **_link_src(obs))
         except AssetError:
             continue  # a row without an identity (e.g. no address) isn't an asset
 
@@ -529,13 +641,13 @@ async def _map_hint(db: AsyncSession, hint: str, values: Any, project_id: uuid.U
                 if mt:
                     svc = await observe(db, project_id, "service", {"host": mt[1], "port": mt[2], "proto": mt[3] or "tcp"}, **obs)
                     host = await observe(db, project_id, "host", {"ip": mt[1]} if _ip(mt[1]) else {"hostname": mt[1]}, **obs)
-                    await link(db, project_id, svc, host, "on")
+                    await link(db, project_id, svc, host, "on", **_link_src(obs))
             elif hint == "share":
                 parts = line.split()
                 if len(parts) >= 2:
                     share = await observe(db, project_id, "share", {"host": parts[0], "name": parts[1], "access": " ".join(parts[2:3])}, **obs)
                     host = await observe(db, project_id, "host", {"ip": parts[0]} if _ip(parts[0]) else {"hostname": parts[0]}, **obs)
-                    await link(db, project_id, share, host, "on")
+                    await link(db, project_id, share, host, "on", **_link_src(obs))
             elif hint == "login":
                 mt = NETEXEC_LOGIN.match(line)
                 if mt:
@@ -543,25 +655,106 @@ async def _map_hint(db: AsyncSession, hint: str, values: Any, project_id: uuid.U
                     if secret and set(secret) <= {"*"}:
                         secret = None  # masked: Castor's own variable
                     kind = "hash" if secret and re.fullmatch(r"[0-9a-fA-F]{32}(:[0-9a-fA-F]{32})?", secret) else "password"
+                    admin = "Pwn3d" in (mt["rest"] or "")
+                    proto = mt["proto"].lower()
                     cred = await observe(db, project_id, "credential", {"username": mt["user"], "domain": mt["domain"], "kind": kind,
-                                                                        "admin": "Pwn3d" in (mt["rest"] or "") or None}, secret=secret, **obs)
+                                                                        "admin": admin or None}, secret=secret, **obs)
                     host = await observe(db, project_id, "host", {"ip": mt["host"]} if _ip(mt["host"]) else {"hostname": mt["host"]}, **obs)
-                    await link(db, project_id, cred, host, "valid_on")
+                    svc = await observe(db, project_id, "service", {"host": mt["host"], "port": mt["port"], "proto": "tcp", "state": "open"},
+                                        **obs)
+                    user = await observe(db, project_id, "user", {"username": mt["user"], "domain": mt["domain"]}, **obs)
+                    how = {"protocol": proto, "port": int(mt["port"]), "admin": admin or None}
+                    await link(db, project_id, svc, host, "on", **_link_src(obs))
+                    await link(db, project_id, cred, host, "valid_on", fields=how, **_link_src(obs))
+                    await link(db, project_id, cred, svc, "valid_on", fields=how, **_link_src(obs))
+                    await link(db, project_id, cred, user, "belongs_to", **_link_src(obs))
+                    if admin:
+                        await link(db, project_id, user, host, "admin_on", fields={"protocol": proto}, **_link_src(obs))
+            elif hint in ("file", "download"):
+                await _file_line(db, project_id, line, hint, obs, target=target)
             elif hint == "vulnerability":
                 mt = NUCLEI_LINE.match(line)
                 if mt:
                     rest = mt["rest"].strip()
-                    await observe(db, project_id, "vulnerability", {
+                    vuln = await observe(db, project_id, "vulnerability", {
                         "id": mt["id"].split(":")[0], "target": _target_of(mt["target"]), "severity": mt["sev"].lower(),
                         "title": mt["id"], "cves": [c.upper() for c in CVE.findall(line)], "tool": tool or "nuclei",
                         "detail": rest[:500]}, **obs)
+                    await _affects(db, project_id, vuln, mt["target"], obs)
                 else:
                     cves = [c.upper() for c in CVE.findall(line)]
                     ident = cves[0] if cves else line[:120]
-                    await observe(db, project_id, "vulnerability", {"id": ident, "target": target, "cves": cves, "tool": tool,
-                                                                     "detail": line[:500] if line != ident else None}, **obs)
+                    vuln = await observe(db, project_id, "vulnerability", {"id": ident, "target": target, "cves": cves, "tool": tool,
+                                                                            "detail": line[:500] if line != ident else None}, **obs)
+                    if target:
+                        await _affects(db, project_id, vuln, target, obs)
         except AssetError:
             continue
+
+
+async def _affects(db: AsyncSession, project_id: uuid.UUID, vuln: m.Asset, target: str, obs: dict[str, Any]) -> None:
+    """A vulnerability affects what it was found on, when that's known: the URL, else the
+    service (host:port), else the host."""
+    target = target.strip()
+    found: m.Asset | None = None
+    if "://" in target:
+        found = (await db.execute(select(m.Asset).where(m.Asset.project_id == project_id, m.Asset.type == "url",
+                                                        m.Asset.key == target))).scalar_one_or_none()
+        target = urlsplit(target).netloc or target
+    if found is None:
+        mt = re.match(r"^\[?([^\]\s]+?)\]?:(\d{1,5})$", target)
+        name = mt[1] if mt else target
+        if mt:
+            host = _ip(mt[1]) or mt[1].lower()
+            found = (await db.execute(select(m.Asset).where(m.Asset.project_id == project_id, m.Asset.type == "service",
+                                                            m.Asset.key == f"{host}:{int(mt[2])}/tcp"))).scalar_one_or_none()
+        if found is None and name:
+            found = await _find_host(db, project_id, name)
+    if found is not None:
+        await link(db, project_id, vuln, found, "affects", **_link_src(obs))
+
+
+async def _file_line(db: AsyncSession, project_id: uuid.UUID, line: str, hint: str, obs: dict[str, Any], *, target: str = "") -> None:
+    """A file a command listed (`file`) or took (`download`): a share path (\\\\host\\share\\path,
+    //host/share/path, NetExec's spider lines) or a URL. On a share, the share is on its host."""
+    mt = re.search(r"(?:smb:)?(?:\\\\|//)[^\s\\/]+[\\/][^\s\\/]+(?:[\\/][^\[\r\n]*?)?(?=\s*\[|\s*$)", line)
+    parts = UNC.match(mt[0].rstrip()) if mt else None
+    if parts:
+        host_name = parts["host"]
+        host = await observe(db, project_id, "host", {"ip": host_name} if _ip(host_name) else {"hostname": host_name}, **obs)
+        share = await observe(db, project_id, "share", {"host": host_name, "name": parts["share"]}, **obs)
+        await link(db, project_id, share, host, "on", **_link_src(obs))
+        if (parts["path"] or "").strip("\\/"):
+            size = re.search(r"\bsize:\s*(\d+)", line)
+            file = await observe(db, project_id, "file", {"path": mt[0].rstrip(), "size": size[1] if size else None}, **obs)
+            await link(db, project_id, file, share, "downloaded_from" if hint == "download" else "on", **_link_src(obs))
+            if hint == "download":
+                await _keep_copy(db, file, obs.get("job_id"))
+        return
+    word = line.split()[0]
+    if "://" in word:
+        file = await observe(db, project_id, "file", {"path": word, "host": urlsplit(word).hostname}, **obs)
+        url = (await db.execute(select(m.Asset).where(m.Asset.project_id == project_id, m.Asset.type == "url",
+                                                      m.Asset.key == word))).scalar_one_or_none()
+        if hint == "download" and url is not None:
+            await link(db, project_id, file, url, "downloaded_from", **_link_src(obs))
+    elif target and word.startswith("/"):
+        file = await observe(db, project_id, "file", {"path": word, "host": target}, **obs)
+        host = await _find_host(db, project_id, target)
+        if host is not None:
+            await link(db, project_id, file, host, "downloaded_from" if hint == "download" else "on", **_link_src(obs))
+
+
+async def _keep_copy(db: AsyncSession, file: m.Asset, job_id: uuid.UUID | None) -> None:
+    """A downloaded file the job also kept as an artifact (same name): the asset points at the copy."""
+    name = str((file.fields or {}).get("name") or "").lower()
+    if not job_id or not name:
+        return
+    for att in (await db.execute(select(m.Attachment).where(m.Attachment.job_id == job_id))).scalars():
+        if re.split(r"[\\/]", att.filename)[-1].lower() == name:
+            file.fields = {**(file.fields or {}), "attachment": str(att.id), "size": (file.fields or {}).get("size") or att.size}
+            await db.flush()
+            return
 
 
 def _target_of(value: str) -> str:
@@ -665,8 +858,15 @@ def describe(counts: dict[str, int]) -> str:
     return ", ".join(parts[:-1]) + (" and " if len(parts) > 1 else "") + parts[-1] if parts else ""
 
 
+def describe_links(counts: dict[str, int]) -> str:
+    """"3 relationships (works on ×2, admin on ×1)"."""
+    n = sum(counts.values())
+    parts = ", ".join(f"{LINK_KINDS[k].forward} ×{c}" for k, c in sorted(counts.items(), key=lambda x: -x[1]) if k in LINK_KINDS)
+    return f"{n} relationship{'s' if n != 1 else ''}" + (f" ({parts})" if parts else "")
+
+
 async def settle(db: AsyncSession, batch: Batch, *, task_id: uuid.UUID | None = None, actor: m.User | None = None,
-                 where: str = "") -> None:
+                 where: str = "", feed_links: bool = True) -> None:
     """After recording: the feed entry ("Found 3 hosts and 5 services"), the event, triggers."""
     from .services import actor_of, record_activity
 
@@ -677,6 +877,14 @@ async def settle(db: AsyncSession, batch: Batch, *, task_id: uuid.UUID | None = 
             db, type="assets.found", message=f"Found {describe(created)}", project_id=batch.project_id, task_id=task_id,
             payload={"counts": created}, **actor_of(actor),
         )
+    linked: dict[str, int] = {}
+    for lk, _, _ in batch.new_links():
+        linked[lk.kind] = linked.get(lk.kind, 0) + 1
+    if linked and feed_links:
+        await record_activity(
+            db, type="assets.linked", message=f"Found {describe_links(linked)}", project_id=batch.project_id, task_id=task_id,
+            payload={"links": linked}, **actor_of(actor),
+        )
     if suggested:
         await record_activity(
             db, type="assets.suggested", message=f"Spotted {describe(suggested)} to confirm{f' in {where}' if where else ''}",
@@ -684,6 +892,7 @@ async def settle(db: AsyncSession, batch: Batch, *, task_id: uuid.UUID | None = 
         )
     await db.commit()
     bus.publish("assets.changed", batch.project_id, {"project_id": str(batch.project_id), "created": created, "suggested": suggested,
+                                                     "linked": sum(linked.values()),
                                                      "updated": sum(1 for c in batch.changes.values() if c.event == "updated")})
     try:
         await fire_triggers(db, batch)
@@ -698,7 +907,8 @@ TOKEN = re.compile(r'(\w+)(:|!=|>=|<=|>|<|=)("[^"]*"|\S+)|("[^"]+"|\S+)')
 
 def parse_where(text: str) -> tuple[list[dict[str, Any]], list[str]]:
     """`field:value` (text contains it; yes/no and numbers match exactly), `field=value`
-    (exactly), `field!=value`, `port>1000` filters and free words."""
+    (exactly), `field!=value`, `port>1000` filters and free words. A relationship's name works as
+    a field too (`valid_on:dc01`, `has_admin:*`, `linked!=*`): see `query`."""
     conds, words = [], []
     for fieldname, op, value, word in TOKEN.findall(text or ""):
         if word:
@@ -753,16 +963,43 @@ async def query(db: AsyncSession, project_id: uuid.UUID, type_name: str | None, 
     """The project's assets of a type (or all) matching `where`; confirmed ones unless `status`
     says suggested or dismissed. Only confirmed assets reach arguments and triggers."""
     conds, words = parse_where(where)
+    rels = [c for c in conds if c["field"].lower() in LINK_WORDS or c["field"].lower() == "linked"]
+    conds = [c for c in conds if c not in rels]
     stmt = select(m.Asset).where(m.Asset.project_id == project_id, m.Asset.status == status)
     if type_name:
         stmt = stmt.where(m.Asset.type == type_of(type_name).name)
     rows = (await db.execute(stmt)).scalars().all()
+    related = await _relations(db, project_id, rels) if rels else None
     out = []
     for a in rows:
         hay = f"{a.label} {a.key} {' '.join(str(v) for v in (a.fields or {}).values())}".lower()
-        if all(w in hay for w in words) and conditions_met(conds, a.fields or {}):
+        if all(w in hay for w in words) and conditions_met(conds, a.fields or {}) and (related is None or related(a.id)):
             out.append(a)
     return sorted(out, key=sort_key)
+
+
+async def _relations(db: AsyncSession, project_id: uuid.UUID, rels: list[dict[str, Any]]) -> Any:
+    """A test for relationship filters: `valid_on:dc01` (works on something that says dc01),
+    `accepts:*` (anything works on it), `linked:x` (any relationship), `!=` for none."""
+    names = {a_id: f"{label} {key} {type_}".lower() for a_id, label, key, type_ in
+             (await db.execute(select(m.Asset.id, m.Asset.label, m.Asset.key, m.Asset.type)
+                               .where(m.Asset.project_id == project_id, m.Asset.status == "confirmed"))).all()}
+    edges = (await db.execute(select(m.AssetLink.from_id, m.AssetLink.to_id, m.AssetLink.kind)
+                              .where(m.AssetLink.project_id == project_id))).all()
+    tests = []
+    for c in rels:
+        word, value = c["field"].lower(), str(c["value"]).lower()
+        kind, forward = LINK_WORDS.get(word, (None, True))
+        either = kind is None or kind == "related"
+        hits: set[uuid.UUID] = set()
+        for src, dst, k in edges:
+            if kind is not None and k != kind:
+                continue
+            for me, other in ([(src, dst), (dst, src)] if either else [(src, dst) if forward else (dst, src)]):
+                if other in names and (value in ("*", "any", "") or value in names[other]):
+                    hits.add(me)
+        tests.append((hits, c["op"] == "not_equals"))
+    return lambda asset_id: all((asset_id in hits) != negate for hits, negate in tests)
 
 
 ORDER = {name: i for i, name in enumerate(TYPES)}
@@ -802,7 +1039,7 @@ async def ref_values(db: AsyncSession, project_id: uuid.UUID, ref: dict[str, Any
 
 def default_field(type_name: str) -> str:
     return {"host": "ip", "service": "key", "url": "url", "domain": "name", "user": "username", "credential": "username", "share": "key",
-            "vulnerability": "id"}.get(type_name, "key")
+            "vulnerability": "id", "file": "path"}.get(type_name, "key")
 
 
 # ---------- scope ----------
@@ -867,18 +1104,35 @@ def in_scope(project: m.Project, asset: m.Asset) -> bool:
 
 # ---------- triggers ----------
 
-TEMPLATE = re.compile(r"\{\{\s*asset\.(\w+)\s*\}\}")
+TEMPLATE = re.compile(r"\{\{\s*(asset|other|link)\.(\w+)\s*\}\}")
 
 
-def render(template: Any, asset: m.Asset) -> Any:
+def _value(which: str, name: str, asset: m.Asset, other: m.Asset | None, lk: m.AssetLink | None) -> Any:
+    """`asset.ip`; for a relationship trigger also `other.ip` (the asset at the other end) and
+    `link.protocol` (the relationship's details, its `kind` and `note`)."""
+    if which == "link":
+        if lk is None:
+            return None
+        return getattr(lk, name) if name in ("kind", "note") else (lk.fields or {}).get(name)
+    a = other if which == "other" else asset
+    if a is None:
+        return None
+    return getattr(a, name) if name in ("key", "label", "type") else (a.fields or {}).get(name)
+
+
+def render(template: Any, asset: m.Asset, other: m.Asset | None = None, lk: m.AssetLink | None = None) -> Any:
     if not isinstance(template, str):
         return template
     whole = TEMPLATE.fullmatch(template.strip())
     if whole:
-        name = whole.group(1)
-        v = (asset.fields or {}).get(name) if name not in ("key", "label", "type") else getattr(asset, name)
+        v = _value(whole.group(1), whole.group(2), asset, other, lk)
         return v if v is not None else ""
-    return TEMPLATE.sub(lambda mt: value_of(asset, mt.group(1)), template)
+
+    def one(mt: re.Match[str]) -> str:
+        v = _value(mt.group(1), mt.group(2), asset, other, lk)
+        return ", ".join(str(x) for x in v) if isinstance(v, list) else ("" if v is None else str(v))
+
+    return TEMPLATE.sub(one, template)
 
 
 async def fire_triggers(db: AsyncSession, batch: Batch) -> None:
@@ -890,10 +1144,14 @@ async def fire_triggers(db: AsyncSession, batch: Batch) -> None:
     project = await db.get(m.Project, batch.project_id)
     started = False
     for trig in triggers:
-        for change in batch.changes.values():
-            asset = change.asset
-            if asset.type != trig.asset_type or (trig.on_event not in ("any", change.event)):
-                continue
+        if trig.on_event == "linked":
+            # A new relationship of its kind from an asset of its type ("a credential works on a new host").
+            matches = [(src, dst, lk) for lk, src, dst in batch.new_links()
+                       if lk.kind == trig.link_kind and src.type == trig.asset_type and (not trig.other_type or dst.type == trig.other_type)]
+        else:
+            matches = [(c.asset, None, None) for c in batch.changes.values() if trig.on_event in ("any", c.event)
+                       and c.asset.type == trig.asset_type]
+        for asset, other, lk in matches:
             if not conditions_met(trig.conditions, asset.fields or {}):
                 continue
             if trig.once_per_asset:
@@ -901,6 +1159,7 @@ async def fire_triggers(db: AsyncSession, batch: Batch) -> None:
                     await db.execute(
                         select(m.AssetTriggerFire.id).where(
                             m.AssetTriggerFire.trigger_id == trig.id, m.AssetTriggerFire.asset_id == asset.id,
+                            m.AssetTriggerFire.other_id == other.id if other is not None else m.AssetTriggerFire.other_id.is_(None),
                             m.AssetTriggerFire.status.in_(["started", "waiting", "skipped"]),
                         )
                     )
@@ -915,25 +1174,29 @@ async def fire_triggers(db: AsyncSession, batch: Batch) -> None:
                     )
                 )
             ).scalar_one()
+            other_id = other.id if other is not None else None
             if hour >= trig.max_per_hour:
-                db.add(m.AssetTriggerFire(trigger_id=trig.id, asset_id=asset.id, status="limited",
+                db.add(m.AssetTriggerFire(trigger_id=trig.id, asset_id=asset.id, other_id=other_id, status="limited",
                                           reason=f"over {trig.max_per_hour} runs in the last hour"))
                 continue
-            fire = m.AssetTriggerFire(trigger_id=trig.id, asset_id=asset.id, status="waiting")
+            fire = m.AssetTriggerFire(trigger_id=trig.id, asset_id=asset.id, other_id=other_id, status="waiting")
             db.add(fire)
             await db.flush()
-            if project is not None and in_scope(project, asset):
-                started = await run_fire(db, fire, trig, asset) or started
+            # What it runs against: the other end of a relationship when that's somewhere (the host).
+            subject = other if other is not None and _targets(other) else asset
+            on = asset.label if other is None else f"{asset.label} → {other.label}"
+            if project is not None and in_scope(project, subject):
+                started = await run_fire(db, fire, trig, asset, other=other, lk=lk) or started
             else:
                 fire.reason = "outside the project's scope" if scope_of(project)["include"] else "no scope is set for this project"
                 await notifications.notify(
                     db, kind="asset_trigger.approval", severity="warning",
-                    title=f"“{trig.name}” wants to run on {asset.label}",
+                    title=f"“{trig.name}” wants to run on {on}",
                     body=f"It's {fire.reason}; approve it to run it.",
                     link=f"/projects/{batch.project_id}/assets?tab=triggers", project_id=batch.project_id,
                     subject=f"trigger-fire:{fire.id}", webhooks=False,
                 )
-                await alerts.approval(db, batch.project_id, f"“{trig.name}” wants to run on {asset.label}",
+                await alerts.approval(db, batch.project_id, f"“{trig.name}” wants to run on {on}",
                                       f"It's {fire.reason}; approve it to run it.", f"/projects/{batch.project_id}/assets?tab=triggers")
     await db.commit()
     bus.publish("asset_triggers.changed", batch.project_id, {"project_id": str(batch.project_id)})
@@ -943,8 +1206,10 @@ async def fire_triggers(db: AsyncSession, batch: Batch) -> None:
         dispatcher.wake()
 
 
-async def run_fire(db: AsyncSession, fire: m.AssetTriggerFire, trig: m.AssetTrigger, asset: m.Asset, user: m.User | None = None) -> bool:
-    """Start what a trigger runs for an asset: a command card (queued) or a playbook run."""
+async def run_fire(db: AsyncSession, fire: m.AssetTriggerFire, trig: m.AssetTrigger, asset: m.Asset, user: m.User | None = None, *,
+                   other: m.Asset | None = None, lk: m.AssetLink | None = None) -> bool:
+    """Start what a trigger runs for an asset (and, for a relationship, the asset at its other
+    end): a command card (queued) or a playbook run."""
     from .command_library import apply_library, load_spec
     from .command_render import ArgumentError
     from .playbook_library import load_playbook_spec
@@ -956,7 +1221,8 @@ async def run_fire(db: AsyncSession, fire: m.AssetTriggerFire, trig: m.AssetTrig
         start_playbook_run,
     )
 
-    args = {k: render(v, asset) for k, v in (trig.args or {}).items()}
+    args = {k: render(v, asset, other, lk) for k, v in (trig.args or {}).items()}
+    on = asset.label if other is None else f"{asset.label} → {other.label}"
     try:
         if trig.action == "playbook":
             spec = await load_playbook_spec(db, trig.target)
@@ -976,8 +1242,10 @@ async def run_fire(db: AsyncSession, fire: m.AssetTriggerFire, trig: m.AssetTrig
                 raise AssetError("the project has no In Progress column")
             task = m.Task(
                 project_id=asset.project_id, column_id=column.id, position=await next_position(db, column.id),
-                title=f"{trig.name}: {asset.label}"[:300], kind=m.TaskKind.command, tags=["trigger"],
-                description=f"Started by the trigger “{trig.name}” for the {asset.type} {asset.label}.",
+                title=f"{trig.name}: {on}"[:300], kind=m.TaskKind.command, tags=["trigger"],
+                description=(f"Started by the trigger “{trig.name}” for the {asset.type} {asset.label}." if other is None else
+                             f"Started by the trigger “{trig.name}”: the {asset.type} {asset.label} "
+                             f"{LINK_KINDS[lk.kind].forward if lk is not None else 'is linked to'} the {other.type} {other.label}."),
                 created_by=user.id if user else trig.created_by,
             )
             await apply_library(db, task, spec, args)

@@ -743,7 +743,9 @@ class AssetObservation(Base):
 
 
 class AssetLink(Base):
-    """A relation between two assets: a service *on* a host, a domain that *resolves to* one."""
+    """A relationship between two assets (assets.LINK_KINDS): a service *on* a host, a credential that
+    *works on* a host, a user who is *admin on* one, a file *downloaded from* a share. Read from parsed
+    results or added by hand; `created_at` is when it was first seen."""
 
     __tablename__ = "asset_links"
     __table_args__ = (UniqueConstraint("from_id", "to_id", "kind", name="uq_asset_link"),)
@@ -752,8 +754,19 @@ class AssetLink(Base):
     project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
     from_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), index=True)
     to_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), index=True)
-    kind: Mapped[str] = mapped_column(String(16))
+    kind: Mapped[str] = mapped_column(String(24), index=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    last_seen: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    # parser | manual | comment | ai… (like an observation's); who or what said so first.
+    source: Mapped[str] = mapped_column(String(16), default="parser", server_default="parser")
+    parser: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True)
+    task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    confidence: Mapped[int] = mapped_column(Integer, default=85, server_default="85")
+    # Details of it: the protocol and port a login worked over, the access a share gave.
+    fields: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    note: Mapped[str] = mapped_column(Text, default="", server_default="")
 
 
 class AssetTrigger(Base, TimestampMixin):
@@ -766,7 +779,10 @@ class AssetTrigger(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(120))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     asset_type: Mapped[str] = mapped_column(String(16))
-    on_event: Mapped[str] = mapped_column(String(16), default="created")  # created | updated | any
+    on_event: Mapped[str] = mapped_column(String(16), default="created")  # created | updated | any | linked
+    # on_event "linked": a new relationship of this kind from the asset (to an asset of `other_type`, if set).
+    link_kind: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    other_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # [{field, op, value}], all must hold (assets.conditions_met)
     conditions: Mapped[list[dict[str, Any]]] = mapped_column(JSONType, default=list)
     action: Mapped[str] = mapped_column(String(16))  # command | playbook
@@ -787,6 +803,8 @@ class AssetTriggerFire(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
     trigger_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("asset_triggers.id", ondelete="CASCADE"), index=True)
     asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), index=True)
+    # A relationship trigger: the asset at the other end (the host a credential works on).
+    other_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(16), index=True)
     reason: Mapped[str] = mapped_column(Text, default="")
     task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)

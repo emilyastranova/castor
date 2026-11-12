@@ -4,8 +4,9 @@
 	import { Button, Chip, Dialog, IconButton, Select, Switch, TextField } from '$lib/m3';
 	import { assetTypes } from '$lib/assetTypes.svelte';
 
-	/** Create or edit a trigger: when an asset of a type appears or changes (and matches the
-	 *  conditions), run a command or a playbook with values taken from the asset. */
+	/** Create or edit a trigger: when an asset of a type appears or changes, or gets a new
+	 *  relationship ("a credential works on a new host"), and matches the conditions, run a command
+	 *  or a playbook with values taken from the asset (and the one at the relationship's other end). */
 	interface Props {
 		open: boolean;
 		projectId: UUID;
@@ -26,7 +27,10 @@
 	let name = $state('');
 	let enabled = $state(true);
 	let assetType = $state('host');
-	let onEvent = $state<'created' | 'updated' | 'any'>('created');
+	let onEvent = $state<AssetTrigger['on_event']>('created');
+	/** A relationship trigger: its kind, read from the asset's side, and the other end's type. */
+	let linkKind = $state('');
+	let otherType = $state('');
 	let conditions = $state<AssetCondition[]>([]);
 	let action = $state<'command' | 'playbook'>('command');
 	let target = $state('');
@@ -43,6 +47,8 @@
 		enabled = t?.enabled ?? true;
 		assetType = t?.asset_type ?? 'host';
 		onEvent = t?.on_event ?? 'created';
+		linkKind = t?.link_kind ?? '';
+		otherType = t?.other_type ?? '';
 		conditions = t ? JSON.parse(JSON.stringify(t.conditions)) : [];
 		action = t?.action ?? 'command';
 		target = t?.target ?? '';
@@ -53,6 +59,15 @@
 	});
 
 	let type = $derived(assetTypes.get(assetType));
+	/** The relationships an asset of this type can start ("works on"), for a relationship trigger. */
+	let kindsHere = $derived(assetTypes.relationsOf(assetType).filter((r) => r.direction === 'out'));
+	let kindHere = $derived(kindsHere.find((r) => r.kind === linkKind));
+	$effect(() => {
+		if (onEvent !== 'linked') return;
+		if (!kindHere) linkKind = kindsHere[0]?.kind ?? '';
+		if (otherType && kindHere?.others.length && !kindHere.others.includes(otherType)) otherType = '';
+	});
+	let otherFields = $derived(['key', 'label', ...(otherType ? (assetTypes.get(otherType)?.fields ?? []).map((f) => f.name) : ['ip', 'url'])]);
 	let fieldOptions = $derived([
 		...(type?.fields ?? []).map((f) => ({ value: f.name, label: f.label })),
 		{ value: 'key', label: 'Identity (key)' },
@@ -74,7 +89,8 @@
 		if (!target || key === filledFor || trigger) return;
 		filledFor = key;
 		const first = params[0];
-		if (first && !args[first.name]) args = { ...args, [first.name]: `{{ asset.${type?.default_field ?? 'key'} }}` };
+		const value = onEvent === 'linked' ? `{{ other.${assetTypes.get(otherType)?.default_field ?? 'key'} }}` : `{{ asset.${type?.default_field ?? 'key'} }}`;
+		if (first && !args[first.name]) args = { ...args, [first.name]: value };
 	});
 
 	const OPS = [
@@ -95,6 +111,8 @@
 			enabled,
 			asset_type: assetType,
 			on_event: onEvent,
+			link_kind: onEvent === 'linked' ? linkKind : null,
+			other_type: onEvent === 'linked' ? otherType || null : null,
 			conditions: conditions.filter((c) => c.field).map((c) => ({ ...c, value: ['exists', 'missing'].includes(c.op) ? null : c.value })),
 			action,
 			target,
@@ -123,8 +141,35 @@
 			<p class="mb-1 label-large text-on-surface-variant">When</p>
 			<div class="grid gap-3 sm:grid-cols-2">
 				<Select label="Asset type" bind:value={assetType} options={assetTypes.list.map((t) => ({ value: t.name, label: t.plural }))} />
-				<Select label="Event" value={onEvent} onchange={(v) => (onEvent = v as typeof onEvent)} options={[{ value: 'created', label: 'is found (new)' }, { value: 'updated', label: 'changes' }, { value: 'any', label: 'is found or changes' }]} />
+				<Select
+					label="Event"
+					value={onEvent}
+					onchange={(v) => (onEvent = v as typeof onEvent)}
+					options={[
+						{ value: 'created', label: 'is found (new)' },
+						{ value: 'updated', label: 'changes' },
+						{ value: 'any', label: 'is found or changes' },
+						{ value: 'linked', label: 'gets a new relationship', description: 'A credential works on a new host, a user is admin somewhere…' }
+					]}
+				/>
 			</div>
+			{#if onEvent === 'linked'}
+				{#if kindsHere.length}
+					<div class="mt-3 grid gap-3 sm:grid-cols-2">
+						<Select label="Relationship" bind:value={linkKind} options={kindsHere.map((r) => ({ value: r.kind, label: r.label, description: assetTypes.kind(r.kind)?.description }))} />
+						<Select
+							label="With"
+							bind:value={otherType}
+							options={[
+								{ value: '', label: kindHere?.others.length ? `Any (${kindHere.others.map((t) => assetTypes.get(t)?.label.toLowerCase() ?? t).join(', ')})` : 'Any asset' },
+								...(kindHere?.others.length ? kindHere.others : assetTypes.list.map((t) => t.name)).map((t) => ({ value: t, label: assetTypes.get(t)?.label ?? t }))
+							]}
+						/>
+					</div>
+				{:else}
+					<p class="mt-2 px-1 body-small text-error">{type?.plural ?? 'These'} don’t start a relationship; pick credentials, users, files or vulnerabilities.</p>
+				{/if}
+			{/if}
 		</div>
 
 		<div>
@@ -160,6 +205,9 @@
 					{/each}
 					<p class="px-1 body-small text-on-surface-variant">
 						Use the asset's values: {['key', 'label', ...(type?.fields ?? []).map((f) => f.name)].slice(0, 7).map((f) => `{{ asset.${f} }}`).join(', ')}
+						{#if onEvent === 'linked'}
+							<br />The other end's: {otherFields.slice(0, 6).map((f) => `{{ other.${f} }}`).join(', ')}. The relationship's details: {'{{ link.protocol }}'}, {'{{ link.port }}'}, {'{{ link.note }}'}
+						{/if}
 					</p>
 				</div>
 			{/if}
@@ -168,7 +216,7 @@
 		<div>
 			<p class="mb-1 label-large text-on-surface-variant">Guards</p>
 			<div class="flex flex-wrap items-center gap-x-6 gap-y-2">
-				<Switch bind:checked={once} label="Once per asset" />
+				<Switch bind:checked={once} label={onEvent === 'linked' ? 'Once per relationship' : 'Once per asset'} />
 				<TextField label="At most per hour" bind:value={maxPerHour} type="number" class="w-40" />
 				<Switch bind:checked={enabled} label="Enabled" />
 			</div>
@@ -178,6 +226,6 @@
 	</div>
 	{#snippet actions()}
 		<Button variant="text" onclick={() => (open = false)}>Cancel</Button>
-		<Button icon="check" loading={saving} disabled={!name.trim() || !target} onclick={save}>{trigger ? 'Save' : 'Add trigger'}</Button>
+		<Button icon="check" loading={saving} disabled={!name.trim() || !target || (onEvent === 'linked' && !kindHere)} onclick={save}>{trigger ? 'Save' : 'Add trigger'}</Button>
 	{/snippet}
 </Dialog>

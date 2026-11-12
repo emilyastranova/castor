@@ -177,6 +177,8 @@ RULES: list[tuple[str, str, str]] = [
     ("*", "/api/projects/*/asset-trigger-fires", "assets:rw"),
     ("*", "/api/asset-triggers/**", "assets:rw"),
     ("*", "/api/asset-trigger-fires/**", "assets:rw"),
+    ("*", "/api/projects/*/asset-links", "assets:rw"),
+    ("*", "/api/asset-links/**", "assets:rw"),
     # You
     ("*", "/api/notifications/**", "notifications:rw"),
     # Projects and everything in them

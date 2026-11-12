@@ -201,6 +201,11 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   also returns `include`, every group's entries, and reads an older `{include, exclude}` as one group "Scope");
   `scope_groups(project, asset)` per asset, `?scope=<group>|*|-` on the list, `POST …/scope/add` for one entry.
   Assets have a markdown `description` (PATCH `description`; mentions in it are suggested, source `asset`).
+  Relationships: `asset_links` with kinds in `assets.LINK_KINDS` (each reads both ways and lists the type pairs it
+  fits; `related` fits any), recorded by `assets.link` (pass the observation's source via `_link_src`; new ones go to
+  `Batch.links`, the feed and `on_event: linked` triggers, which render `{{ other.x }}`/`{{ link.x }}`). Kinds and
+  their reverses are `where` fields (`_relations`). Web: `AssetRelationships.svelte` (Relationships tab, list or
+  `AssetGraph.svelte`, a hand-rolled force layout in SVG), relationships in `AssetDialog`, `assetTypes.relationsOf`.
 - Search (Phase 3g): `search.py` (one permission-scoped query per kind of thing over the live
   tables; add new kinds to `TYPES` and a `Searcher` method; give hits `keys` (exact identifiers) and order the query
   with `_closest_first` so `score` can rank them; `KIND_WEIGHT` for the kind; a "best" group leads) behind `GET /api/search`; web

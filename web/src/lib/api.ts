@@ -442,9 +442,63 @@ export interface AssetSource {
 	link: string | null;
 }
 
+/** A kind of relationship between assets: how it reads from each end, and the types it connects. */
+export interface AssetLinkKind {
+	name: string;
+	/** From the "from" asset: "works on". */
+	forward: string;
+	/** From the "to" asset: "accepts". */
+	reverse: string;
+	/** The reverse as a filter word: "has_admin". */
+	reverse_name: string;
+	/** [from type, to type] pairs; empty: any two. */
+	pairs: [string, string][];
+	description: string;
+}
+
+export interface AssetEnd {
+	id: UUID;
+	type: string;
+	label: string;
+	status: Asset['status'];
+}
+
+/** A relationship between two assets. */
+export interface AssetLink {
+	id: UUID;
+	kind: string;
+	forward: string;
+	reverse: string;
+	from: AssetEnd;
+	to: AssetEnd;
+	/** Details: the protocol and port a login worked over… */
+	fields: Record<string, unknown>;
+	note: string;
+	source: AssetSource['kind'];
+	parser: string | null;
+	confidence: number;
+	job_id: UUID | null;
+	by: string | null;
+	task: { id: UUID; title: string; link: string } | null;
+	where: string;
+	first_seen: string;
+	last_seen: string;
+}
+
+/** A relationship seen from one of its assets. */
+export interface AssetRelation extends AssetLink {
+	outgoing: boolean;
+	/** How it reads from here: "works on" or "accepts". */
+	label: string;
+	/** The asset at the other end. */
+	asset: AssetEnd;
+}
+
 export interface AssetDetail extends Omit<Asset, 'links'> {
 	provenance: Record<string, { value: unknown; source: AssetSource }[]>;
-	links: { kind: string; label: string; asset: { id: UUID; type: string; label: string } }[];
+	links: AssetRelation[];
+	/** A file's downloaded copy (a job artifact). */
+	attachment: { id: UUID; filename: string; size: number; content_type: string } | null;
 	history: { fields: Record<string, unknown>; source: AssetSource }[];
 	triggers: { id: UUID; trigger: string; status: string; reason: string; at: string; task_id: UUID | null; run_id: UUID | null }[];
 }
@@ -461,7 +515,11 @@ export interface AssetTrigger {
 	name: string;
 	enabled: boolean;
 	asset_type: string;
-	on_event: 'created' | 'updated' | 'any';
+	on_event: 'created' | 'updated' | 'any' | 'linked';
+	/** on_event "linked": a new relationship of this kind from the asset… */
+	link_kind?: string | null;
+	/** …to an asset of this type (any if unset). */
+	other_type?: string | null;
 	conditions: AssetCondition[];
 	action: 'command' | 'playbook';
 	target: string;
@@ -479,6 +537,8 @@ export interface AssetTriggerFire {
 	at: string;
 	trigger: { id: UUID; name: string; action: string; target: string };
 	asset: { id: UUID; type: string; label: string };
+	/** A relationship trigger: the asset at the other end. */
+	other: { id: UUID; type: string; label: string } | null;
 	task_id: UUID | null;
 	run_id: UUID | null;
 }
@@ -1539,7 +1599,19 @@ export function api(fetchFn: Fetch = fetch) {
 			removeTrigger: (id: UUID) => del(`/asset-triggers/${id}`),
 			fires: (projectId: UUID, status?: string) => get<AssetTriggerFire[]>(`/projects/${projectId}/asset-trigger-fires${status ? `?status=${status}` : ''}`),
 			approve: (id: UUID) => post<{ status: string; reason: string }>(`/asset-trigger-fires/${id}/approve`),
-			skip: (id: UUID) => post<{ status: string }>(`/asset-trigger-fires/${id}/skip`)
+			skip: (id: UUID) => post<{ status: string }>(`/asset-trigger-fires/${id}/skip`),
+			linkKinds: () => get<AssetLinkKind[]>('/assets/link-kinds'),
+			/** A project's relationships between confirmed assets, newest first; `counts` per kind ignore `kind`. */
+			links: (projectId: UUID, params: { kind?: string; q?: string; type?: string; asset?: UUID; limit?: number } = {}) => {
+				const q = new URLSearchParams();
+				for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') q.set(k, String(v));
+				return get<{ items: AssetLink[]; total: number; counts: Record<string, number> }>(`/projects/${projectId}/asset-links?${q}`);
+			},
+			/** `out`: this asset → the other; `in`: the other → this one. */
+			link: (id: UUID, body: { kind: string; to_id: UUID; direction?: 'out' | 'in'; note?: string; fields?: Record<string, unknown> }) =>
+				post<AssetRelation>(`/assets/${id}/links`, body),
+			updateLink: (id: UUID, body: { note?: string; fields?: Record<string, unknown> }) => patch<AssetLink>(`/asset-links/${id}`, body),
+			unlink: (id: UUID) => del(`/asset-links/${id}`)
 		},
 		people: {
 			team: () => get<PersonBrief[]>('/people'),

@@ -19,7 +19,8 @@ sign-on provider's groups. Still to come:
 ## Running work
 
 ### Triggers beyond assets
-Today a trigger fires on new or changed [assets](https://github.com/emilyastranova/castor/wiki/Assets).
+Today a trigger fires on new or changed [assets](https://github.com/emilyastranova/castor/wiki/Assets), and on new
+relationships between them (a credential that works on a new host).
 More events should be able to start a command or playbook:
 - a job or run finishing (succeeded, failed, or with a parsed result that matches);
 - a card moving to a column;
@@ -39,16 +40,6 @@ listener, or a log tail:
 - **Control:** start, stop and restart from the card, and a per-agent limit on how many run at once.
 
 ## Data and results
-
-### Relationships between findings
-Record how things are connected, not only that they exist:
-- these credentials worked on this host and service;
-- this user is an admin on that host;
-- this file was downloaded from this share on that host.
-
-Relationships come from parsed results (a successful login, say) or are added by hand. They show
-on each asset as links, can be filtered and searched, and later drive triggers ("when a credential
-works on a new host…") and a graph view.
 
 ### Every file and screenshot in a project
 A project view of every attachment and job artifact, from every card and run, with filters by

@@ -9,6 +9,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
+from sqlalchemy.orm import aliased
 
 from .. import assets as A
 from .. import models as m
@@ -126,6 +127,43 @@ async def asset_types(_: CurrentUser) -> list[dict[str, Any]]:
     ]
 
 
+@router.get("/assets/link-kinds")
+async def link_kinds(_: CurrentUser) -> list[dict[str, Any]]:
+    """Kinds of relationship between assets: how each reads from both ends, and which types it connects."""
+    return [{"name": k.name, "forward": k.forward, "reverse": k.reverse, "reverse_name": k.reverse_name,
+             "pairs": [list(p) for p in k.pairs], "description": k.description} for k in A.LINK_KINDS.values()]
+
+
+async def _links_out(db: DB, rows: list[m.AssetLink], me: uuid.UUID | None = None) -> list[dict[str, Any]]:
+    """Relationships for the browser: both ends (or, seen from `me`, the other end and how it reads
+    from there), where it came from, its details and note."""
+    ids = {r.from_id for r in rows} | {r.to_id for r in rows}
+    assets = {a.id: a for a in (await db.execute(select(m.Asset).where(m.Asset.id.in_(ids)))).scalars()} if ids else {}
+    tasks = {t.id: t for t in (await db.execute(select(m.Task).where(m.Task.id.in_({r.task_id for r in rows if r.task_id})))).scalars()}
+    users = {u.id: u for u in (await db.execute(select(m.User).where(m.User.id.in_({r.actor_id for r in rows if r.actor_id})))).scalars()}
+
+    def end(a: m.Asset) -> dict[str, Any]:
+        return {"id": str(a.id), "type": a.type, "label": a.label, "status": a.status}
+
+    out = []
+    for r in rows:
+        src, dst = assets.get(r.from_id), assets.get(r.to_id)
+        if src is None or dst is None:
+            continue
+        kind = A.LINK_KINDS.get(r.kind) or A.LinkKind(r.kind, r.kind, r.kind, (), "")
+        t, u = tasks.get(r.task_id) if r.task_id else None, users.get(r.actor_id) if r.actor_id else None
+        item = {"id": str(r.id), "kind": r.kind, "forward": kind.forward, "reverse": kind.reverse, "from": end(src), "to": end(dst),
+                "fields": r.fields or {}, "note": r.note or "", "source": r.source, "parser": r.parser, "confidence": r.confidence,
+                "job_id": str(r.job_id) if r.job_id else None, "by": u.display_name if u else None,
+                "task": {"id": str(t.id), "title": t.title, "link": f"/projects/{t.project_id}?task={t.id}"} if t else None,
+                "where": SOURCE_WORDS.get(r.source, r.source), "first_seen": r.created_at, "last_seen": r.last_seen or r.created_at}
+        if me is not None:
+            outgoing = r.from_id == me
+            item.update(outgoing=outgoing, label=kind.forward if outgoing else kind.reverse, asset=end(dst if outgoing else src))
+        out.append(item)
+    return out
+
+
 def _in_group(groups: list[str], want: str) -> bool:
     """`want` is a group's name, `*` (any group) or `-` (none)."""
     if want == "*":
@@ -191,26 +229,149 @@ async def get_asset(asset_id: str, db: DB, user: CurrentUser) -> dict[str, Any]:
             if not any(x["value"] == v for x in seen):
                 seen.append({"value": v, "source": source(o)})
     rows = (await db.execute(select(m.AssetLink).where(or_(m.AssetLink.from_id == a.id, m.AssetLink.to_id == a.id)))).scalars().all()
-    others = {x.id: x for x in (await db.execute(select(m.Asset).where(m.Asset.id.in_({r.to_id if r.from_id == a.id else r.from_id for r in rows})))).scalars()}
-    links = []
-    for r in rows:
-        outgoing = r.from_id == a.id
-        other = others.get(r.to_id if outgoing else r.from_id)
-        if other is None:
-            continue
-        words = A.LINKS.get(r.kind, (r.kind, r.kind))
-        links.append({"kind": r.kind, "label": words[0] if outgoing else words[1],
-                      "asset": {"id": str(other.id), "type": other.type, "label": other.label}})
+    links = await _links_out(db, list(rows), me=a.id)
     fires = (await db.execute(select(m.AssetTriggerFire, m.AssetTrigger.name).join(m.AssetTrigger, m.AssetTrigger.id == m.AssetTriggerFire.trigger_id)
                               .where(m.AssetTriggerFire.asset_id == a.id).order_by(m.AssetTriggerFire.created_at.desc()).limit(20))).all()
     return {
         **_brief(a, project).model_dump(mode="json"),
         "provenance": provenance,
         "links": sorted(links, key=lambda x: (x["label"], x["asset"]["label"])),
+        "attachment": await _attachment_of(db, a),
         "history": [{"fields": o.fields, "source": source(o)} for o in obs[:50]],
         "triggers": [{"id": str(f.id), "trigger": name, "status": f.status, "reason": f.reason, "at": f.created_at,
                       "task_id": str(f.task_id) if f.task_id else None, "run_id": str(f.run_id) if f.run_id else None} for f, name in fires],
     }
+
+
+async def _attachment_of(db: DB, a: m.Asset) -> dict[str, Any] | None:
+    """A file asset's downloaded copy (a job artifact), when Castor has it."""
+    att_id = (a.fields or {}).get("attachment") if a.type == "file" else None
+    try:
+        att = await db.get(m.Attachment, uuid.UUID(str(att_id))) if att_id else None
+    except ValueError:
+        att = None
+    if att is None or att.project_id != a.project_id:
+        return None
+    return {"id": str(att.id), "filename": att.filename, "size": att.size, "content_type": att.content_type}
+
+
+# ---------- relationships ----------
+
+
+class LinkIn(BaseModel):
+    kind: str = Field(min_length=1, max_length=24)
+    to_id: uuid.UUID
+    # out: this asset → the other ("this credential works on that host"); in: the other → this one.
+    direction: Literal["out", "in"] = "out"
+    note: str = Field("", max_length=4000)
+    fields: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("/assets/{asset_id}/links", status_code=201)
+async def add_link(asset_id: str, body: LinkIn, db: DB, user: CurrentUser) -> dict[str, Any]:
+    """Record a relationship by hand: "these credentials work on this host", "this user is an admin
+    on that one". Its kind must fit the two types (`GET /api/assets/link-kinds`); `related` fits any.
+    Triggers on that kind of relationship see it."""
+    a = await _asset_or_404(db, user, asset_id, write=True)
+    other = await db.get(m.Asset, body.to_id)
+    if other is None or other.project_id != a.project_id:
+        raise HTTPException(404, "The other asset isn't in this project")
+    src, dst = (a, other) if body.direction == "out" else (other, a)
+    kind = A.LINK_KINDS.get(body.kind)
+    if kind is None:
+        raise HTTPException(422, f"No relationship {body.kind!r}: one of {', '.join(A.LINK_KINDS)}")
+    if src.id == dst.id:
+        raise HTTPException(422, "An asset can't be related to itself")
+    if not kind.fits(src.type, dst.type):
+        fits = ", ".join(f"{x} → {y}" for x, y in kind.pairs)
+        raise HTTPException(422, f"“{kind.forward}” goes {fits}, not {src.type} → {dst.type} (use “related to” for anything else)")
+    batch = A.Batch(a.project_id)
+    row = await A.link(db, a.project_id, src, dst, kind.name, batch=batch, source="manual", actor_id=user.id, note=body.note,
+                       fields=body.fields)
+    assert row is not None
+    if batch.links:
+        await record_activity(db, type="assets.linked", message=f"Noted that {src.label} {kind.forward} {dst.label}",
+                              project_id=a.project_id, payload={"links": {kind.name: 1}}, **actor_of(user))
+    await A.settle(db, batch, actor=user, feed_links=False)
+    return (await _links_out(db, [row], me=a.id))[0]
+
+
+async def _link_or_404(db: DB, user: m.User, link_id: str, *, write: bool = False) -> m.AssetLink:
+    r = await db.get(m.AssetLink, parse_uuid(link_id))
+    if r is None:
+        raise HTTPException(404, "Relationship not found")
+    try:
+        await check_project(db, user, r.project_id, write=write)
+    except HTTPException as err:
+        if err.status_code == 404:
+            raise HTTPException(404, "Relationship not found") from None
+        raise
+    return r
+
+
+class LinkPatch(BaseModel):
+    note: str | None = Field(None, max_length=4000)
+    fields: dict[str, Any] | None = None
+
+
+@router.patch("/asset-links/{link_id}")
+async def edit_link(link_id: str, body: LinkPatch, db: DB, user: CurrentUser) -> dict[str, Any]:
+    """Change a relationship's note, or its details (fields set to null are removed)."""
+    r = await _link_or_404(db, user, link_id, write=True)
+    if body.note is not None:
+        r.note = body.note
+    if body.fields is not None:
+        r.fields = {k: v for k, v in {**(r.fields or {}), **body.fields}.items() if v is not None}
+    await db.commit()
+    bus.publish("assets.changed", r.project_id, {"project_id": str(r.project_id)})
+    return (await _links_out(db, [r]))[0]
+
+
+@router.delete("/asset-links/{link_id}", status_code=204)
+async def delete_link(link_id: str, db: DB, user: CurrentUser):
+    """Remove a relationship (a tool that reports it again adds it back)."""
+    r = await _link_or_404(db, user, link_id, write=True)
+    src, dst = await db.get(m.Asset, r.from_id), await db.get(m.Asset, r.to_id)
+    kind = A.LINK_KINDS.get(r.kind)
+    pid = r.project_id
+    await db.delete(r)
+    if src is not None and dst is not None:
+        await record_activity(db, type="assets.unlinked", message=f"Removed that {src.label} {kind.forward if kind else r.kind} {dst.label}",
+                              project_id=pid, **actor_of(user))
+    await db.commit()
+    bus.publish("assets.changed", pid, {"project_id": str(pid)})
+
+
+@router.get("/projects/{project_id}/asset-links")
+async def list_links(project_id: str, db: DB, user: CurrentUser, kind: str | None = None, q: str = "", type: str | None = None,
+                     asset: str | None = None, limit: int = 500, offset: int = 0) -> dict[str, Any]:
+    """A project's relationships between confirmed assets, newest first. `kind`: one kind (or several,
+    comma-separated); `type`: either end is of that type; `asset`: touching that asset; `q`: words in
+    either end's name, the kind, the note or the details. `counts` per kind ignore `kind`."""
+    project = await project_or_404(db, user, parse_uuid(project_id))
+    rows = list((await db.execute(select(m.AssetLink).where(m.AssetLink.project_id == project.id)
+                                  .order_by(m.AssetLink.created_at.desc()))).scalars().all())
+    if asset:
+        aid = parse_uuid(asset)
+        rows = [r for r in rows if aid in (r.from_id, r.to_id)]
+    items = [x for x in await _links_out(db, rows) if x["from"]["status"] == "confirmed" and x["to"]["status"] == "confirmed"]
+    if type:
+        t = A.type_of(type).name
+        items = [x for x in items if t in (x["from"]["type"], x["to"]["type"])]
+    words = [w for w in q.lower().split() if w]
+    if words:
+        def hay(x: dict[str, Any]) -> str:
+            return " ".join([x["from"]["label"], x["to"]["label"], x["kind"], x["forward"], x["reverse"], x["note"],
+                             *(f"{k} {v}" for k, v in x["fields"].items())]).lower()
+        items = [x for x in items if all(w in hay(x) for w in words)]
+    counts: dict[str, int] = {}
+    for x in items:
+        counts[x["kind"]] = counts.get(x["kind"], 0) + 1
+    if kind:
+        kinds = {k.strip() for k in kind.split(",") if k.strip()}
+        items = [x for x in items if x["kind"] in kinds]
+    page = items[offset: offset + max(0, min(limit, 5000))]
+    return {"items": page, "total": len(items), "counts": counts}
 
 
 class AssetIn(BaseModel):
@@ -518,7 +679,10 @@ class TriggerIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     enabled: bool = True
     asset_type: str
-    on_event: Literal["created", "updated", "any"] = "created"
+    on_event: Literal["created", "updated", "any", "linked"] = "created"
+    # on_event "linked": a new relationship of this kind from the asset, to an asset of other_type (any if unset).
+    link_kind: str | None = Field(None, max_length=24)
+    other_type: str | None = Field(None, max_length=16)
     conditions: list[Condition] = Field(default_factory=list)
     action: Literal["command", "playbook"]
     target: str = Field(min_length=1, max_length=64)
@@ -529,7 +693,7 @@ class TriggerIn(BaseModel):
 
 def _trigger_out(t: m.AssetTrigger, counts: dict[str, int] | None = None) -> dict[str, Any]:
     return {"id": str(t.id), "project_id": str(t.project_id), "name": t.name, "enabled": t.enabled, "asset_type": t.asset_type,
-            "on_event": t.on_event, "conditions": t.conditions, "action": t.action, "target": t.target, "args": t.args,
+            "on_event": t.on_event, "link_kind": t.link_kind, "other_type": t.other_type, "conditions": t.conditions, "action": t.action, "target": t.target, "args": t.args,
             "once_per_asset": t.once_per_asset, "max_per_hour": t.max_per_hour, "fires": counts or {},
             "created_at": t.created_at.isoformat()}
 
@@ -540,8 +704,19 @@ async def _check_target(db: DB, body: TriggerIn) -> None:
 
     try:
         A.type_of(body.asset_type)
+        if body.other_type:
+            body.other_type = A.type_of(body.other_type).name
     except A.AssetError as exc:
         raise HTTPException(422, str(exc)) from exc
+    if body.on_event == "linked":
+        kind = A.LINK_KINDS.get(body.link_kind or "")
+        if kind is None:
+            raise HTTPException(422, "A relationship trigger needs the kind of relationship (link_kind)")
+        src = A.type_of(body.asset_type).name
+        if kind.pairs and not any(x == src and (not body.other_type or y == body.other_type) for x, y in kind.pairs):
+            raise HTTPException(422, f"“{kind.forward}” doesn't go from a {src}{f' to a {body.other_type}' if body.other_type else ''}")
+    else:
+        body.link_kind = body.other_type = None
     found = await (load_playbook_spec(db, body.target) if body.action == "playbook" else load_spec(db, body.target))
     if found is None:
         raise HTTPException(422, f"No {body.action} {body.target}")
@@ -611,13 +786,16 @@ async def list_fires(project_id: str, db: DB, user: CurrentUser, status: str | N
     project = await project_or_404(db, user, parse_uuid(project_id))
     q = (select(m.AssetTriggerFire, m.AssetTrigger, m.Asset).join(m.AssetTrigger, m.AssetTrigger.id == m.AssetTriggerFire.trigger_id)
          .join(m.Asset, m.Asset.id == m.AssetTriggerFire.asset_id).where(m.AssetTrigger.project_id == project.id))
+    others = aliased(m.Asset)
+    q = q.add_columns(others).outerjoin(others, others.id == m.AssetTriggerFire.other_id)
     if status:
         q = q.where(m.AssetTriggerFire.status == status)
     rows = (await db.execute(q.order_by(m.AssetTriggerFire.created_at.desc()).limit(min(limit, 500)))).all()
     return [{"id": str(f.id), "status": f.status, "reason": f.reason, "at": f.created_at.isoformat(),
              "trigger": {"id": str(t.id), "name": t.name, "action": t.action, "target": t.target},
              "asset": {"id": str(a.id), "type": a.type, "label": a.label},
-             "task_id": str(f.task_id) if f.task_id else None, "run_id": str(f.run_id) if f.run_id else None} for f, t, a in rows]
+             "other": {"id": str(o.id), "type": o.type, "label": o.label} if o is not None else None,
+             "task_id": str(f.task_id) if f.task_id else None, "run_id": str(f.run_id) if f.run_id else None} for f, t, a, o in rows]
 
 
 async def _fire_or_404(db: DB, user: m.User, fire_id: str) -> tuple[m.AssetTriggerFire, m.AssetTrigger, m.Asset]:
@@ -636,8 +814,12 @@ async def _fire_or_404(db: DB, user: m.User, fire_id: str) -> tuple[m.AssetTrigg
 async def approve_fire(fire_id: str, db: DB, user: CurrentUser) -> dict[str, Any]:
     """Run a trigger that waited (its asset was outside the scope)."""
     f, t, a = await _fire_or_404(db, user, fire_id)
-    ok = await A.run_fire(db, f, t, a, user)
-    await record_activity(db, type="trigger.approved", message=f"Approved “{t.name}” for {a.label}", project_id=t.project_id, **actor_of(user))
+    other = await db.get(m.Asset, f.other_id) if f.other_id else None
+    lk = (await db.execute(select(m.AssetLink).where(m.AssetLink.from_id == a.id, m.AssetLink.to_id == other.id,
+                                                     m.AssetLink.kind == t.link_kind))).scalar_one_or_none() if other else None
+    ok = await A.run_fire(db, f, t, a, user, other=other, lk=lk)
+    on = a.label if other is None else f"{a.label} → {other.label}"
+    await record_activity(db, type="trigger.approved", message=f"Approved “{t.name}” for {on}", project_id=t.project_id, **actor_of(user))
     await notifications.clear(db, f"trigger-fire:{f.id}")
     await db.commit()
     bus.publish("asset_triggers.changed", t.project_id, {"project_id": str(t.project_id)})
