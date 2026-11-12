@@ -210,3 +210,46 @@ def test_merging_keeps_relationships():
             await db.rollback()
 
     asyncio.run(go())
+
+
+def test_active_directory_and_network_relationships(client, auth):
+    p = _project(client, auth)
+    add = lambda t, f: client.post(f"/api/projects/{p['id']}/assets", json={"type": t, "fields": f}, headers=auth).json()
+    corp = add("domain", {"name": "corp.acme.com", "netbios_name": "CORP", "forest_root": "acme.com"})
+    root = add("domain", {"name": "acme.com"})
+    dc = add("host", {"ip": "10.40.0.5", "hostname": "dc01.corp.acme.com", "site": "SCTXLV01", "roles": ["dc"]})
+    ws = add("host", {"ip": "10.40.0.50", "hostname": "ws01.corp.acme.com", "roles": "workstation, compromised",
+                      "dns_servers": ["10.40.0.5"], "gateway": "10.40.0.1"})
+    user = add("user", {"username": "acme_user", "domain": "CORP", "sid": "S-1-5-21-1-2-3-1104", "kerberoastable": "yes",
+                        "spns": ["MSSQLSvc/sql01:1433"], "admin_count": False})
+    assert user["fields"]["kerberoastable"] is True and ws["fields"]["roles"] == ["compromised", "workstation"]
+    assert corp["fields"]["netbios_name"] == "CORP" and dc["fields"]["site"] == "SCTXLV01"
+
+    kinds = {k["name"]: k for k in client.get("/api/assets/link-kinds", headers=auth).json()}
+    assert kinds["dc_of"]["reverse"] == "has domain controller" and {d["name"] for d in kinds["dc_of"]["details"]} == {"site", "is_pdc"}
+    assert ["domain", "domain"] in kinds["trusts"]["pairs"] and ["user", "host"] in kinds["session_on"]["pairs"]
+
+    def link(a, b, kind, **fields):
+        r = client.post(f"/api/assets/{a['id']}/links", json={"kind": kind, "to_id": b["id"], "fields": fields}, headers=auth)
+        assert r.status_code == 201, r.text
+        return r.json()
+
+    link(dc, corp, "dc_of", site="SCTXLV01", is_pdc=True)
+    link(ws, corp, "joined_to", role="workstation")
+    link(user, corp, "in_domain", role="standard_user")
+    link(corp, root, "trusts", type="parent_child", direction="bidirectional", transitive=True)
+    session = link(user, ws, "session_on", session_type="interactive")
+    link(user, dc, "authenticates_to", protocol="Kerberos")
+    link(ws, dc, "uses_dns", order="primary")
+    assert session["label"] == "has a session on" and session["fields"] == {"session_type": "interactive"}
+    bad = client.post(f"/api/assets/{corp['id']}/links", json={"kind": "dc_of", "to_id": dc["id"]}, headers=auth)
+    assert bad.status_code == 422 and "host → domain" in bad.json()["detail"]
+
+    names = lambda t, w: sorted(a["label"] for a in _assets(client, auth, p, type=t, where=w))
+    assert names("domain", "has_domain_controller:dc01") == ["corp.acme.com"]
+    assert names("host", "has_a_session_of:acme_user") == ["10.40.0.50 · ws01.corp.acme.com"]
+    assert names("host", "dns_server_for:*") == ["10.40.0.5 · dc01.corp.acme.com"]
+    assert names("domain", "trusted_by:corp") == ["acme.com"]
+    assert names("host", "roles:dc") == ["10.40.0.5 · dc01.corp.acme.com"]
+    detail = client.get(f"/api/assets/{corp['id']}", headers=auth).json()
+    assert {lk["label"] for lk in detail["links"]} == {"has domain controller", "has computer", "has account", "trusts"}

@@ -131,7 +131,8 @@ async def asset_types(_: CurrentUser) -> list[dict[str, Any]]:
 async def link_kinds(_: CurrentUser) -> list[dict[str, Any]]:
     """Kinds of relationship between assets: how each reads from both ends, and which types it connects."""
     return [{"name": k.name, "forward": k.forward, "reverse": k.reverse, "reverse_name": k.reverse_name,
-             "pairs": [list(p) for p in k.pairs], "description": k.description} for k in A.LINK_KINDS.values()]
+             "pairs": [list(p) for p in k.pairs], "description": k.description,
+             "details": [{"name": n, "label": label} for n, label in k.details]} for k in A.LINK_KINDS.values()]
 
 
 async def _links_out(db: DB, rows: list[m.AssetLink], me: uuid.UUID | None = None) -> list[dict[str, Any]]:

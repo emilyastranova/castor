@@ -455,6 +455,8 @@ export interface AssetLinkKind {
 	/** [from type, to type] pairs; empty: any two. */
 	pairs: [string, string][];
 	description: string;
+	/** Details usually recorded on it (offered when adding one by hand). */
+	details: { name: string; label: string }[];
 }
 
 export interface AssetEnd {

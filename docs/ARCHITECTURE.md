@@ -461,7 +461,9 @@ asset and rate-limited. Command arguments can take `{"assets": {type, where, fie
 
 Relationships (`asset_links`, kinds in `assets.LINK_KINDS`, each read both ways: `on`/has,
 `resolves_to`, `valid_on` (works on / accepts), `admin_on`, `belongs_to`, `downloaded_from`/gave,
-`affects`, and `related` for any two) carry where they came from (`source`, `parser`, `job_id`,
+`affects`; Active Directory `joined_to`, `dc_of`, `in_domain`, `trusts`, `session_on`,
+`authenticates_to`; network `uses_dns`, `routes_via`; and `related` for any two; each kind lists the
+`details` usually recorded on it) carry where they came from (`source`, `parser`, `job_id`,
 `task_id`, `actor_id`, `confidence`), details (`fields`: the protocol and port a login worked
 over) and a `note`; `created_at` is first seen, `last_seen` the latest. Results record them
 (`assets.link`: a NetExec login gives credential works on host and service, credential belongs to

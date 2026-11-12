@@ -71,7 +71,9 @@ TYPES: dict[str, TypeDef] = {
         TypeDef("host", "Host", "Hosts", "dns", (
             F("ip", "Address"), F("hostname", "Hostname"), F("os", "OS"), F("domain", "Domain"),
             F("status", "Status"), F("smb_signing", "SMB signing required", "bool"), F("smbv1", "SMBv1", "bool"),
-            F("mac", "MAC"),
+            F("mac", "MAC"), F("netbios_name", "NetBIOS name"), F("site", "AD site"),
+            # What it is to the engagement: dc, server, workstation, jumpbox, pivot, compromised…
+            F("roles", "Roles", "list"), F("gateway", "Gateway"), F("dns_servers", "DNS servers", "list"),
         ), ("ip", "hostname")),
         TypeDef("service", "Service", "Services", "lan", (
             F("host", "Host"), F("port", "Port", "number"), F("proto", "Protocol"), F("name", "Service"),
@@ -83,13 +85,19 @@ TYPES: dict[str, TypeDef] = {
             F("content_type", "Content type"), F("webserver", "Web server"), F("tech", "Technologies", "list"),
         ), ("url",)),
         TypeDef("domain", "Domain", "Domains", "language", (
-            F("name", "Name"), F("ips", "Addresses", "list"),
+            F("name", "Name"), F("ips", "Addresses", "list"), F("netbios_name", "NetBIOS name"),
+            F("forest_root", "Forest root"), F("functional_level", "Functional level"), F("sid", "Domain SID"),
         ), ("name",)),
         TypeDef("user", "User", "Users", "person", (
             F("username", "Username"), F("domain", "Domain"), F("enabled", "Enabled", "bool"), F("groups", "Groups", "list"),
+            F("sid", "SID"), F("admin_count", "AdminCount", "bool"), F("kerberoastable", "Kerberoastable (has an SPN)", "bool"),
+            F("spns", "SPNs", "list"), F("asreproastable", "AS-REP roastable", "bool"), F("privileges", "Privileges", "list"),
+            F("ad_description", "AD description"),
         ), ("username",)),
         TypeDef("credential", "Credential", "Credentials", "key", (
+            # kind: password, ntlm_hash, kerberos_ticket, ssh_key, certificate, token…
             F("username", "Username"), F("domain", "Domain"), F("kind", "Kind"), F("fingerprint", "Fingerprint"),
+            F("valid_until", "Valid until"), F("elevated", "Elevated", "bool"),
         ), ("username",)),
         TypeDef("share", "Share", "Shares", "folder_shared", (
             F("host", "Host"), F("name", "Share"), F("access", "Access"), F("remark", "Remark"),
@@ -125,10 +133,12 @@ class LinkKind:
     reverse: str
     pairs: tuple[tuple[str, str], ...]
     description: str
+    # Details people (and tools) usually record on it, as (field, label): offered when adding one by hand.
+    details: tuple[tuple[str, str], ...] = ()
 
     @property
     def reverse_name(self) -> str:
-        return self.reverse.replace(" ", "_")
+        return self.reverse.lower().replace(" ", "_")
 
     def fits(self, src: str, dst: str) -> bool:
         return not self.pairs or (src, dst) in self.pairs
@@ -143,10 +153,31 @@ LINK_KINDS: dict[str, LinkKind] = {
         L("resolves_to", "resolves to", "resolved from", (("domain", "host"),), "A name that resolves to a host."),
         L("valid_on", "works on", "accepts", (("credential", "host"), ("credential", "service"), ("credential", "url"),
                                               ("credential", "share")),
-          "A credential that logged in somewhere."),
+          "A credential that logged in somewhere.", (("protocol", "Protocol"), ("port", "Port"))),
         L("admin_on", "admin on", "has admin", (("user", "host"), ("credential", "host"), ("user", "service"),
                                                 ("credential", "service")),
-          "Administrator rights on a host (NetExec's Pwn3d!)."),
+          "Administrator rights on a host (NetExec's Pwn3d!).", (("protocol", "Protocol"),)),
+        # Active Directory: membership, infrastructure, trusts, sessions.
+        L("joined_to", "joined to", "has computer", (("host", "domain"),),
+          "A computer that's a member of a domain.", (("role", "Role (workstation, server, jumpbox)"),)),
+        L("dc_of", "domain controller of", "has domain controller", (("host", "domain"),),
+          "A domain controller of a domain.", (("site", "AD site"), ("is_pdc", "PDC emulator"))),
+        L("in_domain", "account in", "has account", (("user", "domain"), ("credential", "domain")),
+          "A domain account.", (("role", "Role (standard_user, domain_admin, service_account)"),)),
+        L("trusts", "trusts", "trusted by", (("domain", "domain"),),
+          "A domain trust: the first domain trusts the second (its users can sign in to the first).",
+          (("type", "Type (parent_child, tree_root, external, forest)"), ("direction", "Direction (outbound, inbound, bidirectional)"),
+           ("transitive", "Transitive"))),
+        L("session_on", "has a session on", "has a session of", (("user", "host"), ("credential", "host")),
+          "A user logged in on a host (interactive, RDP, network, service).",
+          (("session_type", "Session type (interactive, rdp, network, service)"), ("logon_id", "Logon id"))),
+        L("authenticates_to", "authenticates to", "authenticates", (("user", "host"), ("user", "service"), ("credential", "service")),
+          "Where an account signs in: a domain controller, LDAP, Kerberos.", (("protocol", "Protocol (Kerberos, NTLM, LDAP)"),)),
+        # Network: how a host reaches others.
+        L("uses_dns", "uses DNS server", "DNS server for", (("host", "host"),),
+          "A host's configured DNS resolver.", (("order", "Order (primary, secondary)"),)),
+        L("routes_via", "routes through", "gateway for", (("host", "host"),),
+          "A host's gateway or a pivot it's reached through.", (("interface", "Interface"), ("network", "Network"))),
         L("belongs_to", "belongs to", "has credential", (("credential", "user"),), "A credential of a user."),
         L("downloaded_from", "downloaded from", "gave", (("file", "share"), ("file", "host"), ("file", "url"), ("file", "service")),
           "A file taken from a share, a host or a web server."),

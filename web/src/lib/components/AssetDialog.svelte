@@ -67,9 +67,12 @@
 	let relation = $state('');
 	let relateTo = $state('');
 	let relateNote = $state('');
+	/** The chosen kind's usual details (protocol, session type…), as typed. */
+	let relateFields = $state<Record<string, string>>({});
 	let candidates = $state<Asset[]>([]);
 	let relations = $derived(asset ? assetTypes.relationsOf(asset.type) : []);
 	let chosen = $derived(relations.find((r) => `${r.direction}:${r.kind}` === relation));
+	let kindDetails = $derived(chosen ? (assetTypes.kind(chosen.kind)?.details ?? []) : []);
 	let targets = $derived(
 		candidates
 			.filter((a) => a.id !== asset?.id && (!chosen?.others.length || chosen.others.includes(a.type)))
@@ -80,6 +83,7 @@
 		if (!relating) return;
 		relation = relations[0] ? `${relations[0].direction}:${relations[0].kind}` : '';
 		relateTo = relateNote = '';
+		relateFields = {};
 		try {
 			candidates = (await api().assets.list(projectId, { limit: 1000 })).items;
 		} catch (err) {
@@ -89,7 +93,10 @@
 	async function relate() {
 		if (!asset || !chosen || !relateTo) return;
 		try {
-			await api().assets.link(asset.id, { kind: chosen.kind, direction: chosen.direction, to_id: relateTo, note: relateNote.trim() });
+			const fields = Object.fromEntries(
+				kindDetails.map((d) => [d.name, (relateFields[d.name] ?? '').trim()]).filter(([, v]) => v).map(([k, v]) => [k, v === 'true' ? true : v === 'false' ? false : v])
+			);
+			await api().assets.link(asset.id, { kind: chosen.kind, direction: chosen.direction, to_id: relateTo, note: relateNote.trim(), fields });
 			relating = false;
 			await load(asset.id);
 			onchanged?.();
@@ -423,7 +430,7 @@
 							<Select
 								label="{asset.label} …"
 								bind:value={relation}
-								onchange={() => (relateTo = '')}
+								onchange={() => { relateTo = ''; relateFields = {}; }}
 								class="min-w-44 flex-1"
 								options={relations.map((r) => ({
 									value: `${r.direction}:${r.kind}`,
@@ -434,6 +441,13 @@
 							/>
 							<Select label="…this asset" bind:value={relateTo} class="min-w-56 flex-[2]" options={targets} supporting={targets.length ? undefined : 'No asset of the right type yet'} disabled={!targets.length} />
 						</div>
+						{#if kindDetails.length}
+							<div class="grid gap-2 sm:grid-cols-2">
+								{#each kindDetails as d (d.name)}
+									<TextField label={d.label} value={relateFields[d.name] ?? ''} oninput={(e) => (relateFields = { ...relateFields, [d.name]: (e.currentTarget as HTMLInputElement).value })} />
+								{/each}
+							</div>
+						{/if}
 						<TextField label="Note (optional)" bind:value={relateNote} placeholder="How you know, what you did with it…" />
 						<div class="flex justify-end"><Button type="submit" icon="add_link" disabled={!chosen || !relateTo}>Add relationship</Button></div>
 					</form>
