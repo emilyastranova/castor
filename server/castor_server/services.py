@@ -529,6 +529,12 @@ async def move_task(
         job = await enqueue_job(db, task, user, reason="moved to In Progress")
 
     if previous_column_id != column.id:
+        from .plugin_events import emit
+
+        before = await db.get(m.BoardColumn, previous_column_id)
+        col = lambda c: {"id": str(c.id), "name": c.name, "role": c.role.value if c.role else None} if c else None
+        emit(db, "task.moved", task.project_id, {"task": {"id": str(task.id), "title": task.title, "kind": task.kind.value},
+                                                 "from": col(before), "to": col(column)}, by=user)
         await record_activity(
             db,
             type="task.moved",
@@ -1564,6 +1570,9 @@ async def _settle_run(db: AsyncSession, run: m.PlaybookRun, spec: PlaybookSpec, 
         payload={"run_id": str(run.id)},
     )
     await alerts.run_finished(db, run, ok, "" if ok else "Didn't finish: " + ", ".join(failed[:6]) + ("…" if len(failed) > 6 else ""), step_link(run))
+    from .plugin_events import emit
+
+    emit(db, "run.finished", run.project_id, {"run": {"id": str(run.id), "playbook_id": run.playbook_id, "status": new.value}})
     from .summaries import after_run
 
     after_run(run.id)  # once this is committed, if the project wants AI summaries

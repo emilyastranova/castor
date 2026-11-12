@@ -488,7 +488,12 @@ graph check, crash counting), `plugins.py` (install/update/uninstall, settings a
 secrets, the service account and its per-start token, answering the plugin's calls: `api` made
 in-process through `httpx.ASGITransport` as the plugin, `storage.*`, `file.read`, `progress`, `log`;
 running actions), `api/plugins.py`, SDK `plugin_sdk/mod.ts`. Tables `plugins`, `plugin_projects`,
-`plugin_storage`, `plugin_runs`, `plugin_logs`; `users.plugin_id`. Events `plugins.changed`,
+`plugin_storage`, `plugin_runs`, `plugin_logs`; `users.plugin_id`. Events for plugins
+(`plugin_events.py`): `emit(db, name, project_id, data, by=)` at the point a thing happens
+(`assets.settle`, the gateway's job finish, `services._settle_run`, `services.move_task`, comment
+creation), delivered after commit (a SQLAlchemy `after_commit` listener) to each subscribed plugin's
+queue; never to the plugin that caused it. `network:` becomes `--allow-net`; plugin API calls are
+rate-limited. Events `plugins.changed`,
 `plugin_run.updated` (project); activity `plugin.*` (installs in the admin feed, runs as feed kind
 `plugin`). `POST /api/projects/{id}/assets/bulk` records assets and relationships at once (source
 `plugin` for a plugin's account, else `import`). Official plugins live in `plugins/` (`pack.py`

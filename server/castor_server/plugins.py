@@ -15,7 +15,9 @@ import contextlib
 import logging
 import re
 import secrets
+import time
 import uuid
+from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -24,7 +26,7 @@ import httpx
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import api_tokens, plugin_package, vault
+from . import api_tokens, plugin_events, plugin_package, vault
 from . import models as m
 from .db import SessionLocal
 from .events import bus
@@ -38,6 +40,9 @@ APP: Any = None  # the ASGI app, set at startup (app.py): plugins call the API i
 CASTOR_VERSION = "0.1.0"
 LOG_KEEP = 2000
 STORAGE_VALUE_MAX = 1024**2
+# Calls to Castor's API per plugin per minute: enough for any import, not enough to swamp Castor.
+API_PER_MINUTE = 1200
+_calls: dict[str, deque[float]] = {}
 
 
 class PluginError(ValueError):
@@ -235,6 +240,7 @@ async def uninstall(db: AsyncSession, user: m.User, p: m.Plugin) -> None:
     from .services import actor_of, record_activity
 
     await host.stop(p.id)
+    plugin_events.queues.drop(p.id)
     if p.user_id:
         account = await db.get(m.User, p.user_id)
         if account is not None:
@@ -343,6 +349,7 @@ async def start_enabled() -> None:
 
 
 async def stop_all() -> None:
+    plugin_events.queues.drop_all()
     await host.stop_all()
 
 
@@ -394,7 +401,20 @@ async def handle_call(plugin_id: str, method: str, params: dict[str, Any], proc:
     raise PluginError(f"Castor has no method {method}")
 
 
+def _rate_limited(plugin_id: str) -> bool:
+    now = time.monotonic()
+    calls = _calls.setdefault(plugin_id, deque())
+    while calls and now - calls[0] > 60:
+        calls.popleft()
+    if len(calls) >= API_PER_MINUTE:
+        return True
+    calls.append(now)
+    return False
+
+
 async def _api(proc: PluginProcess, params: dict[str, Any]) -> dict[str, Any]:
+    if _rate_limited(proc.plugin_id):
+        raise PluginError(f"Over {API_PER_MINUTE} calls to Castor in a minute: slow down and try again")
     method = str(params.get("method") or "GET").upper()
     path = str(params.get("path") or "")
     if method not in ("GET", "POST", "PUT", "PATCH", "DELETE") or not API_PATH.match(path) or ".." in path:

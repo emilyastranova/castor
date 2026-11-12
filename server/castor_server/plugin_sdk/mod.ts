@@ -113,6 +113,20 @@ export interface ActionRun {
   log: Logger;
 }
 
+/** Something that happened in a project the plugin is enabled in (manifest `events:`). */
+export interface PluginEvent<T = Record<string, unknown>> {
+  name: "asset.created" | "asset.linked" | "job.finished" | "run.finished" | "task.moved" | "comment.created";
+  /** When it happened (ISO 8601). */
+  at: string;
+  project: { id: string; codename: string; name: string };
+  data: T;
+}
+
+/** asset.created's data. */
+export interface AssetCreated {
+  asset: { id: string; type: string; key: string; label: string; fields: Record<string, unknown>; in_scope: boolean; scope_groups: string[]; confidence: number };
+}
+
 /** What an action returns: a sentence for the person who ran it ("Imported 42 hosts"). */
 export type ActionResult = string | { message: string } | void;
 
@@ -126,6 +140,9 @@ export interface Context {
   storage: Storage;
   log: Logger;
   actions: { on(id: string, handler: (run: ActionRun) => ActionResult | Promise<ActionResult>): void };
+  /** Handle an event the manifest asks for. Events come one plugin-queue at a time, retried a few
+   *  times if the handler throws; ones the plugin causes itself aren't sent to it. */
+  events: { on<T = Record<string, unknown>>(name: PluginEvent["name"], handler: (event: PluginEvent<T>) => void | Promise<void>): void };
 }
 
 export interface PluginDefinition {
@@ -242,6 +259,7 @@ function pluginFile(runId: string, name: string, size: number): PluginFile {
 // ---------- the plugin ----------
 
 const handlers = new Map<string, (run: ActionRun) => ActionResult | Promise<ActionResult>>();
+const eventHandlers = new Map<string, ((event: PluginEvent) => void | Promise<void>)[]>();
 let definition: PluginDefinition | null = null;
 
 async function onRequest(method: string, params: Record<string, unknown>): Promise<unknown> {
@@ -255,9 +273,21 @@ async function onRequest(method: string, params: Record<string, unknown>): Promi
       storage,
       log: rootLog,
       actions: { on: (id, handler) => void handlers.set(id, handler) },
+      events: {
+        on: (name, handler) => {
+          const list = eventHandlers.get(name) ?? [];
+          list.push(handler as (event: PluginEvent) => void | Promise<void>);
+          eventHandlers.set(name, list);
+        },
+      },
     };
     await definition?.activate?.(ctx);
-    return { actions: [...handlers.keys()] };
+    return { actions: [...handlers.keys()], events: [...eventHandlers.keys()] };
+  }
+  if (method === "event") {
+    const event = params as unknown as PluginEvent;
+    for (const handler of eventHandlers.get(event.name) ?? []) await handler(event);
+    return null;
   }
   if (method === "action") {
     const handler = handlers.get(String(params.action));

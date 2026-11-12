@@ -1,7 +1,8 @@
 # Plugins (plan)
 
-Status: **phase A is built** (sandboxed plugins with actions, settings and storage; Settings →
-Plugins; the Nessus import). Phases B–E are planned. This is the design the plugin work follows;
+Status: **phases A and B are built** (sandboxed plugins with actions, settings, storage, events and
+declared network; Settings → Plugins; the Nessus import and Shodan enrichment). Phases C–E are
+planned. This is the design the plugin work follows;
 change it here first when a decision changes, then build. The roadmap entry points here. Writing a
 plugin: the wiki's Plugins page and `plugins/nessus-import/`.
 
@@ -142,7 +143,8 @@ no network or async, so it can't host whole plugins.
 JSON-RPC 2.0 over the process's stdin/stdout, both ways:
 
 - **Castor → plugin:** `activate {plugin, settings, castor_version}`,
-  `action {run_id, action, user, project, task, asset, file?}`, `deactivate`; later `event`, `hook`.
+  `action {run_id, action, user, project, task, asset, file?}`, `event {name, at, project, data}`,
+  `deactivate`; later `hook`.
 - **Plugin → Castor:** `api {method, path, query, body}` (made in-process with the plugin's token,
   exactly like an HTTP call; `/api/auth`, `/api/tokens`, `/api/plugins` and `/api/mcp` are refused
   whatever the token says), `storage.get|set|delete|list`, `file.read {run_id, offset, length}`
@@ -177,7 +179,8 @@ definePlugin({
 
 `ctx`: `plugin`, `castorVersion`, `settings` (secret ones included), `api` (`request`, `get`,
 `post`, `patch`, `put`, `delete`: any REST endpoint, throwing `CastorError` on 4xx/5xx), `assets.bulk`,
-`storage` (`get`, `set`, `delete`, `list`, instance-wide or `{project}`), `log`, `actions.on`. An
+`storage` (`get`, `set`, `delete`, `list`, instance-wide or `{project}`), `log`, `actions.on`,
+`events.on`. With `network:`, plain `fetch` reaches those hosts (and only those). An
 action gets `run`: `runId`, `user`, `project`, `task`, `asset`, `file` (`name`, `size`, `text()`,
 `bytes()`, `stream()`), `progress()`, `log`. `console.log` goes to the plugin's log.
 `plugins/pack.py <folder>` packs a release (leaving out tests, samples and `deno.json`). Types
@@ -257,13 +260,44 @@ Each phase ships with real plugins in `plugins/` (the official examples, which d
 | Phase | Builds | Ships |
 | --- | --- | --- |
 | **A** (built) | Manifest and checks; install from a file or URL; Settings → Plugins with the permission review; service accounts; the Deno runner (sandboxed only) and protocol; the SDK's API, storage, settings and logs; actions (with files); `ctx.assets.bulk` | **Nessus import**: no network, writes hosts, services, vulnerabilities and `affects` relationships. Test data: `plugins/nessus-import/samples/` |
-| **B** | Event delivery; declared network; secret settings; rate limits | **Shodan enrichment**: new external hosts get ports, banners and CVEs |
+| **B** (built) | Event delivery; declared network; secret settings (done in A); rate limits | **Shodan enrichment**: new external hosts get ports, banners and CVEs |
 | **C** | UI slots and the iframe SDK; theme variables | **BloodHound bridge**: users, groups, computers, `admin on` and sessions in; an attack-path panel on an asset |
 | **D** | Unrestricted runtime, the warning flow, restricted and safe mode, `ui.script` | **DOCX report**: a plugin that legitimately needs document libraries |
 | **E** | The directory, update checks, publisher pages; library content in plugins (packs) | The directory repository and its checks |
 
 Hooks (asset mappers, transforms, trigger conditions) arrive with the phase that first needs one,
-probably B or C.
+now C or later.
+
+### Events (phase B)
+
+`plugin_events.py`. A manifest's `events:` names what the plugin is told about:
+
+| Event | When | `data` |
+| --- | --- | --- |
+| `asset.created` | a confirmed asset is new to the project (from results, by hand, an import, a confirmed suggestion, a plugin) | `asset`: id, type, key, label, fields, in_scope, scope_groups, confidence |
+| `asset.linked` | a new relationship between confirmed assets | `link`: id, kind, forward, from, to, fields |
+| `job.finished` | a card's job finished (succeeded, failed or lost) | `job`: id, status, exit_code, command_ref; `task` |
+| `run.finished` | a playbook run finished | `run`: id, playbook_id, status |
+| `task.moved` | a card moved to another column | `task`, `from`, `to` (id, name, role) |
+| `comment.created` | someone commented on a card | `comment`: id, body, author; `task` |
+
+Each comes with `name`, `at` and `project` (id, codename, name), only for projects the plugin is
+enabled in. Events are queued on the database session and sent once it commits (a rollback drops
+them). Each plugin has its own queue (500) and two workers; a delivery that fails is retried after
+1, 5 and 15 s, then dropped and logged. An event the plugin caused (through its own account) isn't
+sent to it, so it can't loop on itself. Queues are in memory: events during a restart are lost.
+
+### Network (phase B)
+
+`network:` lists exact hosts (`api.shodan.io`, `10.0.0.5:8443`, no schemes, paths or wildcards); the
+process starts with `--allow-net=` those and nothing else (Deno also refuses a few ports outright).
+The install review lists them with a reminder that the plugin can send there what it can read; an
+update that adds a host must be approved again.
+
+### Limits (phase B)
+
+1200 calls to Castor's API per plugin per minute (`plugins.API_PER_MINUTE`); over it, a call fails
+with a message to slow down. Events are capped by the queue above.
 
 ## The first plugin: Nessus import
 

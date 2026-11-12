@@ -1,6 +1,6 @@
 """A plugin's manifest, `castor-plugin.yaml` (docs/PLUGINS.md): who it is, what it runs, what it
 asks for. Castor refuses a manifest it doesn't understand rather than guessing, and refuses what
-this version can't do yet (network, events, hooks, UI, unrestricted plugins) with a clear reason."""
+this version can't do yet (hooks, UI, contents, unrestricted plugins) with a clear reason."""
 
 from __future__ import annotations
 
@@ -98,6 +98,30 @@ class Manifest(BaseModel):
             raise ValueError("an https:// URL")
         return v
 
+    @field_validator("network")
+    @classmethod
+    def _network(cls, v: list[str]) -> list[str]:
+        """Exact hosts (with a port if it needs one): no schemes, paths or wildcards."""
+        if len(v) > 20:
+            raise ValueError("at most 20 hosts")
+        out = []
+        for host in v:
+            h = str(host).strip().lower()
+            if not re.fullmatch(r"(\[[0-9a-f:]+\]|[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?)*)(:\d{1,5})?", h):
+                raise ValueError(f"{host}: a host name or address, optionally with :port (no https://, paths or *)")
+            out.append(h)
+        return sorted(set(out))
+
+    @field_validator("events")
+    @classmethod
+    def _events(cls, v: list[str]) -> list[str]:
+        from .plugin_events import EVENTS
+
+        for name in v:
+            if name not in EVENTS:
+                raise ValueError(f"{name}: not an event plugins can get ({', '.join(EVENTS)})")
+        return sorted(set(v))
+
     @field_validator("permissions")
     @classmethod
     def _permissions(cls, v: list[str]) -> list[str]:
@@ -120,7 +144,7 @@ class Manifest(BaseModel):
         out = []
         if self.runtime not in SUPPORTED_RUNTIMES:
             out.append("runtime: unrestricted plugins aren't supported yet; this Castor runs sandboxed plugins only")
-        for field, phase in (("network", "B"), ("events", "B"), ("hooks", "B"), ("ui", "C"), ("contents", "E")):
+        for field, phase in (("hooks", "B"), ("ui", "C"), ("contents", "E")):
             if getattr(self, field):
                 out.append(f"{field}: not supported yet (plugins phase {phase}, see docs/PLUGINS.md)")
         return out

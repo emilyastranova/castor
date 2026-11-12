@@ -275,7 +275,9 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   with the approved scopes; `handle_call` answers the plugin), `api/plugins.py`, SDK `plugin_sdk/mod.ts` (shipped as
   package data). Web: `routes/settings/plugins`, `PluginInstallDialog`, `PluginDialog`, `PluginActions` (project, card
   menu, asset dialog) and `lib/plugins.svelte.ts`. Official plugins in `plugins/` (`nessus-import` with Deno tests:
-  `deno task test`; `pack.py`). `tests/test_plugins.py` runs real Deno plugins (skipped without Deno).
+  `deno task test`; `pack.py`; `shodan-enrich`, events and network). `tests/test_plugins.py` runs real Deno plugins
+  (skipped without Deno; a fake Shodan on localhost). Plugin events: `plugin_events.emit(db, …)` where the thing happens
+  (delivered after commit, never to the plugin that caused it); add new ones to `plugin_events.EVENTS`.
 - Instance settings admins change in the UI: `app_settings.py` (`AppSettings` fields are the
   keys and defaults), `api/app_settings.py`; web `lib/appSettings.svelte.ts`,
   `routes/settings/general`. Env-level config stays in `config.py`.

@@ -8,6 +8,16 @@ import { snackbar } from '$lib/snackbar.svelte';
 
 export type ActionPlace = 'project' | 'card' | 'asset';
 
+/** The events a plugin can be told about (server plugin_events.EVENTS), in words. */
+export const EVENT_WORDS: Record<string, string> = {
+	'asset.created': 'a new asset is found',
+	'asset.linked': 'a new relationship is found',
+	'job.finished': 'a card’s job finishes',
+	'run.finished': 'a playbook run finishes',
+	'task.moved': 'a card moves',
+	'comment.created': 'someone comments on a card'
+};
+
 /** Ask for a file the way an <input type=file> does, without one in the page. */
 export function pickFile(accept: string[]): Promise<File | null> {
 	return new Promise((resolve) => {

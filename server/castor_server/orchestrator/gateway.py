@@ -13,7 +13,7 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
-from .. import agent_tokens, alerts, variables
+from .. import agent_tokens, alerts, plugin_events, variables
 from .. import models as m
 from ..command_library import load_spec
 from ..config import settings
@@ -312,6 +312,7 @@ class AgentGateway:
                         payload={"job_id": str(job.id)},
                     )
                     await alerts.job_finished(db, task, job, conn.name)
+                    plugin_events.emit(db, "job.finished", task.project_id, plugin_events.job_data(job, task))
                     publish_job(job, task.project_id)
                     await publish_task(db, task)
             if agent is not None:
@@ -497,6 +498,7 @@ class AgentGateway:
                 )
                 await self._maybe_advance(db, task, job)
                 await alerts.job_finished(db, task, job, conn.name)
+                plugin_events.emit(db, "job.finished", task.project_id, plugin_events.job_data(job, task))
             await db.commit()
             if task is not None and job.batch_id is not None and job.status == m.JobStatus.succeeded:
                 await self._advance_batch(job.batch_id, task.id)

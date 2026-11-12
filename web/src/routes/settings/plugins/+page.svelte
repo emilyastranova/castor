@@ -6,6 +6,7 @@
 	import { realtime } from '$lib/realtime.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { relativeTime } from '$lib/format';
+	import { EVENT_WORDS } from '$lib/plugins.svelte';
 	import PluginDialog from '$lib/components/PluginDialog.svelte';
 	import PluginInstallDialog from '$lib/components/PluginInstallDialog.svelte';
 
@@ -120,7 +121,7 @@
 							{p.name}
 							<span class="body-medium text-on-surface-variant">{p.version}</span>
 							<span class="flex items-center gap-1 rounded-full px-2 py-0.5 label-medium {st.tone}"><Icon name={st.icon} size={14} />{st.label}</span>
-							<span class="flex items-center gap-1 rounded-full border border-outline-variant px-2 py-0.5 label-medium text-on-surface-variant" title="It runs with no access to this server's files, network or programs">
+							<span class="flex items-center gap-1 rounded-full border border-outline-variant px-2 py-0.5 label-medium text-on-surface-variant" title={p.granted.network?.length ? `It runs with no access to this server's files or programs; its network is only ${p.granted.network.join(', ')}` : "It runs with no access to this server's files, network or programs"}>
 								<Icon name="shield" size={14} />Sandboxed
 							</span>
 						</p>
@@ -157,6 +158,18 @@
 						<p class="mb-1 label-medium text-on-surface-variant">Can</p>
 						<p class="text-on-surface">{p.permission_details.map((s) => s.label).join(' · ') || 'Nothing in Castor'}</p>
 					</div>
+					{#if p.granted.network?.length}
+						<div class="min-w-48 flex-1">
+							<p class="mb-1 label-medium text-on-surface-variant">Connects to</p>
+							<p class="font-mono text-[13px] text-on-surface">{p.granted.network.join(', ')}</p>
+						</div>
+					{/if}
+					{#if p.granted.events?.length}
+						<div class="min-w-48 flex-1">
+							<p class="mb-1 label-medium text-on-surface-variant">Told when</p>
+							<p class="text-on-surface">{p.granted.events.map((e) => EVENT_WORDS[e] ?? e).join(' · ')}</p>
+						</div>
+					{/if}
 					{#if p.actions.length}
 						<div class="min-w-48 flex-1">
 							<p class="mb-1 label-medium text-on-surface-variant">Adds</p>

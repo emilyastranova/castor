@@ -3,6 +3,7 @@
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, Icon, TextField } from '$lib/m3';
 	import { bytes } from '$lib/format';
+	import { EVENT_WORDS } from '$lib/plugins.svelte';
 	import PluginProjects from './PluginProjects.svelte';
 	import PluginSettingsForm from './PluginSettingsForm.svelte';
 
@@ -70,6 +71,9 @@
 
 	let isUpdate = $derived(!!preview?.existing);
 	let newPerms = $derived(new Set(preview?.new_permissions.permissions ?? []));
+	let newHosts = $derived(new Set(preview?.new_permissions.network ?? []));
+	let newEvents = $derived(new Set(preview?.new_permissions.events ?? []));
+	let anythingNew = $derived(newPerms.size + newHosts.size + newEvents.size > 0);
 	let blocked = $derived(!preview || preview.problems.length > 0 || !!preview.existing?.same);
 	async function install() {
 		if (!preview) return;
@@ -148,8 +152,8 @@
 			<section class="flex gap-3 rounded-md border border-outline-variant px-3 py-2.5" aria-label="How it runs">
 				<Icon name="shield" class="mt-0.5 shrink-0 text-primary" />
 				<p class="body-medium text-on-surface">
-					<b class="font-medium">Sandboxed.</b> It runs in its own process with no access to this server's files, network or programs. It can only use
-					Castor through its own account, with the permissions below, in the projects you choose.
+					<b class="font-medium">Sandboxed.</b> It runs in its own process with no access to this server's files or programs{m.network.length ? ', and no network beyond the hosts below' : ', and no network'}.
+					It can only use Castor through its own account, with the permissions below, in the projects you choose.
 				</p>
 			</section>
 
@@ -171,6 +175,35 @@
 					<p class="body-small text-on-surface-variant italic">Nothing in Castor: no permissions.</p>
 				{/if}
 			</section>
+
+			{#if m.network.length}
+				<section aria-label="Where it connects">
+					<h3 class="mb-1.5 label-large text-on-surface-variant">It connects to</h3>
+					<ul class="flex flex-wrap gap-1.5">
+						{#each m.network as h (h)}
+							<li class="flex items-center gap-1.5 rounded-full border border-outline-variant px-2.5 py-1 body-small text-on-surface">
+								<Icon name="public" size={16} class="text-on-surface-variant" /><code class="font-mono">{h}</code>
+								{#if newHosts.has(h)}<span class="rounded-xs bg-tertiary-container px-1.5 label-small text-on-tertiary-container">New</span>{/if}
+							</li>
+						{/each}
+					</ul>
+					<p class="mt-1 body-small text-on-surface-variant">What it sends there is up to the plugin: it can send what it can read in Castor.</p>
+				</section>
+			{/if}
+
+			{#if m.events.length}
+				<section aria-label="What it's told about">
+					<h3 class="mb-1.5 label-large text-on-surface-variant">It’s told when</h3>
+					<ul class="flex flex-col gap-1 body-medium text-on-surface">
+						{#each m.events as e (e)}
+							<li class="flex items-center gap-2">
+								<Icon name="notifications" size={18} class="text-on-surface-variant" />{EVENT_WORDS[e] ?? e} <code class="font-mono body-small text-on-surface-variant">{e}</code>
+								{#if newEvents.has(e)}<span class="rounded-xs bg-tertiary-container px-1.5 label-small text-on-tertiary-container">New</span>{/if}
+							</li>
+						{/each}
+					</ul>
+				</section>
+			{/if}
 
 			{#if m.actions.length}
 				<section aria-label="What it adds">
@@ -205,7 +238,7 @@
 			{#if !blocked}
 				<label class="flex cursor-pointer items-start gap-2 rounded-md bg-surface-container-low px-3 py-2.5 body-medium text-on-surface">
 					<input type="checkbox" bind:checked={approved} class="mt-1 accent-primary" />
-					<span>I've read what {m.name} can do{newPerms.size ? ', including what’s new,' : ''} and allow it{isUpdate ? '' : ' in the projects above'}.</span>
+					<span>I've read what {m.name} can do{anythingNew ? ', including what’s new,' : ''} and allow it{isUpdate ? '' : ' in the projects above'}.</span>
 				</label>
 			{/if}
 		{/if}

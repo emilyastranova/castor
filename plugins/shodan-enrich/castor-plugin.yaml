@@ -1,0 +1,56 @@
+# Castor's second plugin: events and network access (plugins phase B). The format is docs/PLUGINS.md.
+id: shodan-enrich
+name: Shodan enrichment
+version: 1.0.0
+castor: ">=0.1"
+publisher: castor
+description: "Look up public hosts on Shodan as they're found: open ports, web servers, names and known CVEs."
+homepage: https://github.com/emilyastranova/castor/tree/main/plugins/shodan-enrich
+license: MIT
+main: main.ts
+runtime: sandboxed
+# Read the hosts it looks up; record what Shodan knows about them.
+permissions:
+  - projects:read
+  - assets:read
+  - assets:write
+# Its only network: Shodan's API.
+network:
+  - api.shodan.io
+# Told about new hosts, to look them up.
+events:
+  - asset.created
+actions:
+  - id: lookup
+    label: Look up on Shodan
+    description: What Shodan knows about this host now, even if it was looked up recently.
+    icon: travel_explore
+    on: [asset]
+    asset_types: [host]
+  - id: lookup-all
+    label: Look up every host on Shodan
+    description: Every host with a public address (in scope, unless that's turned off), one a second.
+    icon: travel_explore
+    on: [project]
+    timeout_minutes: 120
+settings:
+  - name: api_key
+    label: Shodan API key
+    description: From your Shodan account page. Stored in Castor's vault.
+    type: secret
+    required: true
+  - name: only_in_scope
+    label: Only hosts in the project's scope
+    description: Off, every new host with a public address is looked up.
+    type: bool
+    default: true
+  - name: recheck_days
+    label: Look a host up again after (days)
+    description: A new sighting of a host looked up more recently than this isn't looked up again.
+    type: number
+    default: 7
+  - name: api_url
+    label: Shodan API address
+    description: Leave as it is. The plugin can only reach api.shodan.io, whatever this says.
+    type: text
+    default: https://api.shodan.io

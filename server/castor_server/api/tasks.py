@@ -430,6 +430,11 @@ async def create_comment(task_id: str, body: CommentIn, db: DB, user: CurrentUse
         payload={"comment_id": str(comment.id)},
         **actor_of(user),
     )
+    from ..plugin_events import emit
+
+    emit(db, "comment.created", task.project_id, {"comment": {"id": str(comment.id), "body": comment.body[:20000],
+                                                              "author": {"id": str(user.id), "username": user.username}},
+                                                  "task": {"id": str(task.id), "title": task.title}}, by=user)
     await db.commit()
     after_text(task.project_id, comment.body, source="comment", ref={"kind": "comment", "id": str(comment.id)},
                task_id=task.id, actor_id=user.id)  # assets it mentions, suggested

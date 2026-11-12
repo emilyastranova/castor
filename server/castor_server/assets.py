@@ -916,6 +916,13 @@ async def settle(db: AsyncSession, batch: Batch, *, task_id: uuid.UUID | None = 
             db, type="assets.linked", message=f"Found {describe_links(linked)}", project_id=batch.project_id, task_id=task_id,
             payload={"links": linked}, **actor_of(actor),
         )
+    from .plugin_events import asset_data, emit, link_data
+
+    project = await db.get(m.Project, batch.project_id)
+    for a in batch.created():
+        emit(db, "asset.created", batch.project_id, asset_data(a, project), by=actor)
+    for lk, src, dst in batch.new_links():
+        emit(db, "asset.linked", batch.project_id, link_data(lk, src, dst), by=actor)
     if suggested:
         await record_activity(
             db, type="assets.suggested", message=f"Spotted {describe(suggested)} to confirm{f' in {where}' if where else ''}",

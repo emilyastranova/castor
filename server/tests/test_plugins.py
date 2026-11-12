@@ -165,9 +165,9 @@ def test_manifests_and_packages_are_checked(client, auth):
 
     # A manifest asking for what this Castor can't do yet: previewed with its problems, not installed.
     later = zip_files({"castor-plugin.yaml": PROBE_MANIFEST.format(n="later", version="1.0.0", perms="")
-                       + "network: [api.shodan.io]\nruntime: unrestricted\n", "main.ts": PROBE_MAIN})
+                       + "hooks: [{kind: asset-mapper}]\nruntime: unrestricted\n", "main.ts": PROBE_MAIN})
     p = preview(client, auth, later).json()
-    assert any("unrestricted" in x for x in p["problems"]) and any(x.startswith("network:") for x in p["problems"])
+    assert any("unrestricted" in x for x in p["problems"]) and any(x.startswith("hooks:") for x in p["problems"])
     r = client.post("/api/plugins", json={"token": p["token"], "approve": True}, headers=auth)
     assert r.status_code == 422 and "unrestricted" in r.json()["detail"]
     # Approving is required, and only admins see any of it.
@@ -340,4 +340,198 @@ def test_plugins_through_mcp(client, auth):
                                                           {"ref": "c", "type": "credential", "fields": {"username": "x"}}],
                links=[{"from": "c", "to": "h", "kind": "valid_on"}, {"from": "h", "to": "c", "kind": "valid_on"}])
     assert got["created"] == 2 and got["links"] == 1 and "doesn't go host → credential" in got["skipped"][0]["reason"]
+    client.delete(f"/api/plugins/{pid}", headers=auth)
+
+
+# ---------- phase B: events, declared network, rate limits ----------
+
+SHODAN = ROOT / "plugins" / "shodan-enrich"
+
+
+class FakeShodan:
+    """A local stand-in for api.shodan.io: the sample for 203.0.113.10, 404 for anything else."""
+
+    def __init__(self) -> None:
+        import http.server
+        import json
+        import threading
+
+        sample = (SHODAN / "samples" / "host.json").read_bytes()
+        seen: list[str] = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                from urllib.parse import parse_qs, urlsplit
+
+                parts = urlsplit(self.path)
+                seen.append(parts.path)
+                key = parse_qs(parts.query).get("key", [""])[0]
+                if key != "good-key":
+                    self.send_response(401)
+                    body = json.dumps({"error": "bad key"}).encode()
+                elif parts.path == "/shodan/host/203.0.113.10":
+                    self.send_response(200)
+                    body = sample
+                else:
+                    self.send_response(404)
+                    body = json.dumps({"error": "No information available for that IP."}).encode()
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *a):
+                pass
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.port = self.server.server_address[1]
+        self.seen = seen
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self) -> None:
+        self.server.shutdown()
+
+
+def shodan_zip(port: int, extra: str = "", version: str = "1.0.0") -> bytes:
+    """The real plugin, its network pointed at the fake (exactly what an admin would approve)."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for path in sorted(SHODAN.iterdir()):
+            if path.is_file() and not path.name.endswith("_test.ts") and path.name != "deno.json":
+                text = path.read_text()
+                if path.name == "castor-plugin.yaml":
+                    text = text.replace("  - api.shodan.io", f"  - 127.0.0.1:{port}{extra}").replace("version: 1.0.0", f"version: {version}")
+                zf.writestr(path.name, text)
+    return buf.getvalue()
+
+
+def test_shodan_enrichment_on_new_hosts(client, auth):
+    fake = FakeShodan()
+    try:
+        p = project(client, auth)
+        client.put(f"/api/projects/{p['id']}/scope", json={"include": ["203.0.113.0/24", "10.0.0.0/8"]}, headers=auth)
+        preview_out = preview(client, auth, shodan_zip(fake.port)).json()
+        assert preview_out["problems"] == [] and preview_out["manifest"]["network"] == [f"127.0.0.1:{fake.port}"]
+        assert preview_out["manifest"]["events"] == ["asset.created"]
+        plugin = install(client, auth, shodan_zip(fake.port), project_ids=[p["id"]],
+                         settings={"api_url": f"http://127.0.0.1:{fake.port}"}, secrets={"api_key": "good-key"})
+        assert plugin["granted"]["network"] == [f"127.0.0.1:{fake.port}"] and plugin["granted"]["events"] == ["asset.created"]
+        running(client, auth, "shodan-enrich")
+
+        # A private host and an out-of-scope one aren't looked up; the in-scope public one is.
+        for ip in ("10.0.0.5", "198.51.100.7", "203.0.113.10"):
+            client.post(f"/api/projects/{p['id']}/assets", json={"type": "host", "fields": {"ip": ip}}, headers=auth)
+
+        def enriched():
+            items = client.get(f"/api/projects/{p['id']}/assets", params={"type": "service"}, headers=auth).json()["items"]
+            return items if len(items) == 3 else None
+        services = wait(enriched, "Shodan's services")
+        assert {s["fields"]["port"] for s in services} == {22, 443, 8080}
+        assert fake.seen == ["/shodan/host/203.0.113.10"]
+        vulns = client.get(f"/api/projects/{p['id']}/assets", params={"type": "vulnerability"}, headers=auth).json()["items"]
+        assert {v["fields"]["id"] for v in vulns} == {"CVE-2023-38408", "CVE-2021-41773"}
+        assert next(v for v in vulns if v["fields"]["id"] == "CVE-2023-38408")["fields"]["severity"] == "critical"
+        host = client.get(f"/api/projects/{p['id']}/assets", params={"type": "host", "where": "203.0.113.10"}, headers=auth).json()["items"][0]
+        assert host["fields"]["org"] == "Example Hosting" and host["fields"]["os"] == "Ubuntu"
+        detail = client.get(f"/api/assets/{host['id']}", headers=auth).json()
+        assert any(h["source"]["kind"] == "plugin" and h["source"]["parser"] == "shodan-enrich" for h in detail["history"])
+
+        # The action, on demand (even though it was just looked up); a bad key says so.
+        out = run(client, auth, "shodan-enrich", "lookup", p["id"], asset_id=host["id"])
+        assert out["status"] == "succeeded" and out["message"] == "203.0.113.10: 3 services, 2 known CVEs"
+        client.patch("/api/plugins/shodan-enrich", json={"secrets": {"api_key": "bad"}}, headers=auth)
+        running(client, auth, "shodan-enrich")
+        out = run(client, auth, "shodan-enrich", "lookup", p["id"], asset_id=host["id"])
+        assert out["status"] == "failed" and "refused the API key" in out["message"]
+
+        # Its network is only what it declared: pointing it elsewhere fails in the sandbox.
+        client.patch("/api/plugins/shodan-enrich", json={"settings": {"api_url": f"http://127.0.0.1:{fake.port + 1}"}, "secrets": {"api_key": "good-key"}},
+                     headers=auth)
+        running(client, auth, "shodan-enrich")
+        out = run(client, auth, "shodan-enrich", "lookup", p["id"], asset_id=host["id"])
+        assert out["status"] == "failed" and ("NotCapable" in out["message"] or "net access" in out["message"]), out["message"]
+
+        # An update that reaches somewhere new needs approving again.
+        newer = shodan_zip(fake.port, extra="\n  - api.censys.io", version="1.1.0")
+        assert preview(client, auth, newer).json()["new_permissions"] == {"network": ["api.censys.io"]}
+    finally:
+        client.delete("/api/plugins/shodan-enrich", headers=auth)
+        fake.close()
+
+
+EVENTS_MAIN = """
+import { definePlugin } from "@castor/plugin";
+definePlugin({
+  activate(ctx) {
+    for (const name of ["asset.created", "asset.linked", "task.moved", "comment.created"] as const) {
+      ctx.events.on(name, async (e) => {
+        const seen = (await ctx.storage.get<string[]>("seen", { project: e.project.id })) ?? [];
+        const what = name === "asset.created" ? (e.data as any).asset.label : name === "asset.linked" ? (e.data as any).link.forward
+          : name === "task.moved" ? (e.data as any).to.name : (e.data as any).comment.body;
+        await ctx.storage.set("seen", [...seen, `${name}:${what}`], { project: e.project.id });
+        if (name === "asset.created" && (e.data as any).asset.label === "10.80.0.1") {
+          // Its own change: never told back to it.
+          await ctx.api.post(`/api/projects/${e.project.id}/assets`, { type: "host", fields: { ip: "10.80.0.99" } });
+        }
+      });
+    }
+    ctx.actions.on("seen", async (run) => JSON.stringify(await ctx.storage.get("seen", { project: run.project!.id })));
+    ctx.actions.on("burst", async (run) => {
+      try { for (let i = 0; i < 10; i++) await ctx.api.get(`/api/projects/${run.project!.id}`); return "ok"; }
+      catch (e) { return (e as Error).message; }
+    });
+  },
+});
+"""
+
+
+def test_events_reach_the_plugins_that_asked(client, auth):
+    from castor_server import plugins as P
+
+    p, other = project(client, auth), project(client, auth)
+    n = uuid.uuid4().hex[:6]
+    manifest = f"""
+id: events-{n}
+name: Events
+version: 1.0.0
+main: main.ts
+permissions: [projects:read, assets:write]
+events: [asset.created, asset.linked, task.moved, comment.created]
+actions:
+  - {{id: seen, label: Seen}}
+  - {{id: burst, label: Burst}}
+"""
+    pid = install(client, auth, zip_files({"castor-plugin.yaml": manifest, "main.ts": EVENTS_MAIN}), project_ids=[p["id"]])["id"]
+    running(client, auth, pid)
+    assert "not an event" in preview(client, auth, zip_files({"castor-plugin.yaml": manifest.replace("comment.created", "job.started"),
+                                                               "main.ts": ""})).json()["detail"]
+
+    host = client.post(f"/api/projects/{p['id']}/assets", json={"type": "host", "fields": {"ip": "10.80.0.1"}}, headers=auth).json()
+    cred = client.post(f"/api/projects/{p['id']}/assets", json={"type": "credential", "fields": {"username": "x"}}, headers=auth).json()
+    client.post(f"/api/assets/{cred['id']}/links", json={"kind": "valid_on", "to_id": host["id"]}, headers=auth)
+    board = client.get(f"/api/projects/{p['id']}/board", headers=auth).json()
+    card = client.post(f"/api/projects/{p['id']}/tasks", json={"title": "Moving"}, headers=auth).json()
+    done = next(c for c in board["columns"] if c["role"] == "done")
+    client.post(f"/api/tasks/{card['id']}/move", json={"column_id": done["id"], "position": 1}, headers=auth)
+    client.post(f"/api/tasks/{card['id']}/comments", json={"body": "hello plugins"}, headers=auth)
+    client.post(f"/api/projects/{other['id']}/assets", json={"type": "host", "fields": {"ip": "10.80.0.2"}}, headers=auth)  # not its project
+
+    def seen():
+        got = __import__("json").loads(run(client, auth, pid, "seen", p["id"])["message"] or "null") or []
+        return got if len(got) >= 5 else None
+    got = wait(seen, "the events")
+    assert sorted(got) == sorted(["asset.created:10.80.0.1", "asset.created:x (password)", "asset.linked:works on",
+                                  f"task.moved:{done['name']}", "comment.created:hello plugins"]), got
+    # The host it added itself isn't told back to it.
+    assert client.get(f"/api/projects/{p['id']}/assets", params={"where": "10.80.0.99"}, headers=auth).json()["total"] == 1
+    assert not any("10.80.0.99" in g for g in got)
+
+    # Rate limit on calls to Castor.
+    was = P.API_PER_MINUTE
+    P.API_PER_MINUTE = 3
+    try:
+        P._calls.clear()
+        assert "calls to Castor in a minute" in run(client, auth, pid, "burst", p["id"])["message"]
+    finally:
+        P.API_PER_MINUTE = was
+        P._calls.clear()
     client.delete(f"/api/plugins/{pid}", headers=auth)

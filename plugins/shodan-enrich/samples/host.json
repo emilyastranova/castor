@@ -1,0 +1,33 @@
+{
+  "ip_str": "203.0.113.10",
+  "hostnames": ["www.example.test", "mail.example.test"],
+  "domains": ["example.test"],
+  "os": "Ubuntu",
+  "org": "Example Hosting",
+  "isp": "Example Hosting LLC",
+  "asn": "AS64500",
+  "country_code": "NL",
+  "city": "Amsterdam",
+  "ports": [22, 443, 8080],
+  "vulns": ["CVE-2023-38408", "CVE-2021-41773"],
+  "last_update": "2026-11-01T10:00:00.000000",
+  "data": [
+    {
+      "port": 22, "transport": "tcp", "product": "OpenSSH", "version": "8.2p1 Ubuntu-4ubuntu0.5",
+      "_shodan": {"module": "ssh"},
+      "vulns": {"CVE-2023-38408": {"cvss": 9.8, "summary": "The PKCS#11 feature in ssh-agent allows remote code execution.", "verified": false}}
+    },
+    {
+      "port": 443, "transport": "tcp", "product": "Apache httpd", "version": "2.4.49",
+      "_shodan": {"module": "https"},
+      "http": {"title": "Example &amp; Co", "server": "Apache/2.4.49 (Ubuntu)", "status": 200},
+      "ssl": {"versions": ["TLSv1.2", "TLSv1.3", "-TLSv1", "-SSLv3"], "cert": {"subject": {"CN": "www.example.test"}, "expires": "20270101000000Z"}},
+      "vulns": {"CVE-2021-41773": {"cvss": 7.5, "summary": "Path traversal in Apache HTTP Server 2.4.49.", "verified": true}}
+    },
+    {
+      "port": 8080, "transport": "tcp", "product": "nginx",
+      "_shodan": {"module": "http"},
+      "http": {"title": null, "server": "nginx", "status": 404}
+    }
+  ]
+}
