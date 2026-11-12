@@ -12,8 +12,10 @@
 		/** Select this asset when the graph appears (from an asset's "Show in graph"). */
 		focus?: UUID | null;
 		onopenasset: (id: UUID) => void;
+		/** Its size: it fills whatever box it's given. */
+		class?: string;
 	}
-	let { links, focus = null, onopenasset }: Props = $props();
+	let { links, focus = null, onopenasset, class: klass = '' }: Props = $props();
 
 	interface Node extends AssetEnd {
 		x: number;
@@ -258,7 +260,37 @@
 	});
 	let sel = $derived(nodes.find((n) => n.id === selected) ?? null);
 	let selLinks = $derived(sel ? edges.filter((e) => e.a.id === sel.id || e.b.id === sel.id) : []);
-	let showLabels = $derived(nodes.length <= 80);
+	/** Names under the assets: when zoomed in (the default), always, or off. Hovered and selected
+	 *  assets (and their neighbours) always show theirs. The choice is kept in this browser. */
+	type LabelMode = 'zoom' | 'always' | 'off';
+	const LABELS_KEY = 'castor.assetGraph.labels';
+	const MODES: Record<LabelMode, { icon: string; says: string; next: LabelMode }> = {
+		zoom: { icon: 'zoom_in', says: 'Names when zoomed in', next: 'always' },
+		always: { icon: 'label', says: 'Names always', next: 'off' },
+		off: { icon: 'label_off', says: 'Names off (hover an asset to see its name)', next: 'zoom' }
+	};
+	/** How far in "zoomed in" is. */
+	const ZOOMED = 0.75;
+	let labelMode = $state<LabelMode>('zoom');
+	try {
+		const v = localStorage.getItem(LABELS_KEY);
+		if (v === 'zoom' || v === 'always' || v === 'off') labelMode = v;
+	} catch {
+		/* no storage */
+	}
+	let showLabels = $derived(labelMode === 'always' || (labelMode === 'zoom' && scale >= ZOOMED));
+	function cycleLabels() {
+		labelMode = MODES[labelMode].next;
+		try {
+			localStorage.setItem(LABELS_KEY, labelMode);
+		} catch {
+			/* no storage */
+		}
+	}
+	/** The part of the graph on screen (graph coordinates, with a margin for names that hang over
+	 *  the edge): names outside it aren't drawn. */
+	let view = $derived({ x0: -tx / scale - 120, y0: -ty / scale - 40, x1: (w - tx) / scale + 120, y1: (h - ty) / scale + 40 });
+	const onScreen = (x: number, y: number) => x >= view.x0 && x <= view.x1 && y >= view.y0 && y <= view.y1;
 	/** Text keeps about the same size on screen as you zoom out. */
 	let textScale = $derived(1 / Math.min(1, Math.max(scale, 0.4)));
 	const radius = (n: Node) => 13 + Math.min(9, n.degree * 1.3);
@@ -288,12 +320,12 @@
 	let legend = $derived([...new Set(nodes.map((n) => n.type))].sort((a, b) => assetTypes.list.findIndex((t) => t.name === a) - assetTypes.list.findIndex((t) => t.name === b)));
 </script>
 
-<div class="relative overflow-hidden rounded-lg border border-outline-variant bg-surface-container-lowest" bind:clientWidth={w} bind:clientHeight={h} style="height: min(70vh, 640px); min-height: 420px">
+<div class="relative overflow-hidden rounded-lg border border-outline-variant bg-surface-container-lowest {klass}" bind:clientWidth={w} bind:clientHeight={h}>
 	<svg
 		bind:this={box}
 		width={w}
 		height={h}
-		class="block touch-none select-none {grabbing ? 'cursor-grabbing' : 'cursor-grab'}"
+		class="absolute inset-0 block touch-none select-none {grabbing ? 'cursor-grabbing' : 'cursor-grab'}"
 		role="img"
 		aria-label="Graph of {nodes.length} assets and {edges.length} relationships"
 		onpointerdown={(e) => down(e, null)}
@@ -347,13 +379,13 @@
 					{#if selected === n.id}<circle {r} class="fill-none stroke-primary" stroke-width="3" transform="scale({(r + 4) / r})" />{/if}
 					<circle {r} class="{fill} stroke-surface" stroke-width="1.5" />
 					<text class="material-symbols-rounded pointer-events-none {ink}" font-size={r * 1.15} text-anchor="middle" dominant-baseline="central">{assetTypes.get(n.type)?.icon ?? 'radar'}</text>
-					{#if showLabels || near?.has(n.id)}
+					{#if (showLabels || near?.has(n.id)) && onScreen((void frame, n.x), n.y)}
 						<text y={r + 4 + 10 * textScale} text-anchor="middle" class="pointer-events-none fill-on-surface stroke-surface-container-lowest" font-size={11 * textScale} stroke-width={3 * textScale} paint-order="stroke">{short(n.label)}</text>
 					{/if}
 				</g>
 			{/each}
 			{#each edges as e (e.link.id)}
-				{#if lit(e)}
+				{#if lit(e) && onScreen((void frame, (e.a.x + e.b.x) / 2), (e.a.y + e.b.y) / 2)}
 					{@const p = line(e)}
 					<text x={p.mx} y={p.my} text-anchor="middle" dominant-baseline="central" class="pointer-events-none fill-primary stroke-surface-container-lowest font-medium" font-size={10.5 * textScale} stroke-width={3 * textScale} paint-order="stroke">{e.link.forward}</text>
 				{/if}
@@ -372,6 +404,13 @@
 		<div class="pointer-events-auto flex gap-1 rounded-full bg-surface-container/90 p-0.5">
 			<IconButton icon="add" label="Zoom in" size="sm" onclick={() => zoomAt(1.3)} />
 			<IconButton icon="remove" label="Zoom out" size="sm" onclick={() => zoomAt(1 / 1.3)} />
+			<IconButton
+				icon={MODES[labelMode].icon}
+				label="{MODES[labelMode].says}. Click for: {MODES[MODES[labelMode].next].says.split(' (')[0].toLowerCase()}"
+				size="sm"
+				selected={labelMode !== 'off'}
+				onclick={cycleLabels}
+			/>
 			<IconButton icon="fit_screen" label="Fit everything in view" size="sm" onclick={() => { touched = false; fit(); }} />
 			<IconButton icon="restart_alt" label="Lay it out again" size="sm" onclick={() => { for (const n of nodes) n.pinned = false; touched = false; heat(1); }} />
 		</div>

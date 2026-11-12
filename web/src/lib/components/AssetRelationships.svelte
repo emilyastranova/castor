@@ -16,8 +16,9 @@
 		/** Select this asset in the graph. */
 		focus?: UUID | null;
 		onopenasset: (id: UUID) => void;
+		class?: string;
 	}
-	let { projectId, view = $bindable('list'), focus = null, onopenasset }: Props = $props();
+	let { projectId, view = $bindable('list'), focus = null, onopenasset, class: klass = '' }: Props = $props();
 
 	let q = $state('');
 	let kinds = $state<string[]>([]);
@@ -64,7 +65,7 @@
 	const LIST_MAX = 500;
 </script>
 
-<div class="flex flex-col gap-3">
+<div class="flex flex-col gap-3 {klass}">
 	<div class="flex flex-wrap items-center gap-2">
 		<div class="flex h-11 min-w-64 flex-1 items-center gap-2 rounded-full bg-surface-container-high px-4">
 			<Icon name="search" size={20} class="text-on-surface-variant" />
@@ -113,7 +114,7 @@
 			{/if}
 		</div>
 	{:else if view === 'graph'}
-		<AssetGraph links={items} {focus} {onopenasset} />
+		<AssetGraph links={items} {focus} {onopenasset} class="min-h-[22rem] flex-1" />
 		<p class="body-small text-on-surface-variant">Drag to move around, scroll to zoom, click an asset to see what it’s connected to, double-click to open it.</p>
 	{:else}
 		<ul class="flex flex-col divide-y divide-outline-variant/60 rounded-lg border border-outline-variant">

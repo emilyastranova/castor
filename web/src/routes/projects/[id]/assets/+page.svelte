@@ -27,6 +27,8 @@
 	/** Relationships tab: a list or a graph, and the asset to select in the graph. */
 	let relView = $state<'list' | 'graph'>(page.url.searchParams.get('view') === 'graph' ? 'graph' : 'list');
 	let relFocus = $state<UUID | null>(page.url.searchParams.get('focus'));
+	/** The graph fills the page instead of sitting in the centred column. */
+	let filling = $derived(tab === 'relationships' && relView === 'graph');
 	function showInGraph(id: UUID) {
 		relFocus = id;
 		relView = 'graph';
@@ -338,7 +340,8 @@
 </TopAppBar>
 
 <div class="flex-1 overflow-auto">
-	<div class="mx-auto flex w-full max-w-7xl flex-col gap-4 px-6 pt-2 pb-10">
+	<!-- The graph takes the whole window below the tabs; everything else is a centred column. -->
+	<div class="mx-auto flex w-full flex-col gap-4 px-6 pt-2 {filling ? 'h-full min-h-[34rem] pb-4' : 'max-w-7xl pb-10'}">
 		<Tabs
 			tabs={[
 				{ id: 'inventory', label: 'Inventory', icon: 'radar', badge: status === 'confirmed' ? Object.values(counts).reduce((a, b) => a + b, 0) : undefined },
@@ -558,7 +561,7 @@
 				{#if total > items.length}<p class="body-small text-on-surface-variant">Showing {items.length} of {total}; filter to narrow it down.</p>{/if}
 			{/if}
 		{:else if tab === 'relationships'}
-			<AssetRelationships projectId={project.id} bind:view={relView} focus={relFocus} onopenasset={openAsset} />
+			<AssetRelationships projectId={project.id} bind:view={relView} focus={relFocus} onopenasset={openAsset} class={filling ? 'min-h-0 flex-1' : ''} />
 		{:else}
 			{#if waiting.length}
 				<section class="rounded-lg border border-tertiary/50 bg-tertiary-container/30 p-4">
