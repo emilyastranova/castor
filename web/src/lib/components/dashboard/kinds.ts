@@ -19,4 +19,4 @@ export const ALL_KINDS: { kind: FeedKind; label: string; icon: string }[] = [
 ];
 
 /** What the timeline shows by default: the work, not note edits, agent connections or admin. */
-export const WORK: FeedKind[] = ['comment', 'job', 'card', 'playbook', 'library', 'file', 'asset', 'plugin'];
+export const WORK: FeedKind[] = ['comment', 'job', 'card', 'playbook', 'library', 'file', 'plugin'];
