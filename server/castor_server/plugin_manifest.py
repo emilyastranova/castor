@@ -44,6 +44,32 @@ class ActionSpec(BaseModel):
     timeout_minutes: int = Field(30, ge=1, le=720)
 
 
+SLOTS = ("asset.panel", "card.tab", "project.page")
+
+
+class UiSpec(BaseModel):
+    """A panel the plugin shows in Castor: an HTML page in the plugin, in a sandboxed iframe."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")
+    # Where: a panel in an asset's dialog, a tab on a card, or a page of its own in a project.
+    slot: Literal["asset.panel", "card.tab", "project.page"]
+    title: str = Field(min_length=1, max_length=60)
+    path: str = Field(pattern=r"^[A-Za-z0-9_./-]+\.html?$")  # the page, in the plugin
+    icon: str = Field("extension", pattern=r"^[a-z0-9_]{1,40}$")  # a Material Symbols name
+    # asset.panel: the asset types it's shown for (empty: every type).
+    asset_types: list[str] = Field(default_factory=list)
+    # Its height to start with, in pixels; the page can resize itself.
+    height: int = Field(320, ge=80, le=2000)
+
+    @field_validator("path")
+    @classmethod
+    def _path(cls, v: str) -> str:
+        if v.startswith("/") or ".." in v.split("/"):
+            raise ValueError("a path inside the plugin")
+        return v
+
+
 class SettingSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")
@@ -85,7 +111,7 @@ class Manifest(BaseModel):
     events: list[str] = Field(default_factory=list)
     actions: list[ActionSpec] = Field(default_factory=list)
     hooks: list[dict[str, Any]] = Field(default_factory=list)
-    ui: list[dict[str, Any]] = Field(default_factory=list)
+    ui: list[UiSpec] = Field(default_factory=list)
     settings: list[SettingSpec] = Field(default_factory=list)
     contents: list[str] = Field(default_factory=list)
 
@@ -139,7 +165,8 @@ class Manifest(BaseModel):
 
     @model_validator(mode="after")
     def _unique(self) -> Manifest:
-        for what, names in (("actions", [a.id for a in self.actions]), ("settings", [s.name for s in self.settings])):
+        for what, names in (("actions", [a.id for a in self.actions]), ("settings", [s.name for s in self.settings]),
+                            ("ui", [u.id for u in self.ui])):
             if len(names) != len(set(names)):
                 raise ValueError(f"{what}: two have the same id")
         return self
@@ -149,13 +176,16 @@ class Manifest(BaseModel):
         out = []
         if self.runtime not in SUPPORTED_RUNTIMES:
             out.append("runtime: unrestricted plugins aren't supported yet; this Castor runs sandboxed plugins only")
-        for field, phase in (("hooks", "B"), ("ui", "C"), ("contents", "E")):
+        for field, phase in (("hooks", "D"), ("contents", "E")):
             if getattr(self, field):
                 out.append(f"{field}: not supported yet (plugins phase {phase}, see docs/PLUGINS.md)")
         return out
 
     def action(self, action_id: str) -> ActionSpec | None:
         return next((a for a in self.actions if a.id == action_id), None)
+
+    def panel(self, ui_id: str) -> UiSpec | None:
+        return next((u for u in self.ui if u.id == ui_id), None)
 
 
 def parse_manifest(text: str) -> Manifest:

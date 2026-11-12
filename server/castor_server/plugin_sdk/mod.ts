@@ -150,6 +150,31 @@ export interface Context {
   /** Handle an event the manifest asks for. Events come one plugin-queue at a time, retried a few
    *  times if the handler throws; ones the plugin causes itself aren't sent to it. */
   events: { on<T = Record<string, unknown>>(name: PluginEvent["name"], handler: (event: PluginEvent<T>) => void | Promise<void>): void };
+  /** Answer `Castor.call(name, args)` from the plugin's panels; what it returns (JSON) goes back
+   *  to the panel. Register these in `activate`: Castor learns them when it returns. */
+  ui: { on<A = unknown>(name: string, handler: (call: UiCall<A>) => unknown, options?: UiOptions): void };
+}
+
+/** A request from one of the plugin's panels (manifest `ui:`), made by the person looking at it. */
+export interface UiCall<A = unknown> {
+  name: string;
+  args: A;
+  /** The panel's id in the manifest. */
+  panel: string;
+  /** Who's looking. `can_write` is false for viewers: only handlers declared `readOnly` reach them. */
+  user: { id: string; username: string; display_name: string; can_write: boolean };
+  project: { id: string; codename: string; name: string };
+  /** The card or asset the panel is shown on, if any. */
+  task: { id: string; title: string } | null;
+  asset: { id: string; type: string; label: string } | null;
+  /** The shared settings plus the person's own. */
+  settings: Record<string, unknown>;
+  log: Logger;
+}
+
+export interface UiOptions {
+  /** Viewers (who can't change the project) may call it too. Only say so if it changes nothing. */
+  readOnly?: boolean;
 }
 
 export interface PluginDefinition {
@@ -266,6 +291,7 @@ function pluginFile(runId: string, name: string, size: number): PluginFile {
 // ---------- the plugin ----------
 
 const handlers = new Map<string, (run: ActionRun) => ActionResult | Promise<ActionResult>>();
+const uiHandlers = new Map<string, { handler: (call: UiCall) => unknown; readOnly: boolean }>();
 const eventHandlers = new Map<string, ((event: PluginEvent) => void | Promise<void>)[]>();
 let definition: PluginDefinition | null = null;
 
@@ -280,6 +306,12 @@ async function onRequest(method: string, params: Record<string, unknown>): Promi
       storage,
       log: rootLog,
       actions: { on: (id, handler) => void handlers.set(id, handler) },
+      ui: {
+        on: (name, handler, options) => {
+          if (!/^[A-Za-z0-9_.-]{1,64}$/.test(name)) throw new CastorError(`ctx.ui.on: “${name}” isn't a usable name (letters, digits, _ . -)`);
+          uiHandlers.set(name, { handler: handler as (call: UiCall) => unknown, readOnly: !!options?.readOnly });
+        },
+      },
       events: {
         on: (name, handler) => {
           const list = eventHandlers.get(name) ?? [];
@@ -289,7 +321,11 @@ async function onRequest(method: string, params: Record<string, unknown>): Promi
       },
     };
     await definition?.activate?.(ctx);
-    return { actions: [...handlers.keys()], events: [...eventHandlers.keys()] };
+    return {
+      actions: [...handlers.keys()],
+      events: [...eventHandlers.keys()],
+      ui: [...uiHandlers].map(([name, h]) => ({ name, read_only: h.readOnly })),
+    };
   }
   if (method === "event") {
     const event = params as unknown as PluginEvent;
@@ -315,6 +351,13 @@ async function onRequest(method: string, params: Record<string, unknown>): Promi
     };
     const result = await handler(run);
     return { message: typeof result === "string" ? result : (result?.message ?? "") };
+  }
+  if (method === "ui") {
+    const entry = uiHandlers.get(String(params.name));
+    if (!entry) throw new CastorError(`This plugin has no handler “${params.name}” (ctx.ui.on)`);
+    const call = { ...(params as unknown as UiCall), log: rootLog };
+    const result = await entry.handler(call);
+    return result === undefined ? null : result;
   }
   if (method === "deactivate") {
     await definition?.deactivate?.();

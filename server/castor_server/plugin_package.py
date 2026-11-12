@@ -86,6 +86,9 @@ def read_zip(data: bytes) -> Package:
     manifest = parse_manifest(files[MANIFEST].decode("utf-8", "replace"))
     if manifest.main not in files:
         raise PackageError(f"main: {manifest.main} isn't in the .zip")
+    for panel in manifest.ui:
+        if panel.path not in files:
+            raise PackageError(f"ui.{panel.id}: {panel.path} isn't in the .zip")
     if manifest.icon is not None:
         if manifest.icon not in files:
             raise PackageError(f"icon: {manifest.icon} isn't in the .zip")

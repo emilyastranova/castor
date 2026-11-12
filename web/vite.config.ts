@@ -11,7 +11,8 @@ export default defineConfig({
 	server: {
 		port: 5173,
 		proxy: {
-			'/api': { target: api, changeOrigin: true },
+			// xfwd: the API names this host in plugin pages' CSP (X-Forwarded-Host).
+			'/api': { target: api, changeOrigin: true, xfwd: true },
 			'/ws': { target: api.replace(/^http/, 'ws'), ws: true }
 		}
 	}

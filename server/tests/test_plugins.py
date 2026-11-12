@@ -610,3 +610,149 @@ def test_plugin_icons(client, auth):
     missing = zip_files({"castor-plugin.yaml": PROBE_MANIFEST.format(n="icon", version="1.0.0", perms="") + "icon: logo.png\n",
                          "main.ts": PROBE_MAIN})
     assert "isn't in the .zip" in preview(client, auth, missing).json()["detail"]
+
+
+PANEL_MANIFEST = """
+id: panel-{n}
+name: Panel probe
+version: 1.0.0
+publisher: tests
+main: main.ts
+permissions: [projects:read, assets:write]
+ui:
+  - {{id: page, slot: project.page, title: Overview, path: ui/page.html}}
+  - {{id: side, slot: asset.panel, title: Side, path: ui/page.html, asset_types: [host]}}
+"""
+PANEL_MAIN = """
+import { definePlugin } from "@castor/plugin";
+definePlugin({
+  activate(ctx) {
+    ctx.ui.on("hello", (call) => ({ to: call.user.username, writes: call.user.can_write, asset: call.asset?.label ?? null, args: call.args }),
+              { readOnly: true });
+    ctx.ui.on("change", async (call) => {
+      await ctx.storage.set("changed", true, { project: call.project.id });
+      return "changed";
+    });
+  },
+});
+"""
+
+
+def test_plugin_panels(client, auth):
+    n = uuid.uuid4().hex[:6]
+    pid = f"panel-{n}"
+    files = {"castor-plugin.yaml": PANEL_MANIFEST.format(n=n), "main.ts": PANEL_MAIN,
+             "ui/page.html": "<!doctype html><html><head><title>x</title></head><body>hi<script src='page.js'></script></body></html>",
+             "ui/page.js": "document.body.append('!')", "notes.ts": "export {}"}
+    missing = {k: v for k, v in files.items() if k != "ui/page.html"}
+    assert "ui/page.html isn't in the .zip" in preview(client, auth, zip_files(missing)).json()["detail"]
+
+    p = project(client, auth)
+    other = project(client, auth)
+    install(client, auth, zip_files(files), project_ids=[p["id"]])
+    try:
+        running(client, auth, pid)
+        panels = client.get(f"/api/projects/{p['id']}/plugin-panels", headers=auth).json()
+        mine = [x for x in panels if x["plugin"]["id"] == pid]
+        assert [(x["id"], x["slot"]) for x in mine] == [("page", "project.page"), ("side", "asset.panel")]
+        assert mine[1]["asset_types"] == ["host"]
+        assert not [x for x in client.get(f"/api/projects/{other['id']}/plugin-panels", headers=auth).json() if x["plugin"]["id"] == pid]
+
+        # The page: sandboxed, no network, the SDK inline; only the plugin's own static files.
+        client.cookies.clear()
+        url = mine[0]["url"]
+        page = client.get(url)  # no cookie, no token: the signed address is enough
+        assert page.status_code == 200, page.text
+        csp = page.headers["content-security-policy"]
+        assert csp.startswith("sandbox allow-scripts;") and "connect-src 'none'" in csp and "frame-ancestors 'self'" in csp
+        # A sandboxed page's 'self' matches nothing: its server is named (the host asked, or a proxy's X-Forwarded-Host).
+        assert "script-src 'self' https://testserver http://testserver 'unsafe-inline'" in csp
+        fwd = client.get(url, headers={"X-Forwarded-Host": "castor.example:8443", "Host": "bad host"}).headers["content-security-policy"]
+        assert "https://castor.example:8443" in fwd and "bad host" not in fwd
+        assert page.headers["x-content-type-options"] == "nosniff"
+        assert page.text.index("window.Castor") < page.text.index("<title>")
+        base = url.rsplit("/", 2)[0]
+        assert client.get(f"{base}/ui/page.js").headers["content-type"].startswith("text/javascript")
+        assert client.get(f"{base}/main.ts").status_code == 404  # not a page's kind of file
+        assert client.get(f"{base}/castor-plugin.yaml").status_code == 404
+        assert client.get(f"{base}/..%2F..%2Fsecret.html").status_code == 404
+        wrong = url.replace(url.split("/")[4], "0" * 32)
+        assert client.get(wrong).status_code == 404
+
+        # Calls: its handlers, as the person; a viewer only reaches read-only ones.
+        host = client.post(f"/api/projects/{p['id']}/assets", json={"type": "host", "fields": {"ip": "10.9.9.9"}}, headers=auth).json()
+        call = f"/api/plugins/{pid}/panels/side/call"
+        r = client.post(call, json={"project_id": p["id"], "asset_id": host["id"], "kind": "call", "name": "hello", "args": {"x": 1}}, headers=auth)
+        assert r.status_code == 200, r.text
+        assert r.json()["result"] == {"to": "admin", "writes": True, "asset": "10.9.9.9", "args": {"x": 1}}
+        assert client.post(call, json={"project_id": p["id"], "kind": "call", "name": "change"}, headers=auth).json()["result"] == "changed"
+        assert client.post(call, json={"project_id": p["id"], "kind": "call", "name": "nope"}, headers=auth).status_code == 404
+        # Its API, as the plugin: reads for anyone who sees the project; refused paths stay refused.
+        r = client.post(call, json={"project_id": p["id"], "kind": "api", "method": "GET", "path": f"/api/projects/{p['id']}/assets"}, headers=auth)
+        assert r.json()["status"] == 200 and r.json()["result"]["total"] == 1
+        assert client.post(call, json={"project_id": p["id"], "kind": "api", "path": "/api/auth/me"}, headers=auth).status_code == 422
+        # Not this project's asset, or a project the plugin isn't in.
+        oh = client.post(f"/api/projects/{other['id']}/assets", json={"type": "host", "fields": {"ip": "10.9.9.8"}}, headers=auth).json()
+        assert client.post(call, json={"project_id": p["id"], "asset_id": oh["id"], "kind": "call", "name": "hello"}, headers=auth).status_code == 404
+        assert client.post(call, json={"project_id": other["id"], "kind": "call", "name": "hello"}, headers=auth).status_code == 404
+
+        name = f"pview-{uuid.uuid4().hex[:6]}"
+        viewer = client.post("/api/users", json={"username": name, "role": "viewer", "password": "correct horse"}, headers=auth).json()
+        client.put(f"/api/projects/{p['id']}/members", json=[viewer["id"]], headers=auth)
+        token = client.post("/api/auth/login", json={"username": name, "password": "correct horse"}).json()["token"]
+        client.cookies.clear()
+        vh = {"Authorization": f"Bearer {token}"}
+        r = client.post(call, json={"project_id": p["id"], "kind": "call", "name": "hello"}, headers=vh)
+        assert r.status_code == 200 and r.json()["result"]["writes"] is False
+        assert client.post(call, json={"project_id": p["id"], "kind": "call", "name": "change"}, headers=vh).status_code == 403
+        assert client.post(call, json={"project_id": p["id"], "kind": "api", "method": "POST", "path": f"/api/projects/{p['id']}/assets",
+                                       "body": {"type": "host", "fields": {"ip": "10.9.9.7"}}}, headers=vh).status_code == 403
+        assert client.post(f"/api/plugins/{pid}/panels/page/call", json={"project_id": other["id"], "kind": "call", "name": "hello"},
+                           headers=vh).status_code == 404
+
+        # Turned off: no pages, no calls.
+        client.patch(f"/api/plugins/{pid}", json={"enabled": False}, headers=auth)
+        assert client.get(url).status_code == 404
+    finally:
+        client.delete(f"/api/plugins/{pid}", headers=auth)
+
+
+BLOODHOUND = ROOT / "plugins" / "bloodhound"
+
+
+def test_bloodhound_bridge(client, auth):
+    p = project(client, auth)
+    install(client, auth, zip_folder(BLOODHOUND), project_ids=[p["id"]])
+    try:
+        running(client, auth, "bloodhound")
+        call = "/api/plugins/bloodhound/panels/paths/call"
+        assert client.post(call, json={"project_id": p["id"], "kind": "call", "name": "summary"}, headers=auth).json()["result"] == {"imported": False}
+        out = run(client, auth, "bloodhound", "import", p["id"], file=("corp.zip", (BLOODHOUND / "samples" / "corp-sharphound.zip").read_bytes()))
+        assert out["status"] == "succeeded", out
+        assert "7 users, 3 computers, 2 domains" in out["message"] and "5 enabled users have a path" in out["message"], out["message"]
+
+        assets = client.get(f"/api/projects/{p['id']}/assets", params={"limit": 100}, headers=auth).json()
+        assert assets["counts"]["user"] == 7 and assets["counts"]["host"] == 3 and assets["counts"]["domain"] == 2
+        bob = client.get(f"/api/projects/{p['id']}/assets", params={"type": "user", "where": "username:bob"}, headers=auth).json()["items"][0]
+        assert bob["label"] == "corp\\bob"
+        links = client.get(f"/api/projects/{p['id']}/asset-links", params={"limit": 200}, headers=auth).json()["items"]
+        kinds = {link["kind"] for link in links}
+        assert {"in_domain", "joined_to", "dc_of", "session_on", "admin_on", "trusts"} <= kinds, kinds
+
+        summary = client.post(call, json={"project_id": p["id"], "kind": "call", "name": "summary"}, headers=auth).json()["result"]
+        assert summary["counts"]["groups"] == 4 and summary["admins"][0]["members"] == ["CAROL.DA@CORP.LOCAL"]
+        assert summary["reach"][0]["name"] == "BACKUP_SVC@CORP.LOCAL" and summary["reach"][0]["hops"] == 1
+        side = "/api/plugins/bloodhound/panels/asset-path/call"
+        path = client.post(side, json={"project_id": p["id"], "asset_id": bob["id"], "kind": "call", "name": "path"}, headers=auth).json()["result"]
+        assert [s["rel"] for s in path["path"][:-1]] == ["MemberOf", "AdminTo", "HasSession", "MemberOf"]
+        found = client.post(call, json={"project_id": p["id"], "kind": "call", "name": "asset", "args": {"sid": path["path"][2]["sid"]}},
+                            headers=auth).json()["result"]
+        assert client.get(f"/api/assets/{found}", headers=auth).json()["label"] == "srv01.corp.local"
+
+        # Again: nothing doubles.
+        run(client, auth, "bloodhound", "import", p["id"], file=("corp.zip", (BLOODHOUND / "samples" / "corp-sharphound.zip").read_bytes()))
+        assert client.get(f"/api/projects/{p['id']}/assets", params={"type": "user"}, headers=auth).json()["total"] == 7
+        assert run(client, auth, "bloodhound", "forget", p["id"])["message"].startswith("Forgot")
+        assert client.post(call, json={"project_id": p["id"], "kind": "call", "name": "summary"}, headers=auth).json()["result"] == {"imported": False}
+    finally:
+        client.delete("/api/plugins/bloodhound", headers=auth)

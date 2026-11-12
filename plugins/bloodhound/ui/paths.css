@@ -1,0 +1,57 @@
+/* Castor's theme arrives as variables (--primary, --on-surface, --surface-container…), so this
+   follows light, dark and people's own colours. */
+* { box-sizing: border-box; }
+body { padding: 2px 0; }
+.quiet { color: var(--on-surface-variant); margin: 8px 0; }
+h2 { font-size: 15px; font-weight: 600; margin: 0 0 8px; color: var(--on-surface); }
+.stats { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0 0 14px; color: var(--on-surface-variant); font-size: 13px; }
+.stats b { color: var(--on-surface); font-weight: 600; font-variant-numeric: tabular-nums; }
+section { margin-bottom: 18px; }
+
+.admins { display: flex; flex-direction: column; gap: 6px; }
+.admins p { margin: 0; font-size: 13px; color: var(--on-surface-variant); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip, .node {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 100%;
+  border: 1px solid var(--outline-variant); border-radius: 999px; padding: 2px 9px;
+  font: inherit; font-size: 12.5px; color: var(--on-surface); background: var(--surface-container-low);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+button.node { cursor: pointer; }
+button.node:hover { background: var(--surface-container-high); }
+button.node:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.kind { font-size: 10.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--on-surface-variant); }
+.node.target { border-color: var(--error); color: var(--on-error-container); background: var(--error-container); }
+.node.target .kind { color: inherit; }
+
+.path { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 2px; }
+.rel { font-family: var(--mono); font-size: 11.5px; color: var(--primary); padding: 0 4px; }
+.rel::before { content: "—"; color: var(--outline); margin-right: 3px; }
+.rel::after { content: "→"; color: var(--outline); margin-left: 3px; }
+
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.seg { display: inline-flex; border: 1px solid var(--outline); border-radius: 999px; overflow: hidden; }
+.seg button { font: inherit; font-size: 13px; padding: 4px 12px; border: 0; background: transparent; color: var(--on-surface); cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--outline); }
+.seg button[aria-pressed="true"] { background: var(--secondary-container); color: var(--on-secondary-container); }
+input[type="search"] {
+  flex: 1; min-width: 160px; font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 999px;
+  border: 0; background: var(--surface-container-high); color: var(--on-surface);
+}
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font-weight: 500; color: var(--on-surface-variant); padding: 6px 8px; border-bottom: 1px solid var(--outline-variant); }
+td { padding: 6px 8px; border-bottom: 1px solid var(--outline-variant); vertical-align: top; color: var(--on-surface); }
+td.hops { width: 56px; text-align: right; font-variant-numeric: tabular-nums; }
+tr.row { cursor: pointer; }
+tr.row:hover td { background: var(--surface-container-low); }
+tr.open td { background: var(--surface-container-low); }
+.tag { font-size: 11px; color: var(--tertiary); margin-left: 6px; }
+.off { color: var(--on-surface-variant); }
+.more { color: var(--on-surface-variant); font-size: 12.5px; margin-top: 6px; }
+
+/* The asset panel: one line, maybe two. */
+.compact { padding: 10px 12px; }
+.compact .lead { margin: 0 0 6px; font-size: 13px; color: var(--on-surface-variant); }
+.compact .lead b { color: var(--on-surface); }

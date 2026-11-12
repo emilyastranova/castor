@@ -2,7 +2,7 @@
  *  starting one (with a file when it takes one), and its run as it goes and when it ends. */
 import { browser } from '$app/environment';
 import { goto } from '$app/navigation';
-import type { PluginRun, ProjectPluginAction, UUID } from '$lib/api';
+import type { PluginPanel, PluginRun, ProjectPluginAction, UUID } from '$lib/api';
 import { api, ApiError } from '$lib/api';
 import { realtime } from '$lib/realtime.svelte';
 import { snackbar } from '$lib/snackbar.svelte';
@@ -117,3 +117,41 @@ class PluginActions {
 }
 
 export const pluginActions = new PluginActions();
+
+/** Plugins' panels per project: where each goes (an asset's dialog, a card's tabs, a page). */
+class PluginPanels {
+	byProject = $state<Record<UUID, PluginPanel[]>>({});
+	private loading = new Map<UUID, Promise<void>>();
+
+	constructor() {
+		if (!browser) return;
+		realtime.subscribe((e) => {
+			if (e.name === 'plugins.changed') {
+				this.loading.clear();
+				for (const id of Object.keys(this.byProject)) void this.load(id, true);
+			}
+		});
+	}
+
+	load(projectId: UUID, force = false): Promise<void> {
+		if (!force && this.loading.has(projectId)) return this.loading.get(projectId)!;
+		const p = api()
+			.plugins.panels(projectId)
+			.then((list) => {
+				this.byProject[projectId] = list;
+			})
+			.catch(() => {
+				this.loading.delete(projectId);
+			});
+		this.loading.set(projectId, p);
+		return p;
+	}
+
+	for(projectId: UUID, slot: PluginPanel['slot'], assetType?: string): PluginPanel[] {
+		return (this.byProject[projectId] ?? []).filter(
+			(p) => p.slot === slot && (slot !== 'asset.panel' || !p.asset_types.length || (!!assetType && p.asset_types.includes(assetType)))
+		);
+	}
+}
+
+export const pluginPanels = new PluginPanels();

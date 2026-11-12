@@ -481,7 +481,7 @@ and `{{ link.x }}`). The `file` type is a path (`\\host\share\path`, or `host:/p
 ## Plugins
 
 Design and status: [PLUGINS.md](PLUGINS.md). `plugin_manifest.py` (`castor-plugin.yaml`; `not_yet`
-lists what this version can't run: network, events, hooks, UI, unrestricted), `plugin_package.py`
+lists what this version can't run yet: hooks, library contents, unrestricted), `plugin_package.py`
 (checking, staging and unpacking a release under `<data_dir>/plugins`), `plugin_runtime.py` (a
 Deno process per plugin with only its approved permissions, JSON-RPC over stdin/stdout, the module
 graph check, crash counting), `plugins.py` (install/update/uninstall, settings and vault-sealed
@@ -500,6 +500,19 @@ rate-limited. Per-person settings: `plugins.per_user` (the admin's choice, withi
 `plugin`). `POST /api/projects/{id}/assets/bulk` records assets and relationships at once (source
 `plugin` for a plugin's account, else `import`). Official plugins live in `plugins/` (`pack.py`
 makes their `.zip`).
+
+Panels (manifest `ui`, slots `project.page`, `card.tab`, `asset.panel`): `api/plugin_panels.py`
+serves a plugin's static files at `/api/plugin-ui/<id>/<sig>/<path>` (public; `sig` is an HMAC of
+id and checksum under `secret_key`), HTML with `plugin_sdk/ui.js` inline and a CSP that sandboxes
+it (`sandbox allow-scripts`, `connect-src 'none'`, sources named by host since a sandboxed `'self'`
+matches nothing, `frame-ancestors 'self'`); `GET /api/projects/{id}/plugin-panels` lists a
+project's; `POST /api/plugins/{id}/panels/{ui}/call` takes a page's requests (`kind: api`, a REST
+call as the plugin through `plugins.call_api`; `kind: call`, the `ui` method to the plugin's
+`ctx.ui.on` handlers, whose names and `readOnly` flags `activate` returns into
+`PluginProcess.ui_handlers`/`ui_read_only`). Viewers and API tokens get GET calls and read-only
+handlers only. Web: `PluginFrame.svelte` (the iframe and its postMessage bridge: context, theme
+variables, requests, resize, open, notify), `pluginPanels` in `lib/plugins.svelte.ts`, placed in
+`AssetDialog`, `TaskDialog` (tabs `plugin:<id>:<ui>`) and the Assets page (tabs, `?tab=plugin:…`).
 
 ## AI
 

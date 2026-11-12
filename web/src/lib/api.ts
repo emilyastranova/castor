@@ -1584,7 +1584,12 @@ export function api(fetchFn: Fetch = fetch) {
 			/** Your own values of plugins' per-person settings (session only). */
 			mine: () => get<MyPluginSettings[]>('/auth/me/plugins'),
 			setMine: (id: string, body: { settings?: Record<string, unknown>; secrets?: Record<string, string | null> }) =>
-				request<MyPluginSettings>(fetchFn, 'PUT', `/auth/me/plugins/${id}`, body)
+				request<MyPluginSettings>(fetchFn, 'PUT', `/auth/me/plugins/${id}`, body),
+			/** The panels of the plugins enabled in a project (manifest `ui:`). */
+			panels: (projectId: UUID) => get<PluginPanel[]>(`/projects/${projectId}/plugin-panels`),
+			/** A panel's request: the API as the plugin, or one of its ctx.ui handlers. */
+			panelCall: (pluginId: string, panelId: string, body: PanelCallBody) =>
+				post<{ status: number; result: unknown }>(`/plugins/${pluginId}/panels/${panelId}/call`, body)
 		},
 		tools: {
 			list: () => get<ToolDefinition[]>('/tools'),
@@ -2045,6 +2050,8 @@ export interface PluginPreview {
 		network: string[];
 		events: string[];
 		actions: PluginActionSpec[];
+		/** Its pages shown in Castor (sandboxed frames). */
+		ui: Pick<PluginPanel, 'id' | 'slot' | 'title' | 'icon' | 'asset_types'>[];
 		settings: PluginSettingSpec[];
 	};
 	/** What this Castor can't do yet: installing is refused while there are any. */
@@ -2056,6 +2063,33 @@ export interface PluginPreview {
 
 export interface ProjectPluginAction extends PluginActionSpec {
 	plugin: { id: string; name: string; status: Plugin['status']; icon_url: string | null };
+}
+
+/** A plugin's page shown in Castor (castor-plugin.yaml `ui`), in a sandboxed frame. */
+export interface PluginPanel {
+	plugin: { id: string; name: string; icon_url: string | null };
+	id: string;
+	slot: 'asset.panel' | 'card.tab' | 'project.page';
+	title: string;
+	path: string;
+	icon: string;
+	asset_types: string[];
+	height: number;
+	/** The page's signed address. */
+	url: string;
+}
+
+export interface PanelCallBody {
+	project_id: UUID;
+	task_id?: UUID | null;
+	asset_id?: UUID | null;
+	kind: 'api' | 'call';
+	method?: string;
+	path?: string;
+	query?: Record<string, unknown> | null;
+	body?: unknown;
+	name?: string;
+	args?: unknown;
 }
 
 export interface PluginRun {

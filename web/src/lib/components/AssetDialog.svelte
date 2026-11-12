@@ -12,6 +12,9 @@
 	import { PastedImages } from '$lib/pastedImages.svelte';
 	import RichText from './RichText.svelte';
 	import PluginActions from './PluginActions.svelte';
+	import PluginFrame from './PluginFrame.svelte';
+	import PluginIcon from './PluginIcon.svelte';
+	import { pluginPanels } from '$lib/plugins.svelte';
 
 	/** One asset: every field with where its value came from (and other values tools
 	 *  reported), what it's linked to, triggered runs and its history. */
@@ -27,6 +30,8 @@
 	let { open = $bindable(false), assetId, projectId, onopenasset, onshowgraph, onchanged }: Props = $props();
 
 	let asset = $state<AssetDetail | null>(null);
+	$effect(() => void pluginPanels.load(projectId));
+	let panels = $derived(asset && asset.status === 'confirmed' ? pluginPanels.for(projectId, 'asset.panel', asset.type) : []);
 	let secret = $state<string | null>(null);
 	async function load(id: UUID) {
 		try {
@@ -480,6 +485,19 @@
 					<p class="body-small text-on-surface-variant italic">None yet. Tools add them (a login that worked, a file taken from a share), or add one.</p>
 				{/if}
 			</section>
+
+			{#each panels as p (`${p.plugin.id}:${p.id}`)}
+				<section aria-label="{p.title} ({p.plugin.name})">
+					<h3 class="mb-1.5 flex items-center gap-2 label-large text-on-surface-variant">
+						<PluginIcon src={p.plugin.icon_url} size={20} />
+						{p.title}
+						<span class="body-small text-on-surface-variant/80">· {p.plugin.name}</span>
+					</h3>
+					<div class="overflow-hidden rounded-md bg-surface-container-low">
+						<PluginFrame panel={p} {projectId} asset={{ id: asset.id, type: asset.type, label: asset.label }} {onopenasset} />
+					</div>
+				</section>
+			{/each}
 
 			{#if asset.triggers.length}
 				<section>

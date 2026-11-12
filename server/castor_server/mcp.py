@@ -322,7 +322,8 @@ _FILE = {"filename": _s("File name"), "content_base64": _s("The file's bytes, ba
 # Everything else a person can do in the UI, one endpoint each. Left out on purpose: revealing
 # secrets, user accounts, AI providers and alert channels (they hold keys and webhook secrets),
 # import/export, file downloads, and installing, configuring or removing plugins (an admin
-# approves what a plugin may do, in Settings → Plugins).
+# approves what a plugin may do, in Settings → Plugins), and plugins' panels (pages for people to
+# look at; their handlers are the plugin's own and are reached through the panel).
 TOOLS += [
     # Cards
     _auto("update_card", "PATCH", "/api/tasks/{task_id}",

@@ -72,7 +72,13 @@ actions:
     on: [project, card]        # where the button shows
     file: { accept: [".nessus"], max_mb: 200 }
 hooks: []
-ui: []
+ui:                            # its pages, shown in Castor in sandboxed frames (phase C)
+  - id: paths
+    slot: project.page         # project.page (a tab on the Assets page), card.tab, asset.panel
+    title: Attack paths
+    path: ui/paths.html        # inside the plugin; its CSS, scripts and images sit next to it
+    icon: route                # a Material Symbols name
+  - { id: asset-path, slot: asset.panel, title: Path to Domain Admins, path: ui/paths.html, asset_types: [user, host], height: 140 }
 settings:
   - { name: info_findings, label: "Record informational findings", type: bool, default: false }
 contents: []                   # folders of library items it ships: commands/, parsers/, …
@@ -154,8 +160,10 @@ no network or async, so it can't host whole plugins.
 
 JSON-RPC 2.0 over the process's stdin/stdout, both ways:
 
-- **Castor → plugin:** `activate {plugin, settings, castor_version}`,
+- **Castor → plugin:** `activate {plugin, settings, castor_version}` (answered with the plugin's
+  `actions`, `events` and `ui` handlers `[{name, read_only}]`),
   `action {run_id, action, user, project, task, asset, file?}`, `event {name, at, project, data}`,
+  `ui {name, args, panel, user, project, task, asset, settings}` (a panel's `Castor.call`),
   `deactivate`; later `hook`.
 - **Plugin → Castor:** `api {method, path, query, body}` (made in-process with the plugin's token,
   exactly like an HTTP call; `/api/auth`, `/api/tokens`, `/api/plugins` and `/api/mcp` are refused
@@ -192,21 +200,66 @@ definePlugin({
 `ctx`: `plugin`, `castorVersion`, `settings` (secret ones included), `api` (`request`, `get`,
 `post`, `patch`, `put`, `delete`: any REST endpoint, throwing `CastorError` on 4xx/5xx), `assets.bulk`,
 `storage` (`get`, `set`, `delete`, `list`, instance-wide or `{project}`), `log`, `actions.on`,
-`events.on`. With `network:`, plain `fetch` reaches those hosts (and only those). An
+`events.on`, `ui.on` (handlers for its pages, below). With `network:`, plain `fetch` reaches those hosts (and only those). An
 action gets `run`: `runId`, `user`, `project`, `task`, `asset`, `file` (`name`, `size`, `text()`,
 `bytes()`, `stream()`), `progress()`, `log`. `console.log` goes to the plugin's log.
 `plugins/pack.py <folder>` packs a release (leaving out tests, samples and `deno.json`). Types
 generated from the OpenAPI and a scaffolding CLI come later.
 
-### UI slots
+### UI slots (phase C)
 
-A slot is a URL inside the plugin's folder (`ui/card-tab.html`), served by Castor from a separate
-origin (`plugins.<host>`, or a sandboxed iframe with `sandbox="allow-scripts"` and no
-`allow-same-origin`), so it can't read Castor's cookies or DOM. A small `postMessage` SDK gives it:
-the context (project, card, asset), `api` calls made with the plugin's token, the current theme's
-colour roles as CSS variables (so panels match every theme), resize, and navigation requests
-("open this card"). Slots: `card.tab`, `asset.panel`, `run.panel`, `project.home`,
-`project.page` (its own nav entry), `settings.page`, `graph.overlay`.
+A slot is an HTML page in the plugin's folder that Castor shows in a frame: `project.page` (a tab
+on the project's Assets page, filling it), `card.tab` (a tab in the card dialog) and `asset.panel`
+(a section of the asset dialog, for the `asset_types` listed or all). `run.panel`,
+`project.home`, `settings.page` and `graph.overlay` come later.
+
+**How it's kept apart.** The server serves the plugin's files at
+`/api/plugin-ui/<plugin>/<signature>/<path>` (`api/plugin_panels.py`). The signature is an HMAC of
+the plugin and its release under the server's secret key, so only people Castor lists the panel
+for get the address, and a new release changes it. Only static kinds of file are served
+(html, css, js, images, fonts, json, txt), never `main.ts`, the manifest or anything outside the
+folder. Every response carries a Content Security Policy:
+
+- `sandbox allow-scripts`: an opaque origin, so no cookies, nothing of Castor's page, no popups or
+  top-level navigation. The frame also has `sandbox="allow-scripts"` (the CSP holds if a proxy
+  drops it, the attribute if a proxy drops the header).
+- `connect-src 'none'`: no `fetch`, XHR or WebSocket. Scripts, styles, images and fonts load only
+  from the plugin's own files, named by host, since a sandboxed page's `'self'` matches nothing.
+  The host is the one the browser asked, or the proxy's `X-Forwarded-Host`; the dev server's Vite
+  proxy sends it with `xfwd`.
+- `frame-ancestors 'self'`: only Castor can frame it.
+
+Everything a page does goes through the Castor page around it by `postMessage`, which acts on the
+person's behalf through one endpoint, `POST /api/plugins/{id}/panels/{ui}/call`.
+
+**The page SDK** (`plugin_sdk/ui.js`) is put inline at the top of every page Castor serves, as `Castor`:
+
+```js
+const ctx = await Castor.ready();     // { plugin, panel, project, task, asset, user: { …, can_write } }
+await Castor.api.get(`/api/projects/${ctx.project.id}/assets`, { type: "host" });  // REST, as the plugin
+await Castor.call("paths", { sid });  // a handler in the plugin's code: ctx.ui.on("paths", …)
+Castor.open({ asset: id });           // or { card: id }
+Castor.notify("Saved");               // a snackbar in Castor
+Castor.onTheme((t) => redraw());      // the theme changed (light/dark, colours, another theme)
+```
+
+The theme reaches the page as CSS variables on `:root`: the colour roles (`--primary`,
+`--on-surface`, `--surface-container`, `--outline-variant`, `--error-container`…), `--font`,
+`--mono` and `--radius-small|medium|large`; a base style already uses them. The frame's height
+follows the page's content, or fills the tab for `project.page`. Opening another card or asset
+loads the page again with its new context.
+
+**Handlers.** `ctx.ui.on(name, handler, { readOnly })` in `main.ts` answers `Castor.call`. The
+handler gets `call`: `name`, `args`, `panel`, `user` (with `can_write`), `project`, `task`, `asset`,
+`settings` (shared plus the person's own), `log`. Register them in `activate`: Castor learns their
+names when it returns.
+
+**Who can do what.** Anyone who can see the project can open a panel. Through it, a viewer (or a
+personal API token) can make `GET` API calls and reach handlers declared `readOnly: true`;
+everything else needs someone who can change the project. API calls carry the plugin's token, so
+the plugin's permissions and projects still apply, and the paths plugins can never call
+(`/api/auth`, `/api/tokens`, `/api/plugins`, `/api/mcp`) stay refused. The card or asset in a
+call must belong to the project, and the plugin must be enabled there.
 
 ## Data model
 
@@ -273,12 +326,12 @@ Each phase ships with real plugins in `plugins/` (the official examples, which d
 | --- | --- | --- |
 | **A** (built) | Manifest and checks; install from a file or URL; Settings → Plugins with the permission review; service accounts; the Deno runner (sandboxed only) and protocol; the SDK's API, storage, settings and logs; actions (with files); `ctx.assets.bulk` | **Nessus import**: no network, writes hosts, services, vulnerabilities and `affects` relationships. Test data: `plugins/nessus-import/samples/` |
 | **B** (built) | Event delivery; declared network; secret settings (done in A); rate limits | **Shodan enrichment**: new external hosts get ports, banners and CVEs |
-| **C** | UI slots and the iframe SDK; theme variables | **BloodHound bridge**: users, groups, computers, `admin on` and sessions in; an attack-path panel on an asset |
+| **C** (built) | UI slots (`project.page`, `card.tab`, `asset.panel`) in sandboxed frames; the page SDK and its handlers; theme variables | **BloodHound bridge**: users, computers and domains in, with `admin on`, sessions, membership and trusts; an attack-path tab and a panel on users and hosts |
 | **D** | Unrestricted runtime, the warning flow, restricted and safe mode, `ui.script` | **DOCX report**: a plugin that legitimately needs document libraries |
 | **E** | The directory, update checks, publisher pages; library content in plugins (packs) | The directory repository and its checks |
 
 Hooks (asset mappers, transforms, trigger conditions) arrive with the phase that first needs one,
-now C or later.
+now D or later.
 
 ### Events (phase B)
 
@@ -340,9 +393,29 @@ with a message to slow down. Events are capped by the queue above.
 - **Test data:** two MIT-licensed samples in `plugins/nessus-import/samples/` (42 synthetic hosts;
   one real host with full detail); their README says where they came from.
 
+## The BloodHound bridge (phase C)
+
+- **Action:** "Import SharpHound data" on a project's Assets page: a SharpHound .zip (BloodHound
+  CE, JSON v5 and v6; read by the plugin itself, stored or deflated, no zip64 or passwords) or one
+  of its `.json` files. Imports add to what's there; "Forget the BloodHound graph" drops it.
+- **The graph:** users, computers, groups and domains by SID, with `MemberOf`, `AdminTo` (v5
+  `LocalAdmins`, v6 `LocalGroups` by RID 544), `HasSession`, `CanRDP`, delegation, the ACL edges
+  that give control (`GenericAll`, `WriteDacl`, `ForceChangePassword`, `AddMember`…), `DCSync`
+  (GetChanges + GetChangesAll on a domain) and `DCFor` (a DC holds its domain). Kept packed in the
+  plugin's project storage, in chunks.
+- **Records:** users (`corp\alice`: SID, enabled, AdminCount, Kerberoastable, SPNs, AS-REP
+  roastable, groups, description), computers as hosts (FQDN, OS, NetBIOS name, `dc` role) and
+  domains, with `in_domain` (role `domain_admin` for members of Domain Admins), `joined_to`,
+  `dc_of`, `session_on`, `admin_on` (a group's members, up to 200 per computer, noted "Through
+  IT ADMINS…") and `trusts`. Groups and ACLs stay in the graph.
+- **Panels:** an "Attack paths" tab (counts, Domain Admins, everyone with a path and how many
+  steps, by kind, roastable or a search; each row opens to its path) and "Path to Domain Admins"
+  on users and hosts. Shortest paths come from one breadth-first search back from the Domain
+  Admins groups and the domains. Chips open the asset.
+- **Test data:** `plugins/bloodhound/samples/corp-sharphound.zip`, a made-up domain written by
+  `samples/make_sample.py`.
+
 ## Open questions
 
-- A `plugins.<host>` origin for slots needs a second hostname in the compose stack; a sandboxed
-  `srcdoc` iframe avoids that but complicates loading the plugin's assets. Decide in phase C.
 - Resource limits per plugin: fixed defaults, or set per plugin by the admin.
 - Plugins on agents (new runtimes, not just tools) are out of scope for now.

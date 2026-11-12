@@ -137,6 +137,8 @@ class PluginProcess:
         self.stopping = False
         self.token = ""  # its API token, for this run of the process only
         self.files: dict[str, Path] = {}  # run id → the file the action was given
+        self.ui_handlers: set[str] = set()  # ctx.ui.on names, from activate
+        self.ui_read_only: set[str] = set()
 
     @property
     def alive(self) -> bool:

@@ -10,6 +10,8 @@
 	import AssetRelationships from '$lib/components/AssetRelationships.svelte';
 	import PluginActions from '$lib/components/PluginActions.svelte';
 	import PluginRunsBar from '$lib/components/PluginRunsBar.svelte';
+	import PluginFrame from '$lib/components/PluginFrame.svelte';
+	import { pluginPanels } from '$lib/plugins.svelte';
 	import { assetTypes, show } from '$lib/assetTypes.svelte';
 	import { realtime } from '$lib/realtime.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
@@ -25,12 +27,16 @@
 
 	const TABS = ['inventory', 'suggested', 'relationships', 'triggers'] as const;
 	const asked = page.url.searchParams.get('tab');
-	let tab = $state<(typeof TABS)[number]>(TABS.find((t) => t === asked) ?? 'inventory');
+	// Built-in tabs, or a plugin's page (`plugin:<plugin id>:<panel id>`, manifest `ui` slot project.page).
+	let tab = $state<(typeof TABS)[number] | `plugin:${string}`>(TABS.find((t) => t === asked) ?? (asked?.startsWith('plugin:') ? (asked as `plugin:${string}`) : 'inventory'));
+	$effect(() => void pluginPanels.load(data.project.id));
+	let pagePanels = $derived(pluginPanels.for(data.project.id, 'project.page'));
+	let openPanel = $derived(tab.startsWith('plugin:') ? pagePanels.find((p) => tab === `plugin:${p.plugin.id}:${p.id}`) : undefined);
 	/** Relationships tab: a list or a graph, and the asset to select in the graph. */
 	let relView = $state<'list' | 'graph'>(page.url.searchParams.get('view') === 'graph' ? 'graph' : 'list');
 	let relFocus = $state<UUID | null>(page.url.searchParams.get('focus'));
 	/** The graph fills the page instead of sitting in the centred column. */
-	let filling = $derived(tab === 'relationships' && relView === 'graph');
+	let filling = $derived((tab === 'relationships' && relView === 'graph') || !!openPanel);
 	function showInGraph(id: UUID) {
 		relFocus = id;
 		relView = 'graph';
@@ -349,7 +355,8 @@
 				{ id: 'inventory', label: 'Inventory', icon: 'radar', badge: status === 'confirmed' ? Object.values(counts).reduce((a, b) => a + b, 0) : undefined },
 				{ id: 'suggested', label: 'Suggested', icon: 'lightbulb', badge: suggestedCount || undefined },
 				{ id: 'relationships', label: 'Relationships', icon: 'hub' },
-				{ id: 'triggers', label: 'Triggers', icon: 'bolt', badge: waiting.length || undefined }
+				{ id: 'triggers', label: 'Triggers', icon: 'bolt', badge: waiting.length || undefined },
+				...pagePanels.map((p) => ({ id: `plugin:${p.plugin.id}:${p.id}`, label: p.title, icon: p.icon }))
 			]}
 			bind:value={tab}
 		/>
@@ -566,6 +573,12 @@
 			{/if}
 		{:else if tab === 'relationships'}
 			<AssetRelationships projectId={project.id} bind:view={relView} focus={relFocus} onopenasset={openAsset} class={filling ? 'min-h-0 flex-1' : ''} />
+		{:else if openPanel}
+			{#key openPanel.url}
+				<PluginFrame panel={openPanel} projectId={project.id} onopenasset={openAsset} fill />
+			{/key}
+		{:else if tab.startsWith('plugin:')}
+			<p class="py-6 body-medium text-on-surface-variant">That plugin page isn’t here (the plugin may be off in this project).</p>
 		{:else}
 			{#if waiting.length}
 				<section class="rounded-lg border border-tertiary/50 bg-tertiary-container/30 p-4">

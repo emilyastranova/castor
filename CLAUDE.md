@@ -275,7 +275,10 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   with the approved scopes; `handle_call` answers the plugin), `api/plugins.py`, SDK `plugin_sdk/mod.ts` (shipped as
   package data). Web: `routes/settings/plugins`, `PluginInstallDialog`, `PluginDialog`, `PluginActions` (project, card
   menu, asset dialog) and `lib/plugins.svelte.ts`. Official plugins in `plugins/` (`nessus-import` with Deno tests:
-  `deno task test`; `pack.py`; `shodan-enrich`, events and network). `tests/test_plugins.py` runs real Deno plugins
+  `deno task test`; `pack.py`; `shodan-enrich`, events and network; `bloodhound`, panels). Panels (phase C):
+  `api/plugin_panels.py` serves `ui:` pages sandboxed (signed address, CSP with no network, `plugin_sdk/ui.js` inline),
+  `…/panels/{ui}/call` answers them (REST as the plugin, or `ctx.ui.on` handlers; viewers only GET and `readOnly`); web
+  `PluginFrame.svelte` is the postMessage bridge (in AssetDialog, TaskDialog tabs, Assets page tabs). `tests/test_plugins.py` runs real Deno plugins
   (skipped without Deno; a fake Shodan on localhost). Plugin events: `plugin_events.emit(db, …)` where the thing happens
   (delivered after commit, never to the plugin that caused it); add new ones to `plugin_events.EVENTS`. Per-person
   settings (`plugins.per_user`, `plugin_user_settings`, `/api/auth/me/plugins`, web `routes/plugins`): `ctx.settings` is

@@ -104,6 +104,7 @@
 		}
 	}
 	const PLACES: Record<string, string> = { project: 'the Assets page', card: 'cards', asset: 'assets' };
+	const SLOTS: Record<string, string> = { 'project.page': 'a tab on the Assets page', 'card.tab': 'a tab on cards', 'asset.panel': 'a panel on assets' };
 </script>
 
 <Dialog bind:open title={preview ? (isUpdate ? `Update ${preview.manifest.name}` : `Install ${preview.manifest.name}`) : 'Install a plugin'} icon="extension" size="md">
@@ -211,7 +212,7 @@
 				</section>
 			{/if}
 
-			{#if m.actions.length}
+			{#if m.actions.length || m.ui?.length}
 				<section aria-label="What it adds">
 					<h3 class="mb-1.5 label-large text-on-surface-variant">It adds</h3>
 					<ul class="flex flex-col gap-1.5">
@@ -221,6 +222,15 @@
 								<span>
 									<b class="font-medium">{a.label}</b>, on {a.on.map((o) => PLACES[o]).join(' and ')}{a.file ? `, taking a ${a.file.accept.join(' or ')} file` : ''}
 									{#if a.description}<span class="block body-small text-on-surface-variant">{a.description}</span>{/if}
+								</span>
+							</li>
+						{/each}
+						{#each m.ui ?? [] as u (u.id)}
+							<li class="flex items-start gap-2 body-medium text-on-surface">
+								<Icon name={u.icon} size={18} class="mt-0.5 shrink-0 text-on-surface-variant" />
+								<span>
+									<b class="font-medium">{u.title}</b>, {SLOTS[u.slot]}{u.slot === 'asset.panel' && u.asset_types.length ? ` (${u.asset_types.join(', ')})` : ''}
+									<span class="block body-small text-on-surface-variant">A page of its own, sandboxed: no network, and only what the plugin itself may see.</span>
 								</span>
 							</li>
 						{/each}

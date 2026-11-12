@@ -372,7 +372,12 @@ async def ensure_running(plugin_id: str, *, force: bool = False) -> PluginProces
             proc.token = token
             await proc.start()
             host.procs[plugin_id] = proc
-            await proc.request("activate", payload, timeout=START_TIMEOUT)
+            answer = await proc.request("activate", payload, timeout=START_TIMEOUT)
+            for h in (answer.get("ui") if isinstance(answer, dict) else None) or []:
+                if isinstance(h, dict) and isinstance(h.get("name"), str):
+                    proc.ui_handlers.add(h["name"])
+                    if h.get("read_only"):
+                        proc.ui_read_only.add(h["name"])
         except (PluginRuntimeError, OSError) as exc:
             await host.stop(plugin_id)
             await _status(plugin_id, "error", str(exc))
@@ -465,6 +470,11 @@ def _rate_limited(plugin_id: str) -> bool:
         return True
     calls.append(now)
     return False
+
+
+async def call_api(proc: PluginProcess, params: dict[str, Any]) -> dict[str, Any]:
+    """A REST call as the plugin (for its panels): the same rules as the plugin's own calls."""
+    return await _api(proc, params)
 
 
 async def _api(proc: PluginProcess, params: dict[str, Any]) -> dict[str, Any]:

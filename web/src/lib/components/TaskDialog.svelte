@@ -12,6 +12,8 @@
 	import { PastedImages } from '$lib/pastedImages.svelte';
 	import { relativeTime, absoluteTime, bytes, duration } from '$lib/format';
 	import PluginActions from './PluginActions.svelte';
+	import PluginFrame from './PluginFrame.svelte';
+	import { pluginPanels } from '$lib/plugins.svelte';
 	import { Button, Chip, Dialog, Icon, IconButton, Menu, MenuItem, Select, Switch, Tabs, TextField, Avatar, TagInput } from '$lib/m3';
 	import StatusChip from './StatusChip.svelte';
 	import JobConsole from './JobConsole.svelte';
@@ -66,7 +68,8 @@
 	$effect(() => {
 		if (!editable && Object.values(task.command_args ?? {}).some(isListRef) && !lists.loaded) void lists.load();
 	});
-	let tab = $state<'run' | 'output' | 'comments' | 'attachments' | 'fields' | 'history'>('output');
+	// Built-in tabs, or a plugin's (`plugin:<plugin id>:<panel id>`, manifest `ui` slot card.tab).
+	let tab = $state<'run' | 'output' | 'comments' | 'attachments' | 'fields' | 'history' | `plugin:${string}`>('output');
 
 	// ---- editable fields (debounced save) ----
 	let title = $state('');
@@ -111,7 +114,7 @@
 		const wantedTab = params.get('tab');
 		tab = linked
 			? 'comments'
-			: wantedTab && ['run', 'output', 'comments', 'attachments', 'fields', 'history'].includes(wantedTab)
+			: wantedTab && (['run', 'output', 'comments', 'attachments', 'fields', 'history'].includes(wantedTab) || wantedTab.startsWith('plugin:'))
 				? (wantedTab as typeof tab)
 				: task.run
 					? 'run'
@@ -606,13 +609,17 @@
 	let runFiles = $derived(attachments.filter((a) => a.job_id && a.job_id === selectedJob?.id));
 	let screenshots = $derived(attachments.filter((a) => a.content_type.startsWith('image/')));
 	let files = $derived(attachments.filter((a) => !a.content_type.startsWith('image/')));
+	$effect(() => void pluginPanels.load(task.project_id));
+	let cardPanels = $derived(task.playbook_step_id ? [] : pluginPanels.for(task.project_id, 'card.tab'));
+	let openPanel = $derived(tab.startsWith('plugin:') ? cardPanels.find((p) => tab === `plugin:${p.plugin.id}:${p.id}`) : undefined);
 	let tabs = $derived([
 		...(task.run ? [{ id: 'run', label: 'Run', icon: 'account_tree', badge: undefined }] : []),
 		...(task.kind === 'command' ? [{ id: 'output', label: 'Output', icon: 'terminal', badge: jobs.length }] : []),
 		{ id: 'comments', label: 'Comments', icon: 'chat_bubble', badge: comments.length },
 		{ id: 'attachments', label: 'Attachments', icon: 'attach_file', badge: attachments.length },
 		{ id: 'fields', label: 'Fields', icon: 'data_object', badge: Object.keys(task.custom_fields).length },
-		{ id: 'history', label: 'History', icon: 'history' }
+		{ id: 'history', label: 'History', icon: 'history' },
+		...cardPanels.map((p) => ({ id: `plugin:${p.plugin.id}:${p.id}`, label: p.title, icon: p.icon, badge: undefined }))
 	]);
 </script>
 
@@ -1054,6 +1061,11 @@
 						<li class="body-medium text-on-surface-variant">No history.</li>
 					{/each}
 				</ol>
+			{:else if openPanel}
+				{#key openPanel.url}
+					<PluginFrame panel={openPanel} projectId={task.project_id} task={{ id: task.id, title: task.title }} />
+				{/key}
+				<p class="mt-2 body-small text-on-surface-variant">From the {openPanel.plugin.name} plugin.</p>
 			{/if}
 		</div>
 
