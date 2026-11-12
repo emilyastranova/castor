@@ -26,6 +26,9 @@ class AppSettings(BaseModel):
     # Signing in with a username and password. Off (with a sign-on provider enabled): only
     # single sign-on; `castor-admin password-login on` turns it back on from the shell.
     password_login: bool = True
+    # The theme for everyone who hasn't picked one, and for the sign-in page on a browser that has
+    # never signed in: a theme_definitions id, or "" for Castor's own.
+    default_theme: str = Field(default="", max_length=64)
 
 
 async def load(db: AsyncSession) -> AppSettings:

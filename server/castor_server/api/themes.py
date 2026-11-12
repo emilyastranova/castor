@@ -10,10 +10,12 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
+from .. import app_settings
 from .. import models as m
 from ..deps import DB, Admin, CurrentUser
 from ..events import bus
 from ..services import actor_of, record_activity
+from ..theme_contrast import check as contrast
 from ..theme_library import definition_from_spec, forget_theme
 from ..theme_spec import ThemeSpec, compile_css, parse_theme_spec, stylesheets
 
@@ -40,13 +42,15 @@ class ThemeOut(BaseModel):
     version: int = 1
     used_by: int = 0  # people who picked it
     spec: dict[str, Any] = Field(default_factory=dict)
+    # Text roles below 4.5:1 on their surfaces (theme_contrast.check): {mode, text, surface, ratio, message}.
+    contrast: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def _theme_out(spec: ThemeSpec, origin: str = "user", source_yaml: str = "", version: int = 1, used_by: int = 0) -> ThemeOut:
     return ThemeOut(id=spec.id, origin=origin, name=spec.name, description=spec.description, modes=spec.modes,
                     colour=spec.colour, default_colour=spec.default_colour, preview=spec.preview_colours(),
                     css=compile_css(spec), stylesheets=stylesheets(spec), source_yaml=source_yaml, version=version,
-                    used_by=used_by, spec=spec.model_dump(mode="json"))
+                    used_by=used_by, spec=spec.model_dump(mode="json"), contrast=contrast(spec))
 
 
 async def _counts(db: DB) -> dict[str, int]:
@@ -77,6 +81,29 @@ async def list_themes(db: DB, _: CurrentUser):
         except ValueError:  # a stored spec from an older format: leave it out rather than fail
             continue
     return out
+
+
+class DefaultThemeOut(BaseModel):
+    id: str  # "" for Castor's own
+    modes: str = "both"
+    colour: str = "palette"
+    css: str = ""
+    stylesheets: list[str] = Field(default_factory=list)
+
+
+@router.get("/default", response_model=DefaultThemeOut)
+async def default_theme(db: DB):
+    """The instance's default theme (Settings → Themes), for everyone who hasn't picked one and for
+    the sign-in page: public, since it's shown before anyone signs in."""
+    chosen = (await app_settings.load(db)).default_theme
+    row = await db.get(m.ThemeDefinition, chosen) if chosen else None
+    if row is None:
+        return DefaultThemeOut(id="")
+    try:
+        spec = ThemeSpec.model_validate(row.spec)
+    except ValueError:
+        return DefaultThemeOut(id="")
+    return DefaultThemeOut(id=spec.id, modes=spec.modes, colour=spec.colour, css=compile_css(spec), stylesheets=stylesheets(spec))
 
 
 @router.get("/{theme_id}", response_model=ThemeOut)
@@ -132,7 +159,8 @@ async def update_theme(theme_id: str, body: ThemeYamlIn, db: DB, user: Admin):
 
 @router.delete("/{theme_id}", status_code=204)
 async def delete_theme(theme_id: str, db: DB, user: Admin):
-    """Remove a custom theme; anyone using it goes back to Castor's own."""
+    """Remove a custom theme; anyone using it goes back to the instance default (and if it was the
+    default, that becomes Castor's own)."""
     row = await db.get(m.ThemeDefinition, theme_id)
     if row is None:
         raise HTTPException(404, "Theme not found")

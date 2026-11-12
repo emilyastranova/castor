@@ -433,9 +433,13 @@ publishes `summary.updated`; a written summary records `summary.written` in the 
 
 Themes for the web UI live in `theme_definitions` (`id`, `origin` builtin|user, `spec`,
 `source_yaml`): built-ins from `themes/*.yaml` (`CASTOR_THEMES_DIR`), custom ones from admins.
-`users.theme` holds a person's choice (`""` is Castor's own look). `GET /api/themes` returns
-each with the CSS `theme_spec.compile_css` makes of it; the browser injects that and caches it
-for first paint. Changes publish `themes.changed`. Format: [THEME_SPEC.md](THEME_SPEC.md).
+`users.theme` holds a person's choice (`""` is Castor's own look, null follows
+`app_settings.default_theme`). `GET /api/themes` returns each with the CSS `theme_spec.compile_css`
+makes of it and its `contrast` warnings (`theme_contrast.check`); the browser injects the CSS and
+caches it for first paint. `GET /api/themes/default` (public) is the default, which
+`hooks.server.ts` puts in every page for a browser that has never saved a theme (the sign-in
+page). Custom themes travel in library archives (`transfer.LIBRARY`). Changes, and a new default,
+publish `themes.changed`. Format: [THEME_SPEC.md](THEME_SPEC.md).
 
 ## Assets
 

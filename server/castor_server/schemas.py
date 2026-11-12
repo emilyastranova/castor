@@ -41,8 +41,8 @@ class UserOut(ORM):
     has_upload: bool = False
     # Their theme colour (#rrggbb), or "" for the default palette.
     theme_seed: str = ""
-    # Their theme (a theme_definitions id; "" for Castor's own).
-    theme: str = ""
+    # Their theme (a theme_definitions id; "" for Castor's own; null: the instance default).
+    theme: str | None = None
     # The Companion on their timelines (off by default): their own picture (None: the built-in
     # one) and its seat line (0–1 from the top).
     companion: bool = False
@@ -96,7 +96,8 @@ class PasswordChange(BaseModel):
 class ProfilePatch(BaseModel):
     display_name: str | None = Field(None, min_length=1, max_length=128)
     theme_seed: str | None = Field(None, pattern=r"^(#[0-9a-fA-F]{6})?$")
-    theme: str | None = Field(None, max_length=64)  # a theme_definitions id, or "" for Castor's own
+    # A theme_definitions id, "" for Castor's own, or null to follow the instance default.
+    theme: str | None = Field(None, max_length=64)
     companion: bool | None = None
     companion_seat: float | None = Field(None, ge=0.05, le=0.95)
 

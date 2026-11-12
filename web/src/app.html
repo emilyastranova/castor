@@ -17,6 +17,8 @@
 			href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,300..800&family=Roboto+Mono:wght@400;500&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300..600,0..1,0&display=swap"
 			rel="stylesheet"
 		/>
+		<!-- The instance's default theme (hooks.server.ts), for a browser that has never signed in. -->
+		<script id="castor-default-theme" type="application/json">%castor.default_theme%</script>
 		<script>
 			// Apply the saved theme before first paint to avoid a flash.
 			try {
@@ -25,7 +27,14 @@
 				if (t === 'light' || t === 'dark') root.dataset.theme = t;
 				// The chosen theme (docs/THEME_SPEC.md, lib/m3/theme.ts applyTheme): its compiled CSS,
 				// its stylesheets, and what the theme colour does with it.
-				const skin = JSON.parse(localStorage.getItem('castor.skin') || 'null');
+				// Nothing saved: this browser has never signed in, so it shows the instance default.
+				const saved = localStorage.getItem('castor.skin');
+				let skin = JSON.parse(saved || 'null');
+				if (saved === null) {
+					try {
+						skin = JSON.parse(document.getElementById('castor-default-theme').textContent || 'null');
+					} catch {}
+				}
 				if (skin && skin.id) {
 					root.dataset.skin = skin.id;
 					const style = document.createElement('style');

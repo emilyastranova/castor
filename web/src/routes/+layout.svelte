@@ -52,7 +52,7 @@
 	$effect(() => {
 		if (!data.user) return;
 		void themes.load();
-		const theme = themes.byId(data.user.theme);
+		const theme = themes.effective(data.user.theme);
 		if (theme && (theme.id !== currentTheme().id || theme.css !== currentTheme().css)) applyTheme(theme);
 		dark = isDark();
 	});
@@ -62,7 +62,7 @@
 			if (e.name === 'themes.changed') void themes.load(true);
 		})
 	);
-	let oneMode = $derived((themes.byId(data.user?.theme)?.modes ?? currentTheme().modes) !== 'both');
+	let oneMode = $derived((themes.effective(data.user?.theme)?.modes ?? currentTheme().modes) !== 'both');
 
 	$effect.pre(() => {
 		if (data.user) currentProject.init(data.user.id);

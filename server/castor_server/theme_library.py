@@ -26,8 +26,12 @@ def definition_from_spec(row: m.ThemeDefinition, spec: ThemeSpec, source_yaml: s
 
 
 async def forget_theme(db: AsyncSession, theme_id: str) -> None:
-    """People who had this theme go back to Castor's own."""
-    await db.execute(update(m.User).where(m.User.theme == theme_id).values(theme=""))
+    """People who had this theme go back to the instance default; if it was the default,
+    the default goes back to Castor's own."""
+    await db.execute(update(m.User).where(m.User.theme == theme_id).values(theme=None))
+    row = await db.get(m.AppSetting, "default_theme")
+    if row is not None and row.value == theme_id:
+        row.value = ""
 
 
 async def sync_builtin_themes(db: AsyncSession) -> int:

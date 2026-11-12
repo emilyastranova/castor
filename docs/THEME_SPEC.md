@@ -4,13 +4,20 @@ A theme restyles Castor's web UI. It is a YAML file: colours for light and dark,
 corners, elevation, icons, and any extra CSS. The server checks it and compiles it to CSS
 scoped to `html:root[data-skin='<id>']`; the browser injects that CSS when someone picks the
 theme (Account → Theme), and remembers it so the next page, and the sign-in page, paint in it
-straight away.
+straight away. People who never picked one see the instance default (below).
 
 - **Built-in themes** are files in `themes/` (`CASTOR_THEMES_DIR`), loaded at start-up and
-  read-only in the UI. `themes/astralabs.yaml` is the reference example.
+  read-only in the UI. Castor ships AstraLabs, High contrast and Compact;
+  `themes/astralabs.yaml` is the fullest example, `themes/compact.yaml` the smallest.
 - **Custom themes** are added by admins in Settings → Themes (or `POST /api/themes`, or the
-  MCP tools `create_theme`, `update_theme`…). Deleting one sends its users back to Castor's own
-  look.
+  MCP tools `create_theme`, `update_theme`…). Deleting one sends its users back to the default.
+  Custom themes travel between instances in library archives (Settings → Themes, Import and
+  Export; `library/themes/<id>.yaml`, or a single theme `.yaml`); only admins import them.
+- **The default** (Settings → Themes, **Default for everyone**; `app_settings.default_theme`) is the
+  theme of everyone who hasn't picked one (`users.theme` is null; `""` is choosing Castor's own) and
+  of the sign-in page on a browser that has never signed in: the web server puts it in the page
+  (`hooks.server.ts`, from the public `GET /api/themes/default`) and `app.html` paints in it when
+  the browser has no theme saved. Deleting the default theme makes Castor's own the default.
 - **Castor's own look** (`id: ""`) isn't a theme file: it is the default Material 3 palette,
   coloured from each person's theme colour.
 
@@ -66,6 +73,8 @@ Anything a theme leaves out keeps Castor's value, so a theme can be as small as 
 | `type.icon_fill` | (Castor's) | `false` never fills icons, `true` always does; left out, the active navigation icon is filled. |
 | `shape.square` | `false` | Square every corner in the app (pills, avatars, dialogs, chips), except spinners and radio buttons. |
 | `shape.corners` | Castor's | Any of `extra-small` (4px), `small` (8px), `medium` (12px), `large` (16px), `extra-large` (28px), as a length. |
+| `size.spacing` | `0.25rem` | How dense the interface is: the step every padding, gap and control height is a multiple of (Tailwind's `--spacing`), `0.15rem`–`0.4rem` (or px). `0.2rem` is a fifth tighter. |
+| `size.text` | `1` | Scales every type style, `0.75`–`1.5` (`0.9375` is 15px body text instead of 16px). |
 | `elevation` | `shadow` | `shadow` (Material shadows), `hairline` (a 1px `outline-variant` line instead of every shadow, brighter on hover) or `none`. |
 | `colours.dark`, `colours.light` | `{}` | Colour roles for each mode (see below). A dark-only theme has no `light`, and the other way round. |
 | `preview` | from the colours | Four `#rrggbb` colours for the picker's tile: background, surface, text, accent. |
@@ -113,6 +122,17 @@ out from the person's colour, vivid enough to read on the theme's surfaces (ligh
 dark tones on light), and your values are what they get with "Default". So write your CSS
 against `var(--md-sys-color-primary)` and `var(--theme-primary-hover)`, not a hex, and it follows
 their colour.
+
+## The contrast check
+
+Every theme is checked against WCAG's 4.5:1 for normal text: each text role on the surfaces it's
+written on (`on-surface` on `surface` and every `surface-container…`, `on-surface-variant` on the
+surfaces, `primary` and `error` as text on `surface`, each `on-x` on its `x`, `inverse-on-surface` on
+`inverse-surface`), in each of the theme's modes. Roles the theme leaves out are Castor's own; a pair
+that is Castor's on both sides isn't reported, and a colour the check can't work out (`color-mix()`,
+`oklch()`) is skipped. It's a warning, not a refusal: the editor lists the pairs below 4.5:1, worst
+first, after **Try it** or **Save**, and Settings → Themes shows how many a theme has
+(`GET /api/themes` returns them as `contrast`). Code: `theme_contrast.py`.
 
 ## Extra CSS
 

@@ -142,8 +142,9 @@ class User(Base, TimestampMixin):
     avatar_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     # Their Material You seed colour (#rrggbb); empty means the default palette.
     theme_seed: Mapped[str] = mapped_column(String(9), default="", server_default="")
-    # Their theme (schemas.THEMES): "" is Castor's own Material look.
-    theme: Mapped[str] = mapped_column(String(32), default="", server_default="")
+    # Their theme (a theme_definitions id): "" is Castor's own Material look; None (never picked)
+    # follows the instance default (app_settings.default_theme).
+    theme: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
     # The Companion who sits on the newest comment in a timeline; off unless they turn her on.
     companion: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     # Their own companion picture (avatars.companion_dir), or "" for the built-in one, and where

@@ -47,6 +47,7 @@
 	}
 }
 
+/* Type styles scale with --md-sys-typescale-scale (a theme's size.text); spacing with --spacing. */
 /* Window heights the navigation rail adapts to: tighter spacing, then icons only. */
 @custom-variant short (@media (max-height: 1040px));
 @custom-variant shorter (@media (max-height: 870px));
@@ -140,21 +141,21 @@
 }
 
 /* ---------- Type scale ---------- */
-@utility display-large { font: 400 3.5625rem/4rem var(--md-sys-typescale-font); letter-spacing: -0.016rem; }
-@utility display-medium { font: 400 2.8125rem/3.25rem var(--md-sys-typescale-font); }
-@utility display-small { font: 400 2.25rem/2.75rem var(--md-sys-typescale-font); }
-@utility headline-large { font: 400 2rem/2.5rem var(--md-sys-typescale-font); }
-@utility headline-medium { font: 400 1.75rem/2.25rem var(--md-sys-typescale-font); }
-@utility headline-small { font: 400 1.5rem/2rem var(--md-sys-typescale-font); }
-@utility title-large { font: 500 1.375rem/1.75rem var(--md-sys-typescale-font); }
-@utility title-medium { font: 500 1rem/1.5rem var(--md-sys-typescale-font); letter-spacing: 0.009rem; }
-@utility title-small { font: 500 0.875rem/1.25rem var(--md-sys-typescale-font); letter-spacing: 0.006rem; }
-@utility body-large { font: 400 1rem/1.5rem var(--md-sys-typescale-font); letter-spacing: 0.03rem; }
-@utility body-medium { font: 400 0.875rem/1.25rem var(--md-sys-typescale-font); letter-spacing: 0.016rem; }
-@utility body-small { font: 400 0.75rem/1rem var(--md-sys-typescale-font); letter-spacing: 0.025rem; }
-@utility label-large { font: 500 0.875rem/1.25rem var(--md-sys-typescale-font); letter-spacing: 0.006rem; }
-@utility label-medium { font: 500 0.75rem/1rem var(--md-sys-typescale-font); letter-spacing: 0.03rem; }
-@utility label-small { font: 500 0.6875rem/1rem var(--md-sys-typescale-font); letter-spacing: 0.03rem; }
+@utility display-large { font: 400 calc(3.5625rem * var(--md-sys-typescale-scale, 1))/calc(4rem * var(--md-sys-typescale-scale, 1)) var(--md-sys-typescale-font); letter-spacing: -0.016rem; }
+@utility display-medium { font: 400 calc(2.8125rem * var(--md-sys-typescale-scale, 1))/calc(3.25rem * var(--md-sys-typescale-scale, 1)) var(--md-sys-typescale-font); }
+@utility display-small { font: 400 calc(2.25rem * var(--md-sys-typescale-scale, 1))/calc(2.75rem * var(--md-sys-typescale-scale, 1)) var(--md-sys-typescale-font); }
+@utility headline-large { font: 400 calc(2rem * var(--md-sys-typescale-scale, 1))/calc(2.5rem * var(--md-sys-typescale-scale, 1)) var(--md-sys-typescale-font); }
+@utility headline-medium { font: 400 calc(1.75rem * var(--md-sys-typescale-scale, 1))/calc(2.25rem * var(--md-sys-typescale-scale, 1)) var(--md-sys-typescale-font); }
+@utility headline-small { font: 400 calc(1.5rem * var(--md-sys-typescale-scale, 1))/calc(2rem * var(--md-sys-typescale-scale, 1)) var(--md-sys-typescale-font); }
+@utility title-large { font: 500 calc(1.375rem * var(--md-sys-typescale-scale, 1))/calc(1.75rem * var(--md-sys-typescale-scale, 1)) var(--md-sys-typescale-font); }
+@utility title-medium { font: 500 calc(1rem * var(--md-sys-typescale-scale, 1))/calc(1.5rem * var(--md-sys-typescale-scale, 1)) var(--md-sys-typescale-font); letter-spacing: 0.009rem; }
+@utility title-small { font: 500 calc(0.875rem * var(--md-sys-typescale-scale, 1))/calc(1.25rem * var(--md-sys-typescale-scale, 1)) var(--md-sys-typescale-font); letter-spacing: 0.006rem; }
+@utility body-large { font: 400 calc(1rem * var(--md-sys-typescale-scale, 1))/calc(1.5rem * var(--md-sys-typescale-scale, 1)) var(--md-sys-typescale-font); letter-spacing: 0.03rem; }
+@utility body-medium { font: 400 calc(0.875rem * var(--md-sys-typescale-scale, 1))/calc(1.25rem * var(--md-sys-typescale-scale, 1)) var(--md-sys-typescale-font); letter-spacing: 0.016rem; }
+@utility body-small { font: 400 calc(0.75rem * var(--md-sys-typescale-scale, 1))/calc(1rem * var(--md-sys-typescale-scale, 1)) var(--md-sys-typescale-font); letter-spacing: 0.025rem; }
+@utility label-large { font: 500 calc(0.875rem * var(--md-sys-typescale-scale, 1))/calc(1.25rem * var(--md-sys-typescale-scale, 1)) var(--md-sys-typescale-font); letter-spacing: 0.006rem; }
+@utility label-medium { font: 500 calc(0.75rem * var(--md-sys-typescale-scale, 1))/calc(1rem * var(--md-sys-typescale-scale, 1)) var(--md-sys-typescale-font); letter-spacing: 0.03rem; }
+@utility label-small { font: 500 calc(0.6875rem * var(--md-sys-typescale-scale, 1))/calc(1rem * var(--md-sys-typescale-scale, 1)) var(--md-sys-typescale-font); letter-spacing: 0.03rem; }
 
 /* ---------- Touch target: on touch screens a small control answers to a 44px square around it,
    without looking any bigger (the ::after is invisible; state-layer uses ::before). ---------- */

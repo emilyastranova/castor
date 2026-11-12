@@ -1,0 +1,101 @@
+# High contrast: black on white, or white on black, with strong outlines, hairline edges instead
+# of shadows, underlined links and a thick focus ring. Every text role is 7:1 or more on its
+# surfaces (WCAG AAA), so the theme colour doesn't recolour it. The format: docs/THEME_SPEC.md.
+id: high-contrast
+name: High contrast
+description: Black and white with strong outlines, underlined links and a thick focus ring. Light and dark.
+modes: both
+colour: fixed
+elevation: hairline
+preview: ["#ffffff", "#f0f0f0", "#000000", "#0032a0"]
+colours:
+  light:
+    primary: "#0032a0"
+    on-primary: "#ffffff"
+    primary-container: "#d6e0ff"
+    on-primary-container: "#001548"
+    primary-hover: "#00227a"
+    secondary: "#2b2b2b"
+    on-secondary: "#ffffff"
+    secondary-container: "#e3e3e3"
+    on-secondary-container: "#000000"
+    tertiary: "#6b0f4b"
+    on-tertiary: "#ffffff"
+    tertiary-container: "#ffd8ee"
+    on-tertiary-container: "#3a0026"
+    error: "#a30000"
+    on-error: "#ffffff"
+    error-container: "#ffdcd8"
+    on-error-container: "#560000"
+    background: "#ffffff"
+    on-background: "#000000"
+    surface: "#ffffff"
+    on-surface: "#000000"
+    surface-variant: "#e6e6e6"
+    on-surface-variant: "#1f1f1f"
+    surface-dim: "#e0e0e0"
+    surface-bright: "#ffffff"
+    surface-container-lowest: "#ffffff"
+    surface-container-low: "#fafafa"
+    surface-container: "#f3f3f3"
+    surface-container-high: "#ececec"
+    surface-container-highest: "#e4e4e4"
+    inverse-surface: "#000000"
+    inverse-on-surface: "#ffffff"
+    inverse-primary: "#9db5ff"
+    outline: "#000000"
+    outline-variant: "#595959"
+    surface-tint: "#0032a0"
+  dark:
+    primary: "#ffd60a"
+    on-primary: "#000000"
+    primary-container: "#3d3300"
+    on-primary-container: "#fff3b0"
+    primary-hover: "#ffe45c"
+    secondary: "#e6e6e6"
+    on-secondary: "#000000"
+    secondary-container: "#2e2e2e"
+    on-secondary-container: "#ffffff"
+    tertiary: "#ffb3e4"
+    on-tertiary: "#000000"
+    tertiary-container: "#47002f"
+    on-tertiary-container: "#ffe0f3"
+    error: "#ff9e94"
+    on-error: "#000000"
+    error-container: "#5c0000"
+    on-error-container: "#ffe2de"
+    background: "#000000"
+    on-background: "#ffffff"
+    surface: "#000000"
+    on-surface: "#ffffff"
+    surface-variant: "#262626"
+    on-surface-variant: "#e8e8e8"
+    surface-dim: "#000000"
+    surface-bright: "#2a2a2a"
+    surface-container-lowest: "#000000"
+    surface-container-low: "#0a0a0a"
+    surface-container: "#121212"
+    surface-container-high: "#1c1c1c"
+    surface-container-highest: "#262626"
+    inverse-surface: "#ffffff"
+    inverse-on-surface: "#000000"
+    inverse-primary: "#5c4b00"
+    outline: "#ffffff"
+    outline-variant: "#a6a6a6"
+    surface-tint: "#ffd60a"
+css: |
+  /* Stronger hover and press, a focus ring you can't miss, links you can tell from text. */
+  --md-sys-state-hover: 0.14;
+  :focus-visible {
+    outline: 3px solid var(--md-sys-color-primary) !important;
+    outline-offset: 2px !important;
+  }
+  .prose-m3 a,
+  a.text-primary {
+    text-decoration: underline;
+    text-underline-offset: 0.15em;
+  }
+  ::selection {
+    background: var(--md-sys-color-primary);
+    color: var(--md-sys-color-on-primary);
+  }

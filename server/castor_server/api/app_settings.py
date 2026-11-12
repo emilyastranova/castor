@@ -37,6 +37,11 @@ async def update(body: dict[str, Any], db: DB, user: Admin):
             raise HTTPException(422, "password_login: turn on a sign-on provider first")
         if not (await db.execute(select(m.UserIdentity.id).where(m.UserIdentity.user_id == user.id))).first():
             raise HTTPException(422, "password_login: sign in with single sign-on yourself first, so you know it works")
+    if body.get("default_theme"):
+        from .. import models as m
+
+        if await db.get(m.ThemeDefinition, str(body["default_theme"])) is None:
+            raise HTTPException(422, f"default_theme: no theme “{body['default_theme']}”")
     try:
         settings = await app_settings.save(db, body, user.id)
     except ValidationError as exc:
@@ -47,4 +52,6 @@ async def update(body: dict[str, Any], db: DB, user: Admin):
                           project_id=None, **actor_of(user))
     await db.commit()
     bus.publish("settings.changed", None, settings.model_dump(mode="json"))
+    if "default_theme" in body:
+        bus.publish("themes.changed", None, {"default": settings.default_theme})
     return settings

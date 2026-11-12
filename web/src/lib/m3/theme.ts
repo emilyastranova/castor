@@ -285,8 +285,9 @@ export function applyTheme(theme: Pick<Theme, 'id' | 'modes' | 'colour' | 'css' 
 	const root = document.documentElement;
 	const saved: SavedTheme = { id: theme.id, modes: theme.modes, colour: theme.colour, css: theme.css, stylesheets: theme.stylesheets };
 	try {
-		if (theme.id) localStorage.setItem(SKIN_KEY, JSON.stringify(saved));
-		else localStorage.removeItem(SKIN_KEY);
+		// Castor's own is remembered too: a browser with no saved theme has never signed in, and
+		// shows the instance default (app.html).
+		localStorage.setItem(SKIN_KEY, JSON.stringify(saved));
 	} catch {
 		/* private mode: it still applies for this page */
 	}

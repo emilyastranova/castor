@@ -66,7 +66,7 @@
 			saving = false;
 		}
 	}
-	let theme = $derived(themes.byId(user.theme) ?? themes.byId('')!);
+	let theme = $derived(themes.effective(user.theme) ?? themes.byId('')!);
 </script>
 
 <Dialog bind:open title="Your account" icon="account_circle" size="sm">

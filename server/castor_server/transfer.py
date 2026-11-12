@@ -46,6 +46,7 @@ LIBRARY = {  # archive folder → (model, label); parsers first: commands name t
     "commands": (m.CommandDefinition, "command"),
     "tools": (m.ToolDefinition, "tool"),
     "playbooks": (m.PlaybookDefinition, "playbook"),
+    "themes": (m.ThemeDefinition, "theme"),  # custom themes; only admins import them
 }
 # A project's rows, in insert order (parents first). Jobs and activity are optional.
 PROJECT_TABLES: list[tuple[str, type]] = [
@@ -238,6 +239,7 @@ class ExportOptions:
     commands: list[str] = field(default_factory=list)
     tools: list[str] = field(default_factory=list)
     playbooks: list[str] = field(default_factory=list)
+    themes: list[str] = field(default_factory=list)
     variable_kinds: list[str] = field(default_factory=list)
     variable_sets: list[uuid.UUID] = field(default_factory=list)
     projects: list[uuid.UUID] = field(default_factory=list)
@@ -440,8 +442,9 @@ def single_yaml_archive(data: bytes, filename: str) -> bytes:
     except yaml.YAMLError as exc:
         raise TransferError(f"That YAML doesn't parse: {exc}") from exc
     if not isinstance(raw, dict) or not raw.get("id"):
-        raise TransferError("That YAML isn't a command, tool, parser or playbook (no id:)")
-    folder = "playbooks" if "steps" in raw else "parsers" if "format" in raw and "type" in raw and "command" not in raw else "tools" if ("image" in raw or "install" in raw or "check" in raw) and "command" not in raw else "commands"
+        raise TransferError("That YAML isn't a command, tool, parser, playbook or theme (no id:)")
+    themed = any(k in raw for k in ("colours", "modes", "colour", "default_colour", "font_faces", "shape", "elevation", "size"))
+    folder = "themes" if themed and "command" not in raw and "steps" not in raw else "playbooks" if "steps" in raw else "parsers" if "format" in raw and "type" in raw and "command" not in raw else "tools" if ("image" in raw or "install" in raw or "check" in raw) and "command" not in raw else "commands"
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr(f"library/{folder}/{raw['id']}.yaml", data)
@@ -512,9 +515,11 @@ def _spec_parser(folder: str):
     from .command_spec import parse_spec
     from .parser_spec import parse_parser_spec
     from .playbook_spec import parse_playbook_spec
+    from .theme_spec import parse_theme_spec
     from .tool_spec import parse_tool_spec
 
-    return {"parsers": parse_parser_spec, "commands": parse_spec, "tools": parse_tool_spec, "playbooks": parse_playbook_spec}[folder]
+    return {"parsers": parse_parser_spec, "commands": parse_spec, "tools": parse_tool_spec, "playbooks": parse_playbook_spec,
+            "themes": parse_theme_spec}[folder]
 
 
 def _archive_parsers(archive: Archive) -> list[Any]:
@@ -595,6 +600,11 @@ async def _plan(db: AsyncSession, user: m.User, archive: Archive, passphrase: st
                 state = "same" if row.spec == spec.model_dump(mode="json") else "builtin"
             else:
                 state = "same" if row.spec == spec.model_dump(mode="json") else "exists"
+            if folder == "themes" and not user.is_admin and state != "same":
+                notes.append("only admins add themes; it will be skipped")
+                items.append({"key": f"{label}:{spec.id}", "kind": label, "id": spec.id, "name": spec.name, "state": state,
+                              "choices": ["skip"], "default": "skip", "new_name": "", "notes": notes})
+                continue
             item(label, spec.id, spec.name, state, new_name=_free(spec.id, taken) if row else "", notes=notes)
 
     set_names = {n for (n,) in (await db.execute(select(m.VariableSet.name))).all()}
@@ -689,6 +699,7 @@ async def _run_import(
     from .command_library import definition_from_spec as command_from_spec
     from .parser_library import definition_from_spec as parser_from_spec
     from .playbook_library import definition_from_spec as playbook_from_spec
+    from .theme_library import definition_from_spec as theme_from_spec
     from .tool_library import definition_from_spec as tool_from_spec
 
     sec = Secrets.for_import(archive.manifest, passphrase)
@@ -754,8 +765,9 @@ async def _run_import(
         result.add("variable kinds", k.get("name") or k["id"])
     await db.flush()
 
-    setters = {"parsers": parser_from_spec, "commands": command_from_spec, "tools": tool_from_spec, "playbooks": playbook_from_spec}
-    for folder in ("parsers", "tools", "commands", "playbooks"):
+    setters = {"parsers": parser_from_spec, "commands": command_from_spec, "tools": tool_from_spec, "playbooks": playbook_from_spec,
+               "themes": theme_from_spec}
+    for folder in ("parsers", "tools", "commands", "playbooks", "themes"):
         model, label = LIBRARY[folder]
         for name in archive.library(folder):
             text = archive.text(name)

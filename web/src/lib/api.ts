@@ -26,8 +26,9 @@ export interface User {
 	has_upload: boolean;
 	/** Their theme colour (#rrggbb), or '' for the default palette. */
 	theme_seed: string;
-	/** Their theme (lib/m3/themes.ts): "" for Castor's own. */
-	theme: string;
+	/** Their theme: "" for Castor's own, null (never picked) for the instance default
+	 *  (lib/themes.svelte.ts `effective`). */
+	theme: string | null;
 	/** The Companion on their timelines (off by default): their own picture (null: the built-in
 	 *  one) and its seat line, 0–1 from the top. */
 	companion?: boolean;
@@ -1249,7 +1250,7 @@ export function api(fetchFn: Fetch = fetch) {
 				post<{ token: string; user: User }>('/auth/login', { username, password }),
 			logout: () => post<void>('/auth/logout'),
 			me: () => get<User>('/auth/me'),
-			updateMe: (body: { display_name?: string; theme_seed?: string; theme?: string; companion?: boolean; companion_seat?: number }) => patch<User>('/auth/me', body),
+			updateMe: (body: { display_name?: string; theme_seed?: string; theme?: string | null; companion?: boolean; companion_seat?: number }) => patch<User>('/auth/me', body),
 			/** Your own companion picture (only you see it). */
 			uploadCompanion: (file: File) => {
 				const form = new FormData();
@@ -1544,7 +1545,9 @@ export function api(fetchFn: Fetch = fetch) {
 			create: (yaml: string) => post<Theme>('/themes', { yaml }),
 			update: (id: string, yaml: string) => request<Theme>(fetchFn, 'PUT', `/themes/${id}`, { yaml }),
 			remove: (id: string) => del(`/themes/${id}`),
-			validate: (yaml: string) => post<{ ok: boolean; errors: string[]; theme: Theme | null }>('/themes/validate', { yaml })
+			validate: (yaml: string) => post<{ ok: boolean; errors: string[]; theme: Theme | null }>('/themes/validate', { yaml }),
+			/** The instance default (public: the sign-in page shows it). */
+			default: () => get<DefaultTheme>('/themes/default')
 		},
 		tools: {
 			list: () => get<ToolDefinition[]>('/tools'),
@@ -1798,6 +1801,8 @@ export interface AppSettings {
 	ai_chains: Record<string, { provider: UUID; model: string }[]>;
 	/** Signing in with a password; off means single sign-on only (while a provider is on). */
 	password_login: boolean;
+	/** The theme for everyone who hasn't picked one, and the sign-in page ("" for Castor's own). */
+	default_theme: string;
 }
 
 /** People put together: @slug mentions them all; a project shared with it is theirs to see. */
@@ -1888,7 +1893,20 @@ export interface Theme {
 	version: number;
 	used_by: number;
 	spec: Record<string, unknown>;
+	/** Text roles below 4.5:1 on their surfaces, worst first (server theme_contrast.py). */
+	contrast?: ThemeContrast[];
 }
+
+export interface ThemeContrast {
+	mode: 'light' | 'dark';
+	text: string;
+	surface: string;
+	ratio: number;
+	message: string;
+}
+
+/** What the browser needs to show the instance's default theme ("" id: Castor's own). */
+export type DefaultTheme = Pick<Theme, 'id' | 'modes' | 'colour' | 'css' | 'stylesheets'>;
 
 export interface AiProviderIn {
 	name: string;
@@ -1970,6 +1988,7 @@ export interface ExportRequest {
 	commands?: string[];
 	tools?: string[];
 	playbooks?: string[];
+	themes?: string[];
 	variable_kinds?: string[];
 	variable_sets?: UUID[];
 	projects?: UUID[];

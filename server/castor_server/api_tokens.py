@@ -160,6 +160,7 @@ RULES: list[tuple[str, str, str]] = [
     ("*", "/api/parsers/**", "library:rw"),
     ("*", "/api/variables/kinds/**", "library:rw"),
     # Themes: everyone reads them; changing them is for admins (checked by the endpoints)
+    ("GET", "/api/themes/default", PUBLIC),  # the sign-in page's look, before anyone signs in
     ("POST", "/api/themes/validate", "library:read"),
     ("*", "/api/themes", "library:rw"),
     ("*", "/api/themes/**", "library:rw"),

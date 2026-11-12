@@ -159,7 +159,7 @@ async def update_me(body: ProfilePatch, db: DB, user: CurrentUser):
         user.display_name = body.display_name.strip()
     if body.theme_seed is not None:
         user.theme_seed = body.theme_seed.lower()
-    if body.theme is not None:
+    if "theme" in body.model_fields_set:  # null: back to the instance default
         if body.theme and await db.get(m.ThemeDefinition, body.theme) is None:
             raise HTTPException(422, f"theme: no theme “{body.theme}”")
         user.theme = body.theme

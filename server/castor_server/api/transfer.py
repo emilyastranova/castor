@@ -29,6 +29,7 @@ class ExportIn(BaseModel):
     commands: list[str] = []
     tools: list[str] = []
     playbooks: list[str] = []
+    themes: list[str] = []
     variable_kinds: list[str] = []
     variable_sets: list[uuid.UUID] = []
     projects: list[uuid.UUID] = []
@@ -77,7 +78,7 @@ async def export(body: ExportIn, db: DB, user: CurrentUser):
 
 
 def _summary(contents: dict[str, int]) -> str:
-    words = {"parsers": "parser", "commands": "command", "tools": "tool", "playbooks": "playbook", "variable_kinds": "variable kind",
+    words = {"parsers": "parser", "commands": "command", "tools": "tool", "playbooks": "playbook", "themes": "theme", "variable_kinds": "variable kind",
              "variable_sets": "variable set", "projects": "project", "users": "user"}
     parts = [f"{n} {words.get(k, k)}{'' if n == 1 else 's'}" for k, n in contents.items() if n]
     return ", ".join(parts) or "nothing"
@@ -183,6 +184,8 @@ async def run_import(body: ImportIn, db: DB, user: Operator):
         bus.publish("project.members", None, {"project_id": pid, "user_ids": [str(u) for u in members]})
     if result.imported.get("tools"):
         bus.publish("tools.changed", None, {})
+    if result.imported.get("themes"):
+        bus.publish("themes.changed", None, {})
     return ImportOut(imported=result.imported, skipped=result.skipped, created_users=result.created_users, projects=result.projects)
 
 

@@ -1,0 +1,16 @@
+# Compact: Castor's own look, denser. Every padding, gap and control height is a fifth smaller
+# (spacing 0.2rem instead of 0.25rem) and text a little smaller, for more on a screen. Takes your
+# theme colour like Castor's own. The format: docs/THEME_SPEC.md.
+id: compact
+name: Compact
+description: Castor's own look, tighter, for more on a screen. Smaller spacing and text, in light and dark.
+modes: both
+colour: palette
+size:
+  spacing: 0.2rem
+  text: 0.9375
+shape:
+  corners:
+    medium: 10px
+    large: 14px
+    extra-large: 22px

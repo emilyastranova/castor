@@ -132,6 +132,28 @@ class ShapeSpec(BaseModel):
         return {k: str(val) for k, val in v.items()}
 
 
+class SizeSpec(BaseModel):
+    """How dense the interface is. `spacing` is the step every padding, gap and control height is
+    a multiple of (Tailwind's --spacing; Castor's is 0.25rem); `text` scales every type style."""
+
+    model_config = ConfigDict(extra="forbid")
+    spacing: str | None = None
+    text: float = Field(1.0, ge=0.75, le=1.5)
+
+    @field_validator("spacing")
+    @classmethod
+    def _spacing(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        mt = re.match(r"^(\d+(?:\.\d+)?)(px|rem)$", str(v).strip())
+        if not mt:
+            raise ValueError("a length in px or rem, like 0.2rem or 3px")
+        rem = float(mt[1]) / (16 if mt[2] == "px" else 1)
+        if not 0.15 <= rem <= 0.4:
+            raise ValueError("between 0.15rem and 0.4rem (Castor's is 0.25rem)")
+        return str(v).strip()
+
+
 class Colours(BaseModel):
     model_config = ConfigDict(extra="forbid")
     light: dict[str, str] = Field(default_factory=dict)
@@ -166,6 +188,7 @@ class ThemeSpec(BaseModel):
     font_faces: list[FontFace] = Field(default_factory=list)
     type: TypeSpec = Field(default_factory=TypeSpec)
     shape: ShapeSpec = Field(default_factory=ShapeSpec)
+    size: SizeSpec = Field(default_factory=SizeSpec)
     elevation: Literal["shadow", "hairline", "none"] = "shadow"
     colours: Colours = Field(default_factory=Colours)
     # For the picker's tile: background, surface, text, accent (taken from the colours if left out).
@@ -316,6 +339,10 @@ def compile_css(spec: ThemeSpec) -> str:
         common.append(f"--md-sys-typescale-mono: {spec.type.mono};")
     for k, v in spec.shape.corners.items():
         common.append(f"--md-sys-shape-corner-{k}: {v};")
+    if spec.size.spacing:
+        common.append(f"--spacing: {spec.size.spacing};")
+    if spec.size.text != 1:
+        common.append(f"--md-sys-typescale-scale: {spec.size.text:g};")
     if spec.elevation != "shadow":
         rule = "0 0 0 1px var(--md-sys-color-outline-variant)" if spec.elevation == "hairline" else "none"
         lifted = ("0 0 0 1px color-mix(in oklab, var(--md-sys-color-outline-variant), var(--md-sys-color-on-surface) 28%)"

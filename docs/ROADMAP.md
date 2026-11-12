@@ -63,16 +63,6 @@ Card tags (per project) and agent tags can be renamed and merged; library tags (
 playbooks) can't yet, because they live in each definition's YAML and the built-in ones are
 re-read from files at startup.
 
-### More themes
-Themes are built: a [theme spec](THEME_SPEC.md), AstraLabs as the first built-in, and custom
-themes admins add in Settings → Themes. Still to come:
-- **More looks:** high contrast, and a denser "compact" layout (which needs spacing and size
-  tokens in the spec, not only colours, type and shape).
-- **An instance default:** a theme admins choose for everyone who hasn't picked one, and for the
-  sign-in page on a browser that has never signed in.
-- **Moving themes between instances:** custom themes in library [import and export](https://github.com/emilyastranova/castor/wiki/Import-and-Export).
-- **A contrast check:** the editor warning when text roles fall below 4.5:1 on their surfaces.
-
 ## More
 
 Further ideas, smaller or less settled:

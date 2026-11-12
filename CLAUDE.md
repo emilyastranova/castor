@@ -343,6 +343,10 @@ dependency; keep it that way so the agent stays trivially installable on target 
   `ThemeEditor`'s Try it). `users.theme` is the choice; web `lib/themes.svelte.ts` lists them, `m3/theme.ts`
   `applyTheme` injects the CSS and caches it for `app.html`'s first paint. A theme's `colour` says what the theme colour
   does: `palette`, `accent` (`theme.ts` `accent()` sets `--theme-accent…`, see `theme_spec.ACCENT_VARS`) or `fixed`.
+  `size` sets `--spacing` (Tailwind's step) and `--md-sys-typescale-scale` (app.css type styles multiply by it).
+  `users.theme` null follows `app_settings.default_theme` (web `themes.effective`); the default reaches the sign-in page
+  through `hooks.server.ts` (`%castor.default_theme%` in app.html). `theme_contrast.py` warns below 4.5:1 (its `CASTOR`
+  colours must match tokens.css; a test checks). Custom themes are a `transfer.LIBRARY` folder.
   Themes target the `m3-*` hook classes on components (`m3-btn-<variant>`, `m3-tab`, `m3-switch`, `m3-rail-ind`,
   `m3-snackbar`, `m3-dialog`, `job-console`); give a new component one if a theme needs it, and list it in the spec.
 - `lib/api.ts` is the typed client; pass SvelteKit's `fetch` in load functions

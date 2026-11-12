@@ -105,4 +105,103 @@ def test_custom_themes_are_for_admins_and_people_pick_them(client, auth):
     assert client.put("/api/themes/astralabs", json={"yaml": changed}, headers=auth).status_code == 409
     assert client.delete("/api/themes/astralabs", headers=auth).status_code == 409
     assert client.delete("/api/themes/test-dusk", headers=auth).status_code == 204
-    assert client.get("/api/auth/me", headers=uh).json()["theme"] == ""  # back to Castor's own
+    assert client.get("/api/auth/me", headers=uh).json()["theme"] is None  # back to the instance default
+
+
+def test_size_tokens():
+    spec = parse_theme_spec("id: dense\nname: Dense\nsize: {spacing: 0.2rem, text: 0.9}\n")
+    css = compile_css(spec)
+    assert "--spacing: 0.2rem;" in css and "--md-sys-typescale-scale: 0.9;" in css
+    assert "--spacing" not in compile_css(parse_theme_spec("id: plain\nname: Plain\n"))
+    for bad in ("{spacing: 1rem}", "{spacing: 4em}", "{text: 3}"):
+        with pytest.raises(ValueError, match="size"):
+            parse_theme_spec(f"id: dense\nname: Dense\nsize: {bad}\n")
+
+
+def test_contrast_check():
+    from castor_server import theme_contrast as C
+
+    # Castor's own colours here are the generated tokens.
+    tokens = (Path(__file__).resolve().parents[2] / "web/src/lib/m3/tokens.css").read_text()
+    for mode, block in (("light", tokens.split(":root[data-theme='dark']")[0]),
+                        ("dark", tokens.split(":root[data-theme='dark']")[1].split("@media")[0])):
+        for role, value in C.CASTOR[mode].items():
+            assert f"--md-sys-color-{role}: {value};" in block, (mode, role)
+
+    weak = parse_theme_spec("id: weak\nname: Weak\nmodes: light\ncolours:\n  light: {on-surface: '#999999', on-primary: '#ffffff', "
+                            "primary: 'var(--md-sys-color-on-surface)', error: 'color-mix(in oklab, red, white)'}\n")
+    found = {(w["text"], w["surface"]) for w in C.check(weak)}
+    assert ("on-surface", "surface") in found and ("on-primary", "primary") in found  # a role pointing at another is followed
+    assert not any(t == "error" for t, _ in found)  # color-mix: not worked out, so not reported
+    assert C.check(weak)[0]["ratio"] <= C.check(weak)[-1]["ratio"]
+    assert C.check(parse_theme_spec(SMALL)) == []
+    # The built-ins pass, and High contrast is AAA (7:1) everywhere it sets.
+    for path in sorted(THEMES.glob("*.yaml")):
+        assert C.check(parse_theme_spec(path.read_text())) == [], path.name
+    hc = parse_theme_spec((THEMES / "high-contrast.yaml").read_text())
+    for mode, roles in (("light", hc.colours.light), ("dark", hc.colours.dark)):
+        for text, grounds in C.PAIRS.items():
+            for ground in grounds:
+                assert C.ratio(C._rgb(roles[text], roles), C._rgb(roles[ground], roles)) >= 7, (mode, text, ground)
+
+
+def test_instance_default_theme(client, auth):
+    name = f"dflt-{uuid.uuid4().hex[:6]}"
+    client.post("/api/users", json={"username": name, "role": "viewer", "password": "correct horse"}, headers=auth)
+    token = client.post("/api/auth/login", json={"username": name, "password": "correct horse"}).json()["token"]
+    client.cookies.clear()
+    uh = {"Authorization": f"Bearer {token}"}
+    assert client.get("/api/auth/me", headers=uh).json()["theme"] is None  # never picked
+    assert client.get("/api/themes/default").json()["id"] == ""  # public, Castor's own to start with
+
+    assert client.patch("/api/settings", json={"default_theme": "nope"}, headers=auth).status_code == 422
+    assert client.patch("/api/settings", json={"default_theme": "high-contrast"}, headers=uh).status_code == 403
+    assert client.patch("/api/settings", json={"default_theme": "high-contrast"}, headers=auth).status_code == 200
+    d = client.get("/api/themes/default").json()
+    assert d["id"] == "high-contrast" and "data-skin='high-contrast'" in d["css"] and d["colour"] == "fixed"
+    assert client.get("/api/settings", headers=uh).json()["default_theme"] == "high-contrast"
+
+    # Picking Castor's own is a choice ("" ), and null goes back to the default.
+    assert client.patch("/api/auth/me", json={"theme": ""}, headers=uh).json()["theme"] == ""
+    assert client.patch("/api/auth/me", json={"display_name": "Still Castor"}, headers=uh).json()["theme"] == ""
+    assert client.patch("/api/auth/me", json={"theme": None}, headers=uh).json()["theme"] is None
+
+    # Deleting the default theme puts everyone back on Castor's own.
+    custom = SMALL.replace("test-dusk", "test-default")
+    assert client.post("/api/themes", json={"yaml": custom}, headers=auth).status_code == 201
+    client.patch("/api/settings", json={"default_theme": "test-default"}, headers=auth)
+    assert client.delete("/api/themes/test-default", headers=auth).status_code == 204
+    assert client.get("/api/themes/default").json()["id"] == ""
+    assert client.get("/api/settings", headers=auth).json()["default_theme"] == ""
+
+
+def test_themes_travel_in_library_archives(client, auth):
+    custom = SMALL.replace("test-dusk", "test-travel").replace("name: Dusk", "name: Travel")
+    assert client.post("/api/themes", json={"yaml": custom}, headers=auth).status_code == 201
+    data = client.post("/api/export", json={"themes": ["test-travel"]}, headers=auth)
+    assert data.status_code == 200, data.text
+    client.delete("/api/themes/test-travel", headers=auth)
+
+    def preview(content, name, headers):
+        return client.post("/api/import/preview", files={"file": (name, content, "application/octet-stream")}, headers=headers)
+
+    # An operator can see it but not bring it in: themes are for admins.
+    name = f"thop-{uuid.uuid4().hex[:6]}"
+    client.post("/api/users", json={"username": name, "role": "operator", "password": "correct horse"}, headers=auth)
+    token = client.post("/api/auth/login", json={"username": name, "password": "correct horse"}).json()["token"]
+    client.cookies.clear()
+    item = next(i for i in preview(data.content, "t.castor.zip", {"Authorization": f"Bearer {token}"}).json()["items"] if i["kind"] == "theme")
+    assert item["choices"] == ["skip"] and "only admins" in item["notes"][0]
+
+    p = preview(data.content, "t.castor.zip", auth).json()
+    item = next(i for i in p["items"] if i["kind"] == "theme")
+    assert item["id"] == "test-travel" and item["state"] == "new"
+    r = client.post("/api/import", json={"token": p["token"], "filename": p["filename"]}, headers=auth)
+    assert r.status_code == 200, r.text
+    assert r.json()["imported"]["themes"] == ["Travel"]
+    assert client.get("/api/themes/test-travel", headers=auth).json()["origin"] == "user"
+
+    # A single theme .yaml imports the same way (here: the same again, so "same").
+    p = preview(custom.encode(), "travel.yaml", auth).json()
+    assert [(i["kind"], i["state"]) for i in p["items"]] == [("theme", "same")]
+    client.delete("/api/themes/test-travel", headers=auth)
