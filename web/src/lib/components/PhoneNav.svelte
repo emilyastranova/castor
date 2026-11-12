@@ -23,7 +23,7 @@
 	const active = (item: NavItem) => (item.exact || item.href === '/' ? current === item.href : current.startsWith(item.href));
 	let pinned = $derived(items.slice(0, 2));
 	let rest = $derived(items.slice(2));
-	let elsewhere = $derived(rest.some(active) || current.startsWith('/tokens') || current === '/projects');
+	let elsewhere = $derived(rest.some(active) || current.startsWith('/tokens') || current.startsWith('/plugins') || current === '/projects');
 
 	let sheet: HTMLDialogElement | undefined = $state();
 	let sheetOpen = $state(false);
@@ -133,6 +133,11 @@
 		<li>
 			<a href="/tokens" onclick={closeSheet} class="state-layer focus-ring flex h-12 w-full items-center gap-4 rounded-lg px-3 body-large text-on-surface">
 				<Icon name="key" class="text-on-surface-variant" />API tokens
+			</a>
+		</li>
+		<li>
+			<a href="/plugins" onclick={closeSheet} class="state-layer focus-ring flex h-12 w-full items-center gap-4 rounded-lg px-3 body-large text-on-surface">
+				<Icon name="extension" class="text-on-surface-variant" />Your plugin settings
 			</a>
 		</li>
 		{#if ontheme}

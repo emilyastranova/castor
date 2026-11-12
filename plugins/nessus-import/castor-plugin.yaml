@@ -8,6 +8,7 @@ description: "Bring a .nessus scan into a project's assets: hosts, services and 
 homepage: https://github.com/emilyastranova/castor/tree/main/plugins/nessus-import
 license: MIT
 main: main.ts
+icon: icon.svg
 runtime: sandboxed
 # What it does in Castor, as its own account: read the projects it's enabled in, record assets.
 permissions:

@@ -1,6 +1,7 @@
 /** Plugins' actions in projects (docs/PLUGINS.md): which actions each project's plugins offer,
  *  starting one (with a file when it takes one), and its run as it goes and when it ends. */
 import { browser } from '$app/environment';
+import { goto } from '$app/navigation';
 import type { PluginRun, ProjectPluginAction, UUID } from '$lib/api';
 import { api, ApiError } from '$lib/api';
 import { realtime } from '$lib/realtime.svelte';
@@ -104,7 +105,12 @@ class PluginActions {
 			snackbar.show(`${action.label}${file ? `: ${file.name}` : ''}, running…`);
 			return run;
 		} catch (err) {
-			snackbar.error(err instanceof ApiError ? err.message : `Could not start ${action.label}`);
+			const message = err instanceof ApiError ? err.message : `Could not start ${action.label}`;
+			if (message.includes('Your plugin settings')) {
+				snackbar.show(message, { tone: 'error', timeout: 10000, action: { label: 'Set it', run: () => void goto('/plugins') } });
+			} else {
+				snackbar.error(message);
+			}
 			return null;
 		}
 	}

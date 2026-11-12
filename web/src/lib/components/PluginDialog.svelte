@@ -18,6 +18,7 @@
 	let tab = $state<'settings' | 'runs' | 'log'>('settings');
 	let values = $state<Record<string, unknown>>({});
 	let secrets = $state<Record<string, string>>({});
+	let perUser = $state<string[]>([]);
 	let projectIds = $state<UUID[]>([]);
 	let allProjects = $state(false);
 	let saving = $state(false);
@@ -34,6 +35,7 @@
 		tab = plugin.missing_settings.length || plugin.status !== 'error' ? 'settings' : 'log';
 		values = { ...plugin.settings };
 		secrets = {};
+		perUser = [...plugin.per_user];
 		projectIds = [...plugin.project_ids];
 		allProjects = plugin.all_projects;
 		error = null;
@@ -48,9 +50,12 @@
 		saving = true;
 		error = null;
 		try {
+			const own = new Set([...perUser, ...plugin.settings_spec.filter((s) => s.per_user === 'required').map((s) => s.name)]);
 			const p = await api().plugins.update(plugin.id, {
-				settings: values,
-				secrets, // typed ones only: a value replaces the stored secret, cleared to nothing removes it
+				per_user: perUser,
+				settings: Object.fromEntries(Object.entries(values).filter(([k]) => !own.has(k))),
+				// Typed ones only: a value replaces the stored secret, cleared to nothing removes it.
+				secrets: Object.fromEntries(Object.entries(secrets).filter(([k]) => !own.has(k))),
 				project_ids: projectIds,
 				all_projects: allProjects
 			});
@@ -80,7 +85,12 @@
 			{#if tab === 'settings'}
 				{#if plugin.settings_spec.length}
 					<section aria-label="Settings">
-						<PluginSettingsForm spec={plugin.settings_spec} bind:values bind:secrets secretsSet={plugin.secrets_set} />
+						<PluginSettingsForm spec={plugin.settings_spec} bind:values bind:secrets bind:perUser secretsSet={plugin.secrets_set} />
+						{#if plugin.per_user.length}
+							<p class="mt-2 body-small text-on-surface-variant">
+								{plugin.people_set ? `${plugin.people_set} ${plugin.people_set === 1 ? 'person has' : 'people have'} set their own.` : 'Nobody has set their own yet.'}
+							</p>
+						{/if}
 					</section>
 				{:else}
 					<p class="body-small text-on-surface-variant italic">It has no settings.</p>

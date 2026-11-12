@@ -57,6 +57,7 @@ homepage: https://github.com/example/castor-nessus-import
 license: MIT
 
 main: main.ts                  # the plugin's code (TypeScript or JavaScript), run by Deno
+icon: icon.svg                 # optional: SVG, PNG or WebP in the plugin, square, ≤ 256 KB
 runtime: sandboxed             # sandboxed (default) or unrestricted (see below)
 
 permissions:                   # Castor API scopes (api_tokens.SCOPES); the plugin's token gets these
@@ -80,6 +81,17 @@ contents: []                   # folders of library items it ships: commands/, p
 `network`, `events`, `actions`, `hooks`, `ui` and `settings` are all optional. Castor rejects a
 manifest with unknown fields, a permission it doesn't know, or an `id` that's taken by another
 publisher.
+
+### The icon
+
+`icon:` is a file in the plugin (SVG, PNG or WebP, square, up to 256 KB), shown in the install
+review (as a `data:` URL, since nothing is installed yet), on Settings → Plugins, on Your plugin
+settings and while its actions run, on a white plate so brand colours read in every theme. An
+SVG may only draw: Castor refuses one with scripts, event attributes, `foreignObject`, entities or
+links other than `#…` and `data:image/…` (`plugin_package.check_icon`), and serves icons
+(`GET /api/plugins/{id}/icon`) with a CSP that blocks anything active even if one is opened on its
+own. The official plugins use their service's logo, with where it came from and its licence in
+`ICON-CREDITS.md`.
 
 ### Permissions
 
@@ -283,7 +295,7 @@ now C or later.
 
 Each comes with `name`, `at` and `project` (id, codename, name), only for projects the plugin is
 enabled in. Events are queued on the database session and sent once it commits (a rollback drops
-them). Each plugin has its own queue (500) and two workers; a delivery that fails is retried after
+them). Each plugin has its own queue (500) and gets its events one at a time, in order; a delivery that fails is retried after
 1, 5 and 15 s, then dropped and logged. An event the plugin caused (through its own account) isn't
 sent to it, so it can't loop on itself. Queues are in memory: events during a restart are lost.
 
@@ -293,6 +305,20 @@ sent to it, so it can't loop on itself. Queues are in memory: events during a re
 process starts with `--allow-net=` those and nothing else (Deno also refuses a few ports outright).
 The install review lists them with a reminder that the plugin can send there what it can read; an
 update that adds a host must be approved again.
+
+### Settings each person sets (phase B)
+
+A setting can be one value for everyone or each person's own (an API key everyone brings). The
+manifest says which it may be (`per_user: allowed`, the default; `required`; or `never`), and the
+admin chooses for each `allowed` one (`plugins.per_user`; `PATCH /api/plugins/{id}` `per_user`).
+People set theirs in **Your plugin settings** (`/plugins`; `GET|PUT /api/auth/me/plugins[/{id}]`,
+session only, so neither API tokens nor plugins can read them); secret ones go to the vault
+(`plugin_user_settings`). `ctx.settings` holds only the shared ones: an action's `run.settings`
+and an event's `event.settings` are the shared ones plus the person's own. An action needs the
+person's own required settings before it starts (422, with a link to set them). An event carries
+the person who caused it: who did it, or for a card's run (assets found in its results, its job
+finishing) who started it, and for a playbook run who started the run; changes nobody made by
+hand, and those a plugin made, carry no person.
 
 ### Limits (phase B)
 

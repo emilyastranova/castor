@@ -1572,7 +1572,8 @@ async def _settle_run(db: AsyncSession, run: m.PlaybookRun, spec: PlaybookSpec, 
     await alerts.run_finished(db, run, ok, "" if ok else "Didn't finish: " + ", ".join(failed[:6]) + ("…" if len(failed) > 6 else ""), step_link(run))
     from .plugin_events import emit
 
-    emit(db, "run.finished", run.project_id, {"run": {"id": str(run.id), "playbook_id": run.playbook_id, "status": new.value}})
+    emit(db, "run.finished", run.project_id, {"run": {"id": str(run.id), "playbook_id": run.playbook_id, "status": new.value}},
+         by=await db.get(m.User, run.created_by) if run.created_by else None)
     from .summaries import after_run
 
     after_run(run.id)  # once this is committed, if the project wants AI summaries

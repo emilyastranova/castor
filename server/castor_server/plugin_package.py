@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import re
 import secrets
 import shutil
 import stat
@@ -85,7 +86,39 @@ def read_zip(data: bytes) -> Package:
     manifest = parse_manifest(files[MANIFEST].decode("utf-8", "replace"))
     if manifest.main not in files:
         raise PackageError(f"main: {manifest.main} isn't in the .zip")
+    if manifest.icon is not None:
+        if manifest.icon not in files:
+            raise PackageError(f"icon: {manifest.icon} isn't in the .zip")
+        check_icon(manifest.icon, files[manifest.icon])
     return Package(manifest, hashlib.sha256(data).hexdigest(), files)
+
+
+ICON_MAX = 256 * 1024
+ICON_TYPES = {".svg": "image/svg+xml", ".png": "image/png", ".webp": "image/webp"}
+# What an icon SVG may not have: it's shown as an image, but someone could open it on its own.
+_SVG_REFUSED = re.compile(r"<script|<foreignObject|<iframe|<embed|<object|<!ENTITY|<!DOCTYPE|\bon[a-z]+\s*=|javascript:"
+                          r"|(?:xlink:)?href\s*=\s*[\"'](?!#|data:image/)", re.IGNORECASE)
+
+
+def icon_type(name: str) -> str:
+    return ICON_TYPES[name[name.rfind("."):].lower()]
+
+
+def check_icon(name: str, content: bytes) -> None:
+    """A plugin's icon: small, the image it says it is, and an SVG with nothing active in it."""
+    if len(content) > ICON_MAX:
+        raise PackageError(f"icon: {name} is over {ICON_MAX // 1024} KB")
+    kind = icon_type(name)
+    if kind == "image/png" and not content.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise PackageError(f"icon: {name} isn't a PNG")
+    if kind == "image/webp" and not (content[:4] == b"RIFF" and content[8:12] == b"WEBP"):
+        raise PackageError(f"icon: {name} isn't a WebP image")
+    if kind == "image/svg+xml":
+        text = content.decode("utf-8", "replace")
+        if "<svg" not in text:
+            raise PackageError(f"icon: {name} isn't an SVG")
+        if bad := _SVG_REFUSED.search(text):
+            raise PackageError(f"icon: {name} has {bad.group(0)!r} in it; an icon SVG can only draw (no scripts, events or links)")
 
 
 def stage(data: bytes) -> tuple[str, Package]:

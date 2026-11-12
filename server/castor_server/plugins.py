@@ -112,26 +112,76 @@ async def _fresh_token(db: AsyncSession, p: m.Plugin) -> str:
     return token
 
 
-def settings_for(p: m.Plugin) -> dict[str, Any]:
-    """What the plugin gets at activate: its settings, secrets decrypted."""
-    out = dict(p.settings or {})
-    for name, sealed in (p.secrets or {}).items():
+def _open(plain: dict[str, Any] | None, sealed: dict[str, str] | None) -> dict[str, Any]:
+    out = dict(plain or {})
+    for name, value in (sealed or {}).items():
         with contextlib.suppress(Exception):
-            out[name] = vault.decrypt(sealed).decode()
+            out[name] = vault.decrypt(value).decode()
     return out
 
 
+def per_user_names(p: m.Plugin, man: Manifest | None = None) -> set[str]:
+    """The settings each person sets for themselves: those the admin chose, and those the
+    manifest says always are."""
+    man = man or manifest_of(p)
+    chosen = set(p.per_user or [])
+    return {s.name for s in man.settings if s.per_user == "required" or (s.name in chosen and s.per_user != "never")}
+
+
+def settings_for(p: m.Plugin) -> dict[str, Any]:
+    """What the plugin gets at activate (`ctx.settings`): the shared settings, secrets decrypted.
+    Per-person ones come with each action and event instead."""
+    mine = per_user_names(p)
+    return {k: v for k, v in _open(p.settings, p.secrets).items() if k not in mine}
+
+
+async def settings_of(db: AsyncSession, p: m.Plugin, user_id: uuid.UUID | None) -> dict[str, Any]:
+    """The settings an action or event runs with: the shared ones plus that person's own."""
+    out = settings_for(p)
+    if user_id is not None and (mine := per_user_names(p)):
+        row = await db.get(m.PluginUserSetting, (p.id, user_id))
+        if row is not None:
+            out.update({k: v for k, v in _open(row.settings, row.secrets).items() if k in mine})
+    return out
+
+
+async def missing_for(db: AsyncSession, p: m.Plugin, user_id: uuid.UUID | None) -> list[str]:
+    """Per-person settings someone hasn't set but must (labels)."""
+    man = manifest_of(p)
+    mine = per_user_names(p, man)
+    required = [s for s in man.settings if s.name in mine and s.required]
+    if not required:
+        return []
+    row = await db.get(m.PluginUserSetting, (p.id, user_id)) if user_id else None
+    have = {**((row.settings if row else None) or {}), **{k: True for k in ((row.secrets if row else None) or {})}}
+    return [s.label for s in required if have.get(s.name) in (None, "")]
+
+
+def set_per_user(man: Manifest, p: m.Plugin, names: list[str]) -> None:
+    """Which settings are each person's own; their shared values go."""
+    specs = {s.name: s for s in man.settings}
+    for name in names:
+        if name not in specs:
+            raise PluginError(f"per_user.{name}: this plugin has no such setting")
+        if specs[name].per_user == "never":
+            raise PluginError(f"per_user.{name}: {specs[name].label} is one value for everyone")
+    p.per_user = sorted(set(names) | {s.name for s in man.settings if s.per_user == "required"})
+    p.settings = {k: v for k, v in (p.settings or {}).items() if k not in p.per_user}
+    p.secrets = {k: v for k, v in (p.secrets or {}).items() if k not in p.per_user}
+
+
 def check_settings(man: Manifest, values: dict[str, Any], secrets_in: dict[str, Any] | None,
-                   current: dict[str, Any] | None = None, sealed: dict[str, str] | None = None) -> tuple[dict[str, Any], dict[str, str]]:
-    """Plain settings and vault-sealed secrets, checked against the manifest. A secret left as
-    None keeps its value; "" clears it."""
+                   current: dict[str, Any] | None = None, sealed: dict[str, str] | None = None,
+                   names: set[str] | None = None) -> tuple[dict[str, Any], dict[str, str]]:
+    """Plain settings and vault-sealed secrets, checked against the manifest (and limited to
+    `names`, when given). A secret left as None keeps its value; "" clears it."""
     plain = dict(current or {})
     kept = dict(sealed or {})
-    specs = {s.name: s for s in man.settings}
+    specs = {s.name: s for s in man.settings if names is None or s.name in names}
     for name, value in (values or {}).items():
         spec = specs.get(name)
         if spec is None:
-            raise PluginError(f"settings.{name}: this plugin has no such setting")
+            raise PluginError(f"settings.{name}: not a setting you can set here")
         if spec.type == "secret":
             raise PluginError(f"settings.{name}: a secret; send it in secrets")
         if spec.type == "bool":
@@ -150,14 +200,14 @@ def check_settings(man: Manifest, values: dict[str, Any], secrets_in: dict[str, 
     for name, value in (secrets_in or {}).items():
         spec = specs.get(name)
         if spec is None or spec.type != "secret":
-            raise PluginError(f"secrets.{name}: this plugin has no such secret")
+            raise PluginError(f"secrets.{name}: not a secret you can set here")
         if value is None:
             continue
         if value == "":
             kept.pop(name, None)
         else:
             kept[name] = vault.encrypt(str(value)[:10000].encode())
-    for spec in man.settings:
+    for spec in specs.values():
         if spec.type != "secret" and spec.name not in plain and spec.default is not None:
             plain[spec.name] = spec.default
     plain = {k: v for k, v in plain.items() if k in specs}
@@ -166,7 +216,9 @@ def check_settings(man: Manifest, values: dict[str, Any], secrets_in: dict[str, 
 
 
 def missing_settings(man: Manifest, p: m.Plugin) -> list[str]:
-    return [s.label for s in man.settings if s.required
+    """Shared settings it needs and doesn't have (per-person ones are each person's to set)."""
+    mine = per_user_names(p, man)
+    return [s.label for s in man.settings if s.required and s.name not in mine
             and not (p.secrets or {}).get(s.name) and (p.settings or {}).get(s.name) in (None, "")]
 
 
@@ -175,7 +227,7 @@ def missing_settings(man: Manifest, p: m.Plugin) -> list[str]:
 
 async def install(db: AsyncSession, user: m.User, pkg: plugin_package.Package, *, source: str,
                   project_ids_in: list[uuid.UUID], all_projects: bool, values: dict[str, Any] | None = None,
-                  secrets_in: dict[str, Any] | None = None) -> m.Plugin:
+                  secrets_in: dict[str, Any] | None = None, per_user: list[str] | None = None) -> m.Plugin:
     """A new plugin, or a newer (or different) release of one already here. The caller has the
     admin's approval of what the manifest asks for. Commits; the plugin starts in the background."""
     from .services import actor_of, record_activity
@@ -194,7 +246,9 @@ async def install(db: AsyncSession, user: m.User, pkg: plugin_package.Package, *
         existing.name, existing.version, existing.publisher = man.name, man.version, man.publisher
         existing.description, existing.manifest, existing.runtime = man.description, man.model_dump(mode="json"), man.runtime
         existing.source, existing.checksum, existing.path, existing.granted = source, pkg.checksum, rel, grants(man)
-        existing.settings, existing.secrets = check_settings(man, values or {}, secrets_in, existing.settings, existing.secrets)
+        set_per_user(man, existing, [n for n in (existing.per_user or []) if n in {s.name for s in man.settings if s.per_user != "never"}])
+        shared = {s.name for s in man.settings} - per_user_names(existing, man)
+        existing.settings, existing.secrets = check_settings(man, values or {}, secrets_in, existing.settings, existing.secrets, shared)
         existing.status, existing.status_message = "stopped", ""
         await _service_account(db, existing, man)
         verb = "Updated" if version_key(man.version) >= version_key(old.version) else "Changed"
@@ -205,7 +259,8 @@ async def install(db: AsyncSession, user: m.User, pkg: plugin_package.Package, *
         p = m.Plugin(id=man.id, name=man.name, version=man.version, publisher=man.publisher, description=man.description,
                      manifest=man.model_dump(mode="json"), runtime=man.runtime, source=source, checksum=pkg.checksum,
                      path=rel, enabled=True, all_projects=all_projects, granted=grants(man), installed_by=user.id)
-        p.settings, p.secrets = check_settings(man, values or {}, secrets_in)
+        set_per_user(man, p, per_user or [])
+        p.settings, p.secrets = check_settings(man, values or {}, secrets_in, names={s.name for s in man.settings} - set(p.per_user))
         db.add(p)
         await db.flush()
         account = await _service_account(db, p, man)
@@ -538,6 +593,7 @@ async def run_action(run_id: uuid.UUID, file_path: Path | None) -> None:
             "task": {"id": str(task.id), "title": task.title} if task else None,
             "asset": {"id": str(asset.id), "type": asset.type, "label": asset.label} if asset else None,
             "file": {"name": run.file_name, "size": run.file_size} if file_path else None,
+            "settings": await settings_of(db, p, run.user_id),
         }
         timeout = (spec.timeout_minutes if spec else 30) * 60
         label, name, plugin_id = (spec.label if spec else run.action), p.name, p.id
@@ -595,6 +651,9 @@ async def start_action(db: AsyncSession, user: m.User, p: m.Plugin, action_id: s
         raise PluginError(f"“{spec.label}” is for {', '.join(spec.asset_types)}")
     if spec.file and spec.file.required and upload is None:
         raise PluginError(f"“{spec.label}” needs a file")
+    if missing := await missing_for(db, p, user.id):
+        raise PluginError(f"{p.name} needs your own {', '.join(missing)} first: set {'it' if len(missing) == 1 else 'them'} "
+                          "in Your plugin settings (your account menu)")
     run = m.PluginRun(plugin_id=p.id, action=action_id, project_id=project.id, task_id=task.id if task else None,
                       asset_id=asset.id if asset else None, user_id=user.id, status="running")
     db.add(run)

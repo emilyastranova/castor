@@ -152,6 +152,7 @@
 						<MenuItem icon="manage_accounts" onclick={() => (accountOpen = true)}>Account and password</MenuItem>
 						<MenuItem icon="swap_horiz" onclick={() => goto('/projects')}>Switch project</MenuItem>
 						<MenuItem icon="key" onclick={() => goto('/tokens')}>API tokens</MenuItem>
+						<MenuItem icon="extension" onclick={() => goto('/plugins')}>Your plugin settings</MenuItem>
 						<MenuItem icon="logout" onclick={logout}>Sign out</MenuItem>
 					</Menu>
 				</div>

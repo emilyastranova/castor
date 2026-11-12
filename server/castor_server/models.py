@@ -1187,6 +1187,8 @@ class Plugin(Base, TimestampMixin):
     settings: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     # Secret settings, each vault-encrypted.
     secrets: Mapped[dict[str, str]] = mapped_column(JSONType, default=dict)
+    # Settings each person sets for themselves (plugin_user_settings) instead of one shared value.
+    per_user: Mapped[list[str]] = mapped_column(JSONType, default=list)
     user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     # stopped | starting | running | crashed | error
     status: Mapped[str] = mapped_column(String(16), default="stopped", server_default="stopped")
@@ -1201,6 +1203,18 @@ class PluginProject(Base):
 
     plugin_id: Mapped[str] = mapped_column(ForeignKey("plugins.id", ondelete="CASCADE"), primary_key=True)
     project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True, index=True)
+
+
+class PluginUserSetting(Base):
+    """One person's own values for a plugin's per-person settings (an API key of their own…)."""
+
+    __tablename__ = "plugin_user_settings"
+
+    plugin_id: Mapped[str] = mapped_column(ForeignKey("plugins.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    settings: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    secrets: Mapped[dict[str, str]] = mapped_column(JSONType, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
 
 
 class PluginStorage(Base):

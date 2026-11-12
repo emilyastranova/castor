@@ -35,18 +35,21 @@ EVENTS: dict[str, str] = {
     "comment.created": "Someone commented on a card: {comment: {id, body, author}, task: {id, title}}",
 }
 QUEUE = 500
-WORKERS = 2
+WORKERS = 1  # one at a time, in order: plugins can keep state without racing themselves
 RETRIES = (1.0, 5.0, 15.0)
 TIMEOUT = 120.0
 KEY = "castor.plugin_events"
 
 
 def emit(db: Any, name: str, project_id: uuid.UUID | None, data: dict[str, Any], *, by: m.User | None = None) -> None:
-    """Queue an event for plugins; it goes out when this session commits."""
+    """Queue an event for plugins; it goes out when this session commits. `by`: who caused it
+    (a person, whose own plugin settings it then carries; or a plugin, which isn't told)."""
     if name not in EVENTS or project_id is None:
         return
     info = db.info if hasattr(db, "info") else db.sync_session.info
-    info.setdefault(KEY, []).append((name, project_id, data, getattr(by, "plugin_id", None)))
+    plugin = getattr(by, "plugin_id", None)
+    person = by.id if by is not None and not plugin else None
+    info.setdefault(KEY, []).append((name, project_id, data, plugin, person))
 
 
 @sa_event.listens_for(Session, "after_commit")
@@ -58,8 +61,8 @@ def _committed(session: Session) -> None:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return
-    for name, project_id, data, by_plugin in pending:
-        loop.create_task(_route(name, project_id, data, by_plugin))
+    for name, project_id, data, by_plugin, person in pending:
+        loop.create_task(_route(name, project_id, data, by_plugin, person))
 
 
 @sa_event.listens_for(Session, "after_rollback")
@@ -92,8 +95,8 @@ class _Queues:
 queues = _Queues()
 
 
-async def _route(name: str, project_id: uuid.UUID, data: dict[str, Any], by_plugin: str | None) -> None:
-    from .plugins import enabled_in, plugin_log
+async def _route(name: str, project_id: uuid.UUID, data: dict[str, Any], by_plugin: str | None, person: uuid.UUID | None) -> None:
+    from .plugins import enabled_in, plugin_log, settings_of
 
     try:
         async with SessionLocal() as db:
@@ -101,14 +104,18 @@ async def _route(name: str, project_id: uuid.UUID, data: dict[str, Any], by_plug
             wanted = [p for p in rows if name in ((p.granted or {}).get("events") or []) and p.id != by_plugin
                       and await enabled_in(db, p, project_id)]
             project = await db.get(m.Project, project_id) if wanted else None
+            who = await db.get(m.User, person) if person and wanted else None
+            settings = {p.id: await settings_of(db, p, who.id if who else None) for p in wanted}
     except Exception:
         log.exception("routing plugin event %s", name)
         return
     if project is None:
         return
-    message = {"name": name, "at": utcnow().isoformat(), "data": data,
-               "project": {"id": str(project.id), "codename": project.codename, "name": project.name}}
+    base = {"name": name, "at": utcnow().isoformat(), "data": data,
+            "project": {"id": str(project.id), "codename": project.codename, "name": project.name},
+            "user": {"id": str(who.id), "username": who.username, "display_name": who.display_name} if who else None}
     for p in wanted:
+        message = {**base, "settings": settings[p.id]}
         try:
             queues.queue(p.id).put_nowait(message)
         except asyncio.QueueFull:

@@ -108,6 +108,8 @@ export interface ActionRun {
   task: { id: string; title: string } | null;
   asset: { id: string; type: string; label: string } | null;
   file: PluginFile | null;
+  /** The settings for this run: the shared ones plus the person's own (an API key of theirs). */
+  settings: Record<string, unknown>;
   /** Shown on the run while it goes: "120 of 400 hosts". */
   progress(p: { done?: number; total?: number; text?: string }): void;
   log: Logger;
@@ -119,6 +121,10 @@ export interface PluginEvent<T = Record<string, unknown>> {
   /** When it happened (ISO 8601). */
   at: string;
   project: { id: string; codename: string; name: string };
+  /** The person who caused it, when there is one (who added it, whose run found it). */
+  user: { id: string; username: string; display_name: string } | null;
+  /** The settings for this event: the shared ones plus that person's own (when there's a person). */
+  settings: Record<string, unknown>;
   data: T;
 }
 
@@ -133,7 +139,8 @@ export type ActionResult = string | { message: string } | void;
 export interface Context {
   plugin: PluginInfo;
   castorVersion: string;
-  /** The values an admin set (secret ones included). */
+  /** The shared settings an admin set (secret ones included). Settings each person sets for
+   *  themselves aren't here: read them from `run.settings` and `event.settings`. */
   settings: Record<string, unknown>;
   api: Api;
   assets: Assets;
@@ -302,6 +309,7 @@ async function onRequest(method: string, params: Record<string, unknown>): Promi
       task: (params.task ?? null) as ActionRun["task"],
       asset: (params.asset ?? null) as ActionRun["asset"],
       file: f ? pluginFile(runId, f.name, f.size) : null,
+      settings: (params.settings ?? {}) as Record<string, unknown>,
       progress: (p) => notify("progress", { run_id: runId, ...p }),
       log: logger(runId),
     };

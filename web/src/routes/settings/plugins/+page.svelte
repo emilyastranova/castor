@@ -9,6 +9,7 @@
 	import { EVENT_WORDS } from '$lib/plugins.svelte';
 	import PluginDialog from '$lib/components/PluginDialog.svelte';
 	import PluginInstallDialog from '$lib/components/PluginInstallDialog.svelte';
+	import PluginIcon from '$lib/components/PluginIcon.svelte';
 
 	let { data } = $props();
 	// svelte-ignore state_referenced_locally
@@ -115,7 +116,7 @@
 			{@const st = STATUS[p.status] ?? STATUS.stopped}
 			<Card variant="outlined" class="flex flex-col gap-3 px-4 py-3.5">
 				<div class="flex items-start gap-3">
-					<span class="grid size-10 shrink-0 place-items-center rounded-md bg-secondary-container text-on-secondary-container"><Icon name="extension" /></span>
+					<PluginIcon src={p.icon_url} />
 					<div class="min-w-0 flex-1">
 						<p class="flex flex-wrap items-center gap-x-2 gap-y-1 title-medium text-on-surface">
 							{p.name}
@@ -139,6 +140,13 @@
 					</Menu>
 				</div>
 
+				{#if p.per_user.length}
+					<p class="flex items-center gap-2 body-small text-on-surface-variant">
+						<Icon name="person" size={16} />
+						Each person sets their own {p.settings_spec.filter((s) => p.per_user.includes(s.name)).map((s) => s.label).join(', ')}
+						· {p.people_set ? `${p.people_set} ${p.people_set === 1 ? 'has' : 'have'}` : 'nobody has yet'}
+					</p>
+				{/if}
 				{#if p.status === 'error' || p.status === 'crashed'}
 					<div class="flex items-start gap-2 rounded-md bg-error-container/60 px-3 py-2 body-small text-on-error-container" role="alert">
 						<Icon name="error" size={16} class="mt-px shrink-0" />

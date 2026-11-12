@@ -277,7 +277,9 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   menu, asset dialog) and `lib/plugins.svelte.ts`. Official plugins in `plugins/` (`nessus-import` with Deno tests:
   `deno task test`; `pack.py`; `shodan-enrich`, events and network). `tests/test_plugins.py` runs real Deno plugins
   (skipped without Deno; a fake Shodan on localhost). Plugin events: `plugin_events.emit(db, …)` where the thing happens
-  (delivered after commit, never to the plugin that caused it); add new ones to `plugin_events.EVENTS`.
+  (delivered after commit, never to the plugin that caused it); add new ones to `plugin_events.EVENTS`. Per-person
+  settings (`plugins.per_user`, `plugin_user_settings`, `/api/auth/me/plugins`, web `routes/plugins`): `ctx.settings` is
+  only the shared ones; actions and events carry the person's merged `settings`.
 - Instance settings admins change in the UI: `app_settings.py` (`AppSettings` fields are the
   keys and defaults), `api/app_settings.py`; web `lib/appSettings.svelte.ts`,
   `routes/settings/general`. Env-level config stays in `config.py`.

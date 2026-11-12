@@ -15,7 +15,7 @@ from sqlalchemy import select
 from .. import api_tokens, plugin_package
 from .. import models as m
 from .. import plugins as P
-from ..access import check_project, project_or_404
+from ..access import check_project, member_project_ids, project_or_404
 from ..deps import DB, Admin, CurrentUser, Operator, parse_uuid
 from ..events import bus
 from ..plugin_manifest import Manifest
@@ -30,6 +30,11 @@ def _scopes(names: list[str]) -> list[dict[str, str]]:
             for n in names if n in api_tokens.SCOPES]
 
 
+def icon_url(p: m.Plugin) -> str | None:
+    """Where the browser gets a plugin's icon (the checksum keeps a cached one fresh after an update)."""
+    return f"/api/plugins/{p.id}/icon?v={p.checksum[:10]}" if (p.manifest or {}).get("icon") else None
+
+
 def _manifest_out(man: Manifest) -> dict[str, Any]:
     return {**man.model_dump(mode="json"), "permission_details": _scopes(man.permissions)}
 
@@ -42,6 +47,7 @@ async def _plugin_out(db: DB, p: m.Plugin) -> dict[str, Any]:
     status = p.status if running or p.status in ("error", "crashed") else ("stopped" if p.status == "running" else p.status)
     return {
         "id": p.id, "name": p.name, "version": p.version, "publisher": p.publisher, "description": p.description,
+        "icon_url": icon_url(p),
         "homepage": man.homepage, "license": man.license, "runtime": p.runtime, "source": p.source, "checksum": p.checksum,
         "enabled": p.enabled, "all_projects": p.all_projects, "project_ids": [str(x) for x in await P.project_ids(db, p.id)],
         "status": status, "status_message": p.status_message, "running": running,
@@ -49,10 +55,19 @@ async def _plugin_out(db: DB, p: m.Plugin) -> dict[str, Any]:
         "actions": [a.model_dump(mode="json") for a in man.actions],
         "settings_spec": [s.model_dump(mode="json") for s in man.settings],
         "settings": p.settings or {}, "secrets_set": sorted((p.secrets or {}).keys()),
+        "per_user": sorted(P.per_user_names(p, man)),
+        "people_set": await _people_set(db, p),
         "missing_settings": P.missing_settings(man, p),
         "account": {"id": str(account.id), "username": account.username} if account else None,
         "installed_by": by.display_name if by else None, "installed_at": p.created_at.isoformat(), "updated_at": p.updated_at.isoformat(),
     }
+
+
+async def _people_set(db: DB, p: m.Plugin) -> int:
+    """How many people have set their own values."""
+    from sqlalchemy import func
+
+    return (await db.execute(select(func.count()).select_from(m.PluginUserSetting).where(m.PluginUserSetting.plugin_id == p.id))).scalar_one()
 
 
 async def _or_404(db: DB, plugin_id: str) -> m.Plugin:
@@ -92,6 +107,22 @@ async def _download(url: str) -> bytes:
         raise HTTPException(422, f"Downloading it failed: {exc}") from exc
 
 
+@router.get("/plugins/{plugin_id}/icon")
+async def plugin_icon(plugin_id: str, db: DB, _: CurrentUser):
+    """A plugin's icon, for anyone signed in. Served so that even an SVG opened on its own can't
+    run anything (it was checked at install too)."""
+    from fastapi.responses import Response
+
+    p = await db.get(m.Plugin, plugin_id)
+    name = (p.manifest or {}).get("icon") if p else None
+    path = (P.folder_of(p) / name) if p and name else None
+    if path is None or not path.is_file():
+        raise HTTPException(404, "No icon")
+    return Response(path.read_bytes(), media_type=plugin_package.icon_type(name), headers={
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
+        "X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=86400"})
+
+
 @router.post("/plugins/preview")
 async def preview(db: DB, _: Admin, file: Annotated[UploadFile | None, File()] = None,
                   url: Annotated[str | None, Form()] = None) -> dict[str, Any]:
@@ -109,7 +140,13 @@ async def preview(db: DB, _: Admin, file: Annotated[UploadFile | None, File()] =
         raise HTTPException(422, str(exc)) from exc
     man = pkg.manifest
     existing = await db.get(m.Plugin, man.id)
+    icon = None
+    if man.icon:  # not installed yet: the preview carries the icon itself
+        import base64
+
+        icon = f"data:{plugin_package.icon_type(man.icon)};base64,{base64.b64encode(pkg.files[man.icon]).decode()}"
     out: dict[str, Any] = {"token": token, "source": source, "checksum": pkg.checksum, "size": pkg.size, "files": len(pkg.files),
+                           "icon": icon,
                            "manifest": _manifest_out(man), "problems": man.not_yet(), "existing": None, "new_permissions": {}}
     if existing is not None:
         out["existing"] = {"version": existing.version, "same": existing.checksum == pkg.checksum}
@@ -126,6 +163,8 @@ class InstallIn(BaseModel):
     all_projects: bool = False
     settings: dict[str, Any] = Field(default_factory=dict)
     secrets: dict[str, str | None] = Field(default_factory=dict)
+    # Settings each person sets for themselves (an API key everyone brings) instead of one shared value.
+    per_user: list[str] = Field(default_factory=list)
 
 
 @router.post("/plugins", status_code=201)
@@ -136,7 +175,7 @@ async def install(body: InstallIn, db: DB, user: Admin) -> dict[str, Any]:
     try:
         _, pkg = plugin_package.staged(body.token)
         p = await P.install(db, user, pkg, source=body.source or "upload", project_ids_in=body.project_ids,
-                            all_projects=body.all_projects, values=body.settings, secrets_in=body.secrets)
+                            all_projects=body.all_projects, values=body.settings, secrets_in=body.secrets, per_user=body.per_user)
     except ValueError as exc:
         await db.rollback()
         raise HTTPException(422, str(exc)) from exc
@@ -151,6 +190,8 @@ class PluginPatch(BaseModel):
     settings: dict[str, Any] | None = None
     # Secret settings: a value sets it, "" clears it, null (or leaving it out) keeps it.
     secrets: dict[str, str | None] | None = None
+    # The settings each person sets for themselves; their shared values go.
+    per_user: list[str] | None = None
 
 
 @router.patch("/plugins/{plugin_id}")
@@ -162,8 +203,12 @@ async def update_plugin(plugin_id: str, body: PluginPatch, db: DB, user: Admin) 
     man = P.manifest_of(p)
     said = []
     try:
+        if body.per_user is not None and sorted(body.per_user) != sorted(p.per_user or []):
+            P.set_per_user(man, p, body.per_user)
+            said.append("whose settings are each person's")
         if body.settings is not None or body.secrets is not None:
-            p.settings, p.secrets = P.check_settings(man, body.settings or {}, body.secrets, p.settings, p.secrets)
+            shared = {s.name for s in man.settings} - P.per_user_names(p, man)
+            p.settings, p.secrets = P.check_settings(man, body.settings or {}, body.secrets, p.settings, p.secrets, shared)
             said.append("its settings")
         if body.project_ids is not None or body.all_projects is not None:
             ids = body.project_ids if body.project_ids is not None else await P.project_ids(db, p.id)
@@ -226,6 +271,64 @@ async def plugin_runs(plugin_id: str, db: DB, _: Admin, limit: int = 50) -> list
     return [P.run_out(r, p.name, labels.get(r.action)) for r in rows]
 
 
+# ---------- your own settings ----------
+
+
+async def _usable(db: DB, user: m.User, p: m.Plugin) -> bool:
+    """A plugin someone can use: on, and in a project they can see (admins: any)."""
+    if not p.enabled:
+        return False
+    if p.all_projects or user.is_admin:
+        return True
+    ids = set(await P.project_ids(db, p.id))
+    return bool(ids & set((await db.execute(member_project_ids(user.id))).scalars()))
+
+
+async def _mine_out(db: DB, user: m.User, p: m.Plugin) -> dict[str, Any]:
+    man = P.manifest_of(p)
+    mine = P.per_user_names(p, man)
+    row = await db.get(m.PluginUserSetting, (p.id, user.id))
+    return {"id": p.id, "name": p.name, "description": p.description, "icon_url": icon_url(p),
+            "settings_spec": [s.model_dump(mode="json") for s in man.settings if s.name in mine],
+            "settings": {k: v for k, v in ((row.settings if row else None) or {}).items() if k in mine},
+            "secrets_set": sorted(k for k in ((row.secrets if row else None) or {}) if k in mine),
+            "missing": await P.missing_for(db, p, user.id)}
+
+
+@router.get("/auth/me/plugins")
+async def my_plugin_settings(db: DB, user: CurrentUser) -> list[dict[str, Any]]:
+    """The plugins you use that want some settings from you (your own API key…), with yours."""
+    rows = (await db.execute(select(m.Plugin).order_by(m.Plugin.name))).scalars().all()
+    return [await _mine_out(db, user, p) for p in rows if P.per_user_names(p) and await _usable(db, user, p)]
+
+
+class MySettingsIn(BaseModel):
+    settings: dict[str, Any] = Field(default_factory=dict)
+    # A value sets it, "" clears it, null keeps it.
+    secrets: dict[str, str | None] = Field(default_factory=dict)
+
+
+@router.put("/auth/me/plugins/{plugin_id}")
+async def set_my_plugin_settings(plugin_id: str, body: MySettingsIn, db: DB, user: CurrentUser) -> dict[str, Any]:
+    """Set your own values of a plugin's per-person settings."""
+    p = await db.get(m.Plugin, plugin_id)
+    if p is None or not await _usable(db, user, p) or not P.per_user_names(p):
+        raise HTTPException(404, "Plugin not found")
+    man = P.manifest_of(p)
+    row = await db.get(m.PluginUserSetting, (p.id, user.id))
+    try:
+        plain, sealed = P.check_settings(man, body.settings, body.secrets, row.settings if row else None,
+                                         row.secrets if row else None, P.per_user_names(p, man))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if row is None:
+        row = m.PluginUserSetting(plugin_id=p.id, user_id=user.id)
+        db.add(row)
+    row.settings, row.secrets = plain, sealed
+    await db.commit()
+    return await _mine_out(db, user, p)
+
+
 # ---------- in a project ----------
 
 
@@ -240,7 +343,7 @@ async def project_actions(project_id: str, db: DB, user: CurrentUser) -> list[di
         if not await P.enabled_in(db, p, project.id):
             continue
         for a in P.manifest_of(p).actions:
-            out.append({"plugin": {"id": p.id, "name": p.name, "status": p.status}, **a.model_dump(mode="json")})
+            out.append({"plugin": {"id": p.id, "name": p.name, "status": p.status, "icon_url": icon_url(p)}, **a.model_dump(mode="json")})
     return out
 
 

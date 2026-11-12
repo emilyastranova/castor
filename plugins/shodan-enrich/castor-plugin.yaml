@@ -1,13 +1,14 @@
 # Castor's second plugin: events and network access (plugins phase B). The format is docs/PLUGINS.md.
 id: shodan-enrich
 name: Shodan enrichment
-version: 1.0.0
+version: 1.1.0
 castor: ">=0.1"
 publisher: castor
 description: "Look up public hosts on Shodan as they're found: open ports, web servers, names and known CVEs."
 homepage: https://github.com/emilyastranova/castor/tree/main/plugins/shodan-enrich
 license: MIT
 main: main.ts
+icon: icon.svg
 runtime: sandboxed
 # Read the hosts it looks up; record what Shodan knows about them.
 permissions:
@@ -36,7 +37,7 @@ actions:
 settings:
   - name: api_key
     label: Shodan API key
-    description: From your Shodan account page. Stored in Castor's vault.
+    description: From a Shodan account page. Stored in Castor's vault. One for everyone, or (an admin's choice) each person's own.
     type: secret
     required: true
   - name: only_in_scope
@@ -54,3 +55,4 @@ settings:
     description: Leave as it is. The plugin can only reach api.shodan.io, whatever this says.
     type: text
     default: https://api.shodan.io
+    per_user: never

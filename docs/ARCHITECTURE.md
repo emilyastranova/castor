@@ -493,7 +493,9 @@ running actions), `api/plugins.py`, SDK `plugin_sdk/mod.ts`. Tables `plugins`, `
 (`assets.settle`, the gateway's job finish, `services._settle_run`, `services.move_task`, comment
 creation), delivered after commit (a SQLAlchemy `after_commit` listener) to each subscribed plugin's
 queue; never to the plugin that caused it. `network:` becomes `--allow-net`; plugin API calls are
-rate-limited. Events `plugins.changed`,
+rate-limited. Per-person settings: `plugins.per_user` (the admin's choice, within the manifest's
+`per_user`), values in `plugin_user_settings` (vault-sealed secrets), `/api/auth/me/plugins`
+(session only); `plugins.settings_of` gives a run or event the shared settings plus the person's. Events `plugins.changed`,
 `plugin_run.updated` (project); activity `plugin.*` (installs in the admin feed, runs as feed kind
 `plugin`). `POST /api/projects/{id}/assets/bulk` records assets and relationships at once (source
 `plugin` for a plugin's account, else `import`). Official plugins live in `plugins/` (`pack.py`

@@ -181,6 +181,7 @@ RULES: list[tuple[str, str, str]] = [
     ("*", "/api/asset-trigger-fires/**", "assets:rw"),
     ("*", "/api/projects/*/asset-links", "assets:rw"),
     ("POST", "/api/plugins/*/actions/*", "projects:write"),  # a plugin's action on a project you can change
+    ("GET", "/api/plugins/*/icon", ANY),
     ("GET", "/api/projects/*/plugin-actions", "projects:read"),
     ("GET", "/api/projects/*/plugin-runs", "projects:read"),
     ("GET", "/api/plugin-runs/*", "projects:read"),

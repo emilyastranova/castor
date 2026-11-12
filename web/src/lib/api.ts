@@ -1561,9 +1561,9 @@ export function api(fetchFn: Fetch = fetch) {
 				if (src.url) form.append('url', src.url);
 				return request<PluginPreview>(fetchFn, 'POST', '/plugins/preview', form);
 			},
-			install: (body: { token: string; source: string; approve: boolean; project_ids: UUID[]; all_projects: boolean; settings?: Record<string, unknown>; secrets?: Record<string, string | null> }) =>
+			install: (body: { token: string; source: string; approve: boolean; project_ids: UUID[]; all_projects: boolean; settings?: Record<string, unknown>; secrets?: Record<string, string | null>; per_user?: string[] }) =>
 				post<Plugin>('/plugins', body),
-			update: (id: string, body: { enabled?: boolean; all_projects?: boolean; project_ids?: UUID[]; settings?: Record<string, unknown>; secrets?: Record<string, string | null> }) =>
+			update: (id: string, body: { enabled?: boolean; all_projects?: boolean; project_ids?: UUID[]; settings?: Record<string, unknown>; secrets?: Record<string, string | null>; per_user?: string[] }) =>
 				patch<Plugin>(`/plugins/${id}`, body),
 			restart: (id: string) => post<Plugin>(`/plugins/${id}/restart`),
 			remove: (id: string) => del(`/plugins/${id}`),
@@ -1580,7 +1580,11 @@ export function api(fetchFn: Fetch = fetch) {
 				return request<PluginRun>(fetchFn, 'POST', `/plugins/${pluginId}/actions/${action}`, form);
 			},
 			getRun: (id: UUID) => get<PluginRun>(`/plugin-runs/${id}`),
-			projectRuns: (projectId: UUID) => get<PluginRun[]>(`/projects/${projectId}/plugin-runs`)
+			projectRuns: (projectId: UUID) => get<PluginRun[]>(`/projects/${projectId}/plugin-runs`),
+			/** Your own values of plugins' per-person settings (session only). */
+			mine: () => get<MyPluginSettings[]>('/auth/me/plugins'),
+			setMine: (id: string, body: { settings?: Record<string, unknown>; secrets?: Record<string, string | null> }) =>
+				request<MyPluginSettings>(fetchFn, 'PUT', `/auth/me/plugins/${id}`, body)
 		},
 		tools: {
 			list: () => get<ToolDefinition[]>('/tools'),
@@ -1958,6 +1962,21 @@ export interface PluginSettingSpec {
 	default: unknown;
 	options: string[];
 	required: boolean;
+	/** Whether an admin can make it each person's own: allowed, required (always), never. */
+	per_user: 'allowed' | 'required' | 'never';
+}
+
+/** A plugin that wants some settings from you (your own API key…), with yours. */
+export interface MyPluginSettings {
+	id: string;
+	name: string;
+	description: string;
+	icon_url: string | null;
+	settings_spec: PluginSettingSpec[];
+	settings: Record<string, unknown>;
+	secrets_set: string[];
+	/** Required ones you haven't set (labels). */
+	missing: string[];
 }
 
 export interface ScopeDetail {
@@ -1976,6 +1995,8 @@ export interface Plugin {
 	homepage: string;
 	license: string;
 	runtime: 'sandboxed' | 'unrestricted';
+	/** Its icon (castor-plugin.yaml `icon`), or null. */
+	icon_url: string | null;
 	source: string;
 	checksum: string;
 	enabled: boolean;
@@ -1991,6 +2012,10 @@ export interface Plugin {
 	settings: Record<string, unknown>;
 	secrets_set: string[];
 	missing_settings: string[];
+	/** Settings each person sets for themselves. */
+	per_user: string[];
+	/** People who have set their own. */
+	people_set: number;
 	account: { id: UUID; username: string } | null;
 	installed_by: string | null;
 	installed_at: string;
@@ -2004,6 +2029,8 @@ export interface PluginPreview {
 	checksum: string;
 	size: number;
 	files: number;
+	/** Its icon as a data: URL (nothing's installed yet), or null. */
+	icon: string | null;
 	manifest: {
 		id: string;
 		name: string;
@@ -2028,7 +2055,7 @@ export interface PluginPreview {
 }
 
 export interface ProjectPluginAction extends PluginActionSpec {
-	plugin: { id: string; name: string; status: Plugin['status'] };
+	plugin: { id: string; name: string; status: Plugin['status']; icon_url: string | null };
 }
 
 export interface PluginRun {

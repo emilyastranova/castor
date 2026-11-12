@@ -4,6 +4,7 @@
 	import { Button, Dialog, Icon, TextField } from '$lib/m3';
 	import { bytes } from '$lib/format';
 	import { EVENT_WORDS } from '$lib/plugins.svelte';
+	import PluginIcon from './PluginIcon.svelte';
 	import PluginProjects from './PluginProjects.svelte';
 	import PluginSettingsForm from './PluginSettingsForm.svelte';
 
@@ -23,6 +24,7 @@
 	let preview = $state<PluginPreview | null>(null);
 	let values = $state<Record<string, unknown>>({});
 	let secrets = $state<Record<string, string>>({});
+	let perUser = $state<string[]>([]);
 	let projectIds = $state<UUID[]>([]);
 	let allProjects = $state(false);
 	let approved = $state(false);
@@ -50,6 +52,7 @@
 			const m = preview.manifest;
 			values = Object.fromEntries(m.settings.filter((s) => s.type !== 'secret' && s.default !== null).map((s) => [s.name, s.default]));
 			secrets = {};
+			perUser = [];
 			projectIds = [];
 			allProjects = false;
 			approved = false;
@@ -74,6 +77,8 @@
 	let newHosts = $derived(new Set(preview?.new_permissions.network ?? []));
 	let newEvents = $derived(new Set(preview?.new_permissions.events ?? []));
 	let anythingNew = $derived(newPerms.size + newHosts.size + newEvents.size > 0);
+	/** Settings each person sets for themselves (the admin's choice, and those the plugin insists on). */
+	let own = $derived(new Set([...perUser, ...(preview?.manifest.settings ?? []).filter((s) => s.per_user === 'required').map((s) => s.name)]));
 	let blocked = $derived(!preview || preview.problems.length > 0 || !!preview.existing?.same);
 	async function install() {
 		if (!preview) return;
@@ -86,8 +91,9 @@
 				approve: approved,
 				project_ids: projectIds,
 				all_projects: allProjects,
-				settings: values,
-				secrets: Object.fromEntries(Object.entries(secrets).filter(([, v]) => v !== ''))
+				settings: Object.fromEntries(Object.entries(values).filter(([k]) => !own.has(k))),
+				secrets: Object.fromEntries(Object.entries(secrets).filter(([k, v]) => v !== '' && !own.has(k))),
+				per_user: perUser
 			});
 			open = false;
 			oninstalled(p);
@@ -125,7 +131,7 @@
 		{:else}
 			{@const m = preview.manifest}
 			<div class="flex items-start gap-3">
-				<span class="grid size-11 shrink-0 place-items-center rounded-md bg-secondary-container text-on-secondary-container"><Icon name="extension" /></span>
+				<PluginIcon src={preview.icon} size={44} />
 				<div class="min-w-0 flex-1">
 					<p class="title-medium text-on-surface">{m.name} <span class="body-medium text-on-surface-variant">{m.version}</span></p>
 					<p class="body-small text-on-surface-variant">
@@ -230,7 +236,7 @@
 				{#if m.settings.length}
 					<section aria-label="Settings">
 						<h3 class="mb-1.5 label-large text-on-surface-variant">Settings</h3>
-						<PluginSettingsForm spec={m.settings} bind:values bind:secrets />
+						<PluginSettingsForm spec={m.settings} bind:values bind:secrets bind:perUser />
 					</section>
 				{/if}
 			{/if}

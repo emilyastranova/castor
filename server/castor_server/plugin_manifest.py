@@ -53,6 +53,9 @@ class SettingSpec(BaseModel):
     default: Any = None
     options: list[str] = Field(default_factory=list)  # for select
     required: bool = False
+    # Whether an admin can make it each person's own (an API key everyone brings): allowed (the
+    # admin chooses), required (always each person's), never (one value for everyone).
+    per_user: Literal["allowed", "required", "never"] = "allowed"
 
     @model_validator(mode="after")
     def _check(self) -> SettingSpec:
@@ -74,6 +77,8 @@ class Manifest(BaseModel):
     homepage: str = Field("", max_length=300)
     license: str = Field("", max_length=60)
     main: str = Field("main.ts", pattern=r"^[A-Za-z0-9_./-]+\.(ts|js|mts|mjs)$")
+    # Its icon, a file in the plugin: SVG, PNG or WebP, square, up to 256 KB.
+    icon: str | None = Field(None, pattern=r"^[A-Za-z0-9_./-]+\.(svg|png|webp)$")
     runtime: Literal["sandboxed", "unrestricted"] = "sandboxed"
     permissions: list[str] = Field(default_factory=list)
     network: list[str] = Field(default_factory=list)
@@ -84,10 +89,10 @@ class Manifest(BaseModel):
     settings: list[SettingSpec] = Field(default_factory=list)
     contents: list[str] = Field(default_factory=list)
 
-    @field_validator("main")
+    @field_validator("main", "icon")
     @classmethod
-    def _main(cls, v: str) -> str:
-        if v.startswith("/") or ".." in v.split("/"):
+    def _main(cls, v: str | None) -> str | None:
+        if v is not None and (v.startswith("/") or ".." in v.split("/")):
             raise ValueError("a path inside the plugin")
         return v
 

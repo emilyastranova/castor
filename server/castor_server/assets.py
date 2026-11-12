@@ -815,7 +815,8 @@ async def ingest_outputs(db: AsyncSession, job: m.Job, task: m.Task, outputs: li
     batch = Batch(task.project_id)
     batch.read = await _ingest(db, job, task, outputs, batch)
     if batch.changes or batch.suggested:
-        await settle(db, batch, task_id=task.id)
+        person = await db.get(m.User, job.created_by) if job.created_by else None
+        await settle(db, batch, task_id=task.id, person=person)
     return batch
 
 
@@ -897,7 +898,7 @@ def describe_links(counts: dict[str, int]) -> str:
 
 
 async def settle(db: AsyncSession, batch: Batch, *, task_id: uuid.UUID | None = None, actor: m.User | None = None,
-                 where: str = "", feed_links: bool = True) -> None:
+                 where: str = "", feed_links: bool = True, person: m.User | None = None) -> None:
     """After recording: the feed entry ("Found 3 hosts and 5 services"), the event, triggers."""
     from .services import actor_of, record_activity
 
@@ -919,10 +920,11 @@ async def settle(db: AsyncSession, batch: Batch, *, task_id: uuid.UUID | None = 
     from .plugin_events import asset_data, emit, link_data
 
     project = await db.get(m.Project, batch.project_id)
+    # Who caused it, for plugins: the actor, or the person whose run found it.
     for a in batch.created():
-        emit(db, "asset.created", batch.project_id, asset_data(a, project), by=actor)
+        emit(db, "asset.created", batch.project_id, asset_data(a, project), by=actor or person)
     for lk, src, dst in batch.new_links():
-        emit(db, "asset.linked", batch.project_id, link_data(lk, src, dst), by=actor)
+        emit(db, "asset.linked", batch.project_id, link_data(lk, src, dst), by=actor or person)
     if suggested:
         await record_activity(
             db, type="assets.suggested", message=f"Spotted {describe(suggested)} to confirm{f' in {where}' if where else ''}",

@@ -11,6 +11,8 @@ import { isPublicIp, mapHost, type ShodanHost } from "./shodan.ts";
 const DAY = 24 * 3600 * 1000;
 
 interface Lookup {
+  /** The settings to use: the run's or the event's (the API key may be each person's own). */
+  settings: Record<string, unknown>;
   projectId: string;
   ip: string;
   taskId?: string;
@@ -19,13 +21,13 @@ interface Lookup {
 }
 
 async function lookup(ctx: Context, l: Lookup): Promise<string> {
-  const key = String(ctx.settings.api_key ?? "");
-  if (!key) throw new CastorError("Set the Shodan API key in the plugin's settings");
+  const key = String(l.settings.api_key ?? "");
+  if (!key) throw new CastorError("No Shodan API key: set it in Your plugin settings (or ask an admin to set one for everyone)");
   const seenKey = `seen:${l.ip}`;
-  const recheck = Number(ctx.settings.recheck_days ?? 7) * DAY;
+  const recheck = Number(l.settings.recheck_days ?? 7) * DAY;
   const seen = await ctx.storage.get<number>(seenKey, { project: l.projectId });
   if (!l.force && seen && Date.now() - seen < recheck) return `${l.ip}: looked up recently`;
-  const base = String(ctx.settings.api_url || "https://api.shodan.io").replace(/\/$/, "");
+  const base = String(l.settings.api_url || "https://api.shodan.io").replace(/\/$/, "");
   let r = await fetch(`${base}/shodan/host/${encodeURIComponent(l.ip)}?key=${encodeURIComponent(key)}`);
   if (r.status === 429) { // Shodan's one-a-second limit: wait and try once more
     await new Promise((ok) => setTimeout(ok, 1500));
@@ -47,22 +49,26 @@ async function lookup(ctx: Context, l: Lookup): Promise<string> {
 
 definePlugin({
   activate(ctx) {
-    const inScopeOnly = ctx.settings.only_in_scope !== false;
-
     ctx.events.on<{ asset: { type: string; fields: Record<string, unknown>; in_scope: boolean } }>("asset.created", async (event) => {
       const { asset } = event.data;
       if (asset.type !== "host" || !isPublicIp(asset.fields.ip)) return;
-      if (inScopeOnly && !asset.in_scope) return;
-      ctx.log.info(await lookup(ctx, { projectId: event.project.id, ip: asset.fields.ip }));
+      if (event.settings.only_in_scope !== false && !asset.in_scope) return;
+      if (!event.settings.api_key) {
+        // Each person's own key, and nobody's to use here (no person caused it, or they haven't set one).
+        ctx.log.info(`${asset.fields.ip}: not looked up, no Shodan key for ${event.user?.username ?? "a change nobody made by hand"}`);
+        return;
+      }
+      ctx.log.info(await lookup(ctx, { settings: event.settings, projectId: event.project.id, ip: asset.fields.ip }));
     });
 
     ctx.actions.on("lookup", async (run) => {
       const asset = await ctx.api.get<{ fields: Record<string, unknown> }>(`/api/assets/${run.asset!.id}`);
       if (!isPublicIp(asset.fields.ip)) return `${run.asset!.label} has no public address for Shodan to know`;
-      return await lookup(ctx, { projectId: run.project!.id, ip: asset.fields.ip, force: true });
+      return await lookup(ctx, { settings: run.settings, projectId: run.project!.id, ip: asset.fields.ip, force: true });
     });
 
     ctx.actions.on("lookup-all", async (run) => {
+      const inScopeOnly = run.settings.only_in_scope !== false;
       const list = await ctx.api.get<{ items: { fields: Record<string, unknown>; in_scope: boolean }[] }>(
         `/api/projects/${run.project!.id}/assets`, { type: "host", limit: 1000 });
       const hosts = list.items.filter((h) => isPublicIp(h.fields.ip) && (!inScopeOnly || h.in_scope));
@@ -70,7 +76,7 @@ definePlugin({
       let done = 0;
       let found = 0;
       for (const h of hosts) {
-        const said = await lookup(ctx, { projectId: run.project!.id, ip: String(h.fields.ip), taskId: run.task?.id });
+        const said = await lookup(ctx, { settings: run.settings, projectId: run.project!.id, ip: String(h.fields.ip), taskId: run.task?.id });
         if (!said.includes("nothing") && !said.includes("recently")) found++;
         run.progress({ done: ++done, total: hosts.length, text: said });
         await new Promise((ok) => setTimeout(ok, 1000)); // Shodan allows one lookup a second

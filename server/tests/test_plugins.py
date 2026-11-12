@@ -535,3 +535,78 @@ actions:
         P.API_PER_MINUTE = was
         P._calls.clear()
     client.delete(f"/api/plugins/{pid}", headers=auth)
+
+
+def test_settings_each_person_sets(client, auth):
+    fake = FakeShodan()
+    try:
+        p = project(client, auth)
+        client.put(f"/api/projects/{p['id']}/scope", json={"include": ["203.0.113.0/24"]}, headers=auth)
+        never = preview(client, auth, shodan_zip(fake.port)).json()
+        bad = client.post("/api/plugins", json={"token": never["token"], "approve": True, "project_ids": [p["id"]], "per_user": ["api_url"]},
+                          headers=auth)
+        assert bad.status_code == 422 and "one value for everyone" in bad.json()["detail"]
+        plugin = install(client, auth, shodan_zip(fake.port), project_ids=[p["id"]], per_user=["api_key"],
+                         settings={"api_url": f"http://127.0.0.1:{fake.port}"})
+        assert plugin["per_user"] == ["api_key"] and plugin["missing_settings"] == []  # each person's: it runs without one
+        running(client, auth, "shodan-enrich")
+        # A shared key can't be set for a per-person setting.
+        r = client.patch("/api/plugins/shodan-enrich", json={"secrets": {"api_key": "good-key"}}, headers=auth)
+        assert r.status_code == 422
+
+        # Someone in the project without a key of their own: told to set one; then it works.
+        name = f"shodan-{uuid.uuid4().hex[:6]}"
+        member = client.post("/api/users", json={"username": name, "role": "operator", "password": "correct horse"}, headers=auth).json()
+        client.put(f"/api/projects/{p['id']}/members", json=[member["id"]], headers=auth)
+        session = client.post("/api/auth/login", json={"username": name, "password": "correct horse"}).json()["token"]
+        client.cookies.clear()
+        mh = {"Authorization": f"Bearer {session}"}
+        mine = client.get("/api/auth/me/plugins", headers=mh).json()
+        assert [x["id"] for x in mine] == ["shodan-enrich"] and mine[0]["missing"] == ["Shodan API key"]
+        assert [s["name"] for s in mine[0]["settings_spec"]] == ["api_key"]
+        host = client.post(f"/api/projects/{p['id']}/assets", json={"type": "host", "fields": {"ip": "203.0.113.10"}}, headers=mh).json()
+        r = client.post("/api/plugins/shodan-enrich/actions/lookup", data={"project_id": p["id"], "asset_id": host["id"]}, headers=mh)
+        assert r.status_code == 422 and "needs your own Shodan API key" in r.json()["detail"]
+        assert fake.seen == []  # the event for the host they added found no key of theirs
+        logs = wait(lambda: [entry for entry in client.get("/api/plugins/shodan-enrich/logs", headers=auth).json()
+                             if "no Shodan key" in entry["message"]], "the plugin to skip it")
+        assert name in logs[0]["message"]
+
+        saved = client.put("/api/auth/me/plugins/shodan-enrich", json={"secrets": {"api_key": "good-key"}}, headers=mh).json()
+        assert saved["missing"] == [] and saved["secrets_set"] == ["api_key"] and "good-key" not in str(saved)
+        assert client.put("/api/auth/me/plugins/shodan-enrich", json={"settings": {"api_url": "http://evil"}}, headers=mh).status_code == 422
+        out = run(client, auth=mh, plugin_id="shodan-enrich", action="lookup", project_id=p["id"], asset_id=host["id"])
+        assert out["status"] == "succeeded" and out["message"].startswith("203.0.113.10: 3 services"), out
+        # Their key is theirs: the admin still has none.
+        r = client.post("/api/plugins/shodan-enrich/actions/lookup", data={"project_id": p["id"], "asset_id": host["id"]}, headers=auth)
+        assert r.status_code == 422
+        assert client.get("/api/plugins/shodan-enrich", headers=auth).json()["people_set"] == 1
+
+        # A new host they add is looked up with their key.
+        client.post(f"/api/projects/{p['id']}/assets", json={"type": "host", "fields": {"ip": "203.0.113.11"}}, headers=mh)
+        wait(lambda: "/shodan/host/203.0.113.11" in fake.seen, "their host to be looked up")
+
+        # Personal API tokens and plugins can't read anyone's own settings.
+        pat = client.post("/api/tokens", json={"name": "t", "scopes": ["projects:read"]}, headers=mh).json()["token"]
+        assert client.get("/api/auth/me/plugins", headers={"Authorization": f"Bearer {pat}"}).status_code == 403
+    finally:
+        client.delete("/api/plugins/shodan-enrich", headers=auth)
+        fake.close()
+
+
+def test_plugin_icons(client, auth):
+    data = zip_folder(NESSUS)
+    p = preview(client, auth, data).json()
+    assert p["icon"].startswith("data:image/svg+xml;base64,")
+    plugin = install(client, auth, data, all_projects=True)
+    assert plugin["icon_url"].startswith("/api/plugins/nessus-import/icon?v=")
+    r = client.get(plugin["icon_url"], headers=auth)
+    assert r.status_code == 200 and r.headers["content-type"] == "image/svg+xml" and b"<svg" in r.content
+    assert "sandbox" in r.headers["content-security-policy"] and r.headers["x-content-type-options"] == "nosniff"
+    client.delete("/api/plugins/nessus-import", headers=auth)
+    evil = zip_files({"castor-plugin.yaml": PROBE_MANIFEST.format(n="icon", version="1.0.0", perms="") + "icon: icon.svg\n",
+                      "main.ts": PROBE_MAIN, "icon.svg": '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>'})
+    assert "can only draw" in preview(client, auth, evil).json()["detail"]
+    missing = zip_files({"castor-plugin.yaml": PROBE_MANIFEST.format(n="icon", version="1.0.0", perms="") + "icon: logo.png\n",
+                         "main.ts": PROBE_MAIN})
+    assert "isn't in the .zip" in preview(client, auth, missing).json()["detail"]
