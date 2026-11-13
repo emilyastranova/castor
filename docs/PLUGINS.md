@@ -385,8 +385,8 @@ like `obsidian-releases`, which also holds the official plugins. `directory.json
 ```json
 {
   "version": 1,
-  "publishers": [{ "id": "castor", "name": "Castor", "github": ["emilyastranova"], "url": "…", "description": "…" }],
-  "plugins": [{ "id": "nessus-import", "name": "Nessus import", "publisher": "castor", "description": "…",
+  "publishers": [{ "id": "emilyastranova", "name": "Emily Astranova", "github": ["emilyastranova"], "url": "…", "description": "…" }],
+  "plugins": [{ "id": "nessus-import", "name": "Nessus import", "publisher": "emilyastranova", "description": "…",
                 "repo": "emilyastranova/castor-plugins", "path": "plugins/nessus-import",
                 "tag_prefix": "nessus-import-v", "tags": ["import", "scanner"] }]
 }
