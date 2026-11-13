@@ -3,12 +3,19 @@
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, Icon, IconButton, Select, Switch, TextField } from '$lib/m3';
 	import { snackbar } from '$lib/snackbar.svelte';
+	import { page } from '$app/state';
 	import {
 		buildScene,
 		compile,
 		fileName,
 		fontsReady,
+		languageName,
+		languageOptions,
+		loadHighlighter,
+		loadStyle,
 		newRecipe,
+		paletteOf,
+		saveStyle,
 		readOutput,
 		themePalette,
 		THEMES,
@@ -43,6 +50,13 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let recipe = $state<SnapshotRecipe | null>(null);
+	let languages = $state<{ value: string; label: string }[]>([]);
+	const me = $derived(page.data.user?.id as string | undefined);
+
+	// The look is remembered for this person's next snapshot (in this browser).
+	$effect(() => {
+		if (recipe && !loading) saveStyle(me, JSON.parse(JSON.stringify(recipe)));
+	});
 
 	// Load the job and replay its output each time the dialog opens.
 	$effect(() => {
@@ -53,16 +67,22 @@
 		error = null;
 		(async () => {
 			try {
-				const detail = await api().jobs.get(id);
+				const [detail] = await Promise.all([api().jobs.get(id), loadHighlighter()]);
 				const read = await readOutput(detail, detail.logs);
 				if (cancelled) return;
 				job = detail;
 				lines = read;
+				languages = languageOptions();
 				const saved = attachment?.snapshot as SnapshotRecipe | null | undefined;
-				const r = saved ? { ...newRecipe(detail, title), ...JSON.parse(JSON.stringify(saved)) } : newRecipe(detail, title, range?.from ?? 0, range?.to ?? read.length);
+				// A new snapshot looks like the last one this person made; a saved one as it was saved.
+				const style = loadStyle(me);
+				const r = saved
+					? { ...newRecipe(detail, title), language: 'ansi', ...JSON.parse(JSON.stringify(saved)) }
+					: newRecipe(detail, title, range?.from ?? 0, range?.to ?? read.length, style);
 				r.to = Math.min(r.to, read.length);
 				r.from = Math.min(r.from, Math.max(0, r.to - 1));
-				if (!saved) r.wrap = Math.min(140, Math.max(60, ...read.slice(r.from, r.to).map((l) => l.cells.length)));
+				if (!saved && style.wrap === undefined) r.wrap = Math.min(140, Math.max(60, ...read.slice(r.from, r.to).map((l) => l.cells.length)));
+				if (r.theme === 'theme' && !r.palette) r.palette = themePalette();
 				recipe = r;
 			} catch (err) {
 				error = err instanceof ApiError ? err.message : 'Could not read the output';
@@ -78,11 +98,17 @@
 	// ---- the preview: the picture itself, drawn as the PNG will be ----
 	let previewHost = $state<HTMLDivElement>();
 	let drawn = $state({ width: 0, height: 0 });
+	/** The language auto-detect chose. */
+	let detected = $state<string | null>(null);
+	/** The picture at full size, ready before anyone presses Copy: the clipboard only takes it while
+	 *  the click is still fresh, so it can't be drawn then. */
+	let ready: { blob: Blob; dataUrl: string; key: string } | null = null;
 	$effect(() => {
 		if (!recipe || !job || !previewHost) return;
 		const r: SnapshotRecipe = JSON.parse(JSON.stringify(recipe)); // track every field
 		const j = job;
 		const host = previewHost;
+		const key = JSON.stringify(r);
 		const t = setTimeout(async () => {
 			await fontsReady(r.font_size);
 			const scene = buildScene(lines, r, j);
@@ -91,8 +117,21 @@
 			canvas.className = 'max-w-full h-auto';
 			host.replaceChildren(canvas);
 			drawn = { width: scene.width, height: scene.height };
-		}, 60);
-		return () => clearTimeout(t);
+			detected = scene.language ?? null;
+		}, 40);
+		const full = setTimeout(async () => {
+			const blob = await toPng(buildScene(lines, r, j), r.scale);
+			const dataUrl = await new Promise<string>((resolve) => {
+				const reader = new FileReader();
+				reader.onload = () => resolve(String(reader.result));
+				reader.readAsDataURL(blob);
+			});
+			ready = { blob, dataUrl, key };
+		}, 400);
+		return () => {
+			clearTimeout(t);
+			clearTimeout(full);
+		};
 	});
 
 	// ---- picking lines ----
@@ -194,16 +233,61 @@
 		await fontsReady(recipe.font_size);
 		return toPng(buildScene(lines, recipe, job), recipe.scale);
 	}
+	/** The picture, both as an image and as HTML holding it (what a document editor such as Google
+	 *  Docs takes when pasting; the same pair a browser's own Copy image puts there). */
 	async function copy() {
-		busy = 'copy';
-		try {
-			await navigator.clipboard.write([new ClipboardItem({ 'image/png': png() })]);
-			snackbar.show('Picture copied');
-		} catch {
-			snackbar.error("This browser didn't allow copying a picture; download it instead");
-		} finally {
-			busy = null;
+		if (!recipe) return;
+		const fresh = ready && ready.key === JSON.stringify(recipe) ? ready : null;
+		const html = (url: string) => new Blob([`<img src="${url}" alt="${title.replace(/[<>&"]/g, '')}">`], { type: 'text/html' });
+		const attempts: (() => ClipboardItem)[] = fresh
+			? [() => new ClipboardItem({ 'image/png': fresh.blob, 'text/html': html(fresh.dataUrl) }), () => new ClipboardItem({ 'image/png': fresh.blob })]
+			: [() => new ClipboardItem({ 'image/png': png() })];
+		let failure: unknown = null;
+		for (const item of attempts) {
+			try {
+				await navigator.clipboard.write([item()]);
+				snackbar.show('Picture copied');
+				return;
+			} catch (err) {
+				failure = err;
+			}
 		}
+		snackbar.error(`Couldn't copy the picture${failure instanceof Error && failure.message ? ` (${failure.message})` : ''}; download it instead`);
+	}
+
+	// ---- editing the text ----
+	let editing = $state(false);
+	/** The shown lines as text, to edit (Castor's own text left out unless it's shown). */
+	function shownText(): string {
+		if (!recipe) return '';
+		const out: string[] = [];
+		for (let i = recipe.from; i < Math.min(recipe.to, lines.length); i++) {
+			const l = lines[i];
+			if (recipe.system) out.push(l.text);
+			else if (!l.system) out.push(l.cells.filter((c) => !c.system).map((c) => c.ch).join('').trimEnd());
+		}
+		return out.join('\n');
+	}
+	function startEditing() {
+		if (!recipe) return;
+		if (recipe.text == null) recipe.text = shownText();
+		editing = true;
+	}
+	function undoEdits() {
+		if (!recipe) return;
+		recipe.text = null;
+		editing = false;
+	}
+
+	// ---- background colours ----
+	let backdrop = $derived(recipe ? paletteOf(recipe).backdrop : (['#000000', '#000000'] as [string, string]));
+	let colourSlots = $derived<(0 | 1)[]>(recipe?.background === 'gradient' ? [0, 1] : [0]);
+	const hexOr = (c: string) => (/^#[0-9a-f]{6}$/i.test(c) ? c : '#808080');
+	function setColour(k: 0 | 1, value: string) {
+		if (!recipe) return;
+		const next: [string, string] = [...backdrop];
+		next[k] = value;
+		recipe.colors = next;
 	}
 	function save(blob: Blob, name: string) {
 		const url = URL.createObjectURL(blob);
@@ -251,7 +335,6 @@
 		{ value: 'none', label: 'None (transparent)' }
 	];
 	const SIZES = [12, 13, 14, 16, 18].map((n) => ({ value: String(n), label: `${n} px` }));
-	const PADDINGS = [16, 32, 48, 72].map((n) => ({ value: String(n), label: `${n} px` }));
 	const SCALES = [1, 2, 3].map((n) => ({ value: String(n), label: `${n}×${n === 2 ? ' (sharp)' : n === 3 ? ' (print)' : ''}` }));
 	let shownCount = $derived(recipe ? lines.slice(recipe.from, recipe.to).filter((l) => recipe!.system || !l.system).length : 0);
 </script>
@@ -273,10 +356,29 @@
 					<span class="text-on-surface">{shownCount} line{shownCount === 1 ? '' : 's'}</span>
 					<span>Click a number to start there, Shift-click to end there, Ctrl-click to highlight it. Select text to hide it.</span>
 					<span class="flex-1"></span>
-					<Button variant="text" class="h-8" onclick={everything}>All of it</Button>
-					<Button variant="tonal" icon="visibility_off" class="h-8" disabled={!selection.length} onclick={hideSelection}>Hide selection</Button>
+					{#if editing}
+						<Button variant="text" icon="undo" class="h-8" onclick={undoEdits}>Undo edits</Button>
+						<Button variant="tonal" icon="check" class="h-8" onclick={() => (editing = false)}>Done editing</Button>
+					{:else}
+						{#if recipe.text != null}<Button variant="text" icon="undo" class="h-8" onclick={undoEdits}>Undo edits</Button>{/if}
+						<Button variant="text" icon="edit" class="h-8" onclick={startEditing}>{recipe.text != null ? 'Edit again' : 'Edit text'}</Button>
+						<Button variant="text" class="h-8" disabled={recipe.text != null} onclick={everything}>All of it</Button>
+						<Button variant="tonal" icon="visibility_off" class="h-8" disabled={!selection.length} onclick={hideSelection}>Hide selection</Button>
+					{/if}
 				</div>
+				{#if recipe.text != null && !editing}
+					<p class="-mt-1 flex items-center gap-1.5 body-small text-on-surface-variant"><Icon name="edit_note" size={16} />The text is edited, so the lines are fixed: undo the edits to pick others.</p>
+				{/if}
 
+				{#if editing}
+					<!-- The shown lines as text: the picture follows as you type. -->
+					<textarea
+						class="h-72 shrink-0 resize-none rounded-md border border-outline-variant bg-surface-container-lowest p-3 font-mono text-[12px] leading-[1.6] text-on-surface outline-none focus:border-primary lg:h-auto lg:min-h-32 lg:flex-1 lg:shrink"
+						spellcheck="false"
+						aria-label="The snapshot's text"
+						bind:value={recipe.text}
+					></textarea>
+				{:else}
 				<!-- The output, to pick lines and select text in. -->
 				<div
 					bind:this={picker}
@@ -293,6 +395,7 @@
 								type="button"
 								class="w-14 shrink-0 cursor-pointer pr-3 text-right text-on-surface-variant select-none hover:text-primary {recipe.highlight.includes(i) ? 'font-bold text-primary' : ''}"
 								aria-label="Line {i + 1}"
+								disabled={recipe.text != null}
 								onclick={(e) => pickLine(i, e)}>{i + 1}</button
 							>
 							<span data-text class="min-w-0 flex-1 pr-3 break-all whitespace-pre-wrap"
@@ -301,11 +404,19 @@
 						</div>
 					{/each}
 				</div>
+				{/if}
 			</div>
 
 			<!-- How it looks. -->
 			<aside class="flex shrink-0 flex-col gap-3 lg:w-72 lg:overflow-auto" aria-label="Look">
 				<TextField label="Title" bind:value={recipe.title} />
+				<Select
+					label="Syntax highlighting"
+					value={recipe.language ?? 'ansi'}
+					options={languages}
+					supporting={recipe.language === 'auto' ? (detected ? `Looks like ${languageName(detected)}` : 'Nothing recognised: the terminal\'s colours') : 'Only text the terminal left uncoloured changes'}
+					onchange={(v) => recipe && (recipe.language = v)}
+				/>
 				<Select
 					label="Colours"
 					value={recipe.theme}
@@ -319,8 +430,19 @@
 				<div class="grid grid-cols-2 gap-3">
 					<Select label="Frame" value={recipe.frame} options={FRAMES} onchange={(v) => recipe && (recipe.frame = v as SnapshotRecipe['frame'])} />
 					<Select label="Background" value={recipe.background} options={BACKGROUNDS} onchange={(v) => recipe && (recipe.background = v as SnapshotRecipe['background'])} />
+					{#if recipe.background !== 'none'}
+						<div class="col-span-2 flex flex-wrap items-center gap-2 body-small text-on-surface-variant">
+							{#each colourSlots as k (k)}
+								<label class="flex items-center gap-1.5">
+									<input type="color" class="h-8 w-10 cursor-pointer rounded-xs border border-outline-variant bg-transparent p-0.5" value={hexOr(backdrop[k])} oninput={(e) => setColour(k, e.currentTarget.value)} />
+									{recipe.background === 'solid' ? 'Colour' : k === 0 ? 'From' : 'To'}
+								</label>
+							{/each}
+							{#if recipe.colors}<Button variant="text" class="h-8" onclick={() => recipe && (recipe.colors = null)}>The colours' own</Button>{/if}
+						</div>
+					{/if}
 					<Select label="Text size" value={String(recipe.font_size)} options={SIZES} onchange={(v) => recipe && (recipe.font_size = Number(v))} />
-					<Select label="Padding" value={String(recipe.padding)} options={PADDINGS} disabled={recipe.background === 'none'} onchange={(v) => recipe && (recipe.padding = Number(v))} />
+					<TextField label="Padding" type="number" value={recipe.padding} trailingLabel="px" disabled={recipe.background === 'none'} oninput={(e) => recipe && (recipe.padding = Math.max(0, Math.min(400, Number((e.currentTarget as HTMLInputElement).value) || 0)))} />
 					<TextField label="Wrap at" type="number" value={recipe.wrap} trailingLabel="columns" oninput={(e) => recipe && (recipe.wrap = Math.max(20, Math.min(400, Number((e.currentTarget as HTMLInputElement).value) || 100)))} />
 					<Select label="Picture size" value={String(recipe.scale)} options={SCALES} onchange={(v) => recipe && (recipe.scale = Number(v))} />
 				</div>

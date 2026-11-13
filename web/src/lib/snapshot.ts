@@ -56,6 +56,12 @@ export interface SnapshotRecipe {
 	 *  the UI's theme). */
 	palette?: Palette;
 	background: Backdrop;
+	/** The background's colours (a solid one uses the first); none: the colours' own. */
+	colors?: [string, string] | null;
+	/** The output as edited by hand (the shown lines, one per line); none: as it ran. */
+	text?: string | null;
+	/** Syntax highlighting: 'ansi' (none, the terminal's own colours), 'auto', or a highlight.js language. */
+	language?: string;
 	padding: number;
 	font_size: number;
 	/** Columns to wrap at. */
@@ -64,8 +70,8 @@ export interface SnapshotRecipe {
 	scale: number;
 }
 
-export function newRecipe(job: Job, title: string, from = 0, to = Number.MAX_SAFE_INTEGER): SnapshotRecipe {
-	return {
+export function newRecipe(job: Job, title: string, from = 0, to = Number.MAX_SAFE_INTEGER, style: Partial<SnapshotRecipe> = {}): SnapshotRecipe {
+	const recipe: SnapshotRecipe = {
 		v: 1,
 		job_id: job.id,
 		from,
@@ -83,8 +89,35 @@ export function newRecipe(job: Job, title: string, from = 0, to = Number.MAX_SAF
 		font_size: 14,
 		wrap: 100,
 		line_numbers: false,
-		scale: 2
+		scale: 2,
+		language: 'auto',
+		colors: null,
+		text: null
 	};
+	return { ...recipe, ...style };
+}
+
+// ---------- the style each person last used ----------
+
+/** What carries over to the next snapshot: how it looks, not what it shows. */
+const STYLE = ['theme', 'palette', 'colors', 'frame', 'background', 'padding', 'font_size', 'wrap', 'line_numbers', 'command', 'system', 'scale', 'language', 'patterns'] as const;
+const styleKey = (user: string | undefined) => `castor.snapshot.style.${user ?? 'anyone'}`;
+
+export function loadStyle(user: string | undefined): Partial<SnapshotRecipe> {
+	try {
+		const saved = JSON.parse(localStorage.getItem(styleKey(user)) ?? '{}');
+		return Object.fromEntries(STYLE.filter((k) => k in saved).map((k) => [k, saved[k]])) as Partial<SnapshotRecipe>;
+	} catch {
+		return {};
+	}
+}
+
+export function saveStyle(user: string | undefined, recipe: SnapshotRecipe): void {
+	try {
+		localStorage.setItem(styleKey(user), JSON.stringify(Object.fromEntries(STYLE.map((k) => [k, recipe[k] ?? null]))));
+	} catch {
+		/* private window: not remembered */
+	}
 }
 
 // ---------- palettes ----------
@@ -136,8 +169,8 @@ export function themePalette(): Palette {
 }
 
 export function paletteOf(r: SnapshotRecipe): Palette {
-	if (r.theme === 'theme' && r.palette) return r.palette;
-	return r.theme === 'paper' ? PAPER : CONSOLE;
+	const p = r.theme === 'theme' && r.palette ? r.palette : r.theme === 'paper' ? PAPER : CONSOLE;
+	return r.colors ? { ...p, backdrop: r.colors } : p;
 }
 
 function luminance(color: string): number {
@@ -162,7 +195,7 @@ function color256(n: number, p: Palette): string {
 
 // ---------- reading the output ----------
 
-/** A colour as the terminal had it: a palette index (-1: the accent), an RGB value, or the default. */
+/** A colour as the terminal had it: a palette index (-1: the accent, -2: the dim ink), an RGB value, or the default. */
 type Ink = number | string | null;
 
 export interface Cell {
@@ -176,11 +209,13 @@ export interface Cell {
 	dim: boolean;
 	underline: boolean;
 	inverse: boolean;
+	/** Written by Castor ("[castor] exit code 0"), not by the job. */
+	system?: boolean;
 }
 
 export interface Line {
 	cells: Cell[];
-	/** Castor's own line (written dim and italic by the console). */
+	/** Only Castor's own text. */
 	system: boolean;
 	/** Its text, cell by cell. */
 	text: string;
@@ -188,12 +223,16 @@ export interface Line {
 
 const PLAIN_COLS = 160;
 
+/** Castor's own text is written in this colour (no program uses it), so its cells can be told apart
+ *  even when it shares a line with the job's output. */
+const SYSTEM_INK = '#010203';
+
 /** Plain streams need CR before LF; stderr red, Castor's lines dim and italic (as the console). */
 function chunkText(c: LogChunk, tty: boolean): string {
+	if (c.stream === 'system') return `\x1b[2;3;38;2;1;2;3m${c.data.replace(/\r?\n/g, '\r\n')}\x1b[0m`;
 	if (tty && c.stream === 'stdout') return c.data;
 	const text = c.data.replace(/\r?\n/g, '\r\n');
 	if (c.stream === 'stderr') return `\x1b[31m${text}\x1b[0m`;
-	if (c.stream === 'system') return `\x1b[2;3m${text}\x1b[0m`;
 	return text;
 }
 
@@ -222,10 +261,12 @@ export async function readOutput(job: Job, logs: LogChunk[]): Promise<Line[]> {
 				if (!c || c.getWidth() === 0) continue; // the second half of a wide character
 				const ink = (def: boolean, pal: boolean, rgb: boolean, v: number): Ink =>
 					def ? null : pal ? v : rgb ? `#${v.toString(16).padStart(6, '0')}` : null;
+				const fg = ink(c.isFgDefault(), c.isFgPalette(), c.isFgRGB(), c.getFgColor());
 				cells.push({
 					ch: c.getChars() || ' ',
 					w: c.getWidth(),
-					fg: ink(c.isFgDefault(), c.isFgPalette(), c.isFgRGB(), c.getFgColor()),
+					fg: fg === SYSTEM_INK ? null : fg,
+					system: fg === SYSTEM_INK || undefined,
 					bg: ink(c.isBgDefault(), c.isBgPalette(), c.isBgRGB(), c.getBgColor()),
 					bold: !!c.isBold(),
 					italic: !!c.isItalic(),
@@ -242,7 +283,7 @@ export async function readOutput(job: Job, logs: LogChunk[]): Promise<Line[]> {
 			while (end > 0 && cells[end - 1].ch === ' ' && cells[end - 1].bg === null && !cells[end - 1].inverse) end--;
 			const kept = cells.slice(0, end);
 			const ink = kept.filter((c) => c.ch !== ' ');
-			return { cells: kept, text: kept.map((c) => c.ch).join(''), system: ink.length > 0 && ink.every((c) => c.dim && c.italic) };
+			return { cells: kept, text: kept.map((c) => c.ch).join(''), system: ink.length > 0 && ink.every((c) => c.system) };
 		});
 		while (out.length && !out[out.length - 1].cells.length) out.pop();
 		return out;
@@ -299,6 +340,8 @@ export interface Scene {
 	width: number;
 	height: number;
 	items: Item[];
+	/** The language it was highlighted as (auto-detect's guess), if any. */
+	language?: string | null;
 }
 
 let measurer: CanvasRenderingContext2D | null = null;
@@ -357,18 +400,33 @@ export function buildScene(lines: Line[], recipe: SnapshotRecipe, job: Pick<Job,
 	const wrap = Math.max(20, Math.min(400, recipe.wrap));
 	const items: Item[] = [];
 
-	// What's shown: the command as a prompt line, then the chosen lines.
-	type Shown = { line: Line; index: number | null; prompt?: boolean };
+	// The chosen lines, without Castor's own text unless it's wanted, then as edited by hand.
+	const base: { line: Line; index: number }[] = [];
+	for (let i = Math.max(0, recipe.from); i < Math.min(recipe.to, lines.length); i++) {
+		const line = recipe.system ? lines[i] : withoutSystem(lines[i]);
+		if (line) base.push({ line, index: i });
+	}
+	type Shown = { line: Line; index: number | null; original: Line | null; prompt?: boolean };
+	const output: Shown[] =
+		recipe.text == null
+			? base.map((b) => ({ line: b.line, index: b.index, original: b.line }))
+			: recipe.text.split('\n').map((text, k) => ({ line: retext(base[k]?.line, text), index: base[k]?.index ?? null, original: base[k]?.line ?? null }));
 	const shown: Shown[] = [];
 	if (recipe.command && job.command.trim()) {
 		const text = `$ ${job.command.trim().split('\n')[0]}`;
 		const cells: Cell[] = [...text].map((ch, i) => ({ ch, w: 1, fg: i === 0 ? -1 : null, bg: null, bold: i === 0, italic: false, dim: false, underline: false, inverse: false }));
-		shown.push({ line: { cells, text, system: false }, index: null, prompt: true });
+		shown.push({ line: { cells, text, system: false }, index: null, original: null, prompt: true });
 	}
-	const to = Math.min(recipe.to, lines.length);
-	for (let i = Math.max(0, recipe.from); i < to; i++) {
-		if (!recipe.system && lines[i].system) continue;
-		shown.push({ line: lines[i], index: i });
+	shown.push(...output);
+
+	// Syntax highlighting colours what the terminal left in its default colour.
+	let language: string | null = null;
+	if (recipe.language && recipe.language !== 'ansi' && hljs) {
+		const lang = recipe.language;
+		const found = colourLines(output.map((s) => s.line), lang);
+		language = found.language;
+		found.lines.forEach((l, k) => (output[k].line = l));
+		if (shown[0]?.prompt) shown[0].line = colourLines([shown[0].line], 'bash').lines[0];
 	}
 
 	const highlight = new Set(recipe.highlight);
@@ -377,10 +435,20 @@ export function buildScene(lines: Line[], recipe: SnapshotRecipe, job: Pick<Job,
 	const laid: Laid[] = [];
 	for (const s of shown) {
 		const hidden = new Set<number>();
-		if (s.index !== null) for (const h of recipe.hide) if (h.line === s.index) for (let k = h.start; k < h.end; k++) hidden.add(k);
+		if (s.index !== null && s.original) {
+			for (const h of recipe.hide) {
+				if (h.line !== s.index) continue;
+				if (s.line.text === s.original.text) for (let k = h.start; k < h.end; k++) hidden.add(k);
+				else {
+					// The line was edited: hide wherever the hidden text still is, so an edit can't uncover it.
+					const secret = s.original.cells.slice(h.start, h.end).map((c) => c.ch).join('');
+					for (const hit of findAll(s.line, secret)) for (let k = hit.start; k < hit.end; k++) hidden.add(k);
+				}
+			}
+		}
 		// Patterns hide on every line, the command's too.
 		for (const h of patternHits(s.line, recipe.patterns)) for (let k = h.start; k < h.end; k++) hidden.add(k);
-		const n = s.index !== null ? ++number : null;
+		const n = s.prompt ? null : ++number;
 		rows(s.line, wrap, (i) => hidden.has(i)).forEach((runs, k) =>
 			laid.push({ runs, number: k === 0 ? n : null, highlight: s.index !== null && highlight.has(s.index), prompt: !!s.prompt, first: k === 0 })
 		);
@@ -438,7 +506,7 @@ export function buildScene(lines: Line[], recipe: SnapshotRecipe, job: Pick<Job,
 				continue;
 			}
 			const c = r.cells[0];
-			let fg = c.fg === -1 ? p.accent : c.fg === null ? p.fg : typeof c.fg === 'number' ? color256(c.fg, p) : c.fg;
+			let fg = c.fg === -1 ? p.accent : c.fg === -2 ? p.dim : c.fg === null ? p.fg : typeof c.fg === 'number' ? color256(c.fg, p) : c.fg;
 			let bg = c.bg === null ? null : typeof c.bg === 'number' ? color256(c.bg, p) : c.bg;
 			if (c.inverse) [fg, bg] = [bg ?? p.bg, fg];
 			if (bg) items.push({ t: 'rect', x, y: top, w, h: lh, fill: bg });
@@ -447,7 +515,124 @@ export function buildScene(lines: Line[], recipe: SnapshotRecipe, job: Pick<Job,
 		}
 	});
 	items.push({ t: 'unclip' });
-	return { width: W, height: H, items };
+	return { width: W, height: H, items, language };
+}
+
+const DEFAULT_CELL: Cell = { ch: ' ', w: 1, fg: null, bg: null, bold: false, italic: false, dim: false, underline: false, inverse: false };
+
+/** A line without Castor's own text (null when that's all it was). */
+function withoutSystem(line: Line): Line | null {
+	if (line.system) return null;
+	if (!line.cells.some((c) => c.system)) return line;
+	const cells = line.cells.filter((c) => !c.system);
+	while (cells.length && cells[cells.length - 1].ch === ' ' && cells[cells.length - 1].bg === null) cells.pop();
+	return { cells, text: cells.map((c) => c.ch).join(''), system: false };
+}
+
+/** New text on a line, each character looking like the one that was in its place. */
+function retext(original: Line | undefined, text: string): Line {
+	const cells = [...text].map((ch, j) => {
+		const like = original?.cells[j] ?? original?.cells[original.cells.length - 1] ?? DEFAULT_CELL;
+		return { ...like, ch, w: like.ch === ch ? like.w : 1 };
+	});
+	return { cells, text: cells.map((c) => c.ch).join(''), system: false };
+}
+
+/** Every place `needle` is on the line, as cells. */
+function findAll(line: Line, needle: string): { start: number; end: number }[] {
+	if (!needle) return [];
+	const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	return patternHits(line, [escaped]);
+}
+
+// ---------- syntax highlighting ----------
+
+type Hljs = typeof import('highlight.js').default;
+let hljs: Hljs | null = null;
+
+/** highlight.js with its common languages, loaded on first use. */
+export async function loadHighlighter(): Promise<void> {
+	hljs ??= (await import('highlight.js/lib/common')).default;
+}
+
+/** The languages to choose from: none, auto, then each one by name. */
+export function languageOptions(): { value: string; label: string }[] {
+	const named = (hljs?.listLanguages() ?? [])
+		.map((id) => ({ value: id, label: hljs?.getLanguage(id)?.name ?? id }))
+		.sort((a, b) => a.label.localeCompare(b.label));
+	return [{ value: 'ansi', label: 'None (the terminal\'s colours)' }, { value: 'auto', label: 'Auto-detect' }, ...named];
+}
+
+export function languageName(id: string | null): string | null {
+	return id ? (hljs?.getLanguage(id)?.name ?? id) : null;
+}
+
+/** highlight.js's scopes, as the colours of a terminal palette. */
+const SCOPE_INK: Record<string, Ink> = {
+	keyword: 5, 'selector-tag': 5, doctag: 5, built_in: 3, type: 3, class: 3, 'selector-class': 3, number: 3, literal: 3,
+	symbol: 3, string: 2, regexp: 2, addition: 2, title: 4, section: 4, name: 4, tag: 4, link: 4, 'selector-id': 4,
+	attr: 6, attribute: 6, property: 6, bullet: 6, variable: 1, 'template-variable': 1, deletion: 1, comment: -2,
+	quote: -2, meta: -2
+};
+
+let lastScopes: { key: string; scopes: (string | null)[]; language: string | null } | null = null;
+
+/** Each character's highlight.js scope (null outside any), and the language used. */
+function scopesOf(text: string, language: string): { scopes: (string | null)[]; language: string | null } {
+	const key = `${language}\u0000${text}`;
+	if (lastScopes?.key === key) return lastScopes;
+	let html = '';
+	let found: string | null = null;
+	try {
+		if (language === 'auto') {
+			const r = hljs!.highlightAuto(text.slice(0, 20000));
+			if (r.language && r.relevance >= 5) {
+				found = r.language;
+				html = text.length > 20000 ? hljs!.highlight(text, { language: found, ignoreIllegals: true }).value : r.value;
+			}
+		} else if (hljs!.getLanguage(language)) {
+			found = language;
+			html = hljs!.highlight(text, { language, ignoreIllegals: true }).value;
+		}
+	} catch {
+		found = null;
+	}
+	const scopes: (string | null)[] = [];
+	if (found) {
+		// The HTML back into a scope per character.
+		const stack: (string | null)[] = [];
+		const entity: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', '#x27': "'", '#39': "'" };
+		for (const m of html.matchAll(/<span class="([^"]*)">|<\/span>|&(amp|lt|gt|quot|#x27|#39);|[^<&]+|[<&]/g)) {
+			if (m[1] !== undefined) stack.push(m[1].split(' ').find((c) => c.startsWith('hljs-'))?.slice(5) ?? stack[stack.length - 1] ?? null);
+			else if (m[0] === '</span>') stack.pop();
+			else {
+				const chunk = m[2] ? entity[m[2]] : m[0];
+				for (let k = 0; k < chunk.length; k++) scopes.push(stack[stack.length - 1] ?? null);
+			}
+		}
+	}
+	lastScopes = { key, scopes, language: found };
+	return lastScopes;
+}
+
+/** Colour lines by a language (or the one highlight.js thinks it is, if it's sure enough). Only
+ *  cells in the default colour change, so the terminal's own colours stay. */
+function colourLines(lines: Line[], language: string): { lines: Line[]; language: string | null } {
+	if (!hljs || !lines.length) return { lines, language: null };
+	const { scopes, language: found } = scopesOf(lines.map((l) => l.text).join('\n'), language);
+	if (!found) return { lines, language: null };
+	let at = 0;
+	const out = lines.map((line) => {
+		const cells = line.cells.map((c) => {
+			const scope = scopes[at];
+			at += c.ch.length;
+			const ink = scope ? (SCOPE_INK[scope] ?? SCOPE_INK[scope.split('.')[0]]) : undefined;
+			return c.fg === null && ink !== undefined ? { ...c, fg: ink, italic: c.italic || ink === -2 } : c;
+		});
+		at += 1; // the newline
+		return { ...line, cells };
+	});
+	return { lines: out, language: found };
 }
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, Math.max(1, n - 1))}…` : s);

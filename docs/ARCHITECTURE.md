@@ -760,8 +760,14 @@ some of a job's output for a report. The browser replays the job's log chunks in
 (the console's emulator, so colours, progress bars and tty output come out as shown), joins wrapped rows into
 logical lines, and builds a scene (rectangles and text runs) from a recipe: the lines `[from, to)`, highlighted
 lines, hidden cell ranges and regex patterns (hidden text is left out, a bar drawn instead; patterns also cover the
-command line), frame, colours (`console`, `paper`, or the current theme captured into the recipe), background,
-size, wrap and scale. The scene is drawn on a canvas for PNG (copy, download, attach) or written as SVG. Attaching
+command line), text edited by hand (`text`: the shown lines, styled like the characters they replace; a hidden
+range on an edited line hides wherever its text still appears), syntax highlighting (`language`: `ansi` for none,
+`auto`, or a highlight.js language, loaded on demand; it colours only cells the terminal left in the default
+colour), frame, colours (`console`, `paper`, or the current theme captured into the recipe), background and its
+`colors`, padding, size, wrap and scale. Castor's own log text is written in a sentinel colour so its cells are
+dropped even when they share a line with output. The look (not the lines, edits or hidden ranges) is remembered per
+person in localStorage (`loadStyle`/`saveStyle`). Copy puts a PNG drawn ahead of time on the clipboard with an HTML
+`<img>` of it, which document editors such as Google Docs take. The scene is drawn on a canvas for PNG (copy, download, attach) or written as SVG. Attaching
 posts the PNG to `POST /api/tasks/{id}/attachments` with `snapshot` (the recipe as JSON, at most 64 KB) and
 `job_id` (a job of that card), stored in `attachments.snapshot`; `PUT /api/attachments/{id}` (file + snapshot,
 snapshots only) saves a changed one in place, so everything showing it shows the new picture

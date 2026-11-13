@@ -466,4 +466,5 @@ dependency; keep it that way so the agent stays trivially installable on target 
   logical lines, `buildScene` → `toCanvas`/`toSvg`) and `SnapshotDialog.svelte`, opened from `JobConsole`'s
   `onsnapshot` (its selection as logical lines) and a snapshot attachment in TaskDialog. The recipe lives in
   `attachments.snapshot` (`POST /api/tasks/{id}/attachments` with `snapshot` + `job_id`, `PUT /api/attachments/{id}`
-  replaces one in place). Hidden text must never reach the picture: draw a bar, not the text.
+  replaces one in place). Hidden text must never reach the picture: draw a bar, not the text (edited lines too).
+  Syntax highlighting is highlight.js (`lib/common`, imported on demand); the per-person look is in localStorage.
