@@ -617,7 +617,7 @@
 	const imageUrl = (a: Attachment) => `${api().attachments.url(a.id, true)}${a.snapshot ? `&v=${a.size}` : ''}`;
 
 	// ---- terminal snapshots ----
-	let snapshot = $state<{ jobId: UUID; range: { from: number; to: number } | null; attachment: Attachment | null } | null>(null);
+	let snapshot = $state<{ jobId: UUID | null; range: { from: number; to: number } | null; attachment: Attachment | null } | null>(null);
 	function savedSnapshot(a: Attachment) {
 		attachments = attachments.some((x) => x.id === a.id) ? attachments.map((x) => (x.id === a.id ? a : x)) : [...attachments, a];
 	}
@@ -1000,6 +1000,7 @@
 					{#if editable}
 						<div class="flex items-center gap-2">
 							<Button variant="tonal" icon="upload" loading={uploading} onclick={() => fileInput?.click()}>Upload</Button>
+							<Button variant="text" icon="photo_camera" onclick={() => (snapshot = { jobId: null, range: null, attachment: null })}>New snapshot</Button>
 							<span class="body-small text-on-surface-variant">or paste a screenshot anywhere in this card</span>
 							<input bind:this={fileInput} type="file" multiple class="hidden" onchange={(e) => upload((e.currentTarget as HTMLInputElement).files)} />
 						</div>
@@ -1014,7 +1015,7 @@
 									<figcaption class="flex items-center gap-1 px-2 py-1 body-small text-on-surface-variant">
 										<span class="flex-1 truncate" title={a.filename}>{a.filename}</span>
 										<span>{bytes(a.size)}</span>
-										{#if a.snapshot && a.job_id}<IconButton icon="photo_camera" label={editable ? 'Change the snapshot' : 'Open the snapshot'} size="sm" onclick={() => (snapshot = { jobId: a.job_id!, range: null, attachment: a })} />{/if}
+										{#if a.snapshot}<IconButton icon="photo_camera" label={editable ? 'Change the snapshot' : 'Open the snapshot'} size="sm" onclick={() => (snapshot = { jobId: a.job_id, range: null, attachment: a })} />{/if}
 										{#if editable}<IconButton icon="delete" label="Delete" size="sm" onclick={() => removeAttachment(a)} />{/if}
 									</figcaption>
 								</figure>

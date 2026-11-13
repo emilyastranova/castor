@@ -1,6 +1,6 @@
 /**
- * Copying code out of rendered markdown: code blocks get a copy button, and inline `code` is
- * itself a button that copies its text. Use on the element that holds the {@html} markdown:
+ * Copying code out of rendered markdown: code blocks get a copy button and a snapshot button (a
+ * picture of the code, SnapshotDialog), and inline `code` is itself a button that copies its text. Use on the element that holds the {@html} markdown:
  *
  *   <div class="prose-m3" use:copyableCode>{@html renderMarkdown(body)}</div>
  *
@@ -8,6 +8,7 @@
  * picked up as it appears.
  */
 import { snackbar } from '$lib/snackbar.svelte';
+import { snapshots } from '$lib/snapshots.svelte';
 
 /** Put text on the clipboard; falls back to a hidden textarea where the Clipboard API isn't
  *  available (plain http on a non-local address). */
@@ -56,7 +57,13 @@ function enhance(root: HTMLElement) {
 		button.title = 'Copy';
 		button.setAttribute('aria-label', 'Copy the code');
 		button.append(icon('content_copy'));
-		pre.append(button);
+		const shot = document.createElement('button');
+		shot.type = 'button';
+		shot.className = 'code-copy code-snapshot';
+		shot.title = 'Snapshot';
+		shot.setAttribute('aria-label', 'Make a picture of the code');
+		shot.append(icon('photo_camera'));
+		pre.append(shot, button);
 	}
 	for (const code of root.querySelectorAll<HTMLElement>(':not(pre) > code:not([data-copy])')) {
 		if (code.closest('a, .mention')) continue; // a link's text goes where the link goes
@@ -84,6 +91,15 @@ export function copyableCode(root: HTMLElement) {
 
 	const onclick = (e: MouseEvent) => {
 		const target = e.target as HTMLElement;
+		const shot = target.closest<HTMLButtonElement>('.code-snapshot');
+		if (shot && root.contains(shot)) {
+			e.preventDefault();
+			e.stopPropagation();
+			const code = shot.closest('pre')?.querySelector('code');
+			const language = [...(code?.classList ?? [])].find((c) => c.startsWith('language-'))?.slice(9) ?? null;
+			snapshots.open({ text: (code?.textContent ?? '').replace(/\n$/, ''), language });
+			return;
+		}
 		const button = target.closest<HTMLButtonElement>('.code-copy');
 		if (button && root.contains(button)) {
 			e.preventDefault();

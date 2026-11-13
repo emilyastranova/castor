@@ -755,8 +755,11 @@ item or the page, or none when it's gone, and clicking an entry goes there); adm
 `POST /api/notes/{id}/restore/{index}`, `POST /api/projects/{id}/notes/order`); every edit
 keeps the previous version. Images pasted into a note are project attachments without a card
 (`POST /api/projects/{id}/attachments`).
-**Terminal snapshots** (web `lib/snapshot.ts`, `SnapshotDialog.svelte`, the console's camera button): a picture of
-some of a job's output for a report. The browser replays the job's log chunks into an unopened xterm.js terminal
+**Snapshots** (web `lib/snapshot.ts`, `SnapshotEditor.svelte` in `SnapshotDialog.svelte` and on the `/snapshot` page): a
+picture of some of a job's output (the console's camera button) or of any text (`source: 'text'`, the text in `input`:
+the Snapshot page, a card's New snapshot, or a rendered code block's camera button from `copyCode.ts`, which opens the
+dialog through `lib/snapshots.svelte.ts` in the root layout with the fence's language) for a report. Text is replayed
+the same way as output, so colour codes in pasted text work. The browser replays the job's log chunks into an unopened xterm.js terminal
 (the console's emulator, so colours, progress bars and tty output come out as shown), joins wrapped rows into
 logical lines, and builds a scene (rectangles and text runs) from a recipe: the lines `[from, to)`, highlighted
 lines, hidden cell ranges and regex patterns (hidden text is left out, a bar drawn instead; patterns also cover the
@@ -766,10 +769,10 @@ range on an edited line hides wherever its text still appears), syntax highlight
 colour), frame, colours (`console`, `paper`, or the current theme captured into the recipe), background and its
 `colors`, padding, size, wrap and scale. Castor's own log text is written in a sentinel colour so its cells are
 dropped even when they share a line with output. The look (not the lines, edits or hidden ranges) is remembered per
-person in localStorage (`loadStyle`/`saveStyle`). Copy puts a PNG drawn ahead of time on the clipboard with an HTML
+person in localStorage (`loadStyle`/`saveStyle`; the language only when picked by hand). Copy puts a PNG drawn ahead of time on the clipboard with an HTML
 `<img>` of it, which document editors such as Google Docs take. The scene is drawn on a canvas for PNG (copy, download, attach) or written as SVG. Attaching
 posts the PNG to `POST /api/tasks/{id}/attachments` with `snapshot` (the recipe as JSON, at most 64 KB) and
-`job_id` (a job of that card), stored in `attachments.snapshot`; `PUT /api/attachments/{id}` (file + snapshot,
+`job_id` (a job of that card; none for text), stored in `attachments.snapshot` (at most 512 KB); `PUT /api/attachments/{id}` (file + snapshot,
 snapshots only) saves a changed one in place, so everything showing it shows the new picture
 (`attachment.updated`, an activity of the same name). Drawing is browser-only, so MCP has no snapshot tool.
 **Timeline exports** (`report.py`, `api/exports.py`): `GET /api/projects/{id}/timeline/export?format=html|pdf`

@@ -57,7 +57,7 @@ def test_snapshots_are_checked(client, auth):
     assert r.status_code == 422
     # Not an object, or too big.
     assert client.post(url, headers=auth, files={"file": ("s.png", PNG, "image/png")}, data={"snapshot": "[1]"}).status_code == 422
-    big = json.dumps({"x": "a" * 70000})
+    big = json.dumps({"x": "a" * 600000})
     assert client.post(url, headers=auth, files={"file": ("s.png", PNG, "image/png")}, data={"snapshot": big}).status_code == 422
     # Another card's job.
     _, other, other_job = _card_with_job(client, auth)
@@ -67,3 +67,17 @@ def test_snapshots_are_checked(client, auth):
     plain = client.post(url, headers=auth, files={"file": ("notes.txt", b"hello", "text/plain")}).json()
     r = client.put(f"/api/attachments/{plain['id']}", headers=auth, files={"file": ("s.png", PNG, "image/png")}, data={"snapshot": "{}"})
     assert r.status_code == 409
+
+
+def test_a_snapshot_of_text_needs_no_job(client, auth):
+    """A picture of pasted text or a code block: the text travels in the recipe."""
+    p, task, _ = _card_with_job(client, auth)
+    recipe = {"v": 1, "source": "text", "input": "print('hi')\n" * 2000, "language": "python"}
+    r = client.post(f"/api/tasks/{task['id']}/attachments", headers=auth,
+                    files={"file": ("snapshot.png", PNG, "image/png")}, data={"snapshot": json.dumps(recipe)})
+    assert r.status_code == 201, r.text
+    att = r.json()
+    assert att["job_id"] is None and att["snapshot"]["input"].startswith("print") and att["snapshot"]["source"] == "text"
+    r = client.put(f"/api/attachments/{att['id']}", headers=auth,
+                   files={"file": ("snapshot.png", PNG, "image/png")}, data={"snapshot": json.dumps({**recipe, "input": "x"})})
+    assert r.status_code == 200 and r.json()["snapshot"]["input"] == "x" and r.json()["job_id"] is None

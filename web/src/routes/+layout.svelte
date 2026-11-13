@@ -14,6 +14,8 @@
 	import ConfirmHost from '$lib/components/ConfirmHost.svelte';
 	import ImageViewer from '$lib/components/ImageViewer.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
+	import SnapshotDialog from '$lib/components/SnapshotDialog.svelte';
+	import { snapshots } from '$lib/snapshots.svelte';
 	import { palette } from '$lib/palette.svelte';
 	import NotificationBell from '$lib/components/NotificationBell.svelte';
 	import PhoneNav from '$lib/components/PhoneNav.svelte';
@@ -34,6 +36,7 @@
 		{ href: '/library', icon: 'handyman', label: 'Library' },
 		{ href: '/variables', icon: 'key', label: 'Variables' },
 		{ href: '/parsers', icon: 'data_object', label: 'Parsers' },
+		{ href: '/snapshot', icon: 'photo_camera', label: 'Snapshot' },
 		{ href: '/agents', icon: 'dns', label: 'Agents', divider: true },
 		{ href: '/people', icon: 'groups', label: 'People' },
 		...(data.user?.role === 'admin' ? [{ href: '/settings', icon: 'settings', label: 'Settings' }] : [])
@@ -192,3 +195,14 @@
 <ConfirmHost />
 <ImageViewer />
 {#if data.user}<CommandPalette />{/if}
+<!-- A picture of a code block (its camera button), from anywhere. -->
+{#if snapshots.request}
+	{#key snapshots.request}
+		<SnapshotDialog
+			bind:open={() => !!snapshots.request, (v) => !v && snapshots.close()}
+			text={snapshots.request.text}
+			language={snapshots.request.language}
+			title={snapshots.request.title ?? ''}
+		/>
+	{/key}
+{/if}

@@ -93,13 +93,13 @@ async def list_task_attachments(task_id: str, db: DB, user: CurrentUser):
     return rows
 
 
-SNAPSHOT_MAX = 64 * 1024  # bytes of the recipe, as JSON
+SNAPSHOT_MAX = 512 * 1024  # bytes of the recipe, as JSON (a text snapshot carries its text)
 PNG = b"\x89PNG\r\n\x1a\n"
 
 
 async def _snapshot_of(db: DB, user: m.User, task: m.Task, text: str, job_id: str | None, file: UploadFile) -> dict[str, Any]:
-    """A terminal snapshot's recipe, checked: a JSON object of a sensible size, a PNG picture,
-    and (when it names one) a job of this card."""
+    """A snapshot's recipe, checked: a JSON object of a sensible size, a PNG picture, and (when it
+    names one) a job of this card. Without a job it's a picture of text (pasted, a code block)."""
     if len(text.encode()) > SNAPSHOT_MAX:
         raise HTTPException(422, "snapshot: too large")
     try:

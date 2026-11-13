@@ -37,7 +37,11 @@ export interface Hidden {
 
 export interface SnapshotRecipe {
 	v: 1;
+	/** What it's a picture of: a job's output, or text someone typed or pasted (a code block). */
+	source?: 'job' | 'text';
 	job_id?: string;
+	/** A text snapshot's text (terminal colour codes in it are honoured). */
+	input?: string;
 	/** Logical lines [from, to) of the job's output. */
 	from: number;
 	to: number;
@@ -70,17 +74,20 @@ export interface SnapshotRecipe {
 	scale: number;
 }
 
-export function newRecipe(job: Job, title: string, from = 0, to = Number.MAX_SAFE_INTEGER, style: Partial<SnapshotRecipe> = {}): SnapshotRecipe {
+/** A new recipe: for a job's output, or (job null) for text. */
+export function newRecipe(job: Pick<Job, 'id' | 'tty'> | null, title: string, from = 0, to = Number.MAX_SAFE_INTEGER, style: Partial<SnapshotRecipe> = {}): SnapshotRecipe {
 	const recipe: SnapshotRecipe = {
 		v: 1,
-		job_id: job.id,
+		source: job ? 'job' : 'text',
+		job_id: job?.id,
+		input: job ? undefined : '',
 		from,
 		to,
 		highlight: [],
 		hide: [],
 		patterns: [],
 		title,
-		command: !job.tty,
+		command: !!job && !job.tty,
 		system: false,
 		frame: 'window',
 		theme: 'console',
@@ -236,8 +243,13 @@ function chunkText(c: LogChunk, tty: boolean): string {
 	return text;
 }
 
+/** Text as lines, read like a terminal would (colour codes in it work; tabs at every 8 columns). */
+export function readText(text: string): Promise<Line[]> {
+	return readOutput({ tty: false, tty_size: null }, [{ seq: 0, stream: 'stdout', data: text, ts: '' }]);
+}
+
 /** The job's output as logical lines (wrapped rows joined again), the way the console shows it. */
-export async function readOutput(job: Job, logs: LogChunk[]): Promise<Line[]> {
+export async function readOutput(job: Pick<Job, 'tty' | 'tty_size'>, logs: LogChunk[]): Promise<Line[]> {
 	const { Terminal } = await import('@xterm/xterm');
 	const tty = !!job.tty;
 	const term = new Terminal({
@@ -561,6 +573,24 @@ export function languageOptions(): { value: string; label: string }[] {
 		.map((id) => ({ value: id, label: hljs?.getLanguage(id)?.name ?? id }))
 		.sort((a, b) => a.label.localeCompare(b.label));
 	return [{ value: 'ansi', label: 'None (the terminal\'s colours)' }, { value: 'auto', label: 'Auto-detect' }, ...named];
+}
+
+/** A code fence's language ("py", "sh") as one of `languageOptions`' ids, or null. */
+export function languageId(alias: string | null | undefined): string | null {
+	if (!alias || !hljs) return null;
+	const lang = hljs.getLanguage(alias);
+	return lang ? (hljs.listLanguages().find((id) => hljs!.getLanguage(id) === lang) ?? null) : null;
+}
+
+/** A regular expression matching exactly this text (hiding a selection of typed text). */
+export function literal(text: string): string {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** The text a `literal` pattern matches, or null for any other pattern. */
+export function literalText(pattern: string): string | null {
+	const text = pattern.replace(/\\(.)/g, '$1');
+	return literal(text) === pattern ? text : null;
 }
 
 export function languageName(id: string | null): string | null {

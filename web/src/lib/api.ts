@@ -1359,13 +1359,13 @@ export function api(fetchFn: Fetch = fetch) {
 				post<MoveResult>(`/tasks/${id}/comments/${commentId}/move`, { to_task_id: toTaskId }),
 			attachments: (id: UUID) => get<Attachment[]>(`/tasks/${id}/attachments`),
 			/** `snapshot`: a terminal snapshot's recipe (JSON) and the job it shows. */
-			upload: (id: UUID, file: File, kind?: string, snapshot?: { snapshot: string; job_id: UUID }) => {
+			upload: (id: UUID, file: File, kind?: string, snapshot?: { snapshot: string; job_id?: UUID | null }) => {
 				const form = new FormData();
 				form.append('file', file);
 				if (kind) form.append('kind', kind);
 				if (snapshot) {
 					form.append('snapshot', snapshot.snapshot);
-					form.append('job_id', snapshot.job_id);
+					if (snapshot.job_id) form.append('job_id', snapshot.job_id);
 				}
 				return post<Attachment>(`/tasks/${id}/attachments`, form);
 			}

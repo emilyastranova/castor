@@ -278,7 +278,7 @@ select optgroup {
 .prose-m3 pre { background: var(--md-sys-color-surface-container-highest); padding: 0.75rem 1rem; border-radius: var(--md-sys-shape-corner-small); overflow: auto; margin: 0 0 0.75em; }
 .prose-m3 pre code { background: none; padding: 0; }
 /* Copying code (lib/copyCode.ts): a button in a block's corner, and inline code that copies on click. */
-.prose-m3 pre.code-block { position: relative; overflow: visible; padding-right: 2.75rem; }
+.prose-m3 pre.code-block { position: relative; overflow: visible; padding-right: 5rem; }
 .prose-m3 pre.code-block > code { display: block; overflow-x: auto; }
 .code-copy {
 	position: absolute;
@@ -297,6 +297,7 @@ select optgroup {
 	cursor: pointer;
 }
 .code-copy .material-symbols-rounded { font-size: 18px; }
+.code-copy.code-snapshot { right: 2.625rem; }
 pre:hover > .code-copy,
 .code-copy:focus-visible,
 .code-copy.copied { opacity: 1; }
