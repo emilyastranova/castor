@@ -21,6 +21,12 @@ async def active_admins(db: AsyncSession) -> int:
     ).scalar_one()
 
 
+async def active_admin_ids(db: AsyncSession) -> list:
+    """The people (not plugin accounts) who administer Castor, to tell about instance matters."""
+    return list((await db.execute(select(m.User.id).where(
+        m.User.role == m.UserRole.admin, m.User.disabled_at.is_(None), m.User.plugin_id.is_(None)))).scalars())
+
+
 async def ensure_active_admin(db: AsyncSession) -> m.User | None:
     """If users exist but none is an active admin (hand-edited data, or an upgrade where
     nobody had is_admin), make the longest-standing active user an admin, or failing

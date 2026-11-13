@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { originLabel, pluginOf, readOnlyOrigin } from '$lib/origin';
 	import type { CommandDefinition, CommandUsage } from '$lib/api';
 	import { api, ApiError, saveBlob } from '$lib/api';
 	import { Button, Icon, Tabs } from '$lib/m3';
@@ -33,7 +34,7 @@
 	let yaml = $state(original);
 	let error = $state<string | null>(null);
 	let saving = $state(false);
-	let readOnly = $derived(!editable || c?.origin === 'builtin');
+	let readOnly = $derived(!editable || readOnlyOrigin(c?.origin));
 	$effect(() => {
 		dirty = yaml !== original;
 	});
@@ -88,7 +89,7 @@
 				<p class="flex flex-wrap items-center gap-x-2 body-small text-on-surface-variant">
 					<code class="font-mono">{c.id}</code>
 					<span aria-hidden="true">·</span>
-					<span>{c.origin === 'builtin' ? 'built-in' : 'yours'}</span>
+					<span>{originLabel(c.origin)}</span>
 					{#if c.version > 1}<span aria-hidden="true">·</span><span>version {c.version}</span>{/if}
 				</p>
 			{/if}
@@ -259,7 +260,7 @@
 			{#snippet aside()}
 				{#if readOnly}
 					<p class="body-small text-on-surface-variant">
-						{#if c?.origin === 'builtin'}Built-in commands come from <code class="font-mono">commands/{c.id}.yaml</code> and are read-only here. Duplicate one to make your own.{:else}You can view this but not change it.{/if}
+						{#if pluginOf(c?.origin)}This command comes with the plugin <b class="font-medium">{pluginOf(c?.origin)}</b> and is read-only; it's updated and removed with the plugin. Duplicate it to make your own.{:else if readOnlyOrigin(c?.origin)}Built-in commands come from <code class="font-mono">commands/{c?.id}.yaml</code> and are read-only here. Duplicate one to make your own.{:else}You can view this but not change it.{/if}
 					</p>
 				{:else}
 					<p class="body-small text-on-surface-variant">Arguments are inserted shell-quoted with <code class="font-mono">{'{{ name }}'}</code>. Name a tool with <code class="font-mono">tool:</code>. Tab indents; Ctrl+S saves.</p>

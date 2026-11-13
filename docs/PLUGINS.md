@@ -1,12 +1,15 @@
 # Plugins (plan)
 
-Status: **phases A to D are built** (sandboxed plugins with actions, settings, storage, events,
+Status: **phases A to E are built** (sandboxed plugins with actions, settings, storage, events,
 declared network and panels; unrestricted plugins behind restricted mode, safe mode and page
-scripts; the Nessus import, Shodan enrichment, BloodHound bridge, DOCX report and Watch folder),
-and plugins can add asset types and relationship kinds (Source Code Review). Phase E (the
-directory) is planned. This is the design the plugin work follows;
+scripts; the directory, update checks, publisher pages and packs of library content; the Nessus
+import, Shodan enrichment, BloodHound bridge, DOCX report, Watch folder and Mail DNS checks), and
+plugins can add asset types and relationship kinds (Source Code Review). Hooks and signed releases
+are still to come. This is the design the plugin work follows;
 change it here first when a decision changes, then build. The roadmap entry points here. Writing a
-plugin: the wiki's Plugins page and `plugins/nessus-import/`.
+plugin: the wiki's Plugins page and `plugins/nessus-import/` in the
+[castor-plugins](https://github.com/emilyastranova/castor-plugins) repository, which holds the
+directory and the official plugins.
 
 Plugins let anyone extend Castor: bring in another tool's results, enrich assets from an outside
 service, sync cards with an issue tracker, add a panel to a card, ship a set of commands and
@@ -59,7 +62,8 @@ description: Bring .nessus scan results into a project's assets, with vulnerabil
 homepage: https://github.com/example/castor-nessus-import
 license: MIT
 
-main: main.ts                  # the plugin's code (TypeScript or JavaScript), run by Deno
+main: main.ts                  # the plugin's code (TypeScript or JavaScript), run by Deno; a release
+                               # with a main.ts runs it anyway; none at all: a pack (below)
 icon: icon.svg                 # optional: SVG, PNG or WebP in the plugin, square, ≤ 256 KB
 runtime: sandboxed             # sandboxed (default) or unrestricted (see below)
 
@@ -84,7 +88,7 @@ ui:                            # its pages, shown in Castor in sandboxed frames 
   - { id: asset-path, slot: asset.panel, title: Path to Domain Admins, path: ui/paths.html, asset_types: [user, host], height: 140 }
 settings:
   - { name: info_findings, label: "Record informational findings", type: bool, default: false }
-contents: []                   # folders of library items it ships: commands/, parsers/, …
+contents: [commands, tools]    # library content it ships in library/<kind>/*.yaml (packs, below)
 asset_types:                   # kinds of asset it adds (see below)
   - { name: source_file, label: Source file, icon: code, identity: [repo, path], label_template: "{repo}/{path}",
       fields: [{ name: repo, label: Repository }, { name: path, label: Path }, { name: lines, label: Lines, type: number }] }
@@ -238,7 +242,7 @@ and in the feed.
 
 `@castor/plugin`, what plugin authors import. Castor ships it (`server/castor_server/plugin_sdk/mod.ts`)
 and maps the name to it at run time; for working on a plugin, a `deno.json` import map points at
-the same file (see `plugins/nessus-import/deno.json`).
+the same file (castor-plugins' `deno.json` files point at it on GitHub).
 
 ```ts
 import { definePlugin } from "@castor/plugin";
@@ -262,7 +266,8 @@ definePlugin({
 `events.on`, `ui.on` (handlers for its pages, below). With `network:`, plain `fetch` reaches those hosts (and only those). An
 action gets `run`: `runId`, `user`, `project`, `task`, `asset`, `file` (`name`, `size`, `text()`,
 `bytes()`, `stream()`), `progress()`, `log`. `console.log` goes to the plugin's log.
-`plugins/pack.py <folder>` packs a release (leaving out tests, samples and `deno.json`). Types
+castor-plugins' `scripts/pack.py <folder>` packs a release (leaving out tests, samples and
+`deno.json`; the same files always give the same .zip). Types
 generated from the OpenAPI and a scaffolding CLI come later.
 
 ### UI slots (phase C)
@@ -356,7 +361,12 @@ Admins only (session, or a token with the `admin` scope):
 - `GET /api/plugins/{id}/logs`, `GET /api/plugins/{id}/runs`
 - `GET /api/plugin-mode` (restricted mode, whether it's locked, safe mode), `PUT /api/plugin-mode`
   `{restricted}`
-- later: `GET /api/plugin-directory`
+- `POST /api/plugins/preview` with `directory: <id>`: the directory's newest release of it, checked
+  against its SHA-256 (source `directory:<id>`)
+- `GET /api/plugin-directory` (every plugin, its newest release, installed or not, an update or
+  not), `GET /api/plugin-directory/plugins/{id}` (release notes, the manifest, the README, why it
+  can't be installed here), `…/plugins/{id}/icon`, `GET /api/plugin-directory/publishers/{id}`,
+  `POST /api/plugin-directory/check` (update check now)
 
 Anyone who can change an enabled project: `GET /api/projects/{id}/plugin-actions`,
 `POST /api/plugins/{id}/actions/{action}` (a form: `project_id`, optional `task_id`/`asset_id`, the
@@ -369,19 +379,70 @@ removing plugins stay in the UI, where an admin approves them.
 
 ## The directory
 
-Like `obsidian-releases`: a public Git repository with one `plugins.json` listing each plugin's
-id, name, author, description and repository. A plugin's repository publishes GitHub releases with
-`castor-plugin.yaml` and a `.zip`; Castor reads the latest release, checks its SHA-256 and the
-manifest, and shows its permissions before anything runs. Adding a plugin is a pull request to
-the directory, checked automatically (manifest valid, id free, release present). Signatures
-(Sigstore) come later, once there are publishers to verify.
+Its own public repository, [castor-plugins](https://github.com/emilyastranova/castor-plugins),
+like `obsidian-releases`, which also holds the official plugins. `directory.json`:
 
-Castor checks for updates daily (admins can turn it off for air-gapped instances, and install
-from a file instead) and shows them on the Plugins page; nothing updates by itself.
+```json
+{
+  "version": 1,
+  "publishers": [{ "id": "castor", "name": "Castor", "github": ["emilyastranova"], "url": "…", "description": "…" }],
+  "plugins": [{ "id": "nessus-import", "name": "Nessus import", "publisher": "castor", "description": "…",
+                "repo": "emilyastranova/castor-plugins", "path": "plugins/nessus-import",
+                "tag_prefix": "nessus-import-v", "tags": ["import", "scanner"] }]
+}
+```
+
+- **Publishers** name the GitHub accounts their plugins' repositories may be on: a plugin whose
+  `repo` isn't on one of them isn't listed. A plugin's manifest `publisher:` must be its
+  directory publisher, and ids are unique in the directory.
+- **Releases** are GitHub releases of the plugin's repository, tagged `<tag_prefix>v<version>`
+  (`tag_prefix` is empty for a repository with one plugin), carrying `<id>-<version>.zip`,
+  `<id>-<version>.zip.sha256`, `castor-plugin.yaml`, and optionally `README.md` and the icon. Drafts
+  and pre-releases are skipped. Castor takes the newest, downloads it, checks the SHA-256, and the
+  preview refuses it unless its manifest has the directory's id and publisher and the tag's version.
+  Then the usual review: nothing in the directory is vetted.
+- **Adding a plugin** is a pull request to `directory.json`; its CI (`scripts/check_directory.py`,
+  with Castor's own checks) reads the directory as Castor does, packs every plugin in the
+  repository and has Castor read it, runs their tests in a real Castor, and checks other
+  repositories' newest releases. Official plugins are released when a change to one with a new
+  `version:` is merged (`scripts/release.py`).
+- **In Castor:** Settings → Plugins → Browse (search and tags, Install or Update), a page per plugin
+  (what it asks for, release notes, the README without its pictures, which would be fetched from
+  wherever they point) and per publisher. `CASTOR_PLUGIN_DIRECTORY_URL` (empty turns browsing and
+  checks off, for air-gapped instances; install from a file then), `CASTOR_GITHUB_API_URL`,
+  `CASTOR_GITHUB_TOKEN` (GitHub allows 60 unauthenticated requests an hour; the directory and
+  releases are cached for an hour).
+- **Updates:** Castor checks daily (`CASTOR_PLUGIN_UPDATE_INTERVAL`; the Daily switch on Settings →
+  Plugins, `app_settings.plugin_update_checks`) for installed plugins the directory lists with the
+  same publisher, records the newer version (`plugins.latest_version`), shows it on the plugin and
+  notifies admins once per version. Nothing updates by itself: Review the update opens the usual
+  preview, with what it asks for that's new.
+- A manifest's `castor:` (`">=0.1, <0.3"`: comparisons joined by commas) is checked at preview and
+  install; the directory's plugin page says when this Castor is too old.
+
+Signatures (Sigstore) come later, once there are publishers to verify.
+
+## Library content (packs)
+
+A plugin can ship library items: commands, tools, parsers, playbooks, themes and variable kinds, as
+the same YAML the library uses, in `library/<kind>/*.yaml`, with the kinds listed in `contents:`.
+One with no code (no `main`, no actions or events) is a **pack**: nothing runs, its status is
+"Library only". `mail-dns-checks` in castor-plugins is the example.
+
+- Each file is checked at preview like one written in the library (a pack's commands may use its
+  own parsers), and the review lists them. What they name that's nowhere (a tool, a parser, a
+  playbook's command) is a warning, as for built-ins.
+- They join the library with `origin = "plugin:<id>"`, read-only like built-ins ("from <id>"; duplicate
+  one to change it). An id the library already has from someone else (a person, Castor, another
+  plugin) stops the install: a plugin never takes over what isn't its own.
+- An update replaces them and retires what it no longer has; removing the plugin retires them all,
+  as Castor retires a built-in whose file is gone: cards keep their command lines, and a tool, parser
+  or variable kind something else still uses stays as an ordinary library item.
 
 ## Phases
 
-Each phase ships with real plugins in `plugins/` (the official examples, which double as tests).
+Each phase ships with real plugins (the official examples, which double as tests), now in
+castor-plugins' `plugins/`.
 
 | Phase | Builds | Ships |
 | --- | --- | --- |
@@ -389,7 +450,7 @@ Each phase ships with real plugins in `plugins/` (the official examples, which d
 | **B** (built) | Event delivery; declared network; secret settings (done in A); rate limits | **Shodan enrichment**: new external hosts get ports, banners and CVEs |
 | **C** (built) | UI slots (`project.page`, `card.tab`, `asset.panel`) in sandboxed frames; the page SDK and its handlers; theme variables | **BloodHound bridge**: users, computers and domains in, with `admin on`, sessions, membership and trusts; an attack-path tab and a panel on users and hosts |
 | **D** (built) | Unrestricted runtime, the warning flow, restricted and safe mode, `page.script`; `ctx.api.upload` | **DOCX report** (sandboxed: it writes the document itself, no library needed) and **Watch folder** (unrestricted: it reads a folder on the server) |
-| **E** | The directory, update checks, publisher pages; library content in plugins (packs) | The directory repository and its checks |
+| **E** (built) | The directory, update checks, publisher pages; library content in plugins (packs) | The directory repository and its checks; **Mail DNS checks**, a pack |
 
 Hooks (asset mappers, transforms, trigger conditions) arrive with the phase that first needs one,
 now D or later.

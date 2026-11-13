@@ -1,7 +1,11 @@
 <script lang="ts">
-	import type { Plugin, PluginMode } from '$lib/api';
+	import type { DirectoryEntry, Plugin, PluginLibraryKind, PluginMode } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
-	import { Button, Card, Icon, IconButton, Menu, MenuItem, Switch, TopAppBar } from '$lib/m3';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import { Button, Card, Icon, IconButton, Menu, MenuItem, Switch, Tabs, TopAppBar } from '$lib/m3';
+	import { appSettings } from '$lib/appSettings.svelte';
+	import PluginDirectory from '$lib/components/PluginDirectory.svelte';
 	import { confirmAction } from '$lib/confirm.svelte';
 	import { realtime } from '$lib/realtime.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
@@ -42,6 +46,53 @@
 	);
 
 	let installOpen = $state(false);
+	/** Installing (or updating) from the directory: its id. */
+	let fromDirectory = $state<string | null>(null);
+	let directoryVersion = $state(0);
+	const installFromDirectory = (id: string) => {
+		fromDirectory = id;
+		installOpen = true;
+	};
+	const installFile = () => {
+		fromDirectory = null;
+		installOpen = true;
+	};
+
+	let tab = $derived(page.url.searchParams.get('tab') === 'browse' ? 'browse' : 'installed');
+	const setTab = (id: string) => goto(id === 'browse' ? '?tab=browse' : '?', { replaceState: true, noScroll: true, keepFocus: true });
+	let updates = $derived(list.filter((p) => p.latest_version));
+
+	$effect(() => void appSettings.load());
+	let checking = $state(false);
+	async function checkUpdates() {
+		checking = true;
+		try {
+			const r = await api().plugins.checkUpdates();
+			snackbar.show(r.updates.length ? `${r.updates.length} update${r.updates.length === 1 ? '' : 's'}: ${r.updates.map((u) => `${u.name} ${u.to}`).join(', ')}` : 'Every plugin is up to date');
+			void reload();
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not check for updates');
+		} finally {
+			checking = false;
+		}
+	}
+	async function setUpdateChecks(on: boolean) {
+		try {
+			appSettings.value = await api().settings.update({ plugin_update_checks: on });
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not change it');
+		}
+	}
+	const KIND_WORDS: Record<PluginLibraryKind, [string, string]> = {
+		commands: ['command', 'commands'], tools: ['tool', 'tools'], parsers: ['parser', 'parsers'],
+		playbooks: ['playbook', 'playbooks'], themes: ['theme', 'themes'], variable_kinds: ['variable kind', 'variable kinds']
+	};
+	const libraryWords = (p: Plugin) =>
+		(Object.keys(KIND_WORDS) as PluginLibraryKind[])
+			.map((k) => [k, p.library.filter((i) => i.kind === k).length] as const)
+			.filter(([, n]) => n)
+			.map(([k, n]) => `${n} ${KIND_WORDS[k][n === 1 ? 0 : 1]}`)
+			.join(' · ');
 	let configOpen = $state(false);
 	let configuring = $state<Plugin | null>(null);
 	const configure = (p: Plugin) => {
@@ -111,7 +162,8 @@
 		starting: { label: 'Starting', tone: 'bg-surface-container-highest text-on-surface-variant', icon: 'progress_activity' },
 		stopped: { label: 'Stopped', tone: 'bg-surface-container-highest text-on-surface-variant', icon: 'pause_circle' },
 		crashed: { label: 'Crashed', tone: 'bg-error-container text-on-error-container', icon: 'error' },
-		error: { label: "Won't start", tone: 'bg-error-container text-on-error-container', icon: 'error' }
+		error: { label: "Won't start", tone: 'bg-error-container text-on-error-container', icon: 'error' },
+		library: { label: 'Library only', tone: 'bg-secondary-container text-on-secondary-container', icon: 'library_books' }
 	};
 	const where = (p: Plugin) =>
 		p.all_projects
@@ -125,12 +177,18 @@
 
 <TopAppBar title="Plugins" subtitle="What Castor can do, extended">
 	{#snippet actions()}
-		<Button icon="add" onclick={() => (installOpen = true)}>Install plugin</Button>
+		<Button icon="upload_file" variant={tab === 'browse' ? 'outlined' : 'filled'} onclick={installFile}>Install from a file</Button>
 	{/snippet}
 </TopAppBar>
+<div class="px-6"><Tabs tabs={[{ id: 'installed', label: 'Installed', icon: 'extension', badge: list.length }, { id: 'browse', label: 'Browse', icon: 'storefront' }]} value={tab} onchange={setTab} /></div>
 
 <div class="flex-1 overflow-auto px-6 pb-10">
-	<div class="flex max-w-4xl flex-col gap-3 pt-2">
+	{#if tab === 'browse'}
+	<div class="max-w-4xl pt-3">
+		<PluginDirectory version={directoryVersion} oninstall={(e: DirectoryEntry) => installFromDirectory(e.id)} />
+	</div>
+	{:else}
+	<div class="flex max-w-4xl flex-col gap-3 pt-3">
 		<p class="max-w-[70ch] body-small text-on-surface-variant">
 			Plugins add actions to projects, cards and assets: importing another tool's results, enriching what Castor found. Each runs sandboxed, in its own
 			process with no access to this server, and acts in Castor only as its own account with the permissions you approved, in the projects you choose. See
@@ -162,6 +220,21 @@
 			</div>
 			<Switch checked={mode.restricted} label="On" disabled={mode.restricted_locked} onchange={(on) => setRestricted(on)} />
 		</Card>
+		<Card variant="outlined" class="flex flex-wrap items-start gap-3 px-4 py-3.5">
+			<Icon name="update" class="mt-0.5 shrink-0 text-primary" />
+			<div class="min-w-48 flex-1">
+				<p class="title-small text-on-surface">Updates</p>
+				<p class="mt-0.5 body-small text-on-surface-variant">
+					{#if updates.length}
+						<span class="text-on-surface">{updates.length === 1 ? 'An update is' : `${updates.length} updates are`} ready: {updates.map((p) => `${p.name} ${p.latest_version}`).join(', ')}.</span>
+					{:else}
+						Castor looks in the plugin directory daily for newer releases and tells admins. Nothing updates by itself: you review each one first.
+					{/if}
+				</p>
+			</div>
+			<Button variant="text" icon="refresh" loading={checking} onclick={checkUpdates}>Check now</Button>
+			<Switch checked={appSettings.value.plugin_update_checks !== false} label="Daily" onchange={(on) => setUpdateChecks(on)} />
+		</Card>
 		{#each list as p (p.id)}
 			{@const st = STATUS[p.status] ?? STATUS.stopped}
 			<Card variant="outlined" class="flex flex-col gap-3 px-4 py-3.5">
@@ -176,21 +249,29 @@
 								<span class="flex items-center gap-1 rounded-full bg-error px-2 py-0.5 label-medium text-on-error" title="It runs with full access to this server: files, programs, any network. Castor can't limit what it does.">
 									<Icon name="gpp_maybe" size={14} />Unrestricted
 								</span>
-							{:else}
+							{:else if p.has_code}
 								<span class="flex items-center gap-1 rounded-full border border-outline-variant px-2 py-0.5 label-medium text-on-surface-variant" title={p.granted.network?.length ? `It runs with no access to this server's files or programs; its network is only ${p.granted.network.join(', ')}` : "It runs with no access to this server's files, network or programs"}>
 									<Icon name="shield" size={14} />Sandboxed
 								</span>
 							{/if}
 						</p>
 						<p class="mt-0.5 body-small text-on-surface-variant">
-							{p.publisher ? `by ${p.publisher} · ` : ''}<code class="font-mono">{p.id}</code> · in {where(p)} · installed {relativeTime(p.installed_at)}{p.installed_by ? ` by ${p.installed_by}` : ''}
+							{#if p.source.startsWith('directory:')}<Icon name="storefront" size={14} class="mr-0.5 align-[-2px]" />{/if}{p.publisher ? `by ${p.publisher} · ` : ''}<code class="font-mono">{p.id}</code>{p.has_code ? ` · in ${where(p)}` : ''} · installed {relativeTime(p.installed_at)}{p.installed_by ? ` by ${p.installed_by}` : ''}
 						</p>
 						{#if p.description}<p class="mt-1 body-medium text-on-surface">{p.description}</p>{/if}
+						{#if p.latest_version}
+							<div class="mt-2 flex flex-wrap items-center gap-2 rounded-md bg-tertiary-container/60 px-3 py-1.5 body-small text-on-surface">
+								<Icon name="upgrade" size={16} class="text-tertiary" />
+								<span class="flex-1">{p.latest_version} is available in the plugin directory.</span>
+								<Button variant="text" onclick={() => installFromDirectory(p.id)}>Review the update</Button>
+							</div>
+						{/if}
 					</div>
-					<Switch checked={p.enabled} label="On" disabled={!p.enabled && p.runtime === 'unrestricted' && mode.restricted} onchange={(on) => setEnabled(p, on)} />
+					{#if p.has_code}<Switch checked={p.enabled} label="On" disabled={!p.enabled && p.runtime === 'unrestricted' && mode.restricted} onchange={(on) => setEnabled(p, on)} />{/if}
 					<Menu>
 						{#snippet anchor()}<IconButton icon="more_vert" label="More for {p.name}" />{/snippet}
-						<MenuItem icon="restart_alt" onclick={() => restart(p)}>Start again</MenuItem>
+						{#if p.has_code}<MenuItem icon="restart_alt" onclick={() => restart(p)}>Start again</MenuItem>{/if}
+						{#if p.source.startsWith('directory:')}<MenuItem icon="storefront" onclick={() => goto(`/settings/plugins/directory/${p.id}`)}>In the directory</MenuItem>{/if}
 						{#if p.homepage}<MenuItem icon="open_in_new" onclick={() => window.open(p.homepage, '_blank', 'noopener')}>Homepage</MenuItem>{/if}
 						<MenuItem icon="delete" danger onclick={() => remove(p)}>Remove</MenuItem>
 					</Menu>
@@ -223,10 +304,12 @@
 				{/if}
 
 				<div class="flex flex-wrap gap-x-6 gap-y-2 body-small">
-					<div class="min-w-48 flex-1">
-						<p class="mb-1 label-medium text-on-surface-variant">Can</p>
-						<p class="text-on-surface">{p.permission_details.map((s) => s.label).join(' · ') || 'Nothing in Castor'}</p>
-					</div>
+					{#if p.has_code}
+						<div class="min-w-48 flex-1">
+							<p class="mb-1 label-medium text-on-surface-variant">Can</p>
+							<p class="text-on-surface">{p.permission_details.map((s) => s.label).join(' · ') || 'Nothing in Castor'}</p>
+						</div>
+					{/if}
 					{#if p.granted.network?.length}
 						<div class="min-w-48 flex-1">
 							<p class="mb-1 label-medium text-on-surface-variant">Connects to</p>
@@ -239,6 +322,12 @@
 							<p class="text-on-surface">{p.granted.events.map((e) => EVENT_WORDS[e] ?? e).join(' · ')}</p>
 						</div>
 					{/if}
+					{#if p.library.length}
+						<div class="min-w-48 flex-1">
+							<p class="mb-1 label-medium text-on-surface-variant">In the library</p>
+							<p class="text-on-surface" title={p.library.map((i) => i.name).join(', ')}>{libraryWords(p)}</p>
+						</div>
+					{/if}
 					{#if p.actions.length}
 						<div class="min-w-48 flex-1">
 							<p class="mb-1 label-medium text-on-surface-variant">Adds</p>
@@ -249,19 +338,27 @@
 					{/if}
 				</div>
 				<div class="-mb-1 flex justify-end">
-					<Button variant="text" icon="tune" onclick={() => configure(p)}>Settings, runs and log</Button>
+					{#if p.has_code}
+						<Button variant="text" icon="tune" onclick={() => configure(p)}>Settings, runs and log</Button>
+					{:else}
+						<Button variant="text" icon="library_books" href="/library">Open the library</Button>
+					{/if}
 				</div>
 			</Card>
 		{:else}
 			<div class="flex flex-col items-center gap-2 rounded-lg border border-dashed border-outline-variant px-6 py-10 text-center">
 				<Icon name="extension" size={32} class="text-on-surface-variant" />
 				<p class="title-small text-on-surface">No plugins yet</p>
-				<p class="max-w-md body-medium text-on-surface-variant">Install one from its .zip or a link to it. Castor's own, Nessus import, is in the repository's <code class="font-mono">plugins/</code> folder.</p>
-				<Button icon="add" onclick={() => (installOpen = true)}>Install plugin</Button>
+				<p class="max-w-md body-medium text-on-surface-variant">Find one in the plugin directory, or install one from its .zip or a link to it.</p>
+				<div class="flex gap-2">
+					<Button icon="storefront" onclick={() => setTab('browse')}>Browse plugins</Button>
+					<Button variant="outlined" icon="upload_file" onclick={installFile}>Install from a file</Button>
+				</div>
 			</div>
 		{/each}
 	</div>
+	{/if}
 </div>
 
-<PluginInstallDialog bind:open={installOpen} projects={data.projects} oninstalled={(p) => { put(p); snackbar.show(`Installed ${p.name}`); }} />
+<PluginInstallDialog bind:open={installOpen} projects={data.projects} directoryId={fromDirectory} oninstalled={(p) => { const was = list.find((x) => x.id === p.id); put(p); directoryVersion++; snackbar.show(`${was ? 'Updated' : 'Installed'} ${p.name} ${p.version}`); }} />
 <PluginDialog bind:open={configOpen} plugin={configuring} projects={data.projects} onchanged={(p) => { put(p); snackbar.show(`Saved ${p.name}`); }} />

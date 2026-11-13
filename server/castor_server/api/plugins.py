@@ -12,7 +12,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from .. import api_tokens, plugin_package
+from .. import api_tokens, plugin_directory, plugin_library, plugin_package
 from .. import models as m
 from .. import plugins as P
 from ..access import check_project, member_project_ids, project_or_404
@@ -62,6 +62,8 @@ async def _plugin_out(db: DB, p: m.Plugin) -> dict[str, Any]:
         "missing_settings": P.missing_settings(man, p),
         "account": {"id": str(account.id), "username": account.username} if account else None,
         "installed_by": by.display_name if by else None, "installed_at": p.created_at.isoformat(), "updated_at": p.updated_at.isoformat(),
+        "has_code": man.main is not None, "library": await plugin_library.items_of(db, p.id),
+        "latest_version": p.latest_version, "checked_at": p.checked_at.isoformat() if p.checked_at else None,
     }
 
 
@@ -163,11 +165,22 @@ async def plugin_icon(plugin_id: str, db: DB, _: CurrentUser):
 
 @router.post("/plugins/preview")
 async def preview(db: DB, _: Admin, file: Annotated[UploadFile | None, File()] = None,
-                  url: Annotated[str | None, Form()] = None) -> dict[str, Any]:
-    """Upload a plugin's .zip (or give an https URL to one) and see what it is and asks for,
-    before anything of it runs. Send the token back to install it."""
+                  url: Annotated[str | None, Form()] = None, directory: Annotated[str | None, Form()] = None) -> dict[str, Any]:
+    """Upload a plugin's .zip, give an https URL to one, or name a plugin in the directory (its
+    newest release, checked against its SHA-256), and see what it is and asks for, before anything
+    of it runs. Send the token back to install it."""
+    release = None
     if file is not None:
         data, source = await file.read(MAX_URL_DOWNLOAD + 1), f"upload:{file.filename or 'plugin.zip'}"
+    elif directory:
+        try:
+            entry = (await plugin_directory.directory()).entry(directory.strip())
+            if entry is None:
+                raise HTTPException(404, f"The plugin directory has no {directory}")
+            data, release = await plugin_directory.download(entry)
+        except plugin_directory.DirectoryError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        source = f"directory:{entry.id}"
     elif url:
         data, source = await _download(url.strip()), url.strip()
     else:
@@ -177,6 +190,10 @@ async def preview(db: DB, _: Admin, file: Annotated[UploadFile | None, File()] =
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     man = pkg.manifest
+    if release is not None and (man.id != entry.id or man.publisher != entry.publisher or man.version != release.version):
+        plugin_package.unstage(token)
+        raise HTTPException(422, f"The release doesn't match the directory: it says {man.id} {man.version} by "
+                                 f"{man.publisher or 'nobody'}, the directory {entry.id} {release.version} by {entry.publisher}")
     existing = await db.get(m.Plugin, man.id)
     icon = None
     if man.icon:  # not installed yet: the preview carries the icon itself
@@ -185,8 +202,10 @@ async def preview(db: DB, _: Admin, file: Annotated[UploadFile | None, File()] =
         icon = f"data:{plugin_package.icon_type(man.icon)};base64,{base64.b64encode(pkg.files[man.icon]).decode()}"
     out: dict[str, Any] = {"token": token, "source": source, "checksum": pkg.checksum, "size": pkg.size, "files": len(pkg.files),
                            "icon": icon,
-                           "manifest": _manifest_out(man), "problems": man.not_yet() + P.type_conflicts(man), "existing": None,
-                           "new_permissions": {}}
+                           "manifest": _manifest_out(man), "problems": await P.problems_of(db, pkg), "existing": None,
+                           "new_permissions": {}, "library": plugin_library.summary(pkg.library),
+                           "library_warnings": await plugin_library.warnings(db, pkg.library),
+                           "release": release.model_dump(mode="json") if release else None}
     try:
         P.check_runtime(man, await P.restricted(db))
     except P.PluginError as exc:

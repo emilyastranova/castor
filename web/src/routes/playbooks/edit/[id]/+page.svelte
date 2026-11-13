@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { pluginOf, readOnlyOrigin } from '$lib/origin';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { tick } from 'svelte';
 	import type { PlaybookSpec, PlaybookStepSpec } from '$lib/api';
@@ -414,7 +415,7 @@
 		<div class="min-w-0">
 			<h1 class="truncate title-large text-on-surface">{spec.name || 'Untitled playbook'}</h1>
 			<p class="truncate body-small text-on-surface-variant">
-				{savedId ? 'Editing' : data.playbook?.origin === 'builtin' ? 'Copy of a built-in playbook' : 'New playbook'} · <span class="font-mono">{spec.id}</span>
+				{savedId ? 'Editing' : readOnlyOrigin(data.playbook?.origin) ? 'Copy of a read-only playbook' : 'New playbook'} · <span class="font-mono">{spec.id}</span>
 			</p>
 		</div>
 		<span class="ml-2 flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 label-medium {!checking && errors.length ? 'bg-error-container text-on-error-container' : 'bg-surface-container-high text-on-surface-variant'}">
@@ -454,11 +455,11 @@
 		</div>
 	</header>
 
-	{#if hasComments || data.playbook?.origin === 'builtin'}
+	{#if hasComments || readOnlyOrigin(data.playbook?.origin)}
 		<div class="flex items-center gap-2 border-b border-outline-variant bg-tertiary-container/30 px-4 py-1.5 body-small text-on-surface">
 			<Icon name="info" size={16} class="text-tertiary" />
-			{#if data.playbook?.origin === 'builtin'}
-				Built-in playbooks are read-only, so this saves as a new playbook.
+			{#if readOnlyOrigin(data.playbook?.origin)}
+				{pluginOf(data.playbook?.origin) ? `This playbook comes with the plugin ${pluginOf(data.playbook?.origin)}` : 'Built-in playbooks are read-only'}, so this saves as a new playbook.
 			{:else}
 				This playbook's YAML has comments. Saving from the editor rewrites the YAML, so they'll be lost.
 			{/if}

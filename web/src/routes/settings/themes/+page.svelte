@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { pluginOf, readOnlyOrigin } from '$lib/origin';
 	import { page } from '$app/state';
 	import type { Theme } from '$lib/api';
 	import { api, ApiError, saveBlob } from '$lib/api';
@@ -153,7 +154,7 @@ css: |
 						<div class="min-w-0 flex-1">
 							<p class="flex flex-wrap items-center gap-x-2 title-small text-on-surface">
 								{t.name}
-								<span class="rounded-xs border border-outline-variant px-1.5 label-small text-on-surface-variant">{t.origin === 'builtin' ? 'Built-in' : 'Custom'}</span>
+								<span class="rounded-xs border border-outline-variant px-1.5 label-small text-on-surface-variant">{pluginOf(t.origin) ? `From ${pluginOf(t.origin)}` : readOnlyOrigin(t.origin) ? 'Built-in' : 'Custom'}</span>
 								{#if t.id === defaultId}<span class="rounded-xs bg-primary-container px-1.5 label-small text-on-primary-container">Default</span>{/if}
 							</p>
 							<p class="mt-0.5 body-small text-on-surface-variant">{modes[t.modes]} · {people(t.used_by)} · <code class="font-mono">{t.id}</code></p>

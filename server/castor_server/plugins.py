@@ -273,10 +273,11 @@ async def install(db: AsyncSession, user: m.User, pkg: plugin_package.Package, *
                   secrets_in: dict[str, Any] | None = None, per_user: list[str] | None = None) -> m.Plugin:
     """A new plugin, or a newer (or different) release of one already here. The caller has the
     admin's approval of what the manifest asks for. Commits; the plugin starts in the background."""
+    from . import plugin_library
     from .services import actor_of, record_activity
 
     man = pkg.manifest
-    if problems := man.not_yet() + type_conflicts(man):
+    if problems := await problems_of(db, pkg):
         raise PluginError("; ".join(problems))
     check_runtime(man, await restricted(db))
     existing = await db.get(m.Plugin, man.id)
@@ -294,6 +295,8 @@ async def install(db: AsyncSession, user: m.User, pkg: plugin_package.Package, *
         shared = {s.name for s in man.settings} - per_user_names(existing, man)
         existing.settings, existing.secrets = check_settings(man, values or {}, secrets_in, existing.settings, existing.secrets, shared)
         existing.status, existing.status_message = "stopped", ""
+        if existing.latest_version and version_key(existing.latest_version) <= version_key(man.version):
+            existing.latest_version = None
         await _service_account(db, existing, man)
         verb = "Updated" if version_key(man.version) >= version_key(old.version) else "Changed"
         await record_activity(db, type="plugin.updated", message=f"{verb} the plugin {man.name} to {man.version}", project_id=None,
@@ -313,6 +316,7 @@ async def install(db: AsyncSession, user: m.User, pkg: plugin_package.Package, *
                               payload={"id": man.id, "permissions": man.permissions, "runtime": man.runtime}, **actor_of(user))
     if existing is None or project_ids_in or all_projects != p.all_projects:
         await set_projects(db, p, project_ids_in, all_projects)
+    await plugin_library.apply(db, p.id, pkg.library)
     await db.commit()
     register_types(p.id, man)
     host.forget_crashes(p.id)
@@ -321,6 +325,37 @@ async def install(db: AsyncSession, user: m.User, pkg: plugin_package.Package, *
     with contextlib.suppress(Exception):
         plugin_package.prune(p.id, folder)
     return p
+
+
+async def problems_of(db: AsyncSession, pkg: plugin_package.Package) -> list[str]:
+    """Why this release can't be installed here: what this Castor can't do, the Castor versions it
+    needs, and asset types, relationship kinds or library items someone else already has."""
+    from . import plugin_library
+
+    man = pkg.manifest
+    out = man.not_yet() + type_conflicts(man)
+    if not castor_ok(man.castor):
+        out.append(f"castor: it needs Castor {man.castor} and this is {CASTOR_VERSION}")
+    return out + await plugin_library.conflicts(db, man.id, pkg.library)
+
+
+def castor_ok(constraint: str, version: str = CASTOR_VERSION) -> bool:
+    """A manifest's `castor:` versions: comparisons joined by commas (">=0.1, <0.3"), each with
+    >=, >, <=, <, == or a bare version (==). Something unreadable doesn't block the install."""
+    ops = {">=": lambda a, b: a >= b, ">": lambda a, b: a > b, "<=": lambda a, b: a <= b, "<": lambda a, b: a < b,
+           "==": lambda a, b: a == b, "=": lambda a, b: a == b}
+
+    def key(v: str) -> tuple[int, int, int]:
+        parts = [int(x) for x in re.findall(r"\d+", v)[:3]]
+        return (parts + [0, 0, 0])[:3]  # type: ignore[return-value]
+
+    for part in filter(None, (s.strip() for s in constraint.split(","))):
+        found = re.fullmatch(r"(>=|<=|==|=|>|<)?\s*v?(\d+(?:\.\d+){0,2})", part)
+        if not found:
+            continue
+        if not ops[found[1] or "=="](key(version), key(found[2])):
+            return False
+    return True
 
 
 def type_conflicts(man: Manifest) -> list[str]:
@@ -368,6 +403,9 @@ async def uninstall(db: AsyncSession, user: m.User, p: m.Plugin) -> None:
             account.disabled_at = datetime.now(UTC)
         await db.execute(delete(m.ApiToken).where(m.ApiToken.user_id == p.user_id))
     name = p.name
+    from . import plugin_library
+
+    await plugin_library.retire(db, p.id)
     await db.delete(p)
     await record_activity(db, type="plugin.removed", message=f"Removed the plugin {name}", project_id=None,
                           payload={"id": p.id}, **actor_of(user))
@@ -427,6 +465,11 @@ async def ensure_running(plugin_id: str, *, force: bool = False) -> PluginProces
             man = manifest_of(p)
             if problems := man.not_yet():
                 raise PluginError("; ".join(problems))
+            if man.main is None:  # a pack: its library content is all there is
+                p.status, p.status_message = "library", ""
+                await db.commit()
+                bus.publish("plugins.changed", None, {"id": plugin_id, "status": "library"})
+                raise PluginError(f"{p.name} has no code to run (library content only)")
             check_runtime(man, await restricted(db))
             if missing := missing_settings(man, p):
                 raise PluginError(f"{p.name} needs its settings first: {', '.join(missing)}")

@@ -1,4 +1,5 @@
 import type { TagSuggestion } from './tags';
+import type { Origin } from './origin';
 
 /** Typed client for the Castor API. Works in the browser and in SvelteKit load functions. */
 
@@ -633,7 +634,7 @@ export interface ToolAgentState {
 
 export interface ToolDefinition {
 	id: string;
-	origin: 'builtin' | 'user';
+	origin: Origin;
 	name: string;
 	description: string;
 	spec: {
@@ -689,7 +690,7 @@ export interface PlaybookCheck {
 
 export interface PlaybookDefinition {
 	id: string;
-	origin: 'builtin' | 'user';
+	origin: Origin;
 	name: string;
 	description: string;
 	tags: string[];
@@ -764,7 +765,7 @@ export interface ParserInfo {
 	/** Options that suit the sample (e.g. a pattern for the regex parser). */
 	sample_options: Record<string, unknown>;
 	/** builtin: code in Castor; user: a definition in the library (YAML, no options). */
-	origin: 'builtin' | 'user';
+	origin: Origin;
 	title: string;
 	source_yaml: string;
 	version: number;
@@ -885,7 +886,7 @@ export interface VarField {
 
 export interface VariableKind {
 	id: string;
-	origin: 'builtin' | 'user';
+	origin: Origin;
 	name: string;
 	description: string;
 	fields: VarField[];
@@ -930,7 +931,7 @@ export interface CommandSpec {
 
 export interface CommandDefinition {
 	id: string;
-	origin: 'builtin' | 'user';
+	origin: Origin;
 	name: string;
 	description: string;
 	tags: string[];
@@ -1560,10 +1561,11 @@ export function api(fetchFn: Fetch = fetch) {
 			list: () => get<Plugin[]>('/plugins'),
 			get: (id: string) => get<Plugin>(`/plugins/${id}`),
 			/** A .zip (or an https URL to one): what it is and asks for, before anything runs. */
-			preview: (src: { file?: File; url?: string }) => {
+			preview: (src: { file?: File; url?: string; directory?: string }) => {
 				const form = new FormData();
 				if (src.file) form.append('file', src.file);
 				if (src.url) form.append('url', src.url);
+				if (src.directory) form.append('directory', src.directory);
 				return request<PluginPreview>(fetchFn, 'POST', '/plugins/preview', form);
 			},
 			install: (body: { token: string; source: string; approve: boolean; project_ids: UUID[]; all_projects: boolean; settings?: Record<string, unknown>; secrets?: Record<string, string | null>; per_user?: string[]; confirm?: string }) =>
@@ -1576,6 +1578,12 @@ export function api(fetchFn: Fetch = fetch) {
 			update: (id: string, body: { enabled?: boolean; all_projects?: boolean; project_ids?: UUID[]; settings?: Record<string, unknown>; secrets?: Record<string, string | null>; per_user?: string[] }) =>
 				patch<Plugin>(`/plugins/${id}`, body),
 			restart: (id: string) => post<Plugin>(`/plugins/${id}/restart`),
+			/** The plugin directory (docs/PLUGINS.md, phase E): browse it, a plugin's page, a publisher's. */
+			directory: (refresh = false) => get<PluginDirectory>(`/plugin-directory${refresh ? '?refresh=true' : ''}`),
+			directoryPlugin: (id: string) => get<DirectoryPluginPage>(`/plugin-directory/plugins/${encodeURIComponent(id)}`),
+			publisher: (id: string) => get<DirectoryPublisher & { plugins: DirectoryEntry[] }>(`/plugin-directory/publishers/${encodeURIComponent(id)}`),
+			/** Look for newer releases of installed plugins now. */
+			checkUpdates: () => post<{ updates: { id: string; name: string; from: string; to: string }[] }>('/plugin-directory/check'),
 			remove: (id: string) => del(`/plugins/${id}`),
 			logs: (id: string, limit = 200) => get<PluginLogEntry[]>(`/plugins/${id}/logs?limit=${limit}`),
 			runs: (id: string) => get<PluginRun[]>(`/plugins/${id}/runs`),
@@ -1855,6 +1863,8 @@ export interface AppSettings {
 	password_login: boolean;
 	/** The theme for everyone who hasn't picked one, and the sign-in page ("" for Castor's own). */
 	default_theme: string;
+	/** Look for newer releases of installed plugins in the directory daily (Settings → Plugins). */
+	plugin_update_checks?: boolean;
 }
 
 /** People put together: @slug mentions them all; a project shared with it is theirs to see. */
@@ -1932,7 +1942,7 @@ export interface AiProvider {
  *  `id: ''` and comes from lib/themes.svelte.ts, not the API. */
 export interface Theme {
 	id: string;
-	origin: 'builtin' | 'user' | 'castor';
+	origin: Origin | 'castor';
 	name: string;
 	description: string;
 	modes: 'both' | 'dark' | 'light';
@@ -2017,7 +2027,8 @@ export interface Plugin {
 	enabled: boolean;
 	all_projects: boolean;
 	project_ids: UUID[];
-	status: 'stopped' | 'starting' | 'running' | 'crashed' | 'error';
+	/** library: a plugin with no code, only library content. */
+	status: 'stopped' | 'starting' | 'running' | 'crashed' | 'error' | 'library';
 	status_message: string;
 	running: boolean;
 	granted: { permissions?: string[]; network?: string[]; events?: string[]; runtime?: string[] };
@@ -2035,6 +2046,67 @@ export interface Plugin {
 	installed_by: string | null;
 	installed_at: string;
 	updated_at: string;
+	/** False for a pack: library content only, nothing runs. */
+	has_code: boolean;
+	/** What it added to the library (read-only, removed with it). */
+	library: PluginLibraryItem[];
+	/** The directory's newest release, when it's newer than this one (update checks). */
+	latest_version: string | null;
+	checked_at: string | null;
+}
+
+export type PluginLibraryKind = 'variable_kinds' | 'tools' | 'parsers' | 'commands' | 'playbooks' | 'themes';
+export interface PluginLibraryItem {
+	kind: PluginLibraryKind;
+	id: string;
+	name: string;
+}
+
+export interface DirectoryPublisher {
+	id: string;
+	name: string;
+	github: string[];
+	url: string;
+	description: string;
+}
+
+/** A plugin in the directory: nothing in it is vetted; installing shows what it asks for first. */
+export interface DirectoryEntry {
+	id: string;
+	name: string;
+	publisher: string;
+	publisher_name: string;
+	description: string;
+	repo: string;
+	path: string;
+	tags: string[];
+	source_url: string;
+	icon_url: string;
+	latest: { version: string; published_at: string | null } | null;
+	error: string | null;
+	/** The version installed here, or null. */
+	installed: string | null;
+	/** Something else here has this id (another publisher's plugin). */
+	taken: boolean;
+	update: boolean;
+}
+
+export interface PluginDirectory {
+	/** False: CASTOR_PLUGIN_DIRECTORY_URL is empty on this server. */
+	enabled: boolean;
+	update_checks: boolean;
+	castor_version: string;
+	publishers: DirectoryPublisher[];
+	plugins: DirectoryEntry[];
+	error: string | null;
+}
+
+export interface DirectoryPluginPage extends DirectoryEntry {
+	publisher_info: DirectoryPublisher | null;
+	release: { version: string; tag: string; published_at: string | null; notes: string; url: string } | null;
+	manifest: PluginPreview['manifest'] | null;
+	readme: string | null;
+	problems: string[];
 }
 
 /** What a plugin release is and asks for, before it's installed. */
@@ -2065,9 +2137,17 @@ export interface PluginPreview {
 		asset_types?: { name: string; label: string; plural: string; icon: string; description: string; fields: { name: string; label: string }[] }[];
 		link_kinds?: { name: string; forward: string; reverse: string; pairs: [string, string][] }[];
 		settings: PluginSettingSpec[];
+		/** Library content it ships (library/<kind>/*.yaml). */
+		contents?: PluginLibraryKind[];
+		main?: string | null;
 	};
 	/** What this Castor can't do yet: installing is refused while there are any. */
 	problems: string[];
+	/** The library items it ships, and what they name that isn't anywhere. */
+	library: PluginLibraryItem[];
+	library_warnings: string[];
+	/** From the directory: the release it is. */
+	release: { version: string; tag: string; published_at: string | null; notes: string; url: string } | null;
 	existing: { version: string; same: boolean } | null;
 	/** For an update: what it asks for that wasn't approved before. */
 	new_permissions: Record<string, string[]>;

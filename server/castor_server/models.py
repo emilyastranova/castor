@@ -368,7 +368,7 @@ class CommandDefinition(Base, TimestampMixin):
     __tablename__ = "command_definitions"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    origin: Mapped[str] = mapped_column(String(16), default="user")  # builtin | user
+    origin: Mapped[str] = mapped_column(String(80), default="user")  # builtin | user | plugin:<id>
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")
     tags: Mapped[list[str]] = mapped_column(JSONType, default=list)
@@ -383,7 +383,7 @@ class VariableKind(Base, TimestampMixin):
     __tablename__ = "variable_kinds"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    origin: Mapped[str] = mapped_column(String(16), default="user")  # builtin | user
+    origin: Mapped[str] = mapped_column(String(80), default="user")  # builtin | user | plugin:<id>
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")
     spec: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
@@ -435,7 +435,7 @@ class PlaybookDefinition(Base, TimestampMixin):
     __tablename__ = "playbook_definitions"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    origin: Mapped[str] = mapped_column(String(16), default="user")  # builtin | user
+    origin: Mapped[str] = mapped_column(String(80), default="user")  # builtin | user | plugin:<id>
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")
     tags: Mapped[list[str]] = mapped_column(JSONType, default=list)
@@ -972,7 +972,7 @@ class ToolDefinition(Base, TimestampMixin):
     __tablename__ = "tool_definitions"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    origin: Mapped[str] = mapped_column(String(16), default="user")  # builtin | user
+    origin: Mapped[str] = mapped_column(String(80), default="user")  # builtin | user | plugin:<id>
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")
     spec: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
@@ -987,7 +987,7 @@ class ThemeDefinition(Base, TimestampMixin):
     __tablename__ = "theme_definitions"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    origin: Mapped[str] = mapped_column(String(16), default="user")  # builtin | user
+    origin: Mapped[str] = mapped_column(String(80), default="user")  # builtin | user | plugin:<id>
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")
     spec: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
@@ -1002,7 +1002,7 @@ class ParserDefinition(Base, TimestampMixin):
     __tablename__ = "parser_definitions"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    origin: Mapped[str] = mapped_column(String(16), default="user")
+    origin: Mapped[str] = mapped_column(String(80), default="user")  # builtin | user | plugin:<id>
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")
     spec: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
@@ -1194,6 +1194,9 @@ class Plugin(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(16), default="stopped", server_default="stopped")
     status_message: Mapped[str] = mapped_column(Text, default="", server_default="")
     installed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # The newest release the plugin directory has, when it's newer than this one (update checks).
+    latest_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    checked_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 class PluginProject(Base):

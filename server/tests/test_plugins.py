@@ -4,6 +4,7 @@ and token, actions with files, storage, updates, and the Nessus import plugin en
 from __future__ import annotations
 
 import io
+import os
 import time
 import uuid
 import zipfile
@@ -14,7 +15,11 @@ import pytest
 from castor_server.plugin_runtime import PluginRuntimeError, deno_bin
 
 ROOT = Path(__file__).resolve().parents[2]
-NESSUS = ROOT / "plugins" / "nessus-import"
+# The official plugins live in the castor-plugins repository: a checkout next to this one, or
+# CASTOR_PLUGINS_REPO. Without one, the tests that run them are skipped.
+OFFICIAL = Path(os.environ.get("CASTOR_PLUGINS_REPO") or ROOT.parent / "castor-plugins") / "plugins"
+official = pytest.mark.skipif(not OFFICIAL.is_dir(), reason=f"no castor-plugins checkout at {OFFICIAL.parent}")
+NESSUS = OFFICIAL / "nessus-import"
 
 try:
     deno_bin()
@@ -271,6 +276,7 @@ def test_a_plugin_that_imports_from_outside_is_refused(client, auth):
     client.delete(f"/api/plugins/{pid}", headers=auth)
 
 
+@official
 def test_nessus_import(client, auth):
     mine = project(client, auth)
     card = client.post(f"/api/projects/{mine['id']}/tasks", json={"title": "External scan"}, headers=auth).json()
@@ -345,7 +351,7 @@ def test_plugins_through_mcp(client, auth):
 
 # ---------- phase B: events, declared network, rate limits ----------
 
-SHODAN = ROOT / "plugins" / "shodan-enrich"
+SHODAN = OFFICIAL / "shodan-enrich"
 
 
 class FakeShodan:
@@ -404,6 +410,7 @@ def shodan_zip(port: int, extra: str = "", version: str = "1.0.0") -> bytes:
     return buf.getvalue()
 
 
+@official
 def test_shodan_enrichment_on_new_hosts(client, auth):
     fake = FakeShodan()
     try:
@@ -537,6 +544,7 @@ actions:
     client.delete(f"/api/plugins/{pid}", headers=auth)
 
 
+@official
 def test_settings_each_person_sets(client, auth):
     fake = FakeShodan()
     try:
@@ -594,6 +602,7 @@ def test_settings_each_person_sets(client, auth):
         fake.close()
 
 
+@official
 def test_plugin_icons(client, auth):
     data = zip_folder(NESSUS)
     p = preview(client, auth, data).json()
@@ -717,9 +726,10 @@ def test_plugin_panels(client, auth):
         client.delete(f"/api/plugins/{pid}", headers=auth)
 
 
-BLOODHOUND = ROOT / "plugins" / "bloodhound"
+BLOODHOUND = OFFICIAL / "bloodhound"
 
 
+@official
 def test_bloodhound_bridge(client, auth):
     p = project(client, auth)
     install(client, auth, zip_folder(BLOODHOUND), project_ids=[p["id"]])
@@ -758,8 +768,8 @@ def test_bloodhound_bridge(client, auth):
         client.delete("/api/plugins/bloodhound", headers=auth)
 
 
-DOCX = ROOT / "plugins" / "docx-report"
-FOLDER_WATCH = ROOT / "plugins" / "folder-watch"
+DOCX = OFFICIAL / "docx-report"
+FOLDER_WATCH = OFFICIAL / "folder-watch"
 
 
 def set_restricted(client, auth, on: bool):
@@ -768,6 +778,7 @@ def set_restricted(client, auth, on: bool):
     return r.json()
 
 
+@official
 def test_docx_report(client, auth):
     p = project(client, auth)
     client.post(f"/api/projects/{p['id']}/assets/bulk", headers=auth, json={
@@ -821,6 +832,7 @@ definePlugin({ activate(ctx) { ctx.actions.on("read", () => Deno.readTextFileSyn
 """
 
 
+@official
 def test_unrestricted_plugins(client, auth, tmp_path):
     n = uuid.uuid4().hex[:6]
     script = {"castor-plugin.yaml": SCRIPT_MANIFEST.format(n=n, runtime="unrestricted"), "main.ts": SCRIPT_MAIN,
@@ -1009,9 +1021,10 @@ def test_plugins_add_asset_types_and_kinds(client, auth):
     assert client.post(f"/api/projects/{p['id']}/assets", json={"type": t, "fields": {"name": "W3", "shelf": "x"}}, headers=auth).status_code == 422
 
 
-SOURCE_REVIEW = ROOT / "plugins" / "source-code-review"
+SOURCE_REVIEW = OFFICIAL / "source-code-review"
 
 
+@official
 def test_source_code_review(client, auth):
     import json
 

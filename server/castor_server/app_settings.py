@@ -32,6 +32,9 @@ class AppSettings(BaseModel):
     # Plugins: while on, unrestricted plugins (full access to this server) can't be installed or run.
     # CASTOR_PLUGINS_RESTRICTED=1 keeps it on whatever this says.
     plugins_restricted: bool = True
+    # Check the plugin directory daily for newer releases of installed plugins (nothing updates
+    # by itself; admins are told). Off for instances that shouldn't reach GitHub.
+    plugin_update_checks: bool = True
 
 
 async def load(db: AsyncSession) -> AppSettings:

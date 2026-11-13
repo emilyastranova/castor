@@ -1,8 +1,0 @@
-{
-  "//": "For working on the plugin with plain `deno` (tests, checks). Castor ignores this file and gives the plugin its own SDK.",
-  "imports": { "@castor/plugin": "../../server/castor_server/plugin_sdk/mod.ts" },
-  "tasks": {
-    "check": "deno check main.ts code_test.ts ui/map.js",
-    "test": "deno test --allow-read=samples code_test.ts"
-  }
-}

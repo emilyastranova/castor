@@ -1,3 +1,4 @@
+import { readOnlyOrigin } from '$lib/origin';
 import type { PageLoad } from './$types';
 import { api, ApiError } from '$lib/api';
 import { error } from '@sveltejs/kit';
@@ -17,5 +18,5 @@ export const load: PageLoad = async ({ fetch, params, url }) => {
 				})
 			: Promise.resolve(null)
 	]);
-	return { commands, tools, kinds, playbook, isNew: params.id === 'new' || playbook?.origin === 'builtin' };
+	return { commands, tools, kinds, playbook, isNew: params.id === 'new' || readOnlyOrigin(playbook?.origin) };
 };

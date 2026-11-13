@@ -10,6 +10,7 @@ from ..command_library import definition_from_spec, ids_in_use, load_spec, usage
 from ..command_render import ArgumentError, render_command
 from ..command_spec import CommandSpec, parse_spec
 from ..deps import DB, CurrentUser, Operator
+from ..plugin_library import cant_delete, read_only, why_read_only
 from ..schemas import CommandDefinitionOut, CommandUsageOut, CommandYamlIn, RenderIn, RenderOut
 from ..services import library_activity
 from ..tool_library import load_tool
@@ -104,8 +105,8 @@ async def update_command(command_id: str, body: CommandYamlIn, db: DB, user: Ope
     row = await db.get(m.CommandDefinition, command_id)
     if row is None:
         raise HTTPException(404, "Command not found")
-    if row.origin == "builtin":
-        raise HTTPException(409, "Built-in commands are read-only; duplicate it to customise")
+    if read_only(row.origin):
+        raise HTTPException(409, why_read_only(row.origin, "command"))
     spec = _parse_or_422(body.yaml)
     await _check_vars(db, spec)
     if spec.id != command_id:
@@ -121,8 +122,8 @@ async def delete_command(command_id: str, db: DB, user: Operator):
     row = await db.get(m.CommandDefinition, command_id)
     if row is None:
         raise HTTPException(404, "Command not found")
-    if row.origin == "builtin":
-        raise HTTPException(409, "Built-in commands cannot be deleted")
+    if read_only(row.origin):
+        raise HTTPException(409, cant_delete(row.origin, "command"))
     # Cards that used it keep their rendered command line and become plain shell commands.
     tasks = (await db.execute(select(m.Task).where(m.Task.command_ref == command_id))).scalars()
     for task in tasks:

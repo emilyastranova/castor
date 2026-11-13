@@ -13,6 +13,7 @@ os.environ["CASTOR_AGENT_SECRET"] = "test-agent-secret"
 os.environ["CASTOR_ADMIN_USERNAME"] = "admin"
 os.environ["CASTOR_ADMIN_PASSWORD"] = "secret"
 os.environ["CASTOR_DISPATCH_INTERVAL"] = "0.2"
+os.environ["CASTOR_PLUGIN_DIRECTORY_URL"] = ""  # tests never reach GitHub; test_plugin_directory sets its own
 
 # The library the tests sync: the real built-ins plus test-only fixtures (tests/fixtures: the
 # demo commands and playbooks the end-to-end tests drive, which don't ship to users).

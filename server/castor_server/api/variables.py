@@ -17,6 +17,7 @@ from .. import vault
 from ..access import visible_project_ids
 from ..config import settings
 from ..deps import DB, CurrentUser, Operator, parse_uuid
+from ..plugin_library import cant_delete, read_only, why_read_only
 from ..services import actor_of, library_activity, record_activity
 
 router = APIRouter(prefix="/variables", tags=["variables"])
@@ -202,8 +203,8 @@ async def create_kind(body: KindIn, db: DB, user: Operator):
 @router.put("/kinds/{kind_id}", response_model=KindOut)
 async def update_kind(kind_id: str, body: KindIn, db: DB, user: Operator):
     row, old = await _kind_or_404(db, kind_id)
-    if row.origin == "builtin":
-        raise HTTPException(409, "Built-in kinds are read-only; create your own to customise")
+    if read_only(row.origin):
+        raise HTTPException(409, why_read_only(row.origin, "variable kind"))
     spec = _parse_kind(body)
     if spec.id != kind_id:
         raise HTTPException(422, "id: cannot be changed")
@@ -227,8 +228,8 @@ async def update_kind(kind_id: str, body: KindIn, db: DB, user: Operator):
 @router.delete("/kinds/{kind_id}", status_code=204)
 async def delete_kind(kind_id: str, db: DB, user: Operator):
     row, _spec = await _kind_or_404(db, kind_id)
-    if row.origin == "builtin":
-        raise HTTPException(409, "Built-in kinds cannot be deleted")
+    if read_only(row.origin):
+        raise HTTPException(409, cant_delete(row.origin, "variable kind"))
     count = (await db.execute(select(func.count()).where(m.VariableSet.kind_id == kind_id))).scalar()
     if count:
         raise HTTPException(409, f"{count} variable set(s) use this kind; delete them first")

@@ -69,6 +69,13 @@ class Settings(BaseSettings):
     playbooks_dir: Path = Path(__file__).resolve().parents[2] / "playbooks"
     # Built-in themes for the web UI (theme_spec.py).
     themes_dir: Path = Path(__file__).resolve().parents[2] / "themes"
+    # The plugin directory (docs/PLUGINS.md): its directory.json ("" turns browsing and update
+    # checks off, for air-gapped instances), the GitHub API releases are read from, and an
+    # optional token for it (unauthenticated, GitHub allows 60 requests an hour).
+    plugin_directory_url: str = "https://raw.githubusercontent.com/emilyastranova/castor-plugins/main/directory.json"
+    github_api_url: str = "https://api.github.com"
+    github_token: str = ""
+    plugin_update_interval: int = 86400  # seconds between update checks
 
     @property
     def uploads_dir(self) -> Path:

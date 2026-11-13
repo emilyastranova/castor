@@ -414,6 +414,15 @@ TOOLS += [
     _auto("unlink_assets", "DELETE", "/api/asset-links/{link_id}", "Remove a relationship between two assets.", **_DESTRUCTIVE),
     # Plugins: run what an admin installed in the project; installing them is the admin's, in the UI.
     _auto("list_plugins", "GET", "/api/plugins", "Installed plugins (admins): status, what they're allowed, their actions and projects."),
+    _auto("browse_plugin_directory", "GET", "/api/plugin-directory",
+          "The plugin directory (admins): every listed plugin, its newest release and whether it's installed or has an update. "
+          "Nothing in it is vetted; installing stays in Settings → Plugins, where an admin reviews what it asks for.", **_UNTRUSTED),
+    _auto("get_directory_plugin", "GET", "/api/plugin-directory/plugins/{plugin_id}",
+          "One plugin in the directory (admins): its newest release and notes, what its manifest asks for, its README.", **_UNTRUSTED),
+    _auto("get_plugin_publisher", "GET", "/api/plugin-directory/publishers/{publisher_id}",
+          "A publisher in the plugin directory and its plugins (admins).", **_UNTRUSTED),
+    _auto("check_plugin_updates", "POST", "/api/plugin-directory/check",
+          "Look for newer releases of installed plugins now (admins). Nothing updates by itself."),
     _auto("list_plugin_actions", "GET", "/api/projects/{project_id}/plugin-actions",
           "What the project's plugins offer: each action, where (project, card, asset) and whether it takes a file."),
     _auto("run_plugin_action", "POST", "/api/plugin-actions/run",

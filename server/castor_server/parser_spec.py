@@ -393,9 +393,9 @@ def run(spec: ParserSpec, data: bytes) -> Any:
     return out[0]
 
 
-def build(spec: ParserSpec) -> parsers.Parser:
+def build(spec: ParserSpec, origin: str = "user") -> parsers.Parser:
     """A registry entry for the definition (no options: everything is in the definition)."""
     return parsers.Parser(
         name=spec.id, type=spec.type, description=spec.description or spec.name,
-        func=lambda data, _options, spec=spec: run(spec, data), origin="user", sample_value=spec.sample,
+        func=lambda data, _options, spec=spec: run(spec, data), origin=origin, sample_value=spec.sample,
     )

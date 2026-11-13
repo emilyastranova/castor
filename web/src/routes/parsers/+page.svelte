@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { pluginOf } from '$lib/origin';
 	import type { ParserInfo, ParserOption, ParseTestResult } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { page } from '$app/state';
@@ -19,7 +20,7 @@
 	// svelte-ignore state_referenced_locally
 	let parsers = $state<ParserInfo[]>(data.parsers);
 	let builtins = $derived(parsers.filter((p) => p.origin === 'builtin'));
-	let library = $derived(parsers.filter((p) => p.origin === 'user'));
+	let library = $derived(parsers.filter((p) => p.origin !== 'builtin'));
 	const MAX_INPUT = 2 * 1024 * 1024; // matches the server's test limit
 	const editable = $derived(canEdit());
 	const NEW = '__new';
@@ -283,7 +284,7 @@
 					onclick={() => select(p.name)}
 				>
 					<span class="font-mono title-small">{p.name}</span>
-					<span class="font-mono text-[11px] opacity-75">{p.type}</span>
+					<span class="font-mono text-[11px] opacity-75">{p.type}{#if pluginOf(p.origin)} · from {pluginOf(p.origin)}{/if}</span>
 					<span class="line-clamp-2 body-small opacity-80">{p.title || p.description}</span>
 				</button>
 			{/each}
@@ -314,9 +315,9 @@
 		<ParserEditor parser={null} initialYaml={newFrom.yaml} initialSample={newFrom.sample} sampleFrom={newFrom.from} wantType={newFrom.type} {editable} bind:dirty={editorDirty} onsaved={saved} ondeleted={deleted} oncancel={() => { editorDirty = false; void select(builtins[0]?.name ?? ''); }} />
 	{:else if selectedName === NEW}
 		<div class="flex flex-1 items-center justify-center pt-8"><Progress variant="circular" size={24} /></div>
-	{:else if selected && selected.origin === 'user'}
+	{:else if selected && selected.origin !== 'builtin'}
 		{#key selected.name}
-			<ParserEditor parser={selected} {editable} bind:dirty={editorDirty} onsaved={saved} ondeleted={deleted} />
+			<ParserEditor parser={selected} editable={editable && selected.origin === 'user'} bind:dirty={editorDirty} onsaved={saved} ondeleted={deleted} />
 		{/key}
 	<!-- a built-in: try it live on sample data -->
 	{:else if selected}

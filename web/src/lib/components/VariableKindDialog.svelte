@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { readOnlyOrigin } from '$lib/origin';
 	import AiGenerateDialog from './AiGenerateDialog.svelte';
 	import { aiStatus } from '$lib/ai.svelte';
 	import type { VarField, VarFieldType, VariableKind } from '$lib/api';
@@ -27,7 +28,7 @@
 	let error = $state<string | null>(null);
 	let saving = $state(false);
 	let openedFor = $state<string | null>(null);
-	let readOnly = $derived(kind?.origin === 'builtin');
+	let readOnly = $derived(readOnlyOrigin(kind?.origin));
 	let aiOpen = $state(false);
 	$effect(() => void aiStatus.load());
 	/** The form as JSON (which is YAML), for the AI to change. */

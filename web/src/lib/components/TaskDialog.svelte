@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { originLabel } from '$lib/origin';
 	import { copyableCode } from '$lib/copyCode';
 	import PersonName from '$lib/components/PersonName.svelte';
 	import type { Agent, ArgErrors, Attachment, Column, Comment, CommandDefinition, Job, PlaybookRun, PlaybookSpec, Project, Task, UUID } from '$lib/api';
@@ -748,7 +749,7 @@
 						<div class="flex items-center gap-2">
 							<Icon name="menu_book" size={20} class="shrink-0 text-primary" />
 							<span class="min-w-0 truncate title-small text-on-surface" title={libraryDef?.name ?? task.command_ref}>{libraryDef?.name ?? task.command_ref}</span>
-							{#if libraryDef}<span class="shrink-0 rounded-full bg-surface-container-highest px-2 py-0.5 whitespace-nowrap label-small text-on-surface-variant">{libraryDef.origin === 'builtin' ? 'built-in' : 'yours'}</span>{/if}
+							{#if libraryDef}<span class="shrink-0 rounded-full bg-surface-container-highest px-2 py-0.5 whitespace-nowrap label-small text-on-surface-variant">{originLabel(libraryDef.origin)}</span>{/if}
 							<span class="flex-1"></span>
 							{#if libDirty}
 								<Button variant="text" onclick={() => { libArgs = { ...task.command_args }; libErrors = {}; libDirty = false; }}>Discard</Button>

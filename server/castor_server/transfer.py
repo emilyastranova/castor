@@ -565,7 +565,7 @@ async def _plan(db: AsyncSession, user: m.User, archive: Archive, passphrase: st
     known_kinds = {k for (k,) in (await db.execute(select(m.VariableKind.id))).all()}
     for k in kinds:
         row = await db.get(m.VariableKind, k["id"])
-        state = "new" if row is None else "builtin" if row.origin == "builtin" else "same" if row.spec == k.get("spec") else "exists"
+        state = "new" if row is None else "builtin" if row.origin != "user" else "same" if row.spec == k.get("spec") else "exists"
         item("variable_kind", k["id"], k.get("name") or k["id"], state, new_name=_free(k["id"], known_kinds) if row else "")
     archive_kinds = {k["id"] for k in kinds}
 
@@ -596,7 +596,7 @@ async def _plan(db: AsyncSession, user: m.User, archive: Archive, passphrase: st
                         notes.append(f"needs the variable kind {kind}, which isn't here")
             if row is None:
                 state = "new"
-            elif row.origin == "builtin":
+            elif row.origin != "user":
                 state = "same" if row.spec == spec.model_dump(mode="json") else "builtin"
             else:
                 state = "same" if row.spec == spec.model_dump(mode="json") else "exists"

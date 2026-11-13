@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { originLabel, pluginOf, readOnlyOrigin } from '$lib/origin';
 	import { currentProject } from '$lib/currentProject.svelte';
 	import { enter, leave, glide } from '$lib/motion';
 	import { onMount } from 'svelte';
@@ -468,8 +469,8 @@ steps:
 								<h3 class="font-medium title-medium text-on-surface leading-tight">
 									{pb.name}
 								</h3>
-								<span class="rounded px-1.5 py-0.5 font-mono text-[10.5px] uppercase {pb.origin === 'builtin' ? 'bg-secondary-container text-on-secondary-container' : 'bg-tertiary-container text-on-tertiary-container'}">
-									{pb.origin}
+								<span class="rounded px-1.5 py-0.5 font-mono text-[10.5px] uppercase {readOnlyOrigin(pb.origin) ? 'bg-secondary-container text-on-secondary-container' : 'bg-tertiary-container text-on-tertiary-container'}">
+									{originLabel(pb.origin)}
 								</span>
 							</div>
 
@@ -504,7 +505,7 @@ steps:
 									/>
 									<IconButton
 										icon="edit"
-										label={pb.origin === 'builtin' ? 'Copy into the editor' : 'Open in the editor'}
+										label={readOnlyOrigin(pb.origin) ? 'Copy into the editor' : 'Open in the editor'}
 										size="sm"
 										onclick={() => goto(`/playbooks/edit/${pb.id}`)}
 									/>
@@ -544,14 +545,14 @@ steps:
 								icon="code"
 								onclick={() => openEditEditor(selectedPlaybook)}
 							>
-								{selectedPlaybook.origin === 'builtin' ? 'View YAML' : 'Edit YAML'}
+								{readOnlyOrigin(selectedPlaybook.origin) ? 'View YAML' : 'Edit YAML'}
 							</Button>
 							<Button
 								variant="outlined"
 								icon="edit"
 								onclick={() => goto(`/playbooks/edit/${selectedPlaybook.id}`)}
 							>
-								{selectedPlaybook.origin === 'builtin' ? 'Copy & edit' : 'Edit'}
+								{readOnlyOrigin(selectedPlaybook.origin) ? 'Copy & edit' : 'Edit'}
 							</Button>
 							<Button
 								variant="filled"
@@ -1089,8 +1090,8 @@ steps:
 	size="lg"
 >
 	<p class="body-small text-on-surface-variant -mt-2 mb-3">
-		{editing?.origin === 'builtin'
-			? 'Built-in playbooks are read-only; duplicate to customize.'
+		{readOnlyOrigin(editing?.origin)
+			? pluginOf(editing?.origin) ? `This playbook comes with the plugin ${pluginOf(editing?.origin)} and is read-only; duplicate to customize.` : 'Built-in playbooks are read-only; duplicate to customize.'
 			: 'Configure steps, dependencies, and command templates in YAML'}
 	</p>
 	<div class="flex flex-col gap-3 py-1">
@@ -1106,7 +1107,7 @@ steps:
 			rows={18}
 			mono
 			bind:value={editorYaml}
-			disabled={editing?.origin === 'builtin'}
+			disabled={readOnlyOrigin(editing?.origin)}
 		/>
 	</div>
 
@@ -1116,7 +1117,7 @@ steps:
 				Delete
 			</Button>
 		{/if}
-		{#if editing?.origin === 'builtin'}
+		{#if readOnlyOrigin(editing?.origin)}
 			<Button variant="outlined" icon="content_copy" onclick={() => duplicatePlaybook(editing!)}>
 				Duplicate to Custom
 			</Button>
@@ -1124,13 +1125,13 @@ steps:
 		{#if editing}
 			<Button variant="text" icon="download" onclick={() => editing && saveBlob(editing.source_yaml, `${editing.id}.yaml`)}>Export YAML</Button>
 		{/if}
-		{#if editing?.origin !== 'builtin' && aiStatus.enabled}
+		{#if !readOnlyOrigin(editing?.origin) && aiStatus.enabled}
 			<Button variant="text" icon="auto_awesome" onclick={() => { aiFromEditor = true; aiOpen = true; }}>AI</Button>
 		{/if}
 		<Button variant="text" onclick={() => (editorOpen = false)} disabled={savingYaml}>
 			Close
 		</Button>
-		{#if editing?.origin !== 'builtin'}
+		{#if !readOnlyOrigin(editing?.origin)}
 			<Button variant="filled" icon="save" onclick={savePlaybook} loading={savingYaml}>
 				Save Playbook
 			</Button>

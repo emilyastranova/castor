@@ -481,7 +481,7 @@ and `{{ link.x }}`). The `file` type is a path (`\\host\share\path`, or `host:/p
 ## Plugins
 
 Design and status: [PLUGINS.md](PLUGINS.md). `plugin_manifest.py` (`castor-plugin.yaml`; `not_yet`
-lists what this version can't run yet: hooks, library contents, unrestricted), `plugin_package.py`
+lists what this version can't run yet: hooks), `plugin_package.py`
 (checking, staging and unpacking a release under `<data_dir>/plugins`), `plugin_runtime.py` (a
 Deno process per plugin with only its approved permissions, JSON-RPC over stdin/stdout, the module
 graph check, crash counting), `plugins.py` (install/update/uninstall, settings and vault-sealed
@@ -498,8 +498,34 @@ rate-limited. Per-person settings: `plugins.per_user` (the admin's choice, withi
 (session only); `plugins.settings_of` gives a run or event the shared settings plus the person's. Events `plugins.changed`,
 `plugin_run.updated` (project); activity `plugin.*` (installs in the admin feed, runs as feed kind
 `plugin`). `POST /api/projects/{id}/assets/bulk` records assets and relationships at once (source
-`plugin` for a plugin's account, else `import`). Official plugins live in `plugins/` (`pack.py`
-makes their `.zip`).
+`plugin` for a plugin's account, else `import`). Official plugins live in the
+[castor-plugins](https://github.com/emilyastranova/castor-plugins) repository (`scripts/pack.py`
+makes their `.zip`); `tests/test_plugins.py` runs them from a checkout beside this one (or
+`CASTOR_PLUGINS_REPO`) and skips them without one.
+
+The directory (phase E): `plugin_directory.py` reads `CASTOR_PLUGIN_DIRECTORY_URL` (`directory.json`:
+publishers, each with the GitHub accounts it may list from, and plugins with `repo`, `tag_prefix`,
+`tags`; validated by `Directory`), cached an hour in memory and on disk under
+`<data_dir>/plugins/.directory`; `latest` reads a repository's releases from `CASTOR_GITHUB_API_URL`
+(`CASTOR_GITHUB_TOKEN` optional) and picks the newest tagged `<tag_prefix>v<version>` with
+`<id>-<version>.zip`; `download` checks it against `<zip>.sha256`; the preview then requires the
+manifest's id, publisher and version to be the directory's. Only https, or the configured API's own
+origin, is fetched. `check_updates` (daily from `check_forever`, unless `app_settings.plugin_update_checks`
+is off; `POST /api/plugin-directory/check`) sets `plugins.latest_version`/`checked_at` and notifies
+admins (`plugin.update`, `accounts.active_admin_ids`). `api/plugin_directory.py`: `/api/plugin-directory`,
+`…/plugins/{id}` (release notes, manifest, README), `…/plugins/{id}/icon`, `…/publishers/{id}`. Web: the
+Browse tab (`PluginDirectory.svelte`, `DirectoryCard.svelte`), `routes/settings/plugins/directory/[id]`
+and `publishers/[id]`, `PluginInstallDialog` with `directoryId`.
+
+Packs (library content in plugins): manifest `contents` lists kinds; files are
+`library/<kind>/*.yaml` (`plugin_library.read`, at package time; a pack's commands may use its own
+parsers). `plugin_library.apply` upserts them with `origin = "plugin:<id>"` (the `origin` columns are
+80 long) and retires what an update dropped; `retire` on uninstall, like built-ins retire (cards
+keep their command lines; a tool, parser or variable kind something else still uses stays as a user
+item). An id someone else has is a preview problem (`conflicts`). Library APIs refuse to change or
+delete them (`plugin_library.read_only`, `why_read_only`, `cant_delete`); web `lib/origin.ts`. A
+plugin with no `main` (and no actions or events) runs nothing: status `library`. `plugins.castor_ok`
+checks the manifest's `castor:` versions against `CASTOR_VERSION`.
 
 Asset types and relationship kinds from plugins: a manifest's `asset_types` and `link_kinds`
 (checked in `plugin_manifest.py`: names fit `assets.type` (16) and `asset_links.kind` (24), never

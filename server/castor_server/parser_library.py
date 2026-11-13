@@ -26,8 +26,8 @@ def definition_from_spec(row: m.ParserDefinition, spec: ParserSpec, source_yaml:
         row.version += 1
 
 
-def register(spec: ParserSpec) -> None:
-    parsers.USER[spec.id] = build(spec)
+def register(spec: ParserSpec, origin: str = "user") -> None:
+    parsers.USER[spec.id] = build(spec, origin)
 
 
 def unregister(parser_id: str) -> None:
@@ -40,7 +40,7 @@ async def load_all(db: AsyncSession) -> int:
     loaded: dict[str, parsers.Parser] = {}
     for row in (await db.execute(select(m.ParserDefinition))).scalars():
         try:
-            loaded[row.id] = build(ParserSpec.model_validate(row.spec))
+            loaded[row.id] = build(ParserSpec.model_validate(row.spec), row.origin)
         except Exception as exc:  # noqa: BLE001
             log.warning("skipping parser %s: %s", row.id, exc)
     parsers.USER.clear()

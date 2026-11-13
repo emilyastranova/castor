@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { readOnlyOrigin, originLabel } from '$lib/origin';
 	import { canEdit } from '$lib/session';
 	import type { VariableKind, VariableSet } from '$lib/api';
 	import { Button, Card, Chip, Icon, Tabs, TopAppBar } from '$lib/m3';
@@ -167,7 +168,7 @@
 							<h2 class="truncate title-medium text-on-surface">{k.name}</h2>
 							<p class="truncate font-mono text-[12px] text-on-surface-variant">{k.id}</p>
 						</div>
-						<span class="rounded-full px-2 py-0.5 label-small {k.origin === 'builtin' ? 'bg-surface-container-highest text-on-surface-variant' : 'bg-tertiary-container text-on-tertiary-container'}">{k.origin === 'builtin' ? 'built-in' : 'yours'}</span>
+						<span class="rounded-full px-2 py-0.5 label-small {readOnlyOrigin(k.origin) ? 'bg-surface-container-highest text-on-surface-variant' : 'bg-tertiary-container text-on-tertiary-container'}">{originLabel(k.origin)}</span>
 					</div>
 					{#if k.description}<p class="line-clamp-2 body-medium text-on-surface-variant">{k.description}</p>{/if}
 					<div class="flex flex-wrap gap-1">

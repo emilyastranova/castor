@@ -14,6 +14,7 @@ from ..access import job_or_404
 from ..deps import DB, CurrentUser, Operator, parse_uuid
 from ..outputs import _specs, is_mismatch, run_parser
 from ..parser_spec import parse_parser_spec
+from ..plugin_library import cant_delete, read_only, why_read_only
 from ..schemas import ParserProposalOut
 from ..services import (
     apply_parser_proposal,
@@ -228,6 +229,8 @@ async def update_parser(name: str, body: ParserYamlIn, db: DB, user: Operator):
     row = await db.get(m.ParserDefinition, name)
     if row is None:
         raise HTTPException(409 if name in parsers.PARSERS else 404, "Built-in parsers can't be changed" if name in parsers.PARSERS else "Parser not found")
+    if read_only(row.origin):
+        raise HTTPException(409, why_read_only(row.origin, "parser"))
     try:
         spec = parse_parser_spec(body.yaml)
     except ValueError as exc:
@@ -249,6 +252,8 @@ async def delete_parser(name: str, db: DB, user: Operator):
     row = await db.get(m.ParserDefinition, name)
     if row is None:
         raise HTTPException(409 if name in parsers.PARSERS else 404, "Built-in parsers can't be deleted" if name in parsers.PARSERS else "Parser not found")
+    if read_only(row.origin):
+        raise HTTPException(409, cant_delete(row.origin, "parser"))
     used = await parser_library.commands_using(db, name)
     if used:
         raise HTTPException(409, f"Used by {', '.join(used)}: change {'that command' if len(used) == 1 else 'those commands'} first")

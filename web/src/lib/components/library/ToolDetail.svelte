@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { originLabel, pluginOf, readOnlyOrigin } from '$lib/origin';
 	import type { CommandDefinition, ToolDefinition } from '$lib/api';
 	import { api, ApiError, saveBlob } from '$lib/api';
 	import { Button, Icon, Tabs } from '$lib/m3';
@@ -38,7 +39,7 @@
 	let error = $state<string | null>(null);
 	let saving = $state(false);
 	let preview = $state<{ tag: string | null; dockerfile: string | null } | null>(null);
-	let readOnly = $derived(!editable || t?.origin === 'builtin');
+	let readOnly = $derived(!editable || readOnlyOrigin(t?.origin));
 	$effect(() => {
 		dirty = yaml !== original;
 	});
@@ -116,7 +117,7 @@
 				<p class="flex flex-wrap items-center gap-x-2 body-small text-on-surface-variant">
 					<code class="font-mono">{t.id}</code>
 					<span aria-hidden="true">·</span>
-					<span>{t.origin === 'builtin' ? 'built-in' : 'yours'}</span>
+					<span>{originLabel(t.origin)}</span>
 					{#if t.spec.homepage}
 						<span aria-hidden="true">·</span>
 						<a href={t.spec.homepage} target="_blank" rel="noopener noreferrer" class="text-primary underline-offset-4 hover:underline">homepage</a>
@@ -218,7 +219,7 @@
 			{#snippet aside()}
 				{#if readOnly}
 					<p class="body-small text-on-surface-variant">
-						{#if t?.origin === 'builtin'}Built-in tools come from <code class="font-mono">tools/{t.id}.yaml</code> and are read-only here. Duplicate one to change it.{:else}You can view this but not change it.{/if}
+						{#if pluginOf(t?.origin)}This tool comes with the plugin <b class="font-medium">{pluginOf(t?.origin)}</b> and is read-only; it's updated and removed with the plugin. Duplicate it to change it.{:else if readOnlyOrigin(t?.origin)}Built-in tools come from <code class="font-mono">tools/{t?.id}.yaml</code> and are read-only here. Duplicate one to change it.{:else}You can view this but not change it.{/if}
 					</p>
 				{:else}
 					<p class="body-small text-on-surface-variant">The install and check scripts run with <code class="font-mono">sh -e</code> during the build, so a failing step fails the build instead of a job. Tab indents; Ctrl+S saves.</p>

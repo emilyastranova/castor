@@ -14,6 +14,7 @@ from .. import app_settings
 from .. import models as m
 from ..deps import DB, Admin, CurrentUser
 from ..events import bus
+from ..plugin_library import cant_delete, read_only, why_read_only
 from ..services import actor_of, record_activity
 from ..theme_contrast import check as contrast
 from ..theme_library import definition_from_spec, forget_theme
@@ -144,8 +145,8 @@ async def update_theme(theme_id: str, body: ThemeYamlIn, db: DB, user: Admin):
     row = await db.get(m.ThemeDefinition, theme_id)
     if row is None:
         raise HTTPException(404, "Theme not found")
-    if row.origin == "builtin":
-        raise HTTPException(409, "Built-in themes are read-only; duplicate it to customise")
+    if read_only(row.origin):
+        raise HTTPException(409, why_read_only(row.origin, "theme"))
     spec = _parse_or_422(body.yaml)
     if spec.id != theme_id:
         raise HTTPException(422, "id: cannot be changed (create a new theme instead)")
@@ -164,8 +165,8 @@ async def delete_theme(theme_id: str, db: DB, user: Admin):
     row = await db.get(m.ThemeDefinition, theme_id)
     if row is None:
         raise HTTPException(404, "Theme not found")
-    if row.origin == "builtin":
-        raise HTTPException(409, "Built-in themes cannot be deleted")
+    if read_only(row.origin):
+        raise HTTPException(409, cant_delete(row.origin, "theme"))
     await forget_theme(db, theme_id)
     await db.delete(row)
     await record_activity(db, type="theme.deleted", message=f"Removed the theme {row.name}", project_id=None,

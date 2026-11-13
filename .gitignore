@@ -39,5 +39,3 @@ uploads/
 # Agent hook config the impeccable skill writes (for Copilot); not part of the project
 .github/hooks/
 
-# Packed plugins (plugins/pack.py)
-plugins/dist/

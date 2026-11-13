@@ -46,6 +46,9 @@ services:
       CASTOR_PUBLIC_URL: ${CASTOR_PUBLIC_URL:-http://localhost:8080}
       CASTOR_PLUGINS_RESTRICTED: ${CASTOR_PLUGINS_RESTRICTED:-false}
       CASTOR_PLUGINS_SAFE_MODE: ${CASTOR_PLUGINS_SAFE_MODE:-false}
+      CASTOR_PLUGIN_DIRECTORY_URL: ${CASTOR_PLUGIN_DIRECTORY_URL-https://raw.githubusercontent.com/emilyastranova/castor-plugins/main/directory.json}
+      CASTOR_GITHUB_API_URL: ${CASTOR_GITHUB_API_URL:-https://api.github.com}
+      CASTOR_GITHUB_TOKEN: ${CASTOR_GITHUB_TOKEN:-}
     volumes:
       - serverdata:/data
       - ./commands:/commands:ro

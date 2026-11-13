@@ -1,6 +1,6 @@
 """A plugin's manifest, `castor-plugin.yaml` (docs/PLUGINS.md): who it is, what it runs, what it
 asks for. Castor refuses a manifest it doesn't understand rather than guessing, and refuses what
-this version can't do yet (hooks, library contents) with a clear reason."""
+this version can't do yet (hooks) with a clear reason."""
 
 from __future__ import annotations
 
@@ -164,7 +164,9 @@ class Manifest(BaseModel):
     description: str = Field("", max_length=500)
     homepage: str = Field("", max_length=300)
     license: str = Field("", max_length=60)
-    main: str = Field("main.ts", pattern=r"^[A-Za-z0-9_./-]+\.(ts|js|mts|mjs)$")
+    # Its code, run by Deno. None: a plugin with no code (a pack of library content); a release
+    # with a main.ts and no `main:` runs that.
+    main: str | None = Field(None, pattern=r"^[A-Za-z0-9_./-]+\.(ts|js|mts|mjs)$")
     # Its icon, a file in the plugin: SVG, PNG or WebP, square, up to 256 KB.
     icon: str | None = Field(None, pattern=r"^[A-Za-z0-9_./-]+\.(svg|png|webp)$")
     runtime: Literal["sandboxed", "unrestricted"] = "sandboxed"
@@ -175,7 +177,8 @@ class Manifest(BaseModel):
     hooks: list[dict[str, Any]] = Field(default_factory=list)
     ui: list[UiSpec] = Field(default_factory=list)
     settings: list[SettingSpec] = Field(default_factory=list)
-    contents: list[str] = Field(default_factory=list)
+    # Library content it ships in library/<kind>/*.yaml (plugin_library.py): read-only, removed with it.
+    contents: list[Literal["commands", "tools", "parsers", "playbooks", "themes", "variable_kinds"]] = Field(default_factory=list)
     # Kinds of asset and of relationship it adds (they stay registered while it's installed).
     asset_types: list[AssetTypeSpec] = Field(default_factory=list, max_length=20)
     link_kinds: list[LinkKindSpec] = Field(default_factory=list, max_length=40)
@@ -273,7 +276,7 @@ class Manifest(BaseModel):
     def not_yet(self) -> list[str]:
         """What this manifest asks for that this Castor can't do yet (phase A)."""
         out = []
-        for field in ("hooks", "contents"):
+        for field in ("hooks",):
             if getattr(self, field):
                 out.append(f"{field}: not supported yet (see docs/PLUGINS.md)")
         return out

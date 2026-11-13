@@ -16,6 +16,7 @@ from ..orchestrator.gateway import gateway
 from ..playbook_library import check_against_library, definition_from_spec, load_playbook_spec
 from ..playbook_spec import parse_playbook_spec
 from ..playbook_yaml import to_yaml
+from ..plugin_library import cant_delete, read_only, why_read_only
 from ..schemas import (
     AlertRules,
     PlaybookDefinitionIn,
@@ -131,8 +132,8 @@ async def update_playbook(playbook_id: str, body: PlaybookDefinitionIn, db: DB, 
     row = await db.get(m.PlaybookDefinition, playbook_id)
     if row is None:
         raise HTTPException(404, "Playbook not found")
-    if row.origin == "builtin":
-        raise HTTPException(409, "Built-in playbooks are read-only; duplicate it to customise")
+    if read_only(row.origin):
+        raise HTTPException(409, why_read_only(row.origin, "playbook"))
 
     spec = await _checked_spec(db, body.yaml)
     if spec.id != playbook_id:
@@ -149,8 +150,8 @@ async def delete_playbook(playbook_id: str, db: DB, user: Operator):
     row = await db.get(m.PlaybookDefinition, playbook_id)
     if row is None:
         raise HTTPException(404, "Playbook not found")
-    if row.origin == "builtin":
-        raise HTTPException(409, "Built-in playbooks cannot be deleted")
+    if read_only(row.origin):
+        raise HTTPException(409, cant_delete(row.origin, "playbook"))
 
     await db.delete(row)
     await library_activity(db, user, "playbook", "deleted", playbook_id, row.name)

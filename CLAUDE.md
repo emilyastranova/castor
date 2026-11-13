@@ -274,8 +274,9 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   plugin's projects through `access.member_project_ids`, kept out of people lists and sign-in; a fresh token per start
   with the approved scopes; `handle_call` answers the plugin), `api/plugins.py`, SDK `plugin_sdk/mod.ts` (shipped as
   package data). Web: `routes/settings/plugins`, `PluginInstallDialog`, `PluginDialog`, `PluginActions` (project, card
-  menu, asset dialog) and `lib/plugins.svelte.ts`. Official plugins in `plugins/` (`nessus-import` with Deno tests:
-  `deno task test`; `pack.py`; `shodan-enrich`, events and network; `bloodhound`, panels). Panels (phase C):
+  menu, asset dialog) and `lib/plugins.svelte.ts`. Official plugins live in the separate castor-plugins repo
+  (`../castor-plugins`, with the directory; `nessus-import` with Deno tests: `deno task test`; `scripts/pack.py`;
+  `shodan-enrich`, events and network; `bloodhound`, panels; `mail-dns-checks`, a pack). Panels (phase C):
   `api/plugin_panels.py` serves `ui:` pages sandboxed (signed address, CSP with no network, `plugin_sdk/ui.js` inline),
   `…/panels/{ui}/call` answers them (REST as the plugin, or `ctx.ui.on` handlers; viewers only GET and `readOnly`); web
   `PluginFrame.svelte` is the postMessage bridge (in AssetDialog, TaskDialog tabs, Assets page tabs). Unrestricted plugins
@@ -291,7 +292,14 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   from plugins (manifest `asset_types`/`link_kinds`): `assets.register_plugin` rebuilds `TYPES`/`LINK_KINDS`/`LINK_WORDS`/
   `ORDER` in place (Castor's are `CORE_TYPES`/`CORE_LINK_KINDS`), so read those dicts at call time, never copy them at
   import; a removed plugin's assets show as `orphan_type`. `source-code-review` is the example (repositories, source
-  files, symbols; repo archive import in `code.ts`; a Code map panel).
+  files, symbols; repo archive import in `code.ts`; a Code map panel). `tests/test_plugins.py` runs the official ones from
+  a castor-plugins checkout beside this repo (`CASTOR_PLUGINS_REPO`), skipping them without one; conftest turns the
+  directory off (`CASTOR_PLUGIN_DIRECTORY_URL=""`) so tests never reach GitHub. Directory (phase E): `plugin_directory.py`
+  (`directory.json` from `CASTOR_PLUGIN_DIRECTORY_URL`, releases from the GitHub API, SHA-256 checked, `check_updates`
+  daily → `plugins.latest_version` and admin notifications), `api/plugin_directory.py`, preview with `directory`; web
+  Browse tab (`PluginDirectory`, `DirectoryCard`), `routes/settings/plugins/directory/[id]`, `publishers/[id]`. Packs:
+  manifest `contents` + `library/<kind>/*.yaml` (`plugin_library.py`), `origin = "plugin:<id>"`, read-only like
+  built-ins: check `plugin_library.read_only(origin)` (not `== "builtin"`) in library APIs, web `lib/origin.ts`.
 - Instance settings admins change in the UI: `app_settings.py` (`AppSettings` fields are the
   keys and defaults), `api/app_settings.py`; web `lib/appSettings.svelte.ts`,
   `routes/settings/general`. Env-level config stays in `config.py`.

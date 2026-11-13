@@ -13,7 +13,7 @@ import shutil
 import stat
 import time
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 from .config import settings
@@ -42,6 +42,7 @@ class Package:
     manifest: Manifest
     checksum: str  # SHA-256 of the .zip
     files: dict[str, bytes]  # path inside the plugin → content
+    library: list = field(default_factory=list)  # plugin_library.Item: the library content it ships
 
     @property
     def size(self) -> int:
@@ -84,7 +85,12 @@ def read_zip(data: bytes) -> Package:
             raise PackageError(f"Over {MAX_UNPACKED // 1024**2} MB unpacked")
         files[str(rel)] = zf.read(info)
     manifest = parse_manifest(files[MANIFEST].decode("utf-8", "replace"))
-    if manifest.main not in files:
+    if manifest.main is None and "main.ts" in files:
+        manifest.main = "main.ts"
+    if manifest.main is None:
+        if manifest.actions or manifest.events or manifest.hooks:
+            raise PackageError("main: actions and events need the plugin's code (main.ts, or name it in main:)")
+    elif manifest.main not in files:
         raise PackageError(f"main: {manifest.main} isn't in the .zip")
     for panel in manifest.ui:
         if panel.path not in files:
@@ -93,7 +99,13 @@ def read_zip(data: bytes) -> Package:
         if manifest.icon not in files:
             raise PackageError(f"icon: {manifest.icon} isn't in the .zip")
         check_icon(manifest.icon, files[manifest.icon])
-    return Package(manifest, hashlib.sha256(data).hexdigest(), files)
+    from .plugin_library import read as read_library
+
+    try:
+        library = read_library(files, list(manifest.contents))
+    except ValueError as exc:
+        raise PackageError(str(exc)) from exc
+    return Package(manifest, hashlib.sha256(data).hexdigest(), files, library)
 
 
 ICON_MAX = 256 * 1024

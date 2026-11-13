@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Plugin, PluginPreview, ProjectSummary, UUID } from '$lib/api';
+	import type { Plugin, PluginLibraryKind, PluginPreview, ProjectSummary, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, Icon, TextField } from '$lib/m3';
 	import { bytes } from '$lib/format';
@@ -13,9 +13,11 @@
 	interface Props {
 		open: boolean;
 		projects: ProjectSummary[];
+		/** A plugin in the directory: its newest release is fetched (and checked) when this opens. */
+		directoryId?: string | null;
 		oninstalled: (p: Plugin) => void;
 	}
-	let { open = $bindable(false), projects, oninstalled }: Props = $props();
+	let { open = $bindable(false), projects, directoryId = null, oninstalled }: Props = $props();
 
 	let file = $state<File | null>(null);
 	let url = $state('');
@@ -44,6 +46,7 @@
 			preview = null;
 			approved = false;
 			confirmId = '';
+			if (directoryId) void check();
 		}
 	});
 
@@ -51,7 +54,7 @@
 		checking = true;
 		error = null;
 		try {
-			preview = await api().plugins.preview(file ? { file } : { url: url.trim() });
+			preview = await api().plugins.preview(directoryId ? { directory: directoryId } : file ? { file } : { url: url.trim() });
 			const m = preview.manifest;
 			values = Object.fromEntries(m.settings.filter((s) => s.type !== 'secret' && s.default !== null).map((s) => [s.name, s.default]));
 			secrets = {};
@@ -86,6 +89,8 @@
 	let anythingNew = $derived(newPerms.size + newHosts.size + newEvents.size > 0 || newlyUnrestricted);
 	/** Settings each person sets for themselves (the admin's choice, and those the plugin insists on). */
 	let own = $derived(new Set([...perUser, ...(preview?.manifest.settings ?? []).filter((s) => s.per_user === 'required').map((s) => s.name)]));
+	/** A pack (no code) has nothing to turn on in projects: its library content is everyone's. */
+	let hasCode = $derived(!!preview?.manifest.main);
 	let blocked = $derived(!preview || preview.problems.length > 0 || !!preview.existing?.same);
 	async function install() {
 		if (!preview) return;
@@ -114,6 +119,19 @@
 	const PLACES: Record<string, string> = { project: 'the Assets page', card: 'cards', asset: 'assets' };
 	/** A type's name as words: the plugin's own label, or Castor's (source_file → source file). */
 	const typeWord = (name: string) => (preview?.manifest.asset_types?.find((t) => t.name === name)?.label ?? name.replaceAll('_', ' ')).toLowerCase();
+	const KIND_WORDS: Record<PluginLibraryKind, [string, string, string]> = {
+		commands: ['command', 'commands', 'terminal'],
+		tools: ['tool', 'tools', 'handyman'],
+		parsers: ['parser', 'parsers', 'data_object'],
+		playbooks: ['playbook', 'playbooks', 'account_tree'],
+		themes: ['theme', 'themes', 'palette'],
+		variable_kinds: ['variable kind', 'variable kinds', 'key']
+	};
+	let libraryGroups = $derived(
+		(Object.keys(KIND_WORDS) as PluginLibraryKind[])
+			.map((k) => ({ kind: k, items: (preview?.library ?? []).filter((i) => i.kind === k) }))
+			.filter((g) => g.items.length)
+	);
 	const SLOTS: Record<string, string> = {
 		'project.page': 'a tab on the Assets page',
 		'card.tab': 'a tab on cards',
@@ -124,7 +142,11 @@
 
 <Dialog bind:open title={preview ? (isUpdate ? `Update ${preview.manifest.name}` : `Install ${preview.manifest.name}`) : 'Install a plugin'} icon="extension" size="md">
 	<div class="flex flex-col gap-4 pt-1 pb-2">
-		{#if !preview}
+		{#if !preview && directoryId}
+			<div class="flex items-center gap-3 py-6 body-medium text-on-surface-variant" role="status">
+				{#if checking}<Icon name="progress_activity" class="animate-spin" />Downloading {directoryId} from the directory and checking it…{/if}
+			</div>
+		{:else if !preview}
 			<p class="body-medium text-on-surface-variant">
 				A plugin is a <code class="font-mono">.zip</code> with a <code class="font-mono">castor-plugin.yaml</code>. You'll see what it is and what it asks for before
 				anything of it runs.
@@ -170,6 +192,16 @@
 				</section>
 			{/if}
 
+			{#if preview.release}
+				<p class="flex items-start gap-2 rounded-md bg-surface-container px-3 py-2 body-small text-on-surface-variant">
+					<Icon name="verified" size={16} class="mt-px shrink-0 text-primary" />
+					<span>
+						From the plugin directory: release {preview.release.tag}, its SHA-256 checked. The directory isn't reviewed by anyone, so read what it asks for below.
+						{#if preview.release.url}<a href={preview.release.url} target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">Release notes</a>{/if}
+					</span>
+				</p>
+			{/if}
+
 			{#if preview.existing}
 				<p class="rounded-md bg-surface-container px-3 py-2 body-medium text-on-surface">
 					{preview.existing.same ? `This exact release (${m.version}) is already installed.` : `Installed: ${preview.existing.version}. This replaces it with ${m.version}; its settings and projects stay.`}
@@ -178,7 +210,7 @@
 
 			{#if preview.problems.length}
 				<div class="flex flex-col gap-1 rounded-md bg-error-container px-3 py-2 body-small text-on-error-container" role="alert">
-					<p class="font-medium">This Castor can't run it:</p>
+					<p class="font-medium">It can't be installed here:</p>
 					{#each preview.problems as p (p)}<p class="flex gap-2"><Icon name="error" size={16} class="mt-px shrink-0" />{p}</p>{/each}
 				</div>
 			{/if}
@@ -187,8 +219,12 @@
 				<section class="flex gap-3 rounded-md border border-outline-variant px-3 py-2.5" aria-label="How it runs">
 					<Icon name="shield" class="mt-0.5 shrink-0 text-primary" />
 					<p class="body-medium text-on-surface">
-						<b class="font-medium">Sandboxed.</b> It runs in its own process with no access to this server's files or programs{m.network.length ? ', and no network beyond the hosts below' : ', and no network'}.
+						{#if !hasCode}
+							<b class="font-medium">No code.</b> Nothing of it runs: it only adds to the library.
+						{:else}
+							<b class="font-medium">Sandboxed.</b> It runs in its own process with no access to this server's files or programs{m.network.length ? ', and no network beyond the hosts below' : ', and no network'}.
 						It can only use Castor through its own account, with the permissions below, in the projects you choose.
+						{/if}
 					</p>
 				</section>
 			{/if}
@@ -241,6 +277,33 @@
 				</section>
 			{/if}
 
+			{#if libraryGroups.length}
+				<section aria-label="Library content">
+					<h3 class="mb-1.5 label-large text-on-surface-variant">It adds to the library</h3>
+					<ul class="flex flex-col gap-1.5">
+						{#each libraryGroups as g (g.kind)}
+							{@const [one, many, icon] = KIND_WORDS[g.kind]}
+							<li class="flex items-start gap-2 body-medium text-on-surface">
+								<Icon name={icon} size={18} class="mt-0.5 shrink-0 text-on-surface-variant" />
+								<span>
+									<b class="font-medium">{g.items.length} {g.items.length === 1 ? one : many}</b>:
+									{g.items.map((i) => i.name).join(', ')}
+								</span>
+							</li>
+						{/each}
+					</ul>
+					<p class="mt-1 body-small text-on-surface-variant">
+						Read-only in the library, like Castor's built-ins (duplicate one to change it), updated with the plugin and removed with it. Commands run on your agents
+						like any other.
+					</p>
+					{#if preview.library_warnings.length}
+						<ul class="mt-1.5 flex flex-col gap-0.5 body-small text-on-surface-variant">
+							{#each preview.library_warnings as w (w)}<li class="flex gap-1.5"><Icon name="warning" size={16} class="mt-px shrink-0 text-tertiary" />{w}</li>{/each}
+						</ul>
+					{/if}
+				</section>
+			{/if}
+
 			{#if m.actions.length || m.ui?.length || m.asset_types?.length || m.link_kinds?.length}
 				<section aria-label="What it adds">
 					<h3 class="mb-1.5 label-large text-on-surface-variant">It adds</h3>
@@ -285,7 +348,7 @@
 				</section>
 			{/if}
 
-			{#if !isUpdate}
+			{#if !isUpdate && hasCode}
 				<section aria-label="Projects">
 					<h3 class="mb-1.5 label-large text-on-surface-variant">In these projects</h3>
 					<PluginProjects {projects} bind:projectIds bind:allProjects />
@@ -301,7 +364,7 @@
 			{#if !blocked}
 				<label class="flex cursor-pointer items-start gap-2 rounded-md bg-surface-container-low px-3 py-2.5 body-medium text-on-surface">
 					<input type="checkbox" bind:checked={approved} class="mt-1 accent-primary" />
-					<span>I've read what {m.name} can do{anythingNew ? ', including what’s new,' : ''} and allow it{isUpdate ? '' : ' in the projects above'}.</span>
+					<span>I've read what {m.name} can do{anythingNew ? ', including what’s new,' : ''} and allow it{isUpdate || !hasCode ? '' : ' in the projects above'}.</span>
 				</label>
 				{#if unrestricted}
 					<TextField label="Type {m.id} to confirm it can do anything on this server" bind:value={confirmId} autocomplete="off" />
@@ -311,12 +374,14 @@
 		{#if error}<p class="body-small text-error" role="alert">{error}</p>{/if}
 	</div>
 	{#snippet actions()}
-		{#if preview}<Button variant="text" class="mr-auto" onclick={() => (preview = null)}>Back</Button>{/if}
+		{#if preview && !directoryId}<Button variant="text" class="mr-auto" onclick={() => (preview = null)}>Back</Button>{/if}
 		<Button variant="text" onclick={() => (open = false)}>Cancel</Button>
-		{#if !preview}
+		{#if !preview && directoryId}
+			{#if error}<Button icon="refresh" onclick={check}>Try again</Button>{/if}
+		{:else if !preview}
 			<Button icon="search" loading={checking} disabled={!file && !url.trim().startsWith('https://')} onclick={check}>Check it</Button>
 		{:else}
-			<Button icon={isUpdate ? 'upgrade' : 'download'} loading={installing} disabled={blocked || !approved || !confirmed || (!isUpdate && !allProjects && !projectIds.length)} onclick={install}>
+			<Button icon={isUpdate ? 'upgrade' : 'download'} loading={installing} disabled={blocked || !approved || !confirmed || (!isUpdate && hasCode && !allProjects && !projectIds.length)} onclick={install}>
 				{isUpdate ? 'Update' : 'Install'}
 			</Button>
 		{/if}

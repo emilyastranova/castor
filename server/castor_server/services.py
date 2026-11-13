@@ -1731,8 +1731,9 @@ async def _use_in_command(db: AsyncSession, job: m.Job, output: str, parser_id: 
     row = await db.get(m.CommandDefinition, task.command_ref) if task and task.command_ref else None
     if row is None:
         return "The card doesn't run a library command, so only this job uses it."
-    if row.origin == "builtin":
-        return f"{row.name} is built in: duplicate it in the Library to use {parser_id} from now on."
+    if row.origin != "user":
+        whose = "comes with a plugin" if row.origin.startswith("plugin:") else "is built in"
+        return f"{row.name} {whose}: duplicate it in the Library to use {parser_id} from now on."
     try:
         text = point_output_at(row.source_yaml, output, parser_id)
         spec = parse_spec(text)

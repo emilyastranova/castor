@@ -17,7 +17,10 @@ network access and their own pages in sandboxed frames; unrestricted plugins beh
 mode, with safe mode and page scripts; Settings → Plugins; the Nessus import, Shodan enrichment,
 BloodHound bridge, DOCX report and Watch folder), and plugins can add asset types and relationship
 kinds (Source Code Review: repositories, source files and symbols, with imports, calls and data
-flow); next is the public directory.
+flow). Phase E is built too: the plugin directory (its own repository,
+[castor-plugins](https://github.com/emilyastranova/castor-plugins), which also holds the official
+plugins), browsing and installing from it, daily update checks, publisher pages, and packs of
+library content. Still to come: hooks, and signed releases.
 
 ## People and access
 

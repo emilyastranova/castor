@@ -15,6 +15,7 @@ from ..deps import DB, CurrentUser, Operator
 from ..events import bus
 from ..orchestrator.dispatcher import tool_ready, tool_way
 from ..orchestrator.gateway import gateway
+from ..plugin_library import cant_delete, read_only, why_read_only
 from ..services import library_activity
 from ..tool_library import definition_from_spec, tools_in_use
 from ..tool_spec import ToolSpec, parse_tool_spec
@@ -144,8 +145,8 @@ async def update_tool(tool_id: str, body: ToolYamlIn, db: DB, user: Operator):
     row = await db.get(m.ToolDefinition, tool_id)
     if row is None:
         raise HTTPException(404, "Tool not found")
-    if row.origin == "builtin":
-        raise HTTPException(409, "Built-in tools are read-only; duplicate it to customise")
+    if read_only(row.origin):
+        raise HTTPException(409, why_read_only(row.origin, "tool"))
     spec = _parse_or_422(body.yaml)
     if spec.id != tool_id:
         raise HTTPException(422, "id: cannot be changed (create a new tool instead)")
@@ -161,8 +162,8 @@ async def delete_tool(tool_id: str, db: DB, user: Operator):
     row = await db.get(m.ToolDefinition, tool_id)
     if row is None:
         raise HTTPException(404, "Tool not found")
-    if row.origin == "builtin":
-        raise HTTPException(409, "Built-in tools cannot be deleted")
+    if read_only(row.origin):
+        raise HTTPException(409, cant_delete(row.origin, "tool"))
     if tool_id in await tools_in_use(db):
         raise HTTPException(409, "Commands use this tool; change them first")
     await db.delete(row)
