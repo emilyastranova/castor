@@ -23,8 +23,10 @@
 		title?: string;
 		/** May type into an interactive job (operators on the project). */
 		canInteract?: boolean;
+		/** Make a picture of the output (SnapshotDialog), starting from the selected lines. */
+		onsnapshot?: (range: { from: number; to: number } | null) => void;
 	}
-	let { job, oncancel, title, canInteract = false }: Props = $props();
+	let { job, oncancel, title, canInteract = false, onsnapshot }: Props = $props();
 
 	// ---- expand to fill the card ----
 	// The console box animates its real size and position (not a scale transform), so text
@@ -310,6 +312,25 @@
 		term?.focus();
 	}
 
+	/** The selection as logical lines [from, to) (wrapped rows count as their line), which is how
+	 *  a snapshot counts them whatever width it wraps at. */
+	function selectedLines(): { from: number; to: number } | null {
+		const pos = term?.getSelectionPosition();
+		const buf = term?.buffer.active;
+		if (!pos || !buf) return null;
+		let logical = -1;
+		let from = 0;
+		let to = 0;
+		for (let y = 0; y <= pos.end.y && y < buf.length; y++) {
+			if (!buf.getLine(y)?.isWrapped) logical++;
+			if (y === pos.start.y) from = Math.max(0, logical);
+			if (y === pos.end.y) to = Math.max(0, logical) + 1;
+		}
+		// A selection ending at the very start of a line doesn't include it.
+		if (pos.end.x === 0 && to - 1 > from) to--;
+		return to > from ? { from, to } : null;
+	}
+
 	const ANSI = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])/g;
 	async function copy() {
 		const selected = term?.getSelection();
@@ -350,6 +371,9 @@
 			{/if}
 			{#if live && oncancel}
 				<IconButton icon="stop_circle" label="Cancel job" size="sm" class="text-[#ffb4ab]" onclick={() => oncancel(job)} />
+			{/if}
+			{#if onsnapshot && !empty}
+				<IconButton icon="photo_camera" label="Snapshot: a picture of the output (or the selected lines)" size="sm" class="text-white/70" onclick={() => onsnapshot(selectedLines())} />
 			{/if}
 			<IconButton icon="content_copy" label="Copy output (or the selection)" size="sm" class="text-white/70" onclick={copy} />
 			<IconButton icon="download" label="Download output" size="sm" class="text-white/70" href="/api/jobs/{job.id}/output" />

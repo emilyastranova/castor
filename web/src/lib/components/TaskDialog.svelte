@@ -18,6 +18,7 @@
 	import { Button, Chip, Dialog, Icon, IconButton, Menu, MenuItem, Select, Switch, Tabs, TextField, Avatar, TagInput } from '$lib/m3';
 	import StatusChip from './StatusChip.svelte';
 	import JobConsole from './JobConsole.svelte';
+	import SnapshotDialog from './SnapshotDialog.svelte';
 	import JobResults from './JobResults.svelte';
 	import ColumnGlyph from './ColumnGlyph.svelte';
 	import PriorityGlyph, { priorityOptions } from './PriorityGlyph.svelte';
@@ -305,6 +306,9 @@
 			} else if (e.name === 'attachment.created') {
 				const a = e.data as Attachment;
 				if (a.task_id === task.id && !attachments.some((x) => x.id === a.id)) attachments = [...attachments, a];
+			} else if (e.name === 'attachment.updated') {
+				const a = e.data as Attachment;
+				if (a.task_id === task.id) attachments = attachments.map((x) => (x.id === a.id ? a : x));
 			} else if (e.name === 'attachment.deleted') {
 				const d = e.data as { id: UUID };
 				attachments = attachments.filter((x) => x.id !== d.id);
@@ -609,6 +613,14 @@
 	let agentName = (id: UUID | null) => agents.find((a) => a.id === id)?.name ?? '—';
 	let runFiles = $derived(attachments.filter((a) => a.job_id && a.job_id === selectedJob?.id));
 	let screenshots = $derived(attachments.filter((a) => a.content_type.startsWith('image/')));
+	/** An image's address; a snapshot's changes in place, so its size keeps the browser from showing an old copy. */
+	const imageUrl = (a: Attachment) => `${api().attachments.url(a.id, true)}${a.snapshot ? `&v=${a.size}` : ''}`;
+
+	// ---- terminal snapshots ----
+	let snapshot = $state<{ jobId: UUID; range: { from: number; to: number } | null; attachment: Attachment | null } | null>(null);
+	function savedSnapshot(a: Attachment) {
+		attachments = attachments.some((x) => x.id === a.id) ? attachments.map((x) => (x.id === a.id ? a : x)) : [...attachments, a];
+	}
 	let files = $derived(attachments.filter((a) => !a.content_type.startsWith('image/')));
 	$effect(() => void pluginPanels.load(task.project_id));
 	let cardPanels = $derived(task.playbook_step_id ? [] : pluginPanels.for(task.project_id, 'card.tab'));
@@ -895,7 +907,7 @@
 							{#if hasResults && outputView === 'results'}
 								<JobResults job={selectedJob} onload={(o) => (resultCount = o.filter((x) => !x.error).length || null)} />
 							{:else}
-								<JobConsole job={selectedJob} oncancel={editable ? cancel : undefined} title={task.title} canInteract={editable} />
+								<JobConsole job={selectedJob} oncancel={editable ? cancel : undefined} title={task.title} canInteract={editable} onsnapshot={(range) => selectedJob && (snapshot = { jobId: selectedJob.id, range, attachment: null })} />
 							{/if}
 						{/key}
 						{#if runFiles.length}
@@ -996,12 +1008,13 @@
 						<div class="grid grid-cols-2 gap-3 md:grid-cols-3">
 							{#each screenshots as a, i (a.id)}
 								<figure class="group relative overflow-hidden rounded-md bg-surface-container" in:pop={{ enabled: liveSide }} out:pop={{ enabled: liveSide }} animate:glide={{ enabled: liveSide }}>
-									<button type="button" class="block w-full cursor-zoom-in" aria-label="View {a.filename}" onclick={() => lightbox.open(screenshots.map((s) => ({ src: api().attachments.url(s.id, true), name: s.filename })), i)}>
-										<img src={api().attachments.url(a.id, true)} alt={a.filename} class="aspect-video w-full object-cover" loading="lazy" />
+									<button type="button" class="block w-full cursor-zoom-in" aria-label="View {a.filename}" onclick={() => lightbox.open(screenshots.map((s) => ({ src: imageUrl(s), name: s.filename })), i)}>
+										<img src={imageUrl(a)} alt={a.filename} class="aspect-video w-full object-cover" loading="lazy" />
 									</button>
 									<figcaption class="flex items-center gap-1 px-2 py-1 body-small text-on-surface-variant">
 										<span class="flex-1 truncate" title={a.filename}>{a.filename}</span>
 										<span>{bytes(a.size)}</span>
+										{#if a.snapshot && a.job_id}<IconButton icon="photo_camera" label={editable ? 'Change the snapshot' : 'Open the snapshot'} size="sm" onclick={() => (snapshot = { jobId: a.job_id!, range: null, attachment: a })} />{/if}
 										{#if editable}<IconButton icon="delete" label="Delete" size="sm" onclick={() => removeAttachment(a)} />{/if}
 									</figcaption>
 								</figure>
@@ -1136,6 +1149,23 @@
 {/if}
 
 <AlertRulesDialog bind:open={alertsOpen} {task} onsaved={onupdated} />
+{#if snapshot}
+	{#key snapshot}
+		<SnapshotDialog
+			bind:open={() => !!snapshot, (v) => !v && (snapshot = null)}
+			jobId={snapshot.jobId}
+			taskId={task.id}
+			title={task.title}
+			range={snapshot.range}
+			attachment={snapshot.attachment}
+			canAttach={editable}
+			onsaved={(a) => {
+				savedSnapshot(a);
+				tab = 'attachments';
+			}}
+		/>
+	{/key}
+{/if}
 <DuplicateDialog
 	bind:open={duplicateOpen}
 	{task}

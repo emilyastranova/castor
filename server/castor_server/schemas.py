@@ -444,6 +444,7 @@ class AttachmentOut(ORM):
     filename: str
     content_type: str
     size: int
+    snapshot: dict[str, Any] | None = None
     created_at: datetime
 
 

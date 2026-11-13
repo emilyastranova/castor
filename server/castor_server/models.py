@@ -886,6 +886,9 @@ class Attachment(Base):
     content_type: Mapped[str] = mapped_column(String(128), default="application/octet-stream")
     size: Mapped[int] = mapped_column(Integer, default=0)
     storage_path: Mapped[str] = mapped_column(String(512))
+    # A terminal snapshot (a picture of a job's output, drawn in the browser): how it was made, so
+    # it can be opened and changed again (web lib/snapshot.ts SnapshotRecipe). Null for other files.
+    snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
     task: Mapped[Task | None] = relationship(back_populates="attachments")

@@ -1038,6 +1038,8 @@ export interface Attachment {
 	filename: string;
 	content_type: string;
 	size: number;
+	/** A terminal snapshot's recipe (lib/snapshot.ts SnapshotRecipe): opens again to be changed. */
+	snapshot?: Record<string, unknown> | null;
 	created_at: string;
 }
 
@@ -1356,15 +1358,27 @@ export function api(fetchFn: Fetch = fetch) {
 			moveComment: (id: UUID, commentId: UUID, toTaskId: UUID | null) =>
 				post<MoveResult>(`/tasks/${id}/comments/${commentId}/move`, { to_task_id: toTaskId }),
 			attachments: (id: UUID) => get<Attachment[]>(`/tasks/${id}/attachments`),
-			upload: (id: UUID, file: File, kind?: string) => {
+			/** `snapshot`: a terminal snapshot's recipe (JSON) and the job it shows. */
+			upload: (id: UUID, file: File, kind?: string, snapshot?: { snapshot: string; job_id: UUID }) => {
 				const form = new FormData();
 				form.append('file', file);
 				if (kind) form.append('kind', kind);
+				if (snapshot) {
+					form.append('snapshot', snapshot.snapshot);
+					form.append('job_id', snapshot.job_id);
+				}
 				return post<Attachment>(`/tasks/${id}/attachments`, form);
 			}
 		},
 		attachments: {
 			remove: (id: UUID) => del(`/attachments/${id}`),
+			/** Save a changed terminal snapshot in place (the same attachment, a new picture and recipe). */
+			replaceSnapshot: (id: UUID, file: File, snapshot: string) => {
+				const form = new FormData();
+				form.append('file', file);
+				form.append('snapshot', snapshot);
+				return request<Attachment>(fetchFn, 'PUT', `/attachments/${id}`, form);
+			},
 			url: (id: UUID, inline = false) => `/api/attachments/${id}/download${inline ? '?inline=true' : ''}`
 		},
 		jobs: {

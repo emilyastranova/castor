@@ -462,3 +462,8 @@ dependency; keep it that way so the agent stays trivially installable on target 
   get CRLF and colour (stderr red, system dim); a tty job's output is written raw. Its setup
   effect must track `jobId` (a derived primitive), not `job`: the job object is replaced on
   every update. Take control uses `/ws/jobs/{id}/terminal` (`ws/terminal.py`, `interactive.py`).
+- Terminal snapshots: `lib/snapshot.ts` (pure apart from the canvas: replay logs into an unopened xterm `Terminal`,
+  logical lines, `buildScene` → `toCanvas`/`toSvg`) and `SnapshotDialog.svelte`, opened from `JobConsole`'s
+  `onsnapshot` (its selection as logical lines) and a snapshot attachment in TaskDialog. The recipe lives in
+  `attachments.snapshot` (`POST /api/tasks/{id}/attachments` with `snapshot` + `job_id`, `PUT /api/attachments/{id}`
+  replaces one in place). Hidden text must never reach the picture: draw a bar, not the text.

@@ -755,6 +755,17 @@ item or the page, or none when it's gone, and clicking an entry goes there); adm
 `POST /api/notes/{id}/restore/{index}`, `POST /api/projects/{id}/notes/order`); every edit
 keeps the previous version. Images pasted into a note are project attachments without a card
 (`POST /api/projects/{id}/attachments`).
+**Terminal snapshots** (web `lib/snapshot.ts`, `SnapshotDialog.svelte`, the console's camera button): a picture of
+some of a job's output for a report. The browser replays the job's log chunks into an unopened xterm.js terminal
+(the console's emulator, so colours, progress bars and tty output come out as shown), joins wrapped rows into
+logical lines, and builds a scene (rectangles and text runs) from a recipe: the lines `[from, to)`, highlighted
+lines, hidden cell ranges and regex patterns (hidden text is left out, a bar drawn instead; patterns also cover the
+command line), frame, colours (`console`, `paper`, or the current theme captured into the recipe), background,
+size, wrap and scale. The scene is drawn on a canvas for PNG (copy, download, attach) or written as SVG. Attaching
+posts the PNG to `POST /api/tasks/{id}/attachments` with `snapshot` (the recipe as JSON, at most 64 KB) and
+`job_id` (a job of that card), stored in `attachments.snapshot`; `PUT /api/attachments/{id}` (file + snapshot,
+snapshots only) saves a changed one in place, so everything showing it shows the new picture
+(`attachment.updated`, an activity of the same name). Drawing is browser-only, so MCP has no snapshot tool.
 **Timeline exports** (`report.py`, `api/exports.py`): `GET /api/projects/{id}/timeline/export?format=html|pdf`
 with the feed's filters (`kinds`, `mine`, `tag`) plus `since`/`until` (dates, inclusive), `tz` and `order` (newest or oldest first). It selects with
 `dashboard.select_events` (at most 5,000, newest first, sorted by when they happened) and `_enrich(full=True)`,
@@ -790,7 +801,7 @@ server sends each domain event as
 `{"type":"event","name":"task.moved","project_id":"…","data":{…}}` to the sockets allowed to
 see it (see Auth). Event names include `project.updated`, `column.*`,
 `task.created|updated|moved|deleted`, `job.updated`, `job.log`, `job.outputs`, `job.parser_proposal`, `job.resize`,
-`comment.created`, `attachment.created`, `agent.updated`, `playbook_run.updated`,
+`comment.created`, `attachment.created|updated|deleted`, `agent.updated`, `playbook_run.updated`,
 `agent_tokens.changed`, `ssh_hosts.changed`, `api_tokens.changed`, `tool.status`, `tools.changed`, `themes.changed`, `summary.updated`,
 `project.notes`, `notification.created|read`, `assets.changed`, `alert_channels.changed`,
 `settings.changed`, `project.members` and `user.changed`; each section above names its own.
