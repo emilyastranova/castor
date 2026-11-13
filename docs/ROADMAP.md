@@ -36,6 +36,21 @@ sign-on provider's groups. Still to come:
 
 ## Running work
 
+### Actions beyond commands
+Today the work a card or playbook step does is a shell command on an agent. Look into a general
+kind of action that's part of Castor itself, of which a command is one sort:
+- **Other sorts:** an HTTP/API call made by the server (a ticketing system, a scanner's API, a chat
+  message), a tool call through an MCP server, or a plugin action, with typed inputs and outputs
+  like a command's arguments and parsed results.
+- **From plugins:** plugins could add new sorts of action (manifest-declared, run in their sandbox),
+  usable on cards and as playbook steps next to commands, with their outputs feeding later steps,
+  parsers, assets and triggers.
+- **The same rules:** permissions and scope checks, approvals, secrets only through the vault and
+  never rendered into what's stored, logs and results on the card, and the activity feed.
+- **Open questions:** where each sort runs (server, agent, plugin), how retries, cancel and
+  `on_failure` apply to something that isn't a process, and how the library and the playbook
+  editor show them.
+
 ### Triggers beyond assets
 Today a trigger fires on new or changed [assets](https://github.com/emilyastranova/castor/wiki/Assets), and on new
 relationships between them (a credential that works on a new host).
