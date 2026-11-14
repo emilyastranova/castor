@@ -199,6 +199,7 @@ RULES: list[tuple[str, str, str]] = [
     # You
     ("*", "/api/notifications/**", "notifications:rw"),
     # Projects and everything in them
+    ("POST", "/api/projects/*/files/zip", "projects:read"),  # a download, though it's a POST
     ("*", "/api/projects/**", "projects:rw"),
     ("*", "/api/clients/**", "projects:rw"),
     ("*", "/api/tasks/**", "projects:rw"),

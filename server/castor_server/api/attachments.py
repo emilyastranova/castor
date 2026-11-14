@@ -17,6 +17,7 @@ from ..deps import DB, CurrentUser, parse_uuid
 from ..events import bus
 from ..schemas import AttachmentOut
 from ..services import actor_of, publish_task, record_activity
+from .files import forget_thumbnails
 
 router = APIRouter(tags=["attachments"])
 
@@ -228,6 +229,7 @@ async def delete_attachment(attachment_id: str, db: DB, user: CurrentUser):
     await db.commit()
     try:
         path.unlink(missing_ok=True)
+        forget_thumbnails(attachment)
     except OSError:
         pass
     bus.publish(

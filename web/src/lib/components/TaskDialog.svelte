@@ -1005,6 +1005,11 @@
 							<input bind:this={fileInput} type="file" multiple class="hidden" onchange={(e) => upload((e.currentTarget as HTMLInputElement).files)} />
 						</div>
 					{/if}
+					{#if attachments.length && !task.playbook_step_id}
+						<a class="-mt-2 inline-flex items-center gap-1 self-start body-small text-primary hover:underline" href="/projects/{task.project_id}/files?card={task.id}">
+							<Icon name="folder_open" size={16} />In the project’s Files, with every other file
+						</a>
+					{/if}
 					{#if screenshots.length}
 						<div class="grid grid-cols-2 gap-3 md:grid-cols-3">
 							{#each screenshots as a, i (a.id)}

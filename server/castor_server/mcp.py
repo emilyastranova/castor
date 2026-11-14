@@ -335,6 +335,10 @@ TOOLS += [
     _auto("duplicate_card", "POST", "/api/tasks/{task_id}/duplicate", "Copy a card (optionally into another column or project)."),
     _auto("card_history", "GET", "/api/tasks/{task_id}/activity", "What happened to a card: moves, runs, edits, by whom."),
     _auto("list_attachments", "GET", "/api/tasks/{task_id}/attachments", "A card's files (uploads and job artifacts).", **_UNTRUSTED),
+    _auto("list_project_files", "GET", "/api/projects/{project_id}/files",
+          "Every file in a project (card attachments, pictures in notes and posts, snapshots, job artifacts) with its card, "
+          "run and step and agent; filter by category, source, card, run, agent, days or words, with counts per filter value.",
+          **_UNTRUSTED),
     _auto("delete_attachment", "DELETE", "/api/attachments/{attachment_id}", "Delete a file from a card.", **_DESTRUCTIVE),
     _auto("move_comment", "POST", "/api/tasks/{task_id}/comments/{comment_id}/move",
           "Move a comment to another card of the same project (to_task_id), or out to the project's timeline as a post (to_task_id null)."),

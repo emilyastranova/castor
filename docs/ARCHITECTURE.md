@@ -775,6 +775,20 @@ posts the PNG to `POST /api/tasks/{id}/attachments` with `snapshot` (the recipe 
 `job_id` (a job of that card; none for text), stored in `attachments.snapshot` (at most 512 KB); `PUT /api/attachments/{id}` (file + snapshot,
 snapshots only) saves a changed one in place, so everything showing it shows the new picture
 (`attachment.updated`, an activity of the same name). Drawing is browser-only, so MCP has no snapshot tool.
+**Files** (`api/files.py`; web `routes/projects/[id]/files`, `lib/files.ts`, `FilePreview.svelte`): every attachment of
+a project in one place, as a gallery (grouped by day or card) or a list. `GET /api/projects/{id}/files` lists them with
+where each came from: `card_id` is the card on the board (a run's card for a playbook step's files, with `step` and
+`run_id`/`run_name`), `agent_id` the agent of the job, `source` upload | artifact | snapshot | project (pasted into a
+note or post), `category` image | text | data | document | archive | other (`files.category`, from the type and the
+extension). Filters `category`/`source` (comma separated), `card` (`none`: notes and posts), `run`, `agent`, `since`/`until`
+(days in `tz`) and `q` (words in the file name, card, run, step, agent or uploader); `sort`, `limit`, `offset`. `facets`
+count each filter's values with the other filters applied (the rows are read once and filtered in Python).
+`POST /api/projects/{id}/files/zip` (`ids`, or a `filter`) streams a zip with a folder per card, steps inside their
+run's card, artifacts keeping their folders, clashing names numbered (a read: `projects:read` for tokens).
+`GET /api/attachments/{id}/thumbnail?size=160|360|720` makes a WebP once with Pillow (`<data_dir>/thumbnails/<project>/`,
+keyed by the stored path, so a redrawn snapshot gets a new one; removed with the attachment; 415 for SVG or what Pillow
+can't read, and the gallery shows the picture or an icon instead). The page follows `attachment.*` events; the preview
+shows pictures, text (the first 256 KB, with a snapshot of it a click away) and PDFs, and steps through the list with ←/→.
 **Timeline exports** (`report.py`, `api/exports.py`): `GET /api/projects/{id}/timeline/export?format=html|pdf`
 with the feed's filters (`kinds`, `mine`, `tag`) plus `since`/`until` (dates, inclusive), `tz` and `order` (newest or oldest first). It selects with
 `dashboard.select_events` (at most 5,000, newest first, sorted by when they happened) and `_enrich(full=True)`,
@@ -912,5 +926,6 @@ operator, and makes every existing user a member of every existing project.
   interactive jobs, alerts, theme colours, duplicating cards.
 * **M4** (done): scoped API tokens and an API reference, a built-in
   MCP server for AI assistants, phone usability.
+* Since: plugins (phases A to E), snapshots, a project's Files.
 
 What's next is in [ROADMAP.md](ROADMAP.md).

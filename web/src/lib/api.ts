@@ -1029,6 +1029,57 @@ export interface Comment {
 	via?: string | null;
 }
 
+/** A file in a project's Files view: an attachment with where it came from. */
+export type FileCategory = 'image' | 'text' | 'data' | 'document' | 'archive' | 'other';
+export type FileSource = 'upload' | 'artifact' | 'snapshot' | 'project';
+export interface ProjectFile {
+	id: UUID;
+	filename: string;
+	content_type: string;
+	size: number;
+	created_at: string;
+	category: FileCategory;
+	source: FileSource;
+	kind: string;
+	/** The card it's attached to (a step's own card, for a playbook step). */
+	task_id: UUID | null;
+	/** The card on the board it belongs to (the run's card, for a step); null: a note or post. */
+	card_id: UUID | null;
+	card_title: string | null;
+	run_id: UUID | null;
+	run_name: string | null;
+	run_started: string | null;
+	step: string | null;
+	job_id: UUID | null;
+	agent_id: UUID | null;
+	agent_name: string | null;
+	uploader: string | null;
+}
+export interface FileFacet {
+	value: string;
+	label: string;
+	count: number;
+	when?: string | null;
+}
+export interface FileFilter {
+	category?: string;
+	source?: string;
+	card?: string;
+	run?: string;
+	agent?: string;
+	since?: string;
+	until?: string;
+	q?: string;
+	tz?: string;
+}
+export interface FileList {
+	items: ProjectFile[];
+	total: number;
+	total_size: number;
+	everything: number;
+	facets: Record<'category' | 'source' | 'card' | 'run' | 'agent', FileFacet[]>;
+}
+
 export interface Attachment {
 	id: UUID;
 	project_id: UUID;
@@ -1379,7 +1430,31 @@ export function api(fetchFn: Fetch = fetch) {
 				form.append('snapshot', snapshot);
 				return request<Attachment>(fetchFn, 'PUT', `/attachments/${id}`, form);
 			},
-			url: (id: UUID, inline = false) => `/api/attachments/${id}/download${inline ? '?inline=true' : ''}`
+			url: (id: UUID, inline = false) => `/api/attachments/${id}/download${inline ? '?inline=true' : ''}`,
+			/** A small WebP of a picture (160, 360 or 720 wide); `v` changes when the picture does. */
+			thumbnail: (id: UUID, size = 360, v?: string | number) => `/api/attachments/${id}/thumbnail?size=${size}${v !== undefined ? `&v=${v}` : ''}`
+		},
+		files: {
+			/** Every file in a project, with where it came from; facets count each filter's values. */
+			list: (projectId: UUID, filter: FileFilter & { sort?: string; limit?: number; offset?: number } = {}) => {
+				const q = new URLSearchParams();
+				for (const [k, v] of Object.entries(filter)) if (v !== undefined && v !== null && v !== '') q.set(k, String(v));
+				return get<FileList>(`/projects/${projectId}/files?${q}`);
+			},
+			/** A zip of these files, or of every file matching the filter, a folder per card. */
+			zip: async (projectId: UUID, body: { ids?: UUID[]; filter?: FileFilter }) => {
+				const res = await fetchFn(`/api/projects/${projectId}/files/zip`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(body)
+				});
+				if (!res.ok) {
+					const detail = await res.json().catch(() => null);
+					throw new ApiError(res.status, typeof detail?.detail === 'string' ? detail.detail : `The download failed (${res.status})`);
+				}
+				const name = /filename="?([^";]+)"?/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? 'files.zip';
+				return { blob: await res.blob(), name };
+			}
 		},
 		jobs: {
 			list: (status?: JobStatus) => get<Job[]>(`/jobs${status ? `?status=${status}` : ''}`),

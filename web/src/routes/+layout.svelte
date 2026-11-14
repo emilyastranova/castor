@@ -26,12 +26,13 @@
 	let { data, children } = $props();
 	let dark = $state(false);
 
-	// This project (Home, Board, Assets follow the current project), then the shared library,
+	// This project (Home, Board, Assets, Files follow the current project), then the shared library,
 	// then the instance. Switching projects is in the project title and the account menu.
 	let nav = $derived([
 		{ href: currentProject.home, icon: 'space_dashboard', label: 'Home', exact: true },
 		{ href: currentProject.board, icon: 'view_kanban', label: 'Board', exact: true },
 		{ href: currentProject.assets, icon: 'radar', label: 'Assets', exact: true },
+		{ href: currentProject.files, icon: 'folder_open', label: 'Files', exact: true },
 		{ href: '/playbooks', icon: 'account_tree', label: 'Playbooks', divider: true },
 		{ href: '/library', icon: 'handyman', label: 'Library' },
 		{ href: '/variables', icon: 'key', label: 'Variables' },

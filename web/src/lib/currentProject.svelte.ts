@@ -31,10 +31,11 @@ class CurrentProject {
 		}
 	}
 
-	/** Where Home, Board and Assets go (the project picker when nothing is chosen yet). */
+	/** Where Home, Board, Assets and Files go (the project picker when nothing is chosen yet). */
 	home = $derived(this.id ? `/projects/${this.id}/dashboard` : '/projects');
 	board = $derived(this.id ? `/projects/${this.id}` : '/projects');
 	assets = $derived(this.id ? `/projects/${this.id}/assets` : '/projects');
+	files = $derived(this.id ? `/projects/${this.id}/files` : '/projects');
 }
 
 export const currentProject = new CurrentProject();

@@ -74,10 +74,8 @@ listener, or a log tail:
 
 ## Data and results
 
-### Every file and screenshot in a project
-A project view of every attachment and job artifact, from every card and run, with filters by
-card, run, step, agent, type and date. A gallery shows every image (screenshots and pasted
-images) at a glance, with a download of a selection.
+### Comparing runs
+What changed in a run's results since the previous one (new hosts, closed ports, new findings).
 
 ## Reporting and the interface
 
@@ -101,11 +99,8 @@ re-read from files at startup.
 Further ideas, smaller or less settled:
 
 - **Scheduled runs** of a card or playbook (see [triggers](#triggers-beyond-assets)).
-- **Comparing runs:** what changed in a run's results since the previous one (new hosts,
-  closed ports, new findings).
 - **Secrets from an external vault** (HashiCorp Vault, 1Password, cloud secret managers) as
   variable sets, read at dispatch.
-- **Exporting artifacts:** a zip of a run's or a project's files.
 - **Agent pools and auto-scaling:** start agents on demand (containers or cloud instances) when
   jobs queue for a tag, and stop them when idle.
 - **Retention:** how long to keep job logs, artifacts and activity, per project.

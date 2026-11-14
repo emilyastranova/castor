@@ -27,6 +27,7 @@ dependencies = [
   "weasyprint>=62",  # timeline exports as PDF (report.py); needs Pango, see the Dockerfile
   "markdown-it-py>=3",  # markdown in exports
   "nh3>=0.2",  # sanitising that markdown
+  "pillow>=10",  # thumbnails for a project's Files gallery (api/files.py)
   "tzdata",  # time zones where the system has none (the slim image)
   "deno>=2.9,<3",  # runs plugins, each in its own sandboxed process (plugin_runtime.py)
 ]

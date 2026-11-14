@@ -447,6 +447,12 @@ dependency; keep it that way so the agent stays trivially installable on target 
   Web Animations API, a fade under reduced motion). Other markdown boxes are `TextField` with `markdown` (` over a selection makes it
   code, `m3/markdownKeys.ts`); never on command, YAML or key fields. Rendered markdown (`{@html renderMarkdown(...)}` or `RichText`) takes
   `use:copyableCode` (`lib/copyCode.ts`): a copy button on code blocks, inline code copies on click.
+- Files (a project's every attachment, artifact, snapshot and pasted picture): `api/files.py` (`_rows` reads them
+  once with card, run, step and agent; filters and `facets` in Python; zip of `ids` or a filter; Pillow thumbnails
+  cached under `<data_dir>/thumbnails`, `forget_thumbnails` on delete), web `routes/projects/[id]/files` (filters in the
+  address, gallery or list, choosing with Shift for a range, a floating bar for what's chosen), `FilePreview.svelte`,
+  `lib/files.ts`. In the nav after Assets (`currentProject.files`). Links to `/api/…` must not be followed by the
+  router: open them with `window.location` or prevent the click.
 - Tags: edit them with `m3/TagInput` (pills; Enter, comma, space or Tab adds; an existing tag
   is reused whatever its case; Backspace selects then removes), fed by `lib/tags.ts` `loadTags`
   from `GET /api/tags/cards|agents|library` (`api/tags.py`: in use, most used first, a project's
