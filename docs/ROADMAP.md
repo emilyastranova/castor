@@ -42,9 +42,9 @@ kind of action that's part of Castor itself, of which a command is one sort:
   parsers, assets and triggers.
 - **The same rules:** permissions and scope checks, approvals, secrets only through the vault and
   never rendered into what's stored, logs and results on the card, and the activity feed.
-- **Open questions:** where each sort runs (server, agent, plugin), how retries, cancel and
-  `on_failure` apply to something that isn't a process, and how the library and the playbook
-  editor show them.
+- **Design:** [ACTIONS.md](ACTIONS.md) covers where each sort runs, how retries, cancel and
+  `on_failure` apply to something that isn't a process, how the library and the playbook editor
+  show them, and the phases.
 
 ### Triggers beyond assets
 Today a trigger fires on new or changed [assets](https://github.com/emilyastranova/castor/wiki/Assets), and on new
@@ -53,7 +53,9 @@ More events should be able to start a command or playbook:
 - a job or run finishing (succeeded, failed, or with a parsed result that matches);
 - a card moving to a column;
 - a schedule (cron, or "every N hours" while a project is active);
-- an incoming webhook;
+- an incoming webhook (later): another system calls Castor to start a run. It must authenticate
+  (a per-trigger secret or a signed request, never an open URL), and its body becomes the run's
+  inputs through the same typed arguments an action has;
 - a listener seeing something (below).
 
 The same rules as now apply: scope checks, approval when wanted, and a record of each firing.
