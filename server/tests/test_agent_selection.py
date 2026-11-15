@@ -78,8 +78,9 @@ def test_a_card_runs_on_every_agent_with_its_tags(client, auth):
         card = _wait(lambda: (t := client.get(f"/api/tasks/{task['id']}", headers=auth).json())["batch"]["succeeded"] == 1 and t)
         assert card["batch"]["status"] == "running" and card["column_id"] != review["id"]  # b is still going
         _finish(b, on_b)
-        card = _wait(lambda: (t := client.get(f"/api/tasks/{task['id']}", headers=auth).json())["batch"]["active"] == 0 and t)
-        assert card["batch"]["status"] == "succeeded" and card["column_id"] == review["id"]
+        # The card moves on just after the last job's result is saved (gateway._advance_batch).
+        card = _wait(lambda: (t := client.get(f"/api/tasks/{task['id']}", headers=auth).json())["column_id"] == review["id"] and t)
+        assert card["batch"]["status"] == "succeeded" and card["batch"]["active"] == 0
 
         # Again, with one failing: the batch fails and the card stays put.
         client.post(f"/api/tasks/{task['id']}/move", json={"column_id": board["columns"][0]["id"]}, headers=auth)
