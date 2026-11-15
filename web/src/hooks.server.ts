@@ -44,5 +44,17 @@ async function defaultThemeJson(): Promise<string> {
 
 export const handle: Handle = async ({ event, resolve }) => {
 	const theme = await defaultThemeJson();
-	return resolve(event, { transformPageChunk: ({ html }) => html.replace('%castor.default_theme%', theme) });
+	const response = await resolve(event, { transformPageChunk: ({ html }) => html.replace('%castor.default_theme%', theme) });
+	// The page lists the same preloads as tags (svelte.config.js preloadStrategy). The header,
+	// one entry per module, outgrows the 4 KB of response headers nginx takes by default.
+	if (!response.headers.has('link')) return response;
+	try {
+		response.headers.delete('link');
+		return response;
+	} catch {
+		// immutable headers (a response made by fetch): copy it without the header
+		const copy = new Response(response.body, response);
+		copy.headers.delete('link');
+		return copy;
+	}
 };
