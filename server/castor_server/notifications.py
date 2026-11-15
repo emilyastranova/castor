@@ -41,18 +41,20 @@ async def notify(
     webhooks: bool = True,
 ) -> list[m.Notification]:
     """Notify the active users who can see the project (all of them for a notification
-    without one), or only `user_ids` among them, and the configured webhooks (unless
+    without one; never a plugin's service account), or only `user_ids` among them, and the configured webhooks (unless
     `webhooks` is False: personal notifications such as mentions stay in-app). Flushes; the
     caller commits."""
-    query = select(m.User.id).where(m.User.disabled_at.is_(None))
+    query = select(m.User.id).where(m.User.disabled_at.is_(None), m.User.plugin_id.is_(None))  # not plugins' accounts
     if user_ids is not None:
         wanted = list(user_ids)
         if not wanted:
             return []
         query = query.where(m.User.id.in_(wanted))
-    if project_id is not None:
+    if project_id is not None:  # who can see it: admins, its members and the people in its groups
         members = select(m.ProjectMember.user_id).where(m.ProjectMember.project_id == project_id)
-        query = query.where((m.User.role == m.UserRole.admin) | m.User.id.in_(members))
+        via_groups = (select(m.GroupMember.user_id).join(m.ProjectGroup, m.ProjectGroup.group_id == m.GroupMember.group_id)
+                      .where(m.ProjectGroup.project_id == project_id))
+        query = query.where((m.User.role == m.UserRole.admin) | m.User.id.in_(members) | m.User.id.in_(via_groups))
     users = (await db.execute(query)).scalars().all()
     rows = [
         m.Notification(

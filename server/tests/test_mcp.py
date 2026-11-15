@@ -139,7 +139,7 @@ def test_set_card_alerts(client, auth):
                  alerts={"on": "finish", "channels": [ch["id"]], "people": [me["id"]], "long_minutes": 30})
     assert not done["isError"], done
     stored = client.get(f"/api/tasks/{task['id']}", headers=auth).json()["alerts"]
-    assert stored == {"on": "finish", "channels": [ch["id"]], "people": [me["id"]], "long_minutes": 30, "decisions": True}
+    assert stored == {"on": "finish", "channels": [ch["id"]], "people": [me["id"]], "long_minutes": 30, "decisions": True, "groups": []}
 
     assert _call(client, writer, "set_card_alerts", task_id=task["id"], alerts={"on": "nope"})["isError"]
     assert not _call(client, writer, "set_card_alerts", task_id=task["id"], alerts={"channels": []})["isError"]

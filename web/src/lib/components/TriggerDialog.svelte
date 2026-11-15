@@ -3,6 +3,7 @@
 	import { api, ApiError } from '$lib/api';
 	import { Button, Chip, Dialog, IconButton, Select, Switch, TextField } from '$lib/m3';
 	import { assetTypes } from '$lib/assetTypes.svelte';
+	import GroupPicker from './GroupPicker.svelte';
 
 	/** Create or edit a trigger: when an asset of a type appears or changes, or gets a new
 	 *  relationship ("a credential works on a new host"), and matches the conditions, run a command
@@ -37,6 +38,7 @@
 	let args = $state<Record<string, string>>({});
 	let once = $state(true);
 	let maxPerHour = $state('20');
+	let approvers = $state<string[]>([]);
 	let error = $state<string | null>(null);
 	let saving = $state(false);
 
@@ -55,6 +57,7 @@
 		args = Object.fromEntries(Object.entries(t?.args ?? {}).map(([k, v]) => [k, String(v ?? '')]));
 		once = t?.once_per_asset ?? true;
 		maxPerHour = String(t?.max_per_hour ?? 20);
+		approvers = [...(t?.approvers ?? [])];
 		error = null;
 	});
 
@@ -118,7 +121,8 @@
 			target,
 			args: Object.fromEntries(Object.entries(args).filter(([, v]) => v !== '')),
 			once_per_asset: once,
-			max_per_hour: Math.max(1, Number(maxPerHour) || 20)
+			max_per_hour: Math.max(1, Number(maxPerHour) || 20),
+			approvers
 		};
 		try {
 			if (trigger) await api().assets.updateTrigger(trigger.id, body);
@@ -222,6 +226,7 @@
 			</div>
 			<p class="mt-2 px-1 body-small text-on-surface-variant">Runs start by themselves only for assets inside the project's scope; anything else waits for someone to approve it.</p>
 		</div>
+		<GroupPicker label="Who approves what waits" value={approvers} editable empty="The project's approvers (anyone on it, if it has none)" onchange={(ids) => (approvers = ids)} />
 		{#if error}<p class="body-small text-error">{error}</p>{/if}
 	</div>
 	{#snippet actions()}

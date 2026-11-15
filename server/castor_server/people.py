@@ -81,16 +81,16 @@ async def check_assignees(db: AsyncSession, project_id: uuid.UUID, values: Itera
     return out
 
 
-async def check_group_assignees(db: AsyncSession, values: Iterable[str]) -> list[str]:
+async def check_group_assignees(db: AsyncSession, values: Iterable[str], what: str = "assign") -> list[str]:
     """Validate group assignees (group ids, or @handles for convenience); returns their ids
-    as strings, in the given order, without duplicates."""
+    as strings, in the given order, without duplicates. `what`: for the error ("Can't assign @x")."""
     groups = (await db.execute(select(m.Group))).scalars().all()
     by_key = {str(g.id): g for g in groups} | {g.slug.lower(): g for g in groups}
     out: list[str] = []
     for value in values:
         group = by_key.get(str(value).strip().lstrip("@").lower()) or by_key.get(str(value).strip())
         if group is None:
-            raise HTTPException(422, f"Can't assign {value}: no such group")
+            raise HTTPException(422, f"Can't {what} {value}: no such group")
         if str(group.id) not in out:
             out.append(str(group.id))
     return out
@@ -130,3 +130,35 @@ async def names_of(db: AsyncSession, ids: Iterable[str]) -> list[str]:
     rows = await db.execute(select(m.User.id, m.User.display_name).where(m.User.id.in_(wanted)))
     names = {str(uid): name for uid, name in rows.all()}
     return [names.get(str(i), "someone") for i in wanted]
+
+
+# ---------- approvers ----------
+# Approving a waiting run or trigger fire can be left to groups: the card's or trigger's own
+# `approvers`, else the project's `settings.approvers`. Then only their members, and admins (so
+# nothing can be stuck for good), approve or reject it, and only they are asked. No groups: anyone
+# who can change the project, as before.
+
+
+async def approver_groups(db: AsyncSession, project_id: uuid.UUID, own: Iterable[str] | None) -> list[str]:
+    own = [str(g) for g in own or []]
+    if own:
+        return own
+    project = await db.get(m.Project, project_id)
+    return [str(g) for g in ((project.settings or {}).get("approvers") or [])] if project else []
+
+
+async def may_approve(db: AsyncSession, user: m.User, groups: list[str]) -> bool:
+    return not groups or user.is_admin or bool(await my_group_ids(db, user.id) & set(groups))
+
+
+async def approver_people(db: AsyncSession, project_id: uuid.UUID, groups: list[str]) -> list[uuid.UUID] | None:
+    """Who to ask: the groups' people who can see the project, or None for everyone (no groups,
+    or groups with nobody in them: better to ask everyone than to ask no one)."""
+    if not groups:
+        return None
+    people = await group_people(db, project_id, groups)
+    return [u.id for u in people] or None
+
+
+async def approvers_text(db: AsyncSession, groups: list[str]) -> str:
+    return ", ".join(await group_names(db, groups)) if groups else ""

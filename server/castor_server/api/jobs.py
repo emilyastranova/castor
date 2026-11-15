@@ -138,7 +138,13 @@ class Decision(BaseModel):
 
 
 async def _decide(job_id: str, db, user, approve: bool, reason: str = "") -> m.Job:
-    from ..services import ApprovalError, advance_playbook_run, decide_approval, publish_task
+    from ..services import (
+        ApprovalError,
+        NotApprover,
+        advance_playbook_run,
+        decide_approval,
+        publish_task,
+    )
 
     if user.role == m.UserRole.viewer:
         raise HTTPException(403, "Viewers can't approve or reject runs")
@@ -146,7 +152,7 @@ async def _decide(job_id: str, db, user, approve: bool, reason: str = "") -> m.J
     try:
         await decide_approval(db, job, user, approve, reason)
     except ApprovalError as exc:
-        raise HTTPException(409, str(exc)) from exc
+        raise HTTPException(403 if isinstance(exc, NotApprover) else 409, str(exc)) from exc
     await db.commit()
     task = await db.get(m.Task, job.task_id)
     if task is not None:

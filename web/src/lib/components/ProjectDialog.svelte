@@ -4,6 +4,7 @@
 	import { Button, Dialog, TextField, Select, Switch } from '$lib/m3';
 	import { aiStatus } from '$lib/ai.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
+	import GroupPicker from './GroupPicker.svelte';
 
 	interface Props {
 		open?: boolean;
@@ -27,6 +28,8 @@
 	let summaries = $state(false);
 	let mentions = $state(true);
 	let pictures = $state(false);
+	let follows = $state(true);
+	let approvers = $state<string[]>([]);
 	$effect(() => void aiStatus.load());
 	let busy = $state(false);
 
@@ -40,6 +43,8 @@
 			summaries = !!project?.settings?.ai_summaries;
 			mentions = project?.settings?.asset_mentions !== false;
 			pictures = !!project?.settings?.ai_read_pictures;
+			follows = project?.settings?.subtasks_move_card !== false;
+			approvers = [...((project?.settings?.approvers as string[] | undefined) ?? [])];
 			newClient = '';
 			api()
 				.clients.list()
@@ -74,11 +79,11 @@
 			let client_id: string | null = clientId || null;
 			if (clientId === '__new') client_id = newClient.trim() ? await clientFor(newClient.trim()) : null;
 			if (project) {
-				const settings = { ...project.settings, ai_summaries: summaries, asset_mentions: mentions, ai_read_pictures: pictures };
+				const settings = { ...project.settings, ai_summaries: summaries, asset_mentions: mentions, ai_read_pictures: pictures, subtasks_move_card: follows, approvers };
 				const saved = await api().projects.update(project.id, { codename, name, kind, client_id, description, settings });
 				onsaved?.(saved);
 			} else {
-				const created = await api().projects.create({ codename, name, kind, client_id, description, settings: { ai_summaries: summaries, asset_mentions: mentions, ai_read_pictures: pictures } });
+				const created = await api().projects.create({ codename, name, kind, client_id, description, settings: { ai_summaries: summaries, asset_mentions: mentions, ai_read_pictures: pictures, subtasks_move_card: follows, approvers } });
 				oncreated?.(created);
 			}
 			open = false;
@@ -108,6 +113,18 @@
 			<TextField label="Client name" bind:value={newClient} required />
 		{/if}
 		<TextField label="Description" bind:value={description} multiline rows={3} />
+		<GroupPicker
+			label="Approvers"
+			value={approvers}
+			editable
+			empty="Anyone who can change the project approves runs that ask first, and triggers that wait."
+			supporting={approvers.length ? 'Only people in these groups, and admins, approve runs that ask first and asset triggers that wait, and only they are asked. A card or trigger can name its own.' : ''}
+			onchange={(ids) => (approvers = ids)}
+		/>
+		<div>
+			<Switch bind:checked={follows} label="Cards follow their subtasks" />
+			<p class="mt-1 body-small text-on-surface-variant">A card with subtasks moves to In Progress when one starts, and to Review when they're all finished.</p>
+		</div>
 		<div>
 			<Switch bind:checked={mentions} label="Suggest assets that are mentioned" />
 			<p class="mt-1 body-small text-on-surface-variant">

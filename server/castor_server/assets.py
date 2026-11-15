@@ -1332,12 +1332,16 @@ async def fire_triggers(db: AsyncSession, batch: Batch) -> None:
                 started = await run_fire(db, fire, trig, asset, other=other, lk=lk) or started
             else:
                 fire.reason = "outside the project's scope" if scope_of(project)["include"] else "no scope is set for this project"
+                from .people import approver_groups, approver_people
+
+                groups = await approver_groups(db, batch.project_id, trig.approvers)
                 await notifications.notify(
                     db, kind="asset_trigger.approval", severity="warning",
                     title=f"“{trig.name}” wants to run on {on}",
                     body=f"It's {fire.reason}; approve it to run it.",
                     link=f"/projects/{batch.project_id}/assets?tab=triggers", project_id=batch.project_id,
                     subject=f"trigger-fire:{fire.id}", webhooks=False,
+                    user_ids=await approver_people(db, batch.project_id, groups),
                 )
                 await alerts.approval(db, batch.project_id, f"“{trig.name}” wants to run on {on}",
                                       f"It's {fire.reason}; approve it to run it.", f"/projects/{batch.project_id}/assets?tab=triggers")

@@ -265,9 +265,11 @@ class AlertRules(BaseModel):
     decisions: bool = True
     # People told in Castor (and on their desktop) when it finishes, either way.
     people: list[uuid.UUID] = Field(default_factory=list)
+    # Groups told the same way: everyone in them who can see the project.
+    groups: list[uuid.UUID] = Field(default_factory=list)
 
     def stored(self) -> dict[str, Any] | None:
-        return self.model_dump(mode="json") if self.channels or self.people else None
+        return self.model_dump(mode="json") if self.channels or self.people or self.groups else None
 
 
 class TaskIn(BaseModel):
@@ -297,6 +299,8 @@ class TaskIn(BaseModel):
     rate_limit: str | None = None
     # Ask before each run (a person approves every job).
     confirm: bool = False
+    # Groups whose members (and admins) approve its runs (ids or @handles); none: the project's.
+    approvers: list[str] = Field(default_factory=list)
     # A subtask of this card (an activity in the same project): it stays off the board.
     parent_id: uuid.UUID | None = None
 
@@ -334,6 +338,7 @@ class TaskPatch(BaseModel):
     tty: bool | None = None
     rate_limit: str | None = None  # null or "" clears it
     confirm: bool | None = None
+    approvers: list[str] | None = None  # group ids (or @handles); [] uses the project's
 
     @field_validator("rate_limit")
     @classmethod
@@ -465,6 +470,13 @@ class TaskOut(ORM):
     tty: bool = False
     rate_limit: str | None = None
     confirm: bool = False
+    approvers: list[str] = Field(default_factory=list)
+
+    @field_validator("approvers", mode="before")
+    @classmethod
+    def _none_is_empty(cls, value: Any) -> Any:
+        return value or []
+
     # A subtask: its activity. An activity: its subtasks' progress.
     parent_id: uuid.UUID | None = None
     subtasks: SubtaskSummary | None = None

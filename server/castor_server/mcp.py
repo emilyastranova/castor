@@ -176,7 +176,9 @@ TOOLS: list[Tool] = [
           "column_id": _s("Column id (from get_board)"), "tags": {"type": "array", "items": {"type": "string"}},
           "agent_selector": _SELECTOR, "due_at": _s("Due date-time, ISO 8601 (its people are reminded the day before and when it's overdue)"),
           "waits_on": {"type": "array", "items": {"type": "string"}, "description": "Card ids of this project it depends on"},
-          "parent_id": _s("Make it a subtask of this card (an activity card of the project); it stays off the board")},
+          "parent_id": _s("Make it a subtask of this card (an activity card of the project); it stays off the board"),
+          "approvers": {"type": "array", "items": {"type": "string"},
+                        "description": "Groups (ids or @handles) whose members approve its runs when it asks first; none: the project's approvers"}},
          ("project_id", "title")),
     Tool("move_card", "Move a card to another column (top of it unless position is given). Moving a command card into the active column runs it. "
          "A card that waits on unfinished cards (blocked_by in get_board) is refused into the active column unless force is true.",
@@ -202,14 +204,15 @@ TOOLS: list[Tool] = [
     Tool("list_people", "Everyone who can see a project (ids, usernames, names): for alert people and @mentions.",
          "GET", "/api/projects/{project_id}/people", {"project_id": ID["project_id"]}, ("project_id",)),
     Tool("set_card_alerts", "Set when a card's runs send alerts (replaces its alert settings). on: finish (either way), failure "
-         "(the default) or none. channels: ids from list_alert_channels; people: user ids from list_people, told in Castor. "
-         "Empty channels and people turn the card's alerts off.",
+         "(the default) or none. channels: ids from list_alert_channels; people: user ids from list_people, told in Castor; "
+         "groups: group ids from list_groups, everyone in them told in Castor. Empty channels, people and groups turn the card's alerts off.",
          "PATCH", "/api/tasks/{task_id}",
          {"task_id": ID["task_id"],
           "alerts": {"type": "object", "additionalProperties": False, "properties": {
               "on": _s("When to send", enum=["finish", "failure", "none"]),
               "channels": {"type": "array", "items": {"type": "string"}, "description": "Alert channel ids"},
               "people": {"type": "array", "items": {"type": "string"}, "description": "User ids"},
+              "groups": {"type": "array", "items": {"type": "string"}, "description": "Group ids"},
               "long_minutes": {"type": ["integer", "null"], "minimum": 1, "description": "Also alert if a run takes longer than this"},
               "decisions": {"type": "boolean", "description": "Alert when a playbook run waits for a decision (default true)"}}}},
          ("task_id", "alerts")),
@@ -374,7 +377,8 @@ TOOLS += [
     _auto("update_card", "PATCH", "/api/tasks/{task_id}",
           "Change a card (move it with move_card); only the fields given change: title, description, command (shell) or command_ref + "
           "command_args (library), image, container_flags, agent_selector (where it runs), tags, priority, assignees "
-          "(user ids from list_people), group_assignees (group ids or @handles from list_groups), timeout_s, run_on_move, tty, var_bindings, alerts (see set_card_alerts), "
+          "(user ids from list_people), group_assignees (group ids or @handles from list_groups), approvers (groups whose members approve "
+          "its runs; [] uses the project's), timeout_s, run_on_move, tty, var_bindings, alerts (see set_card_alerts), "
           "due_at (ISO date-time, null clears it; its people are reminded the day before and when it's overdue), waits_on (card ids of the "
           "project it depends on; it's blocked until each is done, reported or archived; [] clears it).",
           properties={"task_id": ID["task_id"], "agent_selector": _SELECTOR}),

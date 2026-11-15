@@ -77,11 +77,6 @@ Ansible inventory, a cloud's run-command service, a remote management tool's API
 
 ## People and access
 
-### More for groups
-Groups (Settings → Groups) can already be mentioned, share projects, take cards and follow a
-sign-on provider's groups. Still to come:
-- **Alerts and approvals:** a group receiving an alert, or approving a waiting trigger.
-
 ## Cards and the board
 
 ### Cards with subtasks

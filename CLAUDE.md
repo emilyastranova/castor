@@ -228,6 +228,9 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   alone. `@group` expands to members; handles share a namespace with usernames
   (`people.handle_taken`). SSO keeps `sso_group` groups in step (`sso.sync_groups`). Web:
   `routes/settings/groups`, `GroupDialog`, groups in `MembersDialog`, `people.mentionables`.
+  Approver groups: `projects.settings.approvers`, `tasks.approvers`, `asset_triggers.approvers` (group ids;
+  `people.approver_groups`/`may_approve`/`approver_people`) decide who approves waiting runs and trigger fires; changing
+  them needs a current approver. A card's `alerts.groups` are told when it finishes. Web `GroupPicker`.
   `tasks.assignees` and `comments.mentions` hold user ids as strings; `tasks.group_assignees` group ids
   (check "is it mine" with `people.assigned_to`/`my_group_ids`, web `people.assignedTo`). Personal notifications
   (`task.assigned`, `comment.mention`) use `notify(user_ids=..., webhooks=False)`. Web:

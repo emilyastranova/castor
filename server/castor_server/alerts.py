@@ -467,6 +467,11 @@ async def emit(db: AsyncSession, event: str, values: dict[str, Any], *, card: m.
     if ids:
         _queue(sorted(ids), event, subject, values)
     people = [uuid.UUID(str(p)) for p in ((card.alerts or {}).get("people") or []) if _is_uuid(p)] if card is not None else []
+    groups = [str(g) for g in ((card.alerts or {}).get("groups") or []) if _is_uuid(g)] if card is not None else []
+    if groups and event in END_EVENTS:
+        from .people import group_people
+
+        people += [u.id for u in await group_people(db, card.project_id, groups) if u.id not in people]
     people = [p for p in people if p != actor_id]
     if people and event in END_EVENTS:
         from . import notifications

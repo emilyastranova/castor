@@ -378,15 +378,20 @@ async def ask_approval(db: AsyncSession, task: m.Task, job: m.Job, user: m.User 
     channels that take approvals)."""
     from . import alerts
     from .notifications import notify
+    from .people import approver_groups, approver_people, approvers_text
 
     who = user.display_name if user else "Castor"
     what = f"{count} runs of “{task.title}”" if count > 1 else f"“{task.title}”"
     link = f"/projects/{task.project_id}?task={task.id}"
-    await record_activity(db, type="job.approval_requested", message=f"{what} waits for approval to run (started by {who})",
-                          project_id=task.project_id, task_id=task.id, payload={"job_id": str(job.id)}, **actor_of(user))
+    groups = await approver_groups(db, task.project_id, task.approvers)
+    by = await approvers_text(db, groups)
+    await record_activity(db, type="job.approval_requested",
+                          message=f"{what} waits for approval to run (started by {who}" + (f"; {by} approve it)" if by else ")"),
+                          project_id=task.project_id, task_id=task.id, payload={"job_id": str(job.id), "approvers": groups}, **actor_of(user))
     await notify(db, kind="job.approval", title=f"{what} needs approval to run", body=f"Started by {who}: {task.command[:300]}",
                  link=link, severity="warning", project_id=task.project_id, subject=f"approval:{job.id}",
-                 payload={"job_id": str(job.id), "task_id": str(task.id)})
+                 payload={"job_id": str(job.id), "task_id": str(task.id)},
+                 user_ids=await approver_people(db, task.project_id, groups))
     await alerts.approval(db, task.project_id, f"{what} needs approval to run", f"Started by {who}", link)
 
 
@@ -394,14 +399,23 @@ class ApprovalError(ValueError):
     """The job can't be approved or rejected (not waiting, or the person can't)."""
 
 
+class NotApprover(ApprovalError):
+    """Approving it is left to groups this person isn't in."""
+
+
 async def decide_approval(db: AsyncSession, job: m.Job, user: m.User, approve: bool, reason: str = "") -> list[m.Job]:
     """Let a waiting job run (queued) or reject it (cancelled, with the reason); a run on several
     agents at once is decided together. The caller commits and wakes the dispatcher."""
     from . import app_settings
     from .notifications import clear as clear_subject
+    from .people import approver_groups, approvers_text, may_approve
 
     if job.status != m.JobStatus.approval:
         raise ApprovalError("it isn't waiting for approval")
+    card = await db.get(m.Task, job.task_id)
+    groups = await approver_groups(db, card.project_id, card.approvers) if card else []
+    if not await may_approve(db, user, groups):
+        raise NotApprover(f"only {await approvers_text(db, groups)} (or an admin) can approve or reject it")
     settings = await app_settings.load(db)
     if approve and settings.approval_by_someone_else and job.created_by == user.id:
         raise ApprovalError("someone other than who started it has to approve it (Settings → General)")

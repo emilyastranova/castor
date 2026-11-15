@@ -41,7 +41,8 @@ def zip_files(files: dict[str, str]) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         for name, text in files.items():
-            zf.writestr(name, text)
+            # A fixed time: the same files make the same zip (and checksum) whenever they're packed.
+            zf.writestr(zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0)), text)
     return buf.getvalue()
 
 
@@ -885,7 +886,9 @@ def test_unrestricted_plugins(client, auth, tmp_path):
             board = client.get(f"/api/projects/{p['id']}/board", headers=auth).json()
             return next((t for t in board["tasks"] if t["title"] == "Dropped: scan.nessus"), None)
         found = wait(card, "the dropped file's card", 40)
-        assert client.get(f"/api/tasks/{found['id']}/attachments", headers=auth).json()[0]["filename"] == "scan.nessus"
+        # The plugin makes the card, then uploads the file to it.
+        files = wait(lambda: client.get(f"/api/tasks/{found['id']}/attachments", headers=auth).json(), "the dropped file on its card")
+        assert files[0]["filename"] == "scan.nessus"
         wait(lambda: client.get(f"/api/projects/{p['id']}/assets", params={"type": "host"}, headers=auth).json()["total"] == 42,
              "Nessus import to run on it", 60)
         assert not (drop / "scan.nessus").exists() and len(list((drop / ".imported").iterdir())) == 1

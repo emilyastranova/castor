@@ -101,6 +101,8 @@ async def create_project(body: ProjectIn, db: DB, user: Operator):
     if exists:
         raise HTTPException(409, "A project with that codename already exists")
     project = m.Project(**body.model_dump(), created_by=user.id)
+    if project.settings.get("approvers"):
+        project.settings = {**project.settings, "approvers": await people.check_group_assignees(db, project.settings["approvers"], "leave approvals to")}
     if "auto_advance" not in project.settings:
         project.settings = {**project.settings, "auto_advance": True}
     db.add(project)
@@ -127,6 +129,13 @@ async def get_project(project_id: str, db: DB, user: CurrentUser):
 @router.patch("/{project_id}", response_model=ProjectOut)
 async def update_project(project_id: str, body: ProjectPatch, db: DB, user: CurrentUser):
     project = await _project_or_404(db, user, project_id, write=True)
+    if body.settings is not None:
+        # Approver groups (people.approver_groups): only someone who may approve now changes them.
+        current = [str(g) for g in (project.settings or {}).get("approvers") or []]
+        wanted = await people.check_group_assignees(db, body.settings.get("approvers") or [], "leave approvals to")
+        if wanted != current and not await people.may_approve(db, user, current):
+            raise HTTPException(403, "Only someone who can approve the project's runs now (or an admin) can change who approves them")
+        body.settings = {**body.settings, "approvers": wanted} if wanted else {k: v for k, v in body.settings.items() if k != "approvers"}
     before = {k: getattr(project, k) for k in body.model_dump(exclude_unset=True)}
     for key, value in body.model_dump(exclude_unset=True).items():
         setattr(project, key, value)

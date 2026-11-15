@@ -615,6 +615,8 @@ export interface AssetTrigger {
 	args: Record<string, unknown>;
 	once_per_asset: boolean;
 	max_per_hour: number;
+	/** Group ids whose members (and admins) approve its waiting fires; empty: the project's approvers. */
+	approvers?: string[];
 	fires: Record<string, number>;
 	created_at: string;
 }
@@ -1136,6 +1138,8 @@ export interface Task {
 	rate_limit?: string | null;
 	/** Ask before each run: a person approves every job (its definition can demand it too). */
 	confirm?: boolean;
+	/** Group ids whose members (and admins) approve its runs; empty: the project's approvers. */
+	approvers?: string[];
 	/** Chat/webhook alerts for its runs (or, on a run card, the playbook run). */
 	alerts?: AlertRules | null;
 	id: UUID;
@@ -2205,6 +2209,8 @@ export interface AlertRules {
 	decisions: boolean;
 	/** People told in Castor (and on their desktop) when it finishes. */
 	people?: UUID[];
+	/** Groups told the same way: everyone in them who can see the project. */
+	groups?: UUID[];
 }
 
 /** Instance-wide settings (Settings → General). */

@@ -778,13 +778,23 @@ class TriggerIn(BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
     once_per_asset: bool = True
     max_per_hour: int = Field(20, ge=1, le=1000)
+    # Groups whose members (and admins) approve its waiting fires (ids or @handles); none: the project's.
+    approvers: list[str] = Field(default_factory=list)
 
 
 def _trigger_out(t: m.AssetTrigger, counts: dict[str, int] | None = None) -> dict[str, Any]:
     return {"id": str(t.id), "project_id": str(t.project_id), "name": t.name, "enabled": t.enabled, "asset_type": t.asset_type,
             "on_event": t.on_event, "link_kind": t.link_kind, "other_type": t.other_type, "conditions": t.conditions, "action": t.action, "target": t.target, "args": t.args,
-            "once_per_asset": t.once_per_asset, "max_per_hour": t.max_per_hour, "fires": counts or {},
+            "once_per_asset": t.once_per_asset, "max_per_hour": t.max_per_hour, "approvers": t.approvers or [], "fires": counts or {},
             "created_at": t.created_at.isoformat()}
+
+
+async def _check_approvers(db: DB, user: m.User, project_id: uuid.UUID, body: TriggerIn, current: list[str] | None) -> None:
+    from .. import people
+
+    body.approvers = await people.check_group_assignees(db, body.approvers, "leave approvals to")
+    if body.approvers != list(current or []) and not await people.may_approve(db, user, await people.approver_groups(db, project_id, current)):
+        raise HTTPException(403, "Only someone who can approve its fires now (or an admin) can change who approves them")
 
 
 async def _check_target(db: DB, body: TriggerIn) -> None:
@@ -828,6 +838,7 @@ async def list_triggers(project_id: str, db: DB, user: CurrentUser) -> list[dict
 async def create_trigger(project_id: str, body: TriggerIn, db: DB, user: CurrentUser) -> dict[str, Any]:
     project = await project_or_404(db, user, parse_uuid(project_id), write=True)
     await _check_target(db, body)
+    await _check_approvers(db, user, project.id, body, [])
     t = m.AssetTrigger(project_id=project.id, created_by=user.id, **{**body.model_dump(), "asset_type": A.type_of(body.asset_type).name,
                                                                     "conditions": [c.model_dump() for c in body.conditions]})
     db.add(t)
@@ -850,6 +861,7 @@ async def _trigger_or_404(db: DB, user: m.User, trigger_id: str, write: bool = F
 async def update_trigger(trigger_id: str, body: TriggerIn, db: DB, user: CurrentUser) -> dict[str, Any]:
     t = await _trigger_or_404(db, user, trigger_id, write=True)
     await _check_target(db, body)
+    await _check_approvers(db, user, t.project_id, body, t.approvers)
     for k, v in body.model_dump().items():
         setattr(t, k, v)
     t.asset_type = A.type_of(body.asset_type).name
@@ -896,6 +908,11 @@ async def _fire_or_404(db: DB, user: m.User, fire_id: str) -> tuple[m.AssetTrigg
     await check_project(db, user, t.project_id, write=True)
     if f.status != "waiting":
         raise HTTPException(409, f"This one is already {f.status}")
+    from .. import people
+
+    groups = await people.approver_groups(db, t.project_id, t.approvers)
+    if not await people.may_approve(db, user, groups):
+        raise HTTPException(403, f"Only {await people.approvers_text(db, groups)} (or an admin) can approve or skip it")
     return f, t, a
 
 

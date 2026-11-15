@@ -116,6 +116,8 @@ async def create_task(project_id: str, body: TaskIn, db: DB, user: CurrentUser):
     data = body.model_dump(exclude={"column_id", "command_ref", "command_args", "var_bindings", "waits_on", "parent_id"})
     data["assignees"] = await people.check_assignees(db, project.id, body.assignees)
     data["group_assignees"] = await people.check_group_assignees(db, body.group_assignees)
+    if body.approvers:
+        data["approvers"] = await _approvers(db, user, project.id, [], body.approvers)
     data["agent_selector"] = await _selector(db, body.agent_selector, project.id)
     task = m.Task(
         project_id=project.id,
@@ -167,6 +169,14 @@ async def create_task(project_id: str, body: TaskIn, db: DB, user: CurrentUser):
     return out
 
 
+async def _approvers(db, user: m.User, project_id: uuid.UUID, current: list[str] | None, wanted: list[str]) -> list[str]:
+    """Check new approver groups. Only someone who may approve now can hand it to others."""
+    after = await people.check_group_assignees(db, wanted, "leave approvals to")
+    if after != list(current or []) and not await people.may_approve(db, user, await people.approver_groups(db, project_id, current)):
+        raise HTTPException(403, "Only someone who can approve its runs now (or an admin) can change who approves them")
+    return after
+
+
 @router.get("/tasks/{task_id}", response_model=TaskOut)
 async def read_task(task_id: str, db: DB, user: CurrentUser):
     return await task_out(db, await _task_or_404(db, user, task_id))
@@ -187,7 +197,13 @@ async def update_task(task_id: str, body: TaskPatch, db: DB, user: CurrentUser):
         changes.pop("alerts")
         if body.alerts and body.alerts.people:
             body.alerts.people = [uuid.UUID(u) for u in await people.check_assignees(db, task.project_id, [str(p) for p in body.alerts.people])]
+        if body.alerts and body.alerts.groups:
+            body.alerts.groups = [uuid.UUID(g) for g in await people.check_group_assignees(db, [str(g) for g in body.alerts.groups], "notify")]
         task.alerts = body.alerts.stored() if body.alerts else None
+    if changes.get("approvers") is not None:
+        changes["approvers"] = await _approvers(db, user, task.project_id, task.approvers, changes["approvers"])
+    else:
+        changes.pop("approvers", None)
     if changes.get("assignees") is not None or changes.get("group_assignees") is not None:
         before, groups_before = list(task.assignees or []), list(task.group_assignees or [])
         after = await people.check_assignees(db, task.project_id, changes["assignees"]) \

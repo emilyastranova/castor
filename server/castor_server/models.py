@@ -370,6 +370,8 @@ class Task(Base, TimestampMixin):
     rate_limit: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # Ask before each run: a person approves every job of it (its definition can demand it too).
     confirm: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # Group ids (strings) whose members (and admins) approve its runs; empty: the project's approvers.
+    approvers: Mapped[list[str] | None] = mapped_column(JSONType, default=list, nullable=True)
     # A subtask: the card it belongs to (an activity). Subtasks stay off the board and show in
     # their card's Subtasks tab; one level deep. Deleting the activity puts them back on the board.
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -901,6 +903,8 @@ class AssetTrigger(Base, TimestampMixin):
     args: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     once_per_asset: Mapped[bool] = mapped_column(Boolean, default=True)
     max_per_hour: Mapped[int] = mapped_column(Integer, default=20)
+    # Group ids (strings) whose members (and admins) approve its waiting fires; empty: the project's.
+    approvers: Mapped[list[str] | None] = mapped_column(JSONType, default=list, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
 

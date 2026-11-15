@@ -27,6 +27,7 @@
 	import MoveWritingDialog from './MoveWritingDialog.svelte';
 	import RunPanel from './RunPanel.svelte';
 	import SubtaskPanel from './SubtaskPanel.svelte';
+	import GroupPicker from './GroupPicker.svelte';
 	import { kindIcon } from '$lib/taskStatus';
 	import AiSummary from './AiSummary.svelte';
 	import DuplicateDialog from './DuplicateDialog.svelte';
@@ -633,8 +634,15 @@
 		const current = task.alerts ?? { channels: [], on: 'failure' as const, long_minutes: null, decisions: true, people: [] };
 		const people = on ? [...new Set([...(current.people ?? []), myId])] : (current.people ?? []).filter((p) => p !== myId);
 		const next = { ...current, people };
-		void save({ alerts: next.channels.length || people.length ? next : null });
+		void save({ alerts: next.channels.length || people.length || next.groups?.length ? next : null });
 	}
+	function setNotifiedGroups(groups: string[]) {
+		const current = task.alerts ?? { channels: [], on: 'failure' as const, long_minutes: null, decisions: true, people: [] };
+		const next = { ...current, groups };
+		void save({ alerts: next.channels.length || next.people?.length || groups.length ? next : null });
+	}
+	/** Asks before each run: who may let a run go (the card's groups, else the project's). */
+	let asks = $derived(task.kind === 'command' && (!!task.confirm || !!libraryDef?.spec.confirm));
 	const finished = ['succeeded', 'failed', 'cancelled', 'lost'];
 	let duplicateCounts = $derived({
 		comments: comments.length,
@@ -847,6 +855,7 @@
 					<p class="body-medium">
 						{libraryDef?.spec.confirm ? `“${libraryDef.name}” asks before each run` : 'This card asks before each run'}: it can change things outside Castor.
 						Started by {startedBy} {relativeTime(activeJob.queued_at)}.
+						{#if task.approvers?.length}Only {task.approvers.map((id) => `@${people.group(id)?.slug ?? 'a group'}`).join(', ')} (or an admin) can let it go.{/if}
 					</p>
 					<code class="block max-h-32 overflow-auto rounded-sm bg-surface-container-highest p-2 font-mono text-[12.5px] break-all whitespace-pre-wrap text-on-surface">{task.command}</code>
 					{#if editable}
@@ -1327,6 +1336,16 @@
 				<DueDateField value={task.due_at} {editable} finished={column?.role === 'done' || column?.role === 'reported'} onchange={(iso) => void save({ due_at: iso })} />
 				<CardDependencies {task} {editable} onchange={async (ids) => { onupdated(await api().tasks.update(task.id, { waits_on: ids })); }} onopen={openCard} />
 			{/if}
+			{#if asks && !task.playbook_step_id}
+				<GroupPicker
+					label="Who approves its runs"
+					value={task.approvers ?? []}
+					{editable}
+					empty="The project's approvers (anyone on it, if it has none)"
+					supporting={task.approvers?.length ? 'Only people in these groups, and admins, can approve or reject its runs.' : ''}
+					onchange={(ids) => void save({ approvers: ids })}
+				/>
+			{/if}
 			{#if !task.playbook_step_id}
 				<div class="flex flex-col gap-1.5">
 					<p class="label-large text-on-surface-variant">When it finishes</p>
@@ -1334,6 +1353,9 @@
 						<Switch checked={notifyMe} onchange={toggleNotifyMe} label="Notify me" />
 					{/if}
 					{#if othersNotified}<p class="body-small text-on-surface-variant">{othersNotified} other{othersNotified === 1 ? '' : 's'} will be notified</p>{/if}
+					{#if editable || task.alerts?.groups?.length}
+						<GroupPicker label="Groups told" value={task.alerts?.groups ?? []} {editable} empty="No groups" onchange={setNotifiedGroups} />
+					{/if}
 					<p class="flex items-center gap-1.5 body-small text-on-surface-variant">
 						<Icon name={task.alerts?.channels?.length ? 'notifications_active' : 'campaign'} size={16} />
 						{task.alerts?.channels?.length ? `Chat alerts: ${task.alerts.channels.length} channel${task.alerts.channels.length === 1 ? '' : 's'}` : 'No chat alerts'}

@@ -23,7 +23,7 @@
 	async function save() {
 		saving = true;
 		try {
-			const updated = await api().tasks.update(task.id, { alerts: rules.channels.length || rules.people?.length ? rules : null });
+			const updated = await api().tasks.update(task.id, { alerts: rules.channels.length || rules.people?.length || rules.groups?.length ? rules : null });
 			snackbar.show(rules.channels.length ? 'Chat alerts saved' : 'Chat alerts off');
 			open = false;
 			onsaved(updated);
@@ -43,7 +43,7 @@
 		<AlertRulesForm bind:rules run={!!task.run} />
 	</div>
 	{#snippet actions()}
-		{#if task.alerts?.channels?.length}<Button variant="text" class="mr-auto" onclick={() => { rules = { ...blank(), people: rules.people }; void save(); }}>Turn off</Button>{/if}
+		{#if task.alerts?.channels?.length}<Button variant="text" class="mr-auto" onclick={() => { rules = { ...blank(), people: rules.people, groups: rules.groups }; void save(); }}>Turn off</Button>{/if}
 		<Button variant="text" onclick={() => (open = false)}>Cancel</Button>
 		<Button icon="check" loading={saving} onclick={save}>Save</Button>
 	{/snippet}

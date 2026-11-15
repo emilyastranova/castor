@@ -354,6 +354,8 @@ manual cards (`command_library.forget_definition`).
   (`POST /api/jobs/{id}/approve|reject`, operators who can change the project) queues them
   (`approved_by`, `approved_at`) or cancels them with the reason, a batch together, and clears the
   notifications; `app_settings.approval_by_someone_else` refuses approval by whoever started it.
+  Approver groups (`tasks.approvers`, else `projects.settings.approvers`; see People) limit who
+  approves or rejects (403 for anyone else) and who is asked.
   Home lists them under needs-attention (`kind: approval`). In playbooks `approval` maps to a queued
   step (and `waiting` to a running one), so the engine doesn't start the step again; a fan-out's
   items without a job are `unstarted`.
@@ -869,9 +871,12 @@ read access; importing needs an operator.
 - **Mentions:** `@group` in a comment mentions the group's people who can see the project (`people.mentioned`).
 - **Access:** a project shared with groups is visible to their members as if each were a member (`access.member_project_ids`, `people.project_people`).
 - **Assignment:** `tasks.group_assignees` holds group ids (the API also takes `@handles`). The card is everyone's in the group who can see the project: Home's *mine*, `is:mine`, the board's *assigned to me* filter, waiting-prompt notices (`people.assigned_to`, `my_group_ids`, `group_people`). Assigning notifies those people (`task.assigned`), except the actor and anyone assigned directly.
+- **Approvers:** `projects.settings.approvers`, `tasks.approvers` and `asset_triggers.approvers` hold group ids (the API takes `@handles`). The card's or trigger's own, else the project's (`people.approver_groups`), decide who approves or rejects a waiting run (`decide_approval`, 403 `NotApprover`) and approves or skips a waiting trigger fire: their members and admins (`people.may_approve`). Only those people are asked (`people.approver_people`; a group with nobody in it falls back to everyone, so nothing waits unseen). Changing approvers needs someone who may approve under the current ones (403). No groups: anyone who can change the project, as before.
+- **Told when it finishes:** a card's `alerts.groups` (like `alerts.people`) tells the groups' people who can see the project when it finishes (`alerts.emit`, `END_EVENTS`).
+- **Notifications:** `notifications.notify` without `user_ids` reaches everyone who can see the project, members through its groups included, never a plugin's service account.
 - **Sign-on:** a group with `sso_group` follows that provider group at each SSO sign-in (`sso.sync_groups`), but only when the provider sent groups.
 - **Realtime:** changes publish `groups.changed` and `project.members`, and sockets reload what they may see.
-- **Export:** a project export carries its groups' handles (and those of groups its cards are assigned to), and an import shares the project with, and assigns cards to, the local groups of the same handle.
+- **Export:** a project export carries its groups' handles (and those of every group its cards, triggers and settings name: assignees, approvers, groups told), and an import maps them onto the local groups of the same handle (`transfer.regroup`), dropping ones it doesn't have.
 
 `GET /api/people` lists everyone active with their open assigned cards and last activity;
 `GET /api/people/{username}` adds their projects, 30-day numbers, assigned cards and the
