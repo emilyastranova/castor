@@ -102,6 +102,8 @@ class _Run:
     via: uuid.UUID | None = None
     # A playbook step with on_failure: ai: {"config": AiStepConfig, "run_id", "step_id"}.
     ai: dict[str, Any] | None = None
+    # More secrets to mask in the log: an MCP connection's (its variable set isn't the card's).
+    extra: variables.Resolved | None = None
     records_path: Path | None = None
     texts: list[str] = field(default_factory=list)
 
@@ -173,6 +175,8 @@ class ServerRunner:
     async def _log(self, run: _Run, data: str, stream: str = "system") -> None:
         from .gateway import gateway
 
+        if run.extra is not None:
+            data = run.extra.redact(data)
         for start in range(0, len(data), LOG_CHUNK) or [0]:
             run.seq += 1
             await gateway._on_job_log(self.conn, {"job_id": str(run.job_id), "stream": stream,
@@ -197,7 +201,7 @@ class ServerRunner:
             job.resume_at = None
             if not resumed:
                 job.started_at = utcnow()
-            spec = CommandSpec.model_validate({"id": "job", "name": task.title, "kind": "http",
+            spec = CommandSpec.model_validate({"id": "job", "name": task.title, "kind": job.kind,
                                                **(job.request or {}).get("spec", {})})
             seq = (await db.execute(select(func.max(m.JobLogChunk.seq)).where(m.JobLogChunk.job_id == job.id))).scalar() or 0
             started = job.started_at
@@ -270,6 +274,8 @@ class ServerRunner:
 
     async def _execute(self, run: _Run) -> tuple[int, str | None]:
         spec = run.spec
+        if spec.kind == "mcp":
+            return await self._call_mcp(run)
         p = run.progress
         values = list(run.args.get(spec.batch.arg) or []) if spec.batch is not None else None
         if values is not None and "batch" in p and "offset" not in p:  # saved before batches counted values
@@ -688,18 +694,130 @@ class ServerRunner:
         run.texts.append(response.text)
 
     async def _artifact(self, run: _Run, name: str, response: httpx.Response) -> None:
+        await self._keep(run, name, response.headers.get("content-type"), response.content)
+        await self._log(run, f"Kept the response as {name} ({_size(len(response.content))})\n")
+
+    async def _keep(self, run: _Run, name: str, content_type: str | None, data: bytes) -> None:
         from .. import artifacts
 
         async def chunks():
-            yield response.content
+            yield data
 
         async with SessionLocal() as db:
             job = await db.get(m.Job, run.job_id)
             try:
-                await artifacts.store(db, job, name, response.headers.get("content-type"), chunks())
+                await artifacts.store(db, job, name, content_type, chunks())
             except artifacts.ArtifactRefused as exc:
                 raise Failed(f"couldn't keep {name}: {exc}") from exc
-        await self._log(run, f"Kept the response as {name} ({_size(len(response.content))})\n")
+
+    # ----- MCP actions -----
+
+    async def _call_mcp(self, run: _Run) -> tuple[int, str | None]:
+        """Call the tool on the connection (docs/ACTIONS.md phase 3). The server's log messages
+        and progress go to the console as they come; the result is the job's output, with
+        images, audio and files kept on the card."""
+        from .. import mcp_client, mcp_connections
+        from ..http_render import mcp_arguments
+
+        spec, call = run.spec, run.spec.mcp
+        retry = spec.retry or Retry()
+        try:
+            arguments = mcp_arguments(spec, run.args, self._lookup(run.resolved))
+        except RenderError as exc:
+            raise Failed(str(exc)) from exc
+        target = Rendered("MCP", f"mcp://{call.server}/{call.tool}")
+        attempt = 0
+        while True:
+            wait, full = await limiter.take(run.scopes)
+            if wait > 0:
+                await self._wait(run, wait, f"{full.label}, {full.rate}")
+                continue
+            try:
+                async with SessionLocal() as db:
+                    row = await db.get(m.McpConnection, call.server)
+                    if row is None:
+                        raise Failed(f"there's no MCP server {call.server} in Settings → MCP servers")
+                    if not mcp_connections.allowed(row, run.project_id):
+                        raise Failed(f"{row.name} can't be used in this project")
+                    name = row.name
+                    session, secret, where = await mcp_connections.open_session(db, row, run.project_id, call.timeout_s)
+                run.extra = secret
+                if attempt == 0:
+                    info = session.server_info or {}
+                    await self._log(run, f"> {name} ({info.get('name') or 'MCP server'} {info.get('version') or ''}".rstrip()
+                                         + f", from {where}): {call.tool}\n  {json.dumps(arguments, ensure_ascii=False)[:4000]}\n")
+                started = time.monotonic()
+                try:
+                    result = await asyncio.wait_for(mcp_client.call_tool(session, call.tool, arguments, self._mcp_note(run)), call.timeout_s)
+                finally:
+                    await session.close()
+                break
+            except mcp_connections.Unusable as exc:
+                raise Failed(f"{call.server}: {exc}") from exc
+            except outbound.OutboundRefused as exc:
+                raise Failed(f"Castor won't connect to {call.server}: {exc}") from exc
+            except mcp_client.McpRpcError as exc:
+                raise Failed(f"{call.tool}: {exc}") from exc
+            except (mcp_client.McpError, TimeoutError) as exc:
+                reason = f"timed out after {call.timeout_s} s" if isinstance(exc, TimeoutError) else str(exc)
+                if attempt >= retry.attempts:
+                    raise Trouble(f"{call.server} · {call.tool}: {reason}" + (f" (after {attempt + 1} tries)" if attempt else ""), target) from exc
+                attempt += 1
+                await self._log(run, f"{reason}; trying again ({attempt} of {retry.attempts})\n")
+                await self._wait(run, _backoff(retry, attempt), "backing off")
+            finally:
+                limiter.release(run.scopes)
+        return await self._mcp_result(run, result, int((time.monotonic() - started) * 1000))
+
+    def _mcp_note(self, run: _Run):
+        async def note(msg: dict[str, Any]) -> None:
+            params = msg.get("params") or {}
+            if msg.get("method") == "notifications/message":
+                data = params.get("data")
+                text = data if isinstance(data, str) else json.dumps(data, ensure_ascii=False)
+                await self._log(run, f"[{params.get('level', 'info')}] {text}\n")
+            elif msg.get("method") == "notifications/progress":
+                total = f" of {params['total']}" if params.get("total") is not None else ""
+                await self._log(run, f"progress {params.get('progress')}{total}" + (f": {params['message']}" if params.get("message") else "") + "\n")
+
+        return note
+
+    async def _mcp_result(self, run: _Run, result: dict[str, Any], ms: int) -> tuple[int, str | None]:
+        import base64
+        import mimetypes
+
+        tool = run.spec.mcp.tool
+        texts: list[str] = []
+        content = [c for c in (result.get("content") or []) if isinstance(c, dict)]
+        for index, block in enumerate(content, 1):
+            kind = block.get("type")
+            if kind == "text":
+                texts.append(str(block.get("text") or ""))
+            elif kind in ("image", "audio"):
+                mime = str(block.get("mimeType") or "application/octet-stream")
+                name = f"{tool}-{index}{mimetypes.guess_extension(mime) or '.bin'}"
+                await self._keep(run, name, mime, base64.b64decode(block.get("data") or ""))
+                await self._log(run, f"Kept the {kind} it returned as {name}\n")
+            elif kind == "resource":
+                res = block.get("resource") or {}
+                if "text" in res:
+                    texts.append(str(res["text"]))
+                elif res.get("blob"):
+                    name = Path(str(res.get("uri") or "")).name or f"{tool}-{index}.bin"
+                    await self._keep(run, name[:200], res.get("mimeType"), base64.b64decode(res["blob"]))
+                    await self._log(run, f"Kept {name}\n")
+            elif kind == "resource_link":
+                await self._log(run, f"Link: {block.get('name') or ''} {block.get('uri') or ''}\n")
+        await self._log(run, f"< {'error' if result.get('isError') else 'result'} ({ms} ms, {len(content)} content block{'s' if len(content) != 1 else ''}"
+                             + (", structured" if result.get("structuredContent") is not None else "") + ")\n")
+        if result.get("isError"):
+            said = " ".join(t.strip() for t in texts if t.strip())[:500]
+            raise Trouble(f"{tool} said it failed" + (f": {said}" if said else ""), Rendered("MCP", f"mcp://{run.spec.mcp.server}/{tool}"))
+        structured = result.get("structuredContent")
+        text = json.dumps(structured, ensure_ascii=False, indent=2) if structured is not None else "\n".join(texts)
+        if text:
+            await self._log(run, text if text.endswith("\n") else text + "\n", stream="stdout")
+        return 0, None
 
     async def _output(self, run: _Run, paged: bool) -> tuple[int, str | None]:
         if paged and run.records_path is not None and run.records_path.exists():

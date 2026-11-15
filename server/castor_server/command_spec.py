@@ -189,7 +189,34 @@ def template_strings(value: Any) -> list[str]:
     return []
 
 
-ActionKind = Literal["command", "http"]
+ActionKind = Literal["command", "http", "mcp"]
+
+
+class McpCall(BaseModel):
+    """kind: mcp: a tool on another MCP server (an MCP connection in Settings → MCP servers)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    server: str  # the connection's id
+    tool: str
+    # The tool's arguments, as templates (a field that is only a placeholder keeps its type).
+    # None: every argument of the definition, as it is.
+    arguments: dict[str, Any] | None = None
+    timeout_s: int = Field(120, ge=1, le=3600)
+
+    @field_validator("server")
+    @classmethod
+    def check_server(cls, value: str) -> str:
+        if not ID_PATTERN.match(value):
+            raise ValueError("server is an MCP connection's id (lowercase letters, digits and dashes)")
+        return value
+
+    @field_validator("tool")
+    @classmethod
+    def check_tool(cls, value: str) -> str:
+        if not value.strip() or len(value) > 128:
+            raise ValueError("tool is the name of one of the server's tools")
+        return value
 
 
 class CommandSpec(BaseModel):
@@ -220,6 +247,8 @@ class CommandSpec(BaseModel):
     retry: Retry | None = None
     # A suggested limit for the API (60/minute): a card that has none of its own uses it.
     rate_limit: str | None = None
+    # kind: mcp.
+    mcp: McpCall | None = None
 
     @field_validator("rate_limit")
     @classmethod
@@ -230,6 +259,8 @@ class CommandSpec(BaseModel):
         """Where placeholders can be: the command line, or every string of the request."""
         if self.kind == "http" and self.request is not None:
             return template_strings(self.request.model_dump(mode="json", by_alias=True, exclude={"timeout_s", "method", "save_as"}))
+        if self.kind == "mcp" and self.mcp is not None:
+            return template_strings(self.mcp.arguments or {})
         return [self.command]
 
     @model_validator(mode="before")
@@ -268,17 +299,28 @@ class CommandSpec(BaseModel):
 
     @model_validator(mode="after")
     def fits_kind(self) -> CommandSpec:
-        http_parts = [n for n in ("request", "paginate", "batch", "expect", "retry") if getattr(self, n) is not None]
+        http_parts = [n for n in ("request", "paginate", "batch", "expect") if getattr(self, n) is not None]
         if self.kind == "command":
             if not self.command.strip():
                 raise ValueError("command: a command needs its command line")
-            if http_parts:
-                raise ValueError(f"{http_parts[0]}: only for kind: http")
+            if http_parts or self.retry is not None:
+                raise ValueError(f"{(http_parts or ['retry'])[0]}: only for kind: http or mcp")
+            if self.mcp is not None:
+                raise ValueError("mcp: only for kind: mcp")
             return self
-        if self.request is None:
-            raise ValueError("request: an http action needs its request (method and url)")
         shell = [n for n, on in (("command", self.command.strip()), ("image", self.image), ("tool", self.tool),
                                  ("container_flags", self.container_flags), ("tty", self.tty)) if on]
+        if self.kind == "mcp":
+            if self.mcp is None:
+                raise ValueError("mcp: an MCP action needs mcp: {server: <connection>, tool: <name>}")
+            if shell or http_parts:
+                what = (shell or http_parts)[0]
+                raise ValueError(f"{what}: an MCP action calls a tool; it has no {what}")
+            return self
+        if self.mcp is not None:
+            raise ValueError("mcp: only for kind: mcp")
+        if self.request is None:
+            raise ValueError("request: an http action needs its request (method and url)")
         if shell:
             raise ValueError(f"{shell[0]}: an http action makes a request; it has no {shell[0]}")
         if self.batch is not None:

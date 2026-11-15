@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import type { CommandDefinition, ToolDefinition } from '$lib/api';
-	import { api } from '$lib/api';
+	import type { CommandDefinition, McpConnection, ToolDefinition } from '$lib/api';
+	import { api, ApiError } from '$lib/api';
+	import { snackbar } from '$lib/snackbar.svelte';
 	import { Button, Chip, Dialog, Icon, IconButton, Menu, MenuItem, TopAppBar } from '$lib/m3';
 	import { canEdit } from '$lib/session';
 	import { aiStatus } from '$lib/ai.svelte';
@@ -13,7 +14,7 @@
 	import CommandRow from '$lib/components/library/CommandRow.svelte';
 	import CommandDetail from '$lib/components/library/CommandDetail.svelte';
 	import ToolDetail from '$lib/components/library/ToolDetail.svelte';
-	import { filterFolders, filtering, folderKey, folders, HTTP_FOLDER, NO_FILTERS, provision, readiness, type Filters } from '$lib/library';
+	import { filterFolders, filtering, folderKey, folders, HTTP_FOLDER, MCP_FOLDER, NO_FILTERS, provision, readiness, type Filters } from '$lib/library';
 
 	let { data } = $props();
 	// svelte-ignore state_referenced_locally
@@ -202,6 +203,41 @@ build:
 		draft = yaml ?? TOOL_TEMPLATE;
 		await select('new:tool', true);
 	}
+	// ---- a draft from an MCP tool (New → From an MCP tool, or Settings → MCP servers' links:
+	// ?new=mcp&server=&tool=) ----
+	let mcpPickOpen = $state(false);
+	let mcpServers = $state<McpConnection[] | null>(null);
+	$effect(() => {
+		if (mcpPickOpen && mcpServers === null)
+			void api()
+				.mcp.list()
+				.then((list) => (mcpServers = list.filter((c) => c.enabled)))
+				.catch(() => (mcpServers = []));
+	});
+	async function fromMcpTool(server: string, tool: string) {
+		try {
+			const { yaml } = await api().mcp.draft(server, tool);
+			mcpPickOpen = false;
+			await newCommand(yaml);
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not draft it');
+		}
+	}
+	$effect(() => {
+		if (selected !== 'new:mcp') return;
+		const q = page.url.searchParams;
+		const server = q.get('server');
+		const tool = q.get('tool');
+		if (!server || !tool) return;
+		void api()
+			.mcp.draft(server, tool)
+			.then(({ yaml }) => {
+				draft = yaml;
+				void goto('/library?new=command', { replaceState: true, keepFocus: true, noScroll: true });
+			})
+			.catch((err) => snackbar.error(err instanceof ApiError ? err.message : 'Could not draft it'));
+	});
+
 	// Opened by a link (?new=command) without a draft: start from the template.
 	$effect(() => {
 		if (selected === 'new:command' && !draft) draft = TEMPLATE(page.url.searchParams.get('tool'));
@@ -356,6 +392,7 @@ build:
 				{#snippet anchor()}<Button icon="add" trailingIcon="arrow_drop_down" class="ml-2" aria-haspopup="menu" aria-expanded={newOpen}>New</Button>{/snippet}
 				<MenuItem icon="terminal" onclick={() => newCommand()}>Command <span class="ml-auto pl-6 font-mono text-on-surface-variant">n</span></MenuItem>
 				<MenuItem icon="api" onclick={() => newCommand(HTTP_TEMPLATE)}>HTTP request</MenuItem>
+				<MenuItem icon="hub" onclick={() => (mcpPickOpen = true)}>From an MCP tool…</MenuItem>
 				<MenuItem icon="handyman" onclick={() => newTool()}>Tool</MenuItem>
 				{#if aiStatus.enabled}
 					<div class="my-1 border-t border-outline-variant/60"></div>
@@ -394,6 +431,7 @@ build:
 				<Chip variant="filter" selected={filters.unused} onclick={() => (filters.unused = !filters.unused)}>Unused</Chip>
 				<Chip variant="filter" selected={filters.notReady} onclick={() => (filters.notReady = !filters.notReady)}>Not ready</Chip>
 				<Chip variant="filter" selected={!!filters.http} onclick={() => (filters.http = !filters.http)}>HTTP</Chip>
+				<Chip variant="filter" selected={!!filters.mcp} onclick={() => (filters.mcp = !filters.mcp)}>MCP</Chip>
 				{#if filters.tag}<Chip variant="input" icon="sell" onremove={() => (filters.tag = null)}>{filters.tag}</Chip>{/if}
 			</div>
 			{#if noAgents}
@@ -452,7 +490,7 @@ build:
 						>
 							<Icon name="chevron_right" size={20} class="transition-transform duration-150 {open ? 'rotate-90' : ''}" />
 						</button>
-						<Icon name={f.tool ? 'handyman' : f.id === HTTP_FOLDER ? 'api' : 'deployed_code'} size={20} class="shrink-0 text-on-surface-variant" />
+						<Icon name={f.tool ? 'handyman' : f.id === HTTP_FOLDER ? 'api' : f.id === MCP_FOLDER ? 'hub' : 'deployed_code'} size={20} class="shrink-0 text-on-surface-variant" />
 						<span class="min-w-0 flex-1">
 							<span class="block truncate title-medium">{f.name}</span>
 							{#if f.tool}
@@ -574,4 +612,34 @@ build:
 		{/each}
 	</dl>
 	{#snippet actions()}<Button variant="text" onclick={() => (shortcutsOpen = false)}>Close</Button>{/snippet}
+</Dialog>
+
+<Dialog bind:open={mcpPickOpen} title="From an MCP tool" icon="hub" size="md">
+	<p class="mb-3 body-medium text-on-surface-variant">
+		Pick a tool: its inputs become the action's arguments, ready to edit and save. MCP servers are added in <a class="text-primary hover:underline" href="/settings/mcp">Settings → MCP servers</a>.
+	</p>
+	{#if mcpServers === null}
+		<p class="body-small text-on-surface-variant">Loading…</p>
+	{:else if !mcpServers.some((c) => c.tools.length)}
+		<p class="body-medium text-on-surface">No MCP server with tools yet. {mcpServers.length ? 'Check one in Settings to read its tools.' : ''}</p>
+	{:else}
+		<div class="flex max-h-[60vh] flex-col gap-4 overflow-auto">
+			{#each mcpServers.filter((c) => c.tools.length) as c (c.id)}
+				<section>
+					<h3 class="mb-1 title-small text-on-surface">{c.name} <code class="font-mono label-small text-on-surface-variant">{c.id}</code></h3>
+					<ul class="flex flex-col">
+						{#each c.tools as t (t.name)}
+							<li>
+								<button type="button" class="state-layer flex w-full flex-col rounded-sm px-3 py-2 text-left" onclick={() => fromMcpTool(c.id, t.name)}>
+									<span class="font-mono label-large text-on-surface">{t.name}</span>
+									{#if t.description}<span class="line-clamp-2 body-small text-on-surface-variant">{t.description}</span>{/if}
+								</button>
+							</li>
+						{/each}
+					</ul>
+				</section>
+			{/each}
+		</div>
+	{/if}
+	{#snippet actions()}<Button variant="text" onclick={() => (mcpPickOpen = false)}>Cancel</Button>{/snippet}
 </Dialog>

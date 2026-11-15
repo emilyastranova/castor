@@ -288,3 +288,45 @@ by any card or playbook: this is how APIs count, per key) and on a card (else th
 - HTTP actions can be limited to a list of hosts.
 
 Alert channels follow the same address rules.
+
+## MCP actions (`kind: mcp`)
+
+A definition can call one tool on another MCP server instead. Admins add MCP servers in
+**Settings → MCP servers**: a remote one over HTTP (Streamable HTTP), or a program that speaks
+MCP on stdio, which an agent runs for Castor (in a container from a tool or an image, or on its
+host). A server's token comes from a variable set: `{{ field }}` in its headers (HTTP) or its
+environment (stdio) is filled in when it's used. **Check** reads its tools, and **Make an action**
+next to a tool (or **New → From an MCP tool…** in the Library) drafts a definition from the
+tool's input schema, ready to edit and save.
+
+```yaml
+id: shodan-host
+name: Shodan host lookup
+kind: mcp
+args:
+  - {name: ip, type: string, required: true}
+  - {name: history, type: boolean}
+mcp:
+  server: shodan                 # the MCP server's id in Settings → MCP servers
+  tool: host_lookup
+  arguments:                     # optional; without it, every argument as it is
+    ip: "{{ ip }}"
+    history: "{{ history }}"     # only a placeholder: keeps its type (true/false), left out when empty
+  timeout_s: 120
+outputs:
+  - {name: host, parser: json-records}
+```
+
+- **Arguments** are JSON values: a field that is only a placeholder keeps its type (a list
+  argument becomes an array), and an empty optional one is left out.
+- **The log** shows the call (`> Shodan (shodan-mcp 1.2, from the server): host_lookup`, then the
+  arguments), the server's own log messages and progress as they come, and `< result`. The
+  connection's secrets are masked in it too.
+- **The result:** the tool's structured result (or its text) is the run's output, for the parsers;
+  images, audio and files it returns are kept on the card. A tool that reports an error fails the
+  run with what it said.
+- **Rate limits, retries and AI recovery** work as for HTTP actions; a stdio program that stops
+  mid-call is started again and the call retried.
+- **Untrusted output:** what the tool returns comes from another system. It's shown and parsed
+  like any job output, never followed as instructions.
+

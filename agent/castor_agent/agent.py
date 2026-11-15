@@ -17,6 +17,7 @@ from websockets.asyncio.client import ClientConnection
 
 from . import artifacts, http_proxy
 from .config import AgentConfig, host_info
+from .mcp_bridge import McpBridge
 from .runtime import JobRunner, RunResult, detect_container_runtime
 from .tools import ToolPreparer
 
@@ -47,6 +48,8 @@ class Agent:
         self.heartbeat_interval = 15
         self._background: set[asyncio.Task] = set()
         self.tools = ToolPreparer(self.container_runtime, config.allow_host_install, config.workdir)
+        base = Path(config.workdir) if config.workdir else Path(tempfile.gettempdir()) / "castor-agent"
+        self.mcp = McpBridge(self.send, self.container_runtime, config.allow_host, config.network, self.tools, str(base / "mcp"))
 
     # ----- capabilities -----
 
@@ -65,6 +68,8 @@ class Agent:
             "tty": sys.platform != "win32",
             # Sends HTTP actions' requests from this network (http.request); older agents don't.
             "http": self.config.http,
+            # Runs MCP servers that speak stdio for MCP actions (mcp.start); older agents don't.
+            "mcp_stdio": True,
         }
 
     # ----- wire helpers -----
@@ -138,6 +143,7 @@ class Agent:
             finally:
                 heartbeat.cancel()
                 self.ws = None
+                await self.mcp.stop_all()  # the server forgets them when the connection drops
                 # Running jobs keep going; their logs are dropped until a future
                 # milestone adds buffering. The server marks them lost.
 
@@ -181,6 +187,12 @@ class Agent:
             task = asyncio.create_task(self._http(msg))
             self._background.add(task)
             task.add_done_callback(self._background.discard)
+        elif kind == "mcp.start":
+            task = asyncio.create_task(self.mcp.handle(msg))  # it may pull or build a tool first
+            self._background.add(task)
+            task.add_done_callback(self._background.discard)
+        elif kind in ("mcp.send", "mcp.stop"):
+            await self.mcp.handle(msg)
         elif kind == "auth.revoked":
             log.error("the server revoked this agent's credentials: %s", msg.get("reason", ""))
         elif kind == "job.cancel":

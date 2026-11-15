@@ -297,6 +297,9 @@ class AgentGateway:
         if self.connections.get(conn.agent_id) is not conn:
             return  # replaced by a newer connection
         del self.connections[conn.agent_id]
+        from ..mcp_client import hub
+
+        hub.agent_gone(conn.agent_id, conn.name)
         for request_id, wait in list(self._http.items()):
             if wait.agent_id == conn.agent_id and not wait.future.done():
                 wait.future.set_exception(AgentGone(f"{conn.name} disconnected"))
@@ -384,6 +387,10 @@ class AgentGateway:
                     self._http.pop(str(msg.get("request_id")), None)
                     if not wait.future.done():
                         wait.future.set_result({"error": "the response is too large", "error_kind": "too_big"})
+        elif kind in ("mcp.started", "mcp.message", "mcp.exited"):
+            from ..mcp_client import hub
+
+            await hub.on_message(conn.agent_id, msg)
         elif kind == "http.response":
             wait = self._http.pop(str(msg.get("request_id")), None)
             if wait is not None and wait.agent_id == conn.agent_id and not wait.future.done():

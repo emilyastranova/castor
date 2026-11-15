@@ -42,7 +42,9 @@
 			try {
 				const r = await api().commands.render(id, snapshot);
 				// An HTTP action: the request as it will be sent (variables as written).
-				preview = r.request
+				preview = r.kind === 'mcp' && r.request
+					? [r.request.url, ...(r.request.body ? ['', r.request.body] : [])].join('\n')
+					: r.request
 					? [`${r.request.method} ${r.request.url}`, ...Object.entries(r.request.headers).map(([k, v]) => `${k}: ${v}`), ...(r.request.body ? ['', r.request.body] : [])].join('\n')
 					: r.command;
 				previewError = null;
@@ -130,7 +132,9 @@
 		>
 			<span class="min-w-0 flex-1">
 				<span class="block label-small text-on-surface-variant">
-					{#if spec.kind === 'http'}
+					{#if spec.kind === 'mcp'}
+						Will call {spec.mcp?.tool} on the MCP server {spec.mcp?.server}{preview && !previewOpen && previewLines > 1 ? ' · its arguments' : ''}
+					{:else if spec.kind === 'http'}
 						Will send from the Castor server{spec.paginate ? ', every page' : ''}{spec.batch ? `, ${spec.batch.size} ${spec.batch.arg} per request` : ''}{preview && !previewOpen && previewLines > 1 ? ' · headers and body' : ''}
 					{:else}
 						Will run{spec.image ? ` in ${spec.image}` : ' in the agent shell'}{spec.container_flags?.length ? ` (flags: ${spec.container_flags.join(' ')})` : ''}{preview && !previewOpen && previewLines > 1 ? ` · ${previewLines} lines` : ''}

@@ -1,9 +1,10 @@
 # Actions beyond commands (plan)
 
-Status: **phases 1 and 2 are built**: HTTP actions the Castor server sends (with paging, batches,
-rate limits, retries and waiting), sent through an agent's network when a card chooses one, and AI
-recovery moves for playbook steps. The format is in [commands/README.md](../commands/README.md#http-actions-kind-http)
-and how it works in [ARCHITECTURE.md](ARCHITECTURE.md#http-actions). Phases 3 to 5 are still plans.
+Status: **phases 1 to 3 are built**: HTTP actions the Castor server sends (with paging, batches,
+rate limits, retries and waiting), sent through an agent's network when a card chooses one, AI
+recovery moves for playbook steps, and MCP actions: tools on other MCP servers, over HTTP or as
+stdio programs agents run. The format is in [commands/README.md](../commands/README.md#http-actions-kind-http)
+and how it works in [ARCHITECTURE.md](ARCHITECTURE.md#http-actions). Phases 4 and 5 are still plans.
 This is the design the work follows: change it here first when a decision changes, then build.
 The roadmap entry ("Actions beyond commands") points here.
 
@@ -170,42 +171,52 @@ saved to `jobs.progress` the same way pages are.
 Castor already *is* an MCP server. This makes it a client too.
 
 - **Connections:** **Settings → MCP servers** (admins) lists the servers Castor may call: a name,
-  the URL (Streamable HTTP; SSE for older servers) and auth (a bearer token or headers from the
-  vault), with **Test** listing the server's tools.
+  an id (what actions name), the URL (Streamable HTTP; the older SSE transport isn't supported
+  yet), headers, and a variable set whose fields fill `{{ field }}` in the headers (or a stdio
+  program's environment) when it's used, so the token stays in the vault. **Check** connects and
+  reads the server's name and tools. A connection can be limited to projects, like agents.
 - **stdio servers** are programs that speak MCP over stdin and stdout, and most published MCP
   servers are this kind. Castor never runs them on the server. An agent hosts them instead:
   - the connection names what to run the way a command does: a tool from the tool library (an
     image or a build recipe, so `npx some-mcp-server` runs in a container with Node in it) or, on
     agents started with `--allow-host`, a host command, plus an agent selector (tags or one agent);
-  - its environment comes from a variable set, so API keys reach the program as env vars by name
-    (`-e NAME`), never on a command line;
+  - its environment (`NAME={{ field }}`) comes from the connection's variable set, so API keys
+    reach the program as env vars by name (`-e NAME`), never on a command line;
   - the agent starts the program when a call needs it and bridges JSON-RPC between the server and
-    the program's stdio (stdlib only: a subprocess and its pipes). It keeps the program running
-    between calls for a few minutes (`idle_s`, default 300), then stops it;
+    the program's stdio (stdlib only: a subprocess and its pipes): `mcp.start`, `mcp.send` and
+    `mcp.stop` in, `mcp.started`, `mcp.message` and `mcp.exited` out. One program per connection
+    and agent stays running between calls, shared by them (each call has its own request ids), for
+    `idle_s` (default 300) without use;
   - **Test** and tool listing go through the same agent, so the Settings page shows what the
     program offers before anyone uses it.
 
-  An `mcp` job for a stdio connection is dispatched to a matching agent like a command; one for an
-  HTTP connection runs on the server.
+  The server still runs every MCP job (rate limits, retries, the log, results): for a stdio
+  connection it picks a connected agent that can run the program (one already running it first)
+  and talks to the program through it. If the program stops mid-call the call is retried, and the
+  agent starts it again.
 - **An `mcp` action** names a connection and a tool:
 
   ```yaml
   id: shodan-host
   name: Shodan host lookup (MCP)
   kind: mcp
-  server: shodan               # a connection's id
-  tool: host_lookup
-  args:                        # can be generated from the tool's input schema, then edited
+  args:                          # can be generated from the tool's input schema, then edited
     - {name: ip, type: string, required: true}
-  arguments: {ip: "{{ ip }}"}  # the tool call's arguments; default: the args as they are
+  mcp:                           # a block of its own: commands already use a top-level `tool:`
+    server: shodan               # a connection's id
+    tool: host_lookup
+    arguments: {ip: "{{ ip }}"}  # the tool call's arguments; default: the args as they are
+    timeout_s: 120
   outputs:
-    - {name: host, parser: json}
+    - {name: host, parser: json-records}
   ```
 
 - **Arguments:** "New action from an MCP tool" in the Library reads the tool's `inputSchema` and
   writes the `args` for you (types, descriptions, required).
-- **Result:** the tool's structured result (or its text content) is the job's stdout, images and
-  resources are artifacts, and an error result exits 1 with the message.
+- **Result:** the tool's structured result (or its text content) is the job's stdout, images,
+  audio and resource files are artifacts, links are logged, and an error result fails the job with
+  what the tool said. The server's log messages and progress notifications go to the console as
+  they arrive.
 - **Untrusted output:** the content another server returns is untrusted. It's shown and parsed
   like job output, never followed as instructions. This is the same rule Castor's own MCP server
   states for job output.
@@ -379,8 +390,10 @@ that times out) and to plugin actions, which can return `{retry_after: 30}`.
    `jobs.via_agent_id`; `on_failure: ai` with the recovery moves (wait, smaller, slower,
    skip_batch, ask, fail; `ai.max_wait_s`). Playbook steps are always sent from the server for now;
    a step-level choice can come later.
-3. **MCP:** HTTP connections on the server, stdio connections hosted by agents, tool listing,
-   `mcp` actions, "from an MCP tool", result handling.
+3. **MCP** (built): HTTP connections on the server (Streamable HTTP), stdio connections hosted by
+   agents (`mcp_stdio` capability), Settings → MCP servers with Check and the tool list, `mcp`
+   actions, "From an MCP tool" in the Library, result handling. Not yet: the older SSE transport,
+   MCP connections in exports, and MCP tools (on Castor's own MCP server) to manage connections.
 4. **Plugin actions:** the manifest field, the SDK handler, the runner bridge, plugin rate
    limits, castor-plugins examples.
 5. **Approvals and polish:** `confirm: true`, MCP tools for managing connections and limits.

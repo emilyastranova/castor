@@ -50,7 +50,7 @@ User *──* Project (project_members; admins see every project)
   `lost` means the agent disconnected mid-run. An HTTP action can also be `waiting` (for a rate
   limit or the API's Retry-After, until `resume_at`) between `running` and its end.
 * **Job.kind** is `command` (an agent runs it) or `http` (the Castor server sends a request; see
-  HTTP actions). `Job.runner` is `server` for the jobs no agent ran; `Job.via_agent_id` is the agent
+  HTTP actions), or `mcp` (a tool on another MCP server). `Job.runner` is `server` for the jobs no agent ran; `Job.via_agent_id` is the agent
   an HTTP action's requests went out through, if any.
 * Logs are stored as ordered `JobLogChunk` rows (`stdout`/`stderr`/`system`) so the UI can
   stream and replay them; `Job.stdout_bytes` / `stderr_bytes` are totals.
@@ -82,7 +82,7 @@ Agent → server
 
 | type | fields |
 | --- | --- |
-| `hello` | `token` or `secret`, `name, hostname, os, username, version, capabilities{runtimes[], default_image, host_install, tools[], tty, http}, tags[], max_concurrency` |
+| `hello` | `token` or `secret`, `name, hostname, os, username, version, capabilities{runtimes[], default_image, host_install, tools[], tty, http, mcp_stdio}, tags[], max_concurrency` |
 | `heartbeat` | `running[]` (job ids), `tools[]` (cached tool image tags) |
 | `tool.prepared` | `tool_id, ref, ok, error?, tools[]` (answer to `tool.prepare`) |
 | `job.started` | `job_id, started_at` |
@@ -91,6 +91,9 @@ Agent → server
 | `job.prompt` | `job_id, text` (an interactive job is waiting at this prompt; `null`: no longer) |
 | `http.chunk` | `request_id, data` (base64, up to 512 KB of the response body; any number, in order) |
 | `http.response` | `request_id, status, reason, headers[[name, value]], url` or `request_id, error, error_kind ("timeout"\|"connect"\|"too_big"\|"refused")` |
+| `mcp.started` | `session_id, error?` (the stdio MCP program is running, or why it couldn't start) |
+| `mcp.message` | `session_id, message` (one JSON-RPC message the program printed) |
+| `mcp.exited` | `session_id, error` (it stopped: idle, `mcp.stop`, or it exited; with the end of its stderr) |
 
 Server → agent
 
@@ -106,6 +109,9 @@ Server → agent
 | `job.signal` | `job_id, name ("INT"\|"TERM"\|"QUIT")` (INT is sent as Ctrl+C through the terminal) |
 | `tool.prepare` | `tool` (same shape as `job.tool`; build or pull it now) |
 | `http.request` | `request_id, job_id, method, url, headers{}, body? (base64), timeout_s, max_bytes` (one request of an HTTP action, sent from the agent's network; redirects not followed) |
+| `mcp.start` | `session_id, connection, command[], image?, tool? (a tool way, as in job.tool), env{}, idle_s` (start a stdio MCP server; a no-op if it runs) |
+| `mcp.send` | `session_id, message` (a JSON-RPC message for its stdin) |
+| `mcp.stop` | `session_id` |
 
 Agents send a `heartbeat` every `heartbeat_interval` seconds (`CASTOR_AGENT_HEARTBEAT_INTERVAL`,
 15). An agent the server hasn't heard from for `CASTOR_AGENT_OFFLINE_AFTER` seconds (45) is
@@ -317,6 +323,20 @@ manual cards (`command_library.forget_definition`).
   agent's network); the allowed hosts do. An agent that disconnects mid-request parks the job, and
   it carries on through whichever agent is connected. Agents started with `--no-http` don't offer
   it, nor do SSH hosts.
+* **MCP actions** (`kind: mcp`, an `mcp: {server, tool, arguments?, timeout_s}` block). The
+  server runner calls one tool on an `mcp_connections` row (Settings → MCP servers, admins;
+  `api/mcp_connections.py`): `mcp_client.py` speaks the protocol (initialize, tools/list,
+  tools/call, notifications) over Streamable HTTP (`HttpSession`, through the outbound guard) or to
+  a stdio program an agent runs (`StdioHub`: `mcp.*` messages, one warm program per connection and
+  agent, request ids per call; `gateway` routes the agents' messages to it and drops a lost agent's
+  programs). `mcp_connections.py` fills `{{ field }}` in the connection's headers or env from its
+  variable set (those values are masked in the log too: `_Run.extra`), picks the agent for stdio
+  (`capabilities.mcp_stdio`, a container runtime for a tool or image, host commands otherwise),
+  checks connections (`check`, its tools cached on the row) and drafts a definition from a tool's
+  input schema (`draft_definition`). Arguments render in one pass like HTTP bodies
+  (`http_render.mcp_arguments`). The result: `structuredContent` (else the text) as stdout,
+  images/audio/resource blobs as artifacts, `isError` as a failure (a `Trouble`, so AI recovery can
+  wait); log and progress notifications go to the console. A connection can be limited to projects.
 * **AI recovery.** When the fixed rules run out (`Trouble`) on a playbook step with
   `on_failure: ai`, `server_runner._recover` asks the resolver chain (`ai.recover_http`, masked
   context: the request without its query, the status, rate-limit headers, the start of the body,

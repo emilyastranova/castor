@@ -202,9 +202,30 @@ def render_request(spec: CommandSpec, args: dict[str, Any], lookup: VarLookup, *
     return out
 
 
+def mcp_arguments(spec: CommandSpec, args: dict[str, Any], lookup: VarLookup, *, preview: bool = False) -> dict[str, Any]:
+    """An MCP action's tool arguments: its `arguments` template filled in (a field that is only
+    a placeholder keeps its type; an empty optional one is left out), or else every argument of
+    the definition that has a value. Values are JSON values, so there's nothing to escape;
+    they're never read again for placeholders."""
+    call = spec.mcp
+    if call is None:
+        raise RenderError("this definition has no MCP call")
+    if call.arguments is None:
+        return {k: v for k, v in args.items() if v is not None}
+    fill = _Filler(spec, args, lookup, preview=preview)
+    return fill.json_value(call.arguments)
+
+
 def preview_line(spec: CommandSpec, args: dict[str, Any]) -> str:
     """The card's one-line summary (its `command`): method and URL with arguments filled in
-    and variables as written."""
+    and variables as written; for an MCP action, the server, the tool and its arguments."""
+    if spec.kind == "mcp" and spec.mcp is not None:
+        try:
+            values = mcp_arguments(spec, args, display_lookup, preview=True)
+        except (RenderError, ArgumentError):
+            values = {}
+        shown = ", ".join(f"{k}={json.dumps(v, ensure_ascii=False)}" for k, v in values.items())
+        return f"{spec.mcp.server} · {spec.mcp.tool}({shown})"
     try:
         rendered = render_request(spec, args, display_lookup, check=False)
     except (RenderError, ArgumentError):

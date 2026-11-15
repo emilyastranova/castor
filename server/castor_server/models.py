@@ -681,6 +681,42 @@ class Job(Base):
     )
 
 
+class McpConnection(Base, TimestampMixin):
+    """Another MCP server Castor calls tools on (docs/ACTIONS.md phase 3): over Streamable HTTP
+    from the server, or a stdio program an agent runs. Secrets come from a variable set
+    (`variable_set_id`), filled into `headers` (HTTP) or `env` (stdio) as `{{ field }}`."""
+
+    __tablename__ = "mcp_connections"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # what `mcp.server` names
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str] = mapped_column(Text, default="")
+    transport: Mapped[str] = mapped_column(String(16), default="http")  # http | stdio
+    url: Mapped[str] = mapped_column(String(1000), default="")
+    # Templates: {"Authorization": "Bearer {{ token }}"} (HTTP), {"GITHUB_TOKEN": "{{ token }}"} (stdio).
+    headers: Mapped[dict[str, str]] = mapped_column(JSONType, default=dict)
+    env: Mapped[dict[str, str]] = mapped_column(JSONType, default=dict)
+    variable_set_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("variable_sets.id", ondelete="SET NULL"), nullable=True
+    )
+    # stdio: the program and where it runs. `tool` (the tool library) or `image`, else the
+    # agent's host (it must allow host commands); `command` is the argv (the image's own
+    # entrypoint when empty).
+    command: Mapped[list[str]] = mapped_column(JSONType, default=list)
+    tool: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    image: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    agent_selector: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    idle_s: Mapped[int] = mapped_column(Integer, default=300)
+    # Projects whose cards may call it (ids as strings); None: any.
+    project_ids: Mapped[list[str] | None] = mapped_column(JSONType, nullable=True, default=None)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # What the server said last time it was asked: its name and version, and its tools.
+    server_info: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
+    tools: Mapped[list[dict[str, Any]]] = mapped_column(JSONType, default=list)
+    checked_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class RateBucket(Base):
     """A rate limit's token bucket (rate_limits.py), kept so a restart doesn't refill it."""
 

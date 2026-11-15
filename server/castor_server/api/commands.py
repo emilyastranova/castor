@@ -142,14 +142,20 @@ async def render(command_id: str, body: RenderIn, db: DB, _: CurrentUser):
     except variables.VariableError as exc:
         name, _, message = str(exc).partition(": ")
         raise HTTPException(422, {"message": str(exc), "errors": {name: message}}) from exc
-    if spec.kind == "http":
+    if spec.kind in ("http", "mcp"):
+        import json
+
         from ..command_render import resolve_args
-        from ..http_render import preview_line, request_preview
+        from ..http_render import display_lookup, mcp_arguments, preview_line, request_preview
 
         try:
             resolved = resolve_args(spec, args)
         except ArgumentError as exc:
             raise HTTPException(422, {"message": str(exc), "errors": exc.errors}) from exc
+        if spec.kind == "mcp":
+            call = {"method": "MCP", "url": f"{spec.mcp.server} · {spec.mcp.tool}", "headers": {},
+                    "body": json.dumps(mcp_arguments(spec, resolved, display_lookup, preview=True), ensure_ascii=False, indent=2)}
+            return RenderOut(command=preview_line(spec, resolved), image=None, kind="mcp", request=call)
         return RenderOut(command=preview_line(spec, resolved), image=None, kind="http", request=request_preview(spec, resolved))
     try:
         return RenderOut(

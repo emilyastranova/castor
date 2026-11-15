@@ -11,7 +11,7 @@ from .. import api_tokens, notifications, people, variables
 from .. import models as m
 from ..access import check_project, project_or_404
 from ..assets_text import after_text
-from ..command_library import apply_library, is_http, load_spec
+from ..command_library import apply_library, is_action, load_spec
 from ..command_render import ArgumentError
 from ..deps import DB, CurrentUser, parse_uuid
 from ..events import bus
@@ -192,13 +192,13 @@ async def update_task(task_id: str, body: TaskPatch, db: DB, user: CurrentUser):
     library_ref = changes.pop("command_ref", task.command_ref)
     library_args = changes.pop("command_args", None)
     detaching = "command_ref" in body.model_fields_set and library_ref is None
-    if task.command_ref and is_http(await db.get(m.CommandDefinition, task.command_ref)):
+    if task.command_ref and is_action(await db.get(m.CommandDefinition, task.command_ref)):
         # An HTTP action's request comes from its definition; its card only fills arguments.
         if detaching:
-            raise HTTPException(422, "An HTTP action's card can't be detached from its definition: copy the definition in the Library to change the request")
+            raise HTTPException(422, "An HTTP or MCP action's card can't be detached from its definition: copy the definition in the Library to change it")
         raw = [k for k in ("command", "image", "container_flags") if k in changes and changes[k] != getattr(task, k)]
         if raw and library_ref == task.command_ref:
-            raise HTTPException(422, f"{raw[0]}: an HTTP action's request comes from its definition (change it in the Library)")
+            raise HTTPException(422, f"{raw[0]}: an HTTP or MCP action's request comes from its definition (change it in the Library)")
 
     edited = [k for k, v in changes.items() if k not in ("assignees", "group_assignees") and getattr(task, k) != v]
     if library_ref != task.command_ref or library_args is not None and library_args != task.command_args:
@@ -218,7 +218,7 @@ async def update_task(task_id: str, body: TaskPatch, db: DB, user: CurrentUser):
         await _use_library_command(
             db, task, library_ref, library_args if library_args is not None else task.command_args
         )
-        if "command" in changes and not is_http(await db.get(m.CommandDefinition, task.command_ref)):
+        if "command" in changes and not is_action(await db.get(m.CommandDefinition, task.command_ref)):
             task.command = changes["command"]
     if bindings is not None:
         await _bind_vars(db, task, bindings)

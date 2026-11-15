@@ -151,7 +151,47 @@ export interface Job {
 	} | null;
 }
 
-export type ActionKind = 'command' | 'http';
+export type ActionKind = 'command' | 'http' | 'mcp';
+
+/** An MCP server Castor calls tools on (Settings → MCP servers). Secrets come from its
+ *  variable set, filled into `headers` (HTTP) or `env` (stdio) as {{ field }}. */
+export interface McpTool {
+	name: string;
+	title?: string;
+	description?: string;
+	inputSchema?: { properties?: Record<string, { type?: string | string[]; description?: string }>; required?: string[] };
+	outputSchema?: unknown;
+}
+
+export interface McpConnectionIn {
+	id: string;
+	name: string;
+	description: string;
+	transport: 'http' | 'stdio';
+	url: string;
+	headers: Record<string, string>;
+	env: Record<string, string>;
+	variable_set_id: UUID | null;
+	command: string[];
+	tool: string | null;
+	image: string | null;
+	agent_selector: AgentSelector;
+	idle_s: number;
+	project_ids: UUID[] | null;
+	enabled: boolean;
+}
+
+export interface McpConnection extends McpConnectionIn {
+	variable_set: string | null;
+	server_info: { name?: string; title?: string; version?: string; protocol?: string; instructions?: string } | null;
+	tools: McpTool[];
+	checked_at: string | null;
+	last_error: string | null;
+	/** Definitions (kind: mcp) that call it. */
+	used_by: string[];
+	created_at: string;
+	updated_at: string;
+}
 
 /** A library definition filled in with arguments: the command line, or an HTTP action's request
  *  (variables as written, Authorization as ••••). */
@@ -1045,6 +1085,8 @@ export interface CommandSpec {
 	batch?: { arg: string; size: number } | null;
 	/** A suggested limit for the API, used by cards without their own. */
 	rate_limit?: string | null;
+	/** kind: mcp: a tool on an MCP server. */
+	mcp?: { server: string; tool: string; arguments?: Record<string, unknown> | null; timeout_s?: number } | null;
 }
 
 export interface CommandDefinition {
@@ -1304,7 +1346,7 @@ export interface Agent {
 	os: string;
 	username: string;
 	version: string;
-	capabilities: { runtimes?: string[]; default_image?: string; /** Sends HTTP actions' requests from its network. */ http?: boolean };
+	capabilities: { runtimes?: string[]; default_image?: string; /** Sends HTTP actions' requests from its network. */ http?: boolean; /** Runs stdio MCP servers. */ mcp_stdio?: boolean };
 	tags: string[];
 	/** The projects whose jobs it may run; null: any project (an empty list: none). */
 	project_ids?: UUID[] | null;
@@ -1774,6 +1816,18 @@ export function api(fetchFn: Fetch = fetch) {
 				post<{ changed: Record<string, number> }>(`/projects/${projectId}/tags/rename`, body),
 			/** Agents, tokens, and the cards and runs that target agents by the tags (admins). */
 			renameAgents: (body: { from: string[]; to: string }) => post<{ changed: Record<string, number> }>('/tags/agents/rename', body)
+		},
+		mcp: {
+			list: () => get<McpConnection[]>('/mcp-connections'),
+			get: (id: string) => get<McpConnection>(`/mcp-connections/${encodeURIComponent(id)}`),
+			create: (body: McpConnectionIn) => post<McpConnection>('/mcp-connections', body),
+			update: (id: string, body: McpConnectionIn) => request<McpConnection>(fetchFn, 'PUT', `/mcp-connections/${encodeURIComponent(id)}`, body),
+			remove: (id: string) => del(`/mcp-connections/${encodeURIComponent(id)}`),
+			/** Connect and read its tools (a stdio one: an agent starts it first). */
+			check: (id: string) => post<McpConnection>(`/mcp-connections/${encodeURIComponent(id)}/check`),
+			/** A kind: mcp definition for one of its tools, as YAML to edit and save. */
+			draft: (id: string, tool: string) =>
+				get<{ yaml: string }>(`/mcp-connections/${encodeURIComponent(id)}/tools/${encodeURIComponent(tool)}/draft`)
 		},
 		sshHosts: {
 			list: () => get<SshHost[]>('/ssh-hosts'),

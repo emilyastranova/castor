@@ -190,7 +190,15 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   chosen in `_to_server` among agents with `capabilities.http`); the runner still decides
   everything and the agent only proxies single requests (`gateway.http_request`, agent
   `http_proxy.py`, `http.request`/`http.chunk`/`http.response`; losing the agent parks the job).
-  Step cards of HTTP actions get `{}` (`services._prepare_command_step`). `Trouble` (fixed rules
+  Step cards of HTTP actions get `{}` (`services._prepare_command_step`). Phase 3, MCP actions
+  (`kind: mcp`, an `mcp:` block since `tool:` is taken): `mcp_connections` (Settings → MCP servers,
+  `api/mcp_connections.py`, admins), `mcp_client.py` (protocol; `HttpSession` through `outbound`;
+  `StdioHub` for stdio programs agents run via `mcp.start`/`mcp.send`/`mcp.message`, agent
+  `mcp_bridge.py`, capability `mcp_stdio`), `mcp_connections.py` (secrets from the connection's
+  variable set into headers/env, agent choice, `check`, `draft_definition`), runner `_call_mcp`.
+  `command_library.ACTION_KINDS`/`is_action` cover both kinds. Tests: `tests/test_mcp_actions.py`
+  (a fake Streamable HTTP server; a fake agent for stdio), agent `tests/test_mcp_bridge.py`. Web:
+  `routes/settings/mcp`, `McpConnectionDialog`, the Library's MCP folder and "From an MCP tool". `Trouble` (fixed rules
   ran out) on an `on_failure: ai` step goes to `_recover` → `ai.recover_http`, a fixed list of
   moves recorded in `progress.ai_moves`; batches count values (`progress.offset`). Web:
   `agentSelector.httpSenderOptions`/`describeSender`.

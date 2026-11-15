@@ -125,7 +125,7 @@ class Dispatcher:
             tools = await tools_by_id(db) if any(j.tool for j in queued) else {}
             for job in queued:
                 task = job.task
-                if job.kind == "http":
+                if job.kind in ("http", "mcp"):
                     await self._to_server(db, job, task)
                     continue
                 if job.status != m.JobStatus.queued:
@@ -204,8 +204,8 @@ class Dispatcher:
         first = job.request is None
         if first:
             spec = await load_spec(db, task.command_ref) if task.command_ref else None
-            if spec is None or spec.kind != "http":
-                await self._fail_unsent(db, job, task, "its HTTP action is no longer in the library")
+            if spec is None or spec.kind != job.kind:
+                await self._fail_unsent(db, job, task, f"its {'HTTP' if job.kind == 'http' else 'MCP'} action is no longer in the library")
                 return
             try:
                 expanded = await variables.expand_list_refs(db, spec, task.command_args or {}, task.project_id)
@@ -215,11 +215,11 @@ class Dispatcher:
                 return
             job.request = {
                 "args": args,
-                "spec": spec.model_dump(mode="json", include={"args", "vars", "request", "paginate", "batch", "expect", "retry", "rate_limit"}),
+                "spec": spec.model_dump(mode="json", include={"args", "vars", "request", "paginate", "batch", "expect", "retry", "rate_limit", "mcp"}),
             }
             job.output_specs = output_specs_for(spec.outputs)
         else:
-            spec = CommandSpec.model_validate({"id": "job", "name": task.title, "kind": "http", **job.request["spec"]})
+            spec = CommandSpec.model_validate({"id": "job", "name": task.title, "kind": job.kind, **job.request["spec"]})
         try:
             resolved = await variables.resolve(db, spec.vars, job.var_bindings or {}, task.project_id)
         except variables.VariableError as exc:
@@ -227,7 +227,8 @@ class Dispatcher:
             return
         # Sent through an agent (the card names one, or tags): one that's connected, may work for
         # the project and sends HTTP requests. None now: it waits for one, like a command would.
-        selector = {k: v for k, v in (task.agent_selector or {}).items() if k in ("agent_id", "tags") and v}
+        # (An MCP action's connection decides where it runs, not the card.)
+        selector = {k: v for k, v in (task.agent_selector or {}).items() if k in ("agent_id", "tags") and v} if job.kind == "http" else {}
         via: AgentConnection | None = None
         if selector:
             able = [c for c in gateway.connections.values()
