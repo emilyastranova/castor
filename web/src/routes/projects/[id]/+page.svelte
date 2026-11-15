@@ -380,7 +380,7 @@
 	summary="Settings, columns, cards, comments, files, pinned notes, playbook runs and assets, as one .castor.zip another Castor can import."
 	history
 />
-<ProjectDialog bind:open={editOpen} clients={[]} project={store.project} onsaved={(p) => (store.project = p)} />
+<ProjectDialog bind:open={editOpen} project={store.project} onsaved={(p) => (store.project = p)} />
 
 {#if selectedTask}
 	<!-- Keyed so each card gets a fresh dialog: no field state can carry over between cards. -->

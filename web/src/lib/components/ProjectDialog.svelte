@@ -7,12 +7,16 @@
 
 	interface Props {
 		open?: boolean;
-		clients: Client[];
+		/** Clients to start with; the dialog loads the current list itself when it opens. */
+		clients?: Client[];
 		project?: Project | null;
 		oncreated?: (project: Project) => void;
 		onsaved?: (project: Project) => void;
 	}
-	let { open = $bindable(false), clients, project = null, oncreated, onsaved }: Props = $props();
+	let { open = $bindable(false), clients: given = [], project = null, oncreated, onsaved }: Props = $props();
+
+	// svelte-ignore state_referenced_locally
+	let clients = $state<Client[]>(given);
 
 	let codename = $state('');
 	let name = $state('');
@@ -37,8 +41,29 @@
 			mentions = project?.settings?.asset_mentions !== false;
 			pictures = !!project?.settings?.ai_read_pictures;
 			newClient = '';
+			api()
+				.clients.list()
+				.then((list) => (clients = list))
+				.catch(() => {
+					/* keep what we were given */
+				});
 		}
 	});
+
+	/** The client for a typed name: an existing one with that name (any case), or a new one. */
+	async function clientFor(typed: string): Promise<string> {
+		const same = (list: Client[]) => list.find((c) => c.name.toLowerCase() === typed.toLowerCase());
+		const known = same(clients);
+		if (known) return known.id;
+		try {
+			return (await api().clients.create({ name: typed })).id;
+		} catch (err) {
+			// someone added it meanwhile: use theirs
+			const fresh = same(await api().clients.list());
+			if (fresh) return fresh.id;
+			throw err;
+		}
+	}
 
 	const kinds = ['pipeline', 'automation', 'dataflow', 'infrastructure', 'scheduled', 'internal', 'external', 'other'];
 
@@ -47,10 +72,7 @@
 		busy = true;
 		try {
 			let client_id: string | null = clientId || null;
-			if (clientId === '__new' && newClient.trim()) {
-				const c = await api().clients.create({ name: newClient.trim() });
-				client_id = c.id;
-			}
+			if (clientId === '__new') client_id = newClient.trim() ? await clientFor(newClient.trim()) : null;
 			if (project) {
 				const settings = { ...project.settings, ai_summaries: summaries, asset_mentions: mentions, ai_read_pictures: pictures };
 				const saved = await api().projects.update(project.id, { codename, name, kind, client_id, description, settings });
