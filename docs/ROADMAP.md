@@ -185,6 +185,31 @@ probability) or a rating (`score`, over 2 to 255 described levels), with a confi
   learning thresholds from the decisions people made by hand; and how answers show up in Changes
   between runs.
 
+### Limits on AI use
+Every AI call is already recorded (`ai_calls`: purpose, provider, model, tokens, who asked).
+Admins should be able to cap that use, so a busy playbook or a chatty feature can't run up a bill
+or use up a shared key:
+- **Per provider:** requests and tokens per minute, hour, day or month (input and output
+  separately or together), and optionally a spending cap from a price per million tokens the
+  admin enters, set on the provider in Settings → AI.
+- **Per category of use in Castor:** the purposes Castor calls models for (generating library
+  items, the playbook resolver, HTTP recovery, AI summaries, reading pictures and assets
+  mentioned, drafting parsers, explaining failures, and decision models later), each with its own
+  budget, so summaries can't use what the resolver needs.
+- **Narrower budgets too:** per project (a client engagement with its own allowance), per person
+  and per plugin, on top of the provider's and the category's; a call needs room under every one
+  that applies, as HTTP actions' rate limits work today.
+- **When a limit is reached:** the purpose's chain falls back to its next model (another provider
+  with room), else the call waits for room if it's short (a rate) or is refused with the reason if
+  it's a quota (the day's or month's tokens used up). Automatic uses (summaries, picture reading)
+  quietly stop until the period resets; a paused playbook step waits for a person and says why;
+  admins are notified at a warning level (80 % used) and when it's reached.
+- **Visible:** Settings → AI shows use against each limit for the period, by provider, category,
+  project and person, from the records Castor already keeps.
+- **Open questions:** whether to read limits and remaining quota from the providers' own
+  rate-limit headers as well; prices per model kept by admins or shipped as defaults; and whether
+  a person can be allowed to go past a budget once ("use it anyway") or only an admin.
+
 ## Results and assets
 
 Today each run's results stay with their card, Changes compares one run with an earlier run of
