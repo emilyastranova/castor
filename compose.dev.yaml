@@ -1,8 +1,9 @@
 # Development: the same stack as compose.yaml, built from this checkout, with the checkout's
 # built-in library (commands/, playbooks/, tools/, themes/) mounted over the image's so edits
-# show at the next server restart. Use it on top of compose.yaml:
+# show at the next server restart. It is an override, not a stack: use it ON TOP of compose.yaml
 #   docker compose -f compose.yaml -f compose.dev.yaml up -d --build
 # or put COMPOSE_FILE=compose.yaml:compose.dev.yaml in .env and use plain `docker compose`.
+# The UI is then at http://localhost:8080 (the proxy; the web container's 3000 isn't published).
 # Images are tagged castor/<part>:dev so they never stand in for the published ones.
 services:
   server:
@@ -10,6 +11,11 @@ services:
       context: .
       dockerfile: server/Dockerfile
     image: castor/server:dev
+    # Already in compose.yaml; repeated so that this file on its own stops with
+    # "depends on undefined service db" instead of starting a server with no database.
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
       CASTOR_COMMANDS_DIR: /commands
       CASTOR_PLAYBOOKS_DIR: /playbooks
