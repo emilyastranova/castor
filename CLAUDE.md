@@ -400,6 +400,10 @@ dependency; keep it that way so the agent stays trivially installable on target 
   neutralises spreadsheet formulas via `lib/csv.ts`); the card's Output tab toggles it
   against `JobConsole`. Both it and `routes/parsers` (live parser playground) render values
   with `OutputCard.svelte`.
+- Comparing runs: `compare.py` (pure; records matched by an identity key, `TYPE_KEYS` then `CANDIDATE_KEYS`),
+  `api/changes.py` (`/api/jobs/{id}/changes`, `/api/playbook-runs/{id}/changes`, `?base=`); web `JobChanges.svelte`
+  (the Output tab's Changes view), `RunChanges.svelte` (RunPanel), `ResultChanges.svelte`, `lib/changes.ts`. A new
+  output type with records should get its key in `TYPE_KEYS` and a line in `changes.ts` `describe`.
 - Playbook editor: `routes/playbooks/edit/[id]` reuses `PlaybookVisualizer.svelte` with
   `editable` (connect from a node's handle, delete edges, palette drops, `onlayout`), and
   `lib/playbookEditor.ts` holds the pure spec operations (connect options, disconnect,

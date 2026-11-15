@@ -335,6 +335,13 @@ TOOLS += [
     _auto("duplicate_card", "POST", "/api/tasks/{task_id}/duplicate", "Copy a card (optionally into another column or project)."),
     _auto("card_history", "GET", "/api/tasks/{task_id}/activity", "What happened to a card: moves, runs, edits, by whom."),
     _auto("list_attachments", "GET", "/api/tasks/{task_id}/attachments", "A card's files (uploads and job artifacts).", **_UNTRUSTED),
+    _auto("job_changes", "GET", "/api/jobs/{job_id}/changes",
+          "What changed in a job's parsed results since an earlier run (by default the run before it on the card, or of the "
+          "same step or command): records new, gone and changed, matched by host, port, URL…; base picks the run to compare with.",
+          **_UNTRUSTED),
+    _auto("run_changes", "GET", "/api/playbook-runs/{run_id}/changes",
+          "What changed in a playbook run's results, step by step, since the playbook's run before it in the project (base picks another).",
+          **_UNTRUSTED),
     _auto("list_project_files", "GET", "/api/projects/{project_id}/files",
           "Every file in a project (card attachments, pictures in notes and posts, snapshots, job artifacts) with its card, "
           "run and step and agent; filter by category, source, card, run, agent, days or words, with counts per filter value.",

@@ -836,6 +836,67 @@ export interface JobOutput {
 	created_at: string;
 }
 
+/** One output compared between two runs (server compare.py). */
+export interface OutputChange {
+	name: string;
+	type: string | null;
+	/** new: only in this run; gone: only in the earlier one; error: one side couldn't be read. */
+	status: 'same' | 'changed' | 'new' | 'gone' | 'error';
+	error: string | null;
+	/** The fields records were matched by (null: whole records, or not a list). */
+	key: string[] | null;
+	added: unknown[];
+	removed: unknown[];
+	changed: { item: Record<string, unknown>; before: Record<string, unknown>; fields: { field: string; before: unknown; after: unknown }[] }[];
+	unchanged: number;
+	/** Whole counts, even when the lists above are cut short. */
+	counts: ChangeCounts;
+	before_count: number | null;
+	after_count: number | null;
+	before: unknown;
+	after: unknown;
+}
+
+export interface ChangeCounts {
+	added: number;
+	removed: number;
+	changed: number;
+}
+
+export interface JobChangeBase {
+	job_id: UUID;
+	task_id: UUID;
+	card_title: string;
+	/** Why it's comparable: card (the same card), step, command, same command line, chosen. */
+	how: string;
+	status: JobStatus;
+	queued_at: string;
+}
+
+export interface JobChanges {
+	job_id: UUID;
+	base: JobChangeBase | null;
+	candidates: JobChangeBase[];
+	outputs: OutputChange[];
+	totals: ChangeCounts;
+}
+
+export interface RunChangeBase {
+	run_id: UUID;
+	card_id: UUID | null;
+	status: string;
+	created_at: string;
+	inputs: Record<string, unknown>;
+}
+
+export interface RunChanges {
+	run_id: UUID;
+	base: RunChangeBase | null;
+	candidates: RunChangeBase[];
+	steps: { step_id: string; name: string; status: 'same' | 'changed' | 'new' | 'gone'; outputs: OutputChange[]; totals: ChangeCounts }[];
+	totals: ChangeCounts;
+}
+
 export interface JobDetail extends Job {
 	logs: LogChunk[];
 	outputs: JobOutput[];
@@ -1467,6 +1528,8 @@ export function api(fetchFn: Fetch = fetch) {
 			artifacts: (id: UUID) => get<Attachment[]>(`/jobs/${id}/artifacts`),
 			outputs: (id: UUID) => get<JobOutput[]>(`/jobs/${id}/outputs`),
 			parse: (id: UUID) => post<JobOutput[]>(`/jobs/${id}/outputs/parse`),
+			/** What changed in its results since an earlier run (`base`: which one; default the one before it). */
+			changes: (id: UUID, base?: UUID | null) => get<JobChanges>(`/jobs/${id}/changes${base ? `?base=${base}` : ''}`),
 			/** What an output's parser read (its files or stdout), to write a parser against. */
 			outputInput: (id: UUID, name: string) =>
 				get<{ text: string; sources: string[]; truncated: boolean; parser: string; type: string; error: string | null }>(
@@ -1515,6 +1578,8 @@ export function api(fetchFn: Fetch = fetch) {
 			toYaml: (spec: PlaybookSpec) => post<PlaybookCheck & { yaml: string }>('/playbooks/to-yaml', { spec })
 		},
 		playbookRuns: {
+			/** What changed in its results, step by step, since an earlier run of the playbook. */
+			changes: (id: UUID, base?: UUID | null) => get<RunChanges>(`/playbook-runs/${id}/changes${base ? `?base=${base}` : ''}`),
 			summary: (id: UUID) => get<AiSummary | null>(`/playbook-runs/${id}/summary`),
 			summarize: (id: UUID) => post<AiSummary>(`/playbook-runs/${id}/summary`),
 			list: (params?: { project_id?: string; playbook_id?: string; limit?: number }) => {

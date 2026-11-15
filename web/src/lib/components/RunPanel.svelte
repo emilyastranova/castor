@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { PlaybookRun, PlaybookStepSpec, Task, UUID } from '$lib/api';
 	import AiSummary from './AiSummary.svelte';
+	import RunChanges from './RunChanges.svelte';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Icon } from '$lib/m3';
 	import { realtime } from '$lib/realtime.svelte';
@@ -118,6 +119,7 @@
 			<span class="block h-full rounded-full bg-primary transition-all" style:width="{values.length ? (100 * done) / values.length : 0}%"></span>
 		</span>
 		<AiSummary {runId} finished={run.status === 'succeeded' || run.status === 'failed'} projectId={run.project_id} {editable} />
+		<RunChanges {run} />
 		{#if Object.keys(run.inputs ?? {}).length}
 			<div class="flex flex-wrap gap-1.5">
 				{#each Object.entries(run.inputs) as [k, v] (k)}

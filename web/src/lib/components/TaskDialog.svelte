@@ -20,6 +20,7 @@
 	import JobConsole from './JobConsole.svelte';
 	import SnapshotDialog from './SnapshotDialog.svelte';
 	import JobResults from './JobResults.svelte';
+	import JobChanges from './JobChanges.svelte';
 	import ColumnGlyph from './ColumnGlyph.svelte';
 	import PriorityGlyph, { priorityOptions } from './PriorityGlyph.svelte';
 	import NameImageDialog from './NameImageDialog.svelte';
@@ -124,7 +125,8 @@
 					? 'output'
 					: 'comments';
 		selectedJobId = params.get('job') ?? task.latest_job?.id ?? null;
-		wantedView = params.get('view') === 'results' ? 'results' : params.get('job') ? 'console' : null;
+		const view = params.get('view');
+		wantedView = view === 'results' || view === 'changes' ? view : params.get('job') ? 'console' : null;
 		shownLink = linked;
 		void loadSide().then(() => {
 			if (linked) void showComment(linked);
@@ -216,16 +218,19 @@
 
 	// Console or parsed Results for the selected run. Jobs from before parsing existed have no
 	// output_specs, but a library card can still parse them on demand.
-	let outputView = $state<'console' | 'results'>('console');
+	// …or what changed in them since an earlier run (Changes).
+	type OutputView = 'console' | 'results' | 'changes';
+	let outputView = $state<OutputView>('console');
 	let resultCount = $state<number | null>(null);
+	let changeCount = $state<number | null>(null);
 	let hasResults = $derived(!!selectedJob && (!!selectedJob.output_specs?.length || !!task.command_ref));
 	let viewFor: UUID | null = null;
-	let wantedView: 'console' | 'results' | null = null;
+	let wantedView: OutputView | null = null;
 	$effect(() => {
 		const job = selectedJob;
 		if (!job || job.id === viewFor) return;
 		viewFor = job.id;
-		resultCount = null;
+		resultCount = changeCount = null;
 		const done = ['succeeded', 'failed', 'lost'].includes(job.status);
 		outputView = wantedView ?? (done && job.output_specs?.length ? 'results' : 'console');
 		wantedView = null;
@@ -889,14 +894,14 @@
 						<AiSummary jobId={selectedJob.id} finished={['succeeded', 'failed', 'lost'].includes(selectedJob.status)} projectId={task.project_id} {editable} />
 						{#if hasResults}
 							<div class="flex h-9 w-fit shrink-0 overflow-hidden rounded-full border border-outline" role="group" aria-label="Run view">
-								{#each [{ id: 'console', label: 'Console', icon: 'terminal' }, { id: 'results', label: resultCount ? `Results · ${resultCount}` : 'Results', icon: 'table_view' }] as v, i (v.id)}
+								{#each [{ id: 'console', label: 'Console', icon: 'terminal' }, { id: 'results', label: resultCount ? `Results · ${resultCount}` : 'Results', icon: 'table_view' }, { id: 'changes', label: changeCount ? `Changes · ${changeCount}` : 'Changes', icon: 'difference' }] as v, i (v.id)}
 									<button
 										type="button"
 										aria-pressed={outputView === v.id}
-										class="state-layer focus-ring inline-flex items-center gap-1.5 px-4 label-large transition-colors {i ? 'border-l border-outline' : ''} {outputView === v.id
+										class="state-layer focus-ring inline-flex items-center gap-1.5 px-3 label-large sm:px-4 transition-colors {i ? 'border-l border-outline' : ''} {outputView === v.id
 											? 'bg-secondary-container text-on-secondary-container'
 											: 'text-on-surface'}"
-										onclick={() => (outputView = v.id as 'console' | 'results')}
+										onclick={() => (outputView = v.id as OutputView)}
 									>
 										<Icon name={outputView === v.id ? 'check' : v.icon} size={18} />{v.label}
 									</button>
@@ -906,6 +911,8 @@
 						{#key selectedJob.id}
 							{#if hasResults && outputView === 'results'}
 								<JobResults job={selectedJob} onload={(o) => (resultCount = o.filter((x) => !x.error).length || null)} />
+							{:else if hasResults && outputView === 'changes'}
+								<JobChanges job={selectedJob} onload={(c) => (changeCount = c.base ? c.totals.added + c.totals.removed + c.totals.changed || null : null)} />
 							{:else}
 								<JobConsole job={selectedJob} oncancel={editable ? cancel : undefined} title={task.title} canInteract={editable} onsnapshot={(range) => selectedJob && (snapshot = { jobId: selectedJob.id, range, attachment: null })} />
 							{/if}

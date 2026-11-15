@@ -67,11 +67,6 @@ listener, or a log tail:
   a hash captured or a hostname seen in traffic.
 - **Control:** start, stop and restart from the card, and a per-agent limit on how many run at once.
 
-## Data and results
-
-### Comparing runs
-What changed in a run's results since the previous one (new hosts, closed ports, new findings).
-
 ## Reporting and the interface
 
 ### Reporting workflows

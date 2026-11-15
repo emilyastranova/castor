@@ -193,6 +193,29 @@ parsers: `nmap.hosts`, `nmap.services`, `ffuf.results`, `httpx.results`, `netexe
 `lines`, `regex`, `text`. XML goes through `defusedxml`, since tool output can carry external
 untrusted content.
 
+#### Comparing runs
+
+`compare.py` (pure) says what changed between two runs' outputs. Lists of records are matched by
+an identity key: from the type (`list<host>` by `ip`, `list<service>` by `host, port, proto`,
+`list<smb_host>` by `host, port`, `list<url>` by `url`), else the first of `CANDIDATE_KEYS`
+(`template-id` + `matched-at` for findings, `id`, `name`…) that every record has and none share,
+else whole records. Each output is `same`, `changed`, `new` (only in this run) or `gone`, with
+records `added`, `removed` and `changed` (with the fields that differ; lists cut at 500, counts
+whole) and how many are `unchanged`. Lists of plain values compare as sets; other values whole,
+objects field by field. An output that errored on either side is `error`, not compared.
+`api/changes.py`:
+- `GET /api/jobs/{id}/changes?base=` compares a job with an earlier finished job that has
+  outputs. By default the closest kind of earlier run, then the latest: the same card, the same
+  playbook step and command, the same library command, the same command line (all in the project).
+  `candidates` lists the others (`how` says why each is comparable).
+- `GET /api/playbook-runs/{id}/changes?base=` compares each step's usable results
+  (`services._step_outputs`: succeeded jobs' outputs, `for_each` items merged, transform results)
+  with the playbook's previous finished run in the project; steps only one run has are `new` or `gone`.
+
+Web: the Output tab's **Changes** view (`JobChanges.svelte`, `?view=changes`), a folded summary in
+`RunPanel` (`RunChanges.svelte`), both rendering `ResultChanges.svelte`; `lib/changes.ts` turns
+records into a line and changes into Markdown. MCP tools `job_changes`, `run_changes`.
+
 #### Parsers in the library
 
 People and the AI add parsers as **declarative definitions**, or as JavaScript in a sandbox
@@ -948,6 +971,6 @@ operator, and makes every existing user a member of every existing project.
   interactive jobs, alerts, theme colours, duplicating cards.
 * **M4** (done): scoped API tokens and an API reference, a built-in
   MCP server for AI assistants, phone usability.
-* Since: plugins (phases A to E), snapshots, a project's Files.
+* Since: plugins (phases A to E), snapshots, a project's Files, SAML sign-on, comparing runs.
 
 What's next is in [ROADMAP.md](ROADMAP.md).
