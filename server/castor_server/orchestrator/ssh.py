@@ -11,8 +11,9 @@ On the host, each job gets <workdir>/<job id>/ (like an agent's job directory):
 - variable files go to .castor/ (owner-only) over SFTP, with the env vars in .castor/env,
   which the job's script sources and deletes before it runs the command (values never
   appear in a command line, so not in `ps` either);
-- .castor/run.sh cd's there, records its pid (sshd makes each session its own process
-  group, so cancel is `kill -- -<pid>`) and execs the command in /bin/sh, or in
+- .castor/run.sh cd's there, records its process group (sshd makes each session its own
+  group, so cancel is `kill -TERM -<pgid>`; read with ps or /proc, since under dash the script
+  isn't the group's leader) and execs the command in /bin/sh, or in
   `podman|docker run` with the job dir at /work when the host has a container runtime;
 - afterwards .castor/ is removed and declared outputs and artifacts/** are fetched over
   SFTP into the card's attachments (artifacts.store), skipping symlinks and anything that
@@ -292,7 +293,12 @@ class JobRun:
                 await handle.write(lines)
             script = (
                 f"cd -- {_q(self.dir)} || exit 127\n"
-                "echo $$ > .castor/pid\n"
+                # The session's process group, which cancel kills. Not $$: a shell that doesn't
+                # exec its last command (dash, /bin/sh on Debian and Ubuntu) leaves this script a
+                # child of the session's leader, so $$ is no group at all.
+                "pg=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')\n"
+                "[ -n \"$pg\" ] || pg=$(cut -d' ' -f5 /proc/$$/stat 2>/dev/null)\n"
+                "echo \"${pg:-$$}\" > .castor/pid\n"
                 ". ./.castor/env\nrm -f .castor/env\n"
                 + self._command(list(env))
                 + ("" if self.tty else " </dev/null")
@@ -357,7 +363,8 @@ class JobRun:
 
     async def kill(self, sig: str) -> None:
         pidfile = _q(self.dir + "/.castor/pid")
-        await self.link.exec(f'p=$(cat {pidfile} 2>/dev/null) && kill -{sig} -- "-$p" 2>/dev/null; true')
+        # No `--`: dash's kill takes it for a pid; every shell reads -<sig> -<pgid> as a group.
+        await self.link.exec(f'p=$(cat {pidfile} 2>/dev/null) && [ -n "$p" ] && kill -{sig} "-$p" 2>/dev/null; true')
 
     async def cancel(self) -> None:
         self.cancelled = True
