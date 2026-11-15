@@ -6,21 +6,18 @@ and, for how it works, [ARCHITECTURE.md](ARCHITECTURE.md#milestones).
 
 ## Plugins
 
-### A plugin system
-Let anyone extend Castor, the way Obsidian's community plugins work: plugins that add library
-content, actions on cards and assets, event handlers, hooks, settings and panels in the UI,
-published in a public directory and installed by admins. They run sandboxed (a Deno process with
-only the permissions they declare); one that needs more is marked unmistakably and stays off until
-an admin allows unrestricted plugins. The design and phases are in [PLUGINS.md](PLUGINS.md).
-Phases A to D are built (sandboxed plugins with actions, settings, storage, events, declared
-network access and their own pages in sandboxed frames; unrestricted plugins behind restricted
-mode, with safe mode and page scripts; Settings → Plugins; the Nessus import, Shodan enrichment,
-BloodHound bridge, DOCX report and Watch folder), and plugins can add asset types and relationship
-kinds (Source Code Review: repositories, source files and symbols, with imports, calls and data
-flow). Phase E is built too: the plugin directory (its own repository,
-[castor-plugins](https://github.com/emilyastranova/castor-plugins), which also holds the official
-plugins), browsing and installing from it, daily update checks, publisher pages, and packs of
-library content. Still to come: hooks, and signed releases.
+### More for plugins
+Plugins are built ([PLUGINS.md](PLUGINS.md) has the design; the wiki covers using them). Still to
+come:
+- **Hooks:** synchronous decisions Castor asks a plugin for, with a deadline (2 s by default): map
+  a parser's results to assets and relationships, a playbook transform op, a trigger condition, a
+  search provider. For example, a parser for a tool Castor doesn't know, with its asset mapping.
+- **Signed releases:** directory releases signed (Sigstore) and checked at install and update,
+  once there are publishers to verify, on top of today's SHA-256 checks.
+- **More UI slots:** `run.panel` (a playbook run's panel), `project.home` (a tile on a project's
+  Home), `settings.page` and `graph.overlay` (on the Relationships graph).
+- **For authors:** SDK types generated from Castor's OpenAPI, and a scaffolding CLI for a new
+  plugin.
 
 ### More repositories
 Today the library has two sources: what ships with Castor and the one plugin directory
@@ -77,50 +74,23 @@ Ansible inventory, a cloud's run-command service, a remote management tool's API
 
 ## Cards and the board
 
-### Cards with subtasks
-A board fills up fast when every small piece of work is its own card. A card should be able to
-be an over-arching activity ("Update homelab LXCs", "Patch the DMZ hosts", "Q3 external
-retest") with subtasks inside it, so the board and Home show the activity once, not twenty small
-cards. Playbook runs already work this way (one card on the board, its steps hidden, a Run tab
-with their progress), so this reuses that look and machinery.
-
-The first part is built: one level of subtasks (`tasks.parent_id`), hidden from the board, with
-the activity's progress on its card; a Subtasks tab (quick add, cards from the board, order, make
-one its own card again, Run all); subtasks opening on top of the activity; the activity following
-its subtasks (a project setting); archive, restore, duplicate, delete and export taking them into
-account; and **Group cards into one** (the project menu, `POST /api/projects/{id}/consolidate`,
-MCP `consolidate_cards`) for tidying a board. Still to come: the rest of this list (many at once
-from a target list, a graph of their dependencies, dragging onto an activity, Home's roll-up,
-playbooks).
-- **On the board:** the activity is one card with its progress (5 of 12 done, 1 failed, 2
-  running), its earliest due date and who's working on it, like a run card. Subtasks don't show as
-  cards of their own (`parent_id`, filtered out like step cards), unless a filter asks for them.
-- **Inside the card:** a **Subtasks** tab in the style of a playbook run's panel: the subtasks
-  with their status, assignee, due date and latest run, in order or as a graph when they depend on
-  each other (Depends on between subtasks), each opening on top of the activity as step cards do.
-  Quick add (type a title, Enter), reorder by dragging, tick a manual one done in place.
-- **Subtasks are real cards:** manual or command (a library command, an HTTP or MCP action),
-  with their own comments, files, assignees, due dates, runs and results; they can wait on each
-  other, and commands run like any card's.
+### More for subtasks
+Cards with subtasks are built (one level deep, hidden from the board, a Subtasks tab, Run all, the
+activity following its subtasks, and Group cards into one, in the UI and over MCP). Still to come:
 - **Many at once:** one subtask per target from a target list or an asset query (one per LXC,
   one per host in a scope group), all running the same command, like a playbook's `for_each`;
-  **Run all**, with how many at once, or one after another.
-- **The activity moves itself (optional):** to In Progress when a subtask starts, and to Review
-  or Done when every subtask is done (or skipped); a failed subtask shows on the card and in
-  Home's "needs attention" without moving it back.
-- **Moving work in and out:** drag a card onto an activity to make it a subtask, turn a subtask
-  back into its own card, and turn a card into an activity by adding a first subtask. Archiving or
-  duplicating an activity takes its subtasks along (a duplicate as fresh, unstarted ones), and
-  exports carry them.
+  **Run all** with how many at once, or one after another.
+- **In the Subtasks tab:** a graph when subtasks depend on each other, reordering by dragging,
+  and ticking a manual subtask done in place.
+- **Moving work in:** drag a card onto an activity on the board to make it a subtask.
 - **Home and the feed:** subtasks' activity rolls up under the activity ("3 subtasks of Update
-  homelab LXCs finished"), counts on Home count the activity once, and people's own subtasks still
-  show in "yours".
+  homelab LXCs finished"), Home counts the activity once, people's own subtasks still show in
+  "yours", and a failed subtask shows in Home's needs-attention.
 - **From and to playbooks:** save an activity's subtasks as a playbook to repeat it next month,
   or start an activity from a playbook, so a playbook run and an activity are one idea on the
   board.
-- **Open questions:** how deep it nests (one level of subtasks, or subtasks of subtasks); whether
-  a subtask can sit in a column of its own on the board when someone wants it there; and how
-  search and the people pages show subtasks.
+- **Open questions:** subtasks of subtasks; whether a subtask can sit in a column of its own on
+  the board when someone wants it there; and how search and the people pages show subtasks.
 
 ## Running work
 
@@ -242,12 +212,11 @@ how it got there.
 ### One picture from many scans
 Two Nmap scans of overlapping scopes, a GoWitness run per subnet, a rescan a week later: the
 results should combine into one view of the environment, wherever and however they were run.
-- **Merged by identity:** every result with a known identity (a host, a service `host:port`, a
-  URL, a share) folds into one asset, the way hosts seen by name and address are folded today.
-  Overlapping scopes don't duplicate anything; a host scanned twice gets two observations.
-- **Observations, not overwrites:** each asset keeps a dated history of what each run saw
-  (`port 443 open` from scan A on the 3rd, `closed` from scan B on the 10th), with the card, job
-  and agent it came from. The asset shows the latest state, and its history shows each change.
+Assets already fold results by identity (a host seen by name and by address is one asset) and keep
+a dated observation per source (`asset_observations`: the job, card, parser and time). Still to come:
+- **History on the asset:** what each run saw, shown as changes over time (`port 443 open` from
+  scan A on the 3rd, `closed` from scan B on the 10th), with the agent each came from; today only
+  the latest values show.
 - **Seen and not seen:** a run whose scope covered an asset but didn't find it records that as
   well ("not seen by the 10th's scan"), which is different from never having been scanned.
   Scope comes from the job's targets, so a scan of 10.0.1.0/24 says nothing about 10.0.2.5.
@@ -307,7 +276,6 @@ re-read from files at startup.
 
 Further ideas, smaller or less settled:
 
-- **Scheduled runs** of a card or playbook (see [triggers](#triggers-beyond-assets)).
 - **Secrets from an external vault** (HashiCorp Vault, 1Password, cloud secret managers) as
   variable sets, read at dispatch.
 - **Agent pools and auto-scaling:** start agents on demand (containers or cloud instances) when
