@@ -10,6 +10,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from . import parsers
+from .http_spec import Batch, Expect, HttpRequest, Paginate, Retry, check_rate
 
 # "varset" is for playbook inputs only (pick a variable set of `kind`); commands take
 # variable sets through `vars` slots instead.
@@ -176,10 +177,28 @@ class OutputSpec(BaseModel):
         return self
 
 
+def template_strings(value: Any) -> list[str]:
+    """Every string in a request template (dict values, list items, nested), for checking
+    which placeholders it uses."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [s for v in value.values() for s in template_strings(v)]
+    if isinstance(value, list):
+        return [s for v in value for s in template_strings(v)]
+    return []
+
+
+ActionKind = Literal["command", "http"]
+
+
 class CommandSpec(BaseModel):
     id: str
     name: str
     schema_version: int = 1
+    # What running it does (docs/ACTIONS.md): a shell command on an agent, or an HTTP request
+    # the Castor server makes.
+    kind: ActionKind = "command"
     description: str = ""
     tags: list[str] = Field(default_factory=list)
     image: str | None = None
@@ -191,8 +210,27 @@ class CommandSpec(BaseModel):
     tty: bool = False
     args: list[ArgSpec] = Field(default_factory=list)
     vars: list[VarSlot] = Field(default_factory=list)
-    command: str
+    command: str = ""
     outputs: list[OutputSpec] = Field(default_factory=list)
+    # kind: http (http_spec.py).
+    request: HttpRequest | None = None
+    paginate: Paginate | None = None
+    batch: Batch | None = None
+    expect: Expect | None = None
+    retry: Retry | None = None
+    # A suggested limit for the API (60/minute): a card that has none of its own uses it.
+    rate_limit: str | None = None
+
+    @field_validator("rate_limit")
+    @classmethod
+    def check_rate_limit(cls, value: str | None) -> str | None:
+        return check_rate(value)
+
+    def template_text(self) -> list[str]:
+        """Where placeholders can be: the command line, or every string of the request."""
+        if self.kind == "http" and self.request is not None:
+            return template_strings(self.request.model_dump(mode="json", by_alias=True, exclude={"timeout_s", "method", "save_as"}))
+        return [self.command]
 
     @model_validator(mode="before")
     @classmethod
@@ -229,6 +267,29 @@ class CommandSpec(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def fits_kind(self) -> CommandSpec:
+        http_parts = [n for n in ("request", "paginate", "batch", "expect", "retry") if getattr(self, n) is not None]
+        if self.kind == "command":
+            if not self.command.strip():
+                raise ValueError("command: a command needs its command line")
+            if http_parts:
+                raise ValueError(f"{http_parts[0]}: only for kind: http")
+            return self
+        if self.request is None:
+            raise ValueError("request: an http action needs its request (method and url)")
+        shell = [n for n, on in (("command", self.command.strip()), ("image", self.image), ("tool", self.tool),
+                                 ("container_flags", self.container_flags), ("tty", self.tty)) if on]
+        if shell:
+            raise ValueError(f"{shell[0]}: an http action makes a request; it has no {shell[0]}")
+        if self.batch is not None:
+            arg = next((a for a in self.args if a.name == self.batch.arg), None)
+            if arg is None or arg.type != "list":
+                raise ValueError(f"batch.arg: {self.batch.arg} isn't a list argument")
+        if any(WORK_PLACEHOLDER.search(t) for t in self.template_text()):
+            raise ValueError("{{ work }} is for commands; an http action has no work directory")
+        return self
+
+    @model_validator(mode="after")
     def check_template(self) -> CommandSpec:
         names = [a.name for a in self.args]
         if len(names) != len(set(names)):
@@ -238,7 +299,8 @@ class CommandSpec(BaseModel):
             raise ValueError("output names must be unique")
         if WORK in names:
             raise ValueError("work is reserved: {{ work }} is the job's work directory")
-        undefined = sorted(set(PLACEHOLDER.findall(self.command)) - set(names) - {WORK})
+        text = "\n".join(self.template_text())
+        undefined = sorted(set(PLACEHOLDER.findall(text)) - set(names) - {WORK})
         if undefined:
             raise ValueError(f"template uses undefined arguments: {', '.join(undefined)}")
         varsets = [a.name for a in self.args if a.type == "varset"]
@@ -249,7 +311,7 @@ class CommandSpec(BaseModel):
             raise ValueError("vars slot names must be unique")
         if set(slots) & set(names):
             raise ValueError("a vars slot can't have the same name as an argument")
-        unknown = sorted({s for s, _ in VAR_PLACEHOLDER.findall(self.command)} - set(slots))
+        unknown = sorted({s for s, _ in VAR_PLACEHOLDER.findall(text)} - set(slots))
         if unknown:
             raise ValueError(f"template uses undeclared vars slots: {', '.join(unknown)}")
         by_name = {a.name: a for a in self.args}

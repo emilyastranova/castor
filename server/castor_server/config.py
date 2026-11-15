@@ -76,6 +76,13 @@ class Settings(BaseSettings):
     github_api_url: str = "https://api.github.com"
     github_token: str = ""
     plugin_update_interval: int = 86400  # seconds between update checks
+    # HTTP actions (docs/ACTIONS.md) and alert channels: addresses (CIDRs, comma separated)
+    # exempt from the outbound block on loopback, link-local and reserved addresses, on top of
+    # Settings → General. HTTP actions the server runs at once, and the most of a response it
+    # reads.
+    http_allow_addresses: str = ""
+    server_runner_slots: int = 8
+    http_max_bytes: int = 50 * 1024 * 1024
 
     @property
     def uploads_dir(self) -> Path:

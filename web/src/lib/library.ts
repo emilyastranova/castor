@@ -6,6 +6,10 @@ import type { CommandDefinition, ToolAgentState, ToolDefinition } from '$lib/api
 
 /** Commands that name an image, or nothing, instead of a tool. */
 export const NO_TOOL = '';
+/** HTTP actions (kind: http): requests the Castor server makes, in a folder of their own. */
+export const HTTP_FOLDER = '#http';
+
+export const isHttp = (c: CommandDefinition) => c.spec.kind === 'http';
 
 export interface Folder {
 	/** The tool id, or NO_TOOL. */
@@ -17,21 +21,27 @@ export interface Folder {
 
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
 
-/** Folders sorted by name (case-insensitive), "Images and shell" last; a tool without commands still gets one. */
+/** Folders sorted by name (case-insensitive), then "HTTP actions" and "Images and shell" last; a
+ *  tool without commands still gets one. */
 export function folders(commands: CommandDefinition[], tools: ToolDefinition[]): Folder[] {
 	const toolIds = new Set(tools.map((t) => t.id));
 	const out: Folder[] = tools.map((t) => ({ id: t.id, name: t.name, tool: t, commands: [] }));
+	const http: Folder = { id: HTTP_FOLDER, name: 'HTTP actions', tool: null, commands: [] };
 	const rest: Folder = { id: NO_TOOL, name: 'Images and shell', tool: null, commands: [] };
 	const index = new Map(out.map((f) => [f.id, f]));
 	for (const c of commands) {
 		const tool = c.spec.tool && toolIds.has(c.spec.tool) ? c.spec.tool : null;
-		(tool ? index.get(tool)! : rest).commands.push(c);
+		(isHttp(c) ? http : tool ? index.get(tool)! : rest).commands.push(c);
 	}
 	for (const f of out) f.commands.sort(byName);
+	http.commands.sort(byName);
 	rest.commands.sort(byName);
 	out.sort(byName);
-	return rest.commands.length ? [...out, rest] : out;
+	return [...out, ...[http, rest].filter((f) => f.commands.length)];
 }
+
+/** A folder's key in the Library tree: `t:<tool>`, or `f:<id>` for the folders without a tool. */
+export const folderKey = (f: Folder) => (f.tool ? `t:${f.id}` : `f:${f.id}`);
 
 /** What a command takes and gives: its list (or required) arguments → its parsed output types. */
 export function signature(c: CommandDefinition): { inputs: string[]; outputs: string[] } {
@@ -86,11 +96,13 @@ export interface Filters {
 	credentials: boolean;
 	unused: boolean;
 	notReady: boolean;
+	/** HTTP actions only. */
+	http?: boolean;
 	tag: string | null;
 }
 
-export const NO_FILTERS: Filters = { q: '', mine: false, credentials: false, unused: false, notReady: false, tag: null };
-export const filtering = (f: Filters) => !!(f.q.trim() || f.mine || f.credentials || f.unused || f.notReady || f.tag);
+export const NO_FILTERS: Filters = { q: '', mine: false, credentials: false, unused: false, notReady: false, http: false, tag: null };
+export const filtering = (f: Filters) => !!(f.q.trim() || f.mine || f.credentials || f.unused || f.notReady || f.http || f.tag);
 
 function words(q: string) {
 	return q.toLowerCase().split(/\s+/).filter(Boolean);
@@ -101,8 +113,9 @@ export function commandMatches(c: CommandDefinition, f: Filters, toolName = ''):
 	if (f.mine && c.origin !== 'user') return false;
 	if (f.credentials && !needsCredentials(c)) return false;
 	if (f.unused && usageCount(c) > 0) return false;
+	if (f.http && !isHttp(c)) return false;
 	if (f.tag && !c.tags.includes(f.tag)) return false;
-	const hay = [c.name, c.id, c.description, toolName, ...c.tags, ...signature(c).outputs].join(' ').toLowerCase();
+	const hay = [c.name, c.id, c.description, toolName, ...c.tags, ...signature(c).outputs, isHttp(c) ? 'http api request' : ''].join(' ').toLowerCase();
 	return words(f.q).every((w) => hay.includes(w));
 }
 
@@ -117,7 +130,7 @@ export function toolMatches(t: ToolDefinition, f: Filters): boolean {
  *  its (otherwise matching) commands; a folder with no match at all drops out. */
 export function filterFolders(all: Folder[], f: Filters): Folder[] {
 	if (!filtering(f)) return all;
-	const commandFacets = f.credentials || f.unused;
+	const commandFacets = f.credentials || f.unused || f.http;
 	const out: Folder[] = [];
 	for (const folder of all) {
 		if (f.notReady && (!folder.tool || ['ready', 'no-agents'].includes(readiness(folder.tool).state))) continue;
@@ -140,4 +153,30 @@ export function commandParts(command: string): { text: string; arg: boolean }[] 
 	}
 	if (last < command.length) out.push({ text: command.slice(last), arg: false });
 	return out;
+}
+
+/** An HTTP action's request template as text, for the Library's detail pane (placeholders as
+ *  written, so commandParts can highlight them). */
+export function requestText(c: CommandDefinition): string {
+	const r = c.spec.request;
+	if (!r) return '';
+	const lines = [`${r.method ?? 'GET'} ${r.url}`];
+	for (const [k, v] of Object.entries(r.query ?? {})) lines.push(`  ?${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`);
+	for (const [k, v] of Object.entries(r.headers ?? {})) lines.push(`${k}: ${v}`);
+	if (r.auth?.bearer) lines.push(`Authorization: Bearer ${r.auth.bearer}`);
+	if (r.auth?.basic) lines.push(`Authorization: Basic ${r.auth.basic.join(':')}`);
+	if (r.json_body !== null && r.json_body !== undefined) lines.push('', JSON.stringify(r.json_body, null, 2));
+	else if (r.form) lines.push('', Object.entries(r.form).map(([k, v]) => `${k}=${v}`).join('&'));
+	else if (r.body) lines.push('', `Content-Type: ${r.content_type ?? 'text/plain'}`, r.body);
+	return lines.join('\n');
+}
+
+/** How an HTTP action pages and batches, in words. */
+export function pagingText(c: CommandDefinition): string {
+	const p = c.spec.paginate;
+	const b = c.spec.batch;
+	const parts = [];
+	if (p) parts.push({ cursor: 'every page, by cursor', link: 'every page, by next link', offset: 'every page, by offset', page: 'every page, by page number' }[p.style] + (p.items ? ` (records at ${p.items})` : ''));
+	if (b) parts.push(`${b.size} ${b.arg} per request`);
+	return parts.join('; ');
 }

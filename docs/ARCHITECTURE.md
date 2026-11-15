@@ -47,7 +47,10 @@ User *──* Project (project_members; admins see every project)
   `{tags: [...]}` (any one agent with all of them) or `{tags, all: true}` (every connected
   agent with them; see Dispatcher), normalised by `services.check_selector`.
 * **Job.status** flows `queued → dispatched → running → succeeded | failed | cancelled | lost`.
-  `lost` means the agent disconnected mid-run.
+  `lost` means the agent disconnected mid-run. An HTTP action can also be `waiting` (for a rate
+  limit or the API's Retry-After, until `resume_at`) between `running` and its end.
+* **Job.kind** is `command` (an agent runs it) or `http` (the Castor server sends a request; see
+  HTTP actions). `Job.runner` is `server` for the jobs no agent ran.
 * Logs are stored as ordered `JobLogChunk` rows (`stdout`/`stderr`/`system`) so the UI can
   stream and replay them; `Job.stdout_bytes` / `stderr_bytes` are totals.
 * `custom_fields` on Task, `settings` on Project, `capabilities` on Agent are JSON.
@@ -276,6 +279,57 @@ read-only through the API; detaching (`command_ref: null`) keeps the rendered li
 shell command. An argument with `flag` renders as `<flag> <value>` (a boolean as just the
 flag) and as nothing when empty; `show_if` names a boolean argument, and while that is off
 the argument is hidden in the form and ignored when rendering.
+
+## HTTP actions
+
+A library definition with `kind: http` (docs/ACTIONS.md, `commands/README.md`) is a request the
+Castor server makes, not a shell command: `request` (method, url, query, headers, auth, one body:
+`json`, `form` or text `body`), and optionally `paginate`, `batch`, `expect`, `retry` and a
+suggested `rate_limit` (`http_spec.py`, parsed into `CommandSpec`). A card using one is still a
+command card (`task.command` holds a one-line summary, `http_render.preview_line`); it can't be
+detached or have its request edited by hand, and a definition that goes away turns its cards into
+manual cards (`command_library.forget_definition`).
+
+* **Rendering** (`http_render.py`) fills arguments and variable fields in one pass, escaped for
+  where they land: a placeholder that starts the URL goes in as is (it must be an http(s)
+  address), any other is percent-encoded; query and form values are URL-encoded (a list repeats
+  the field, an empty one is left out); a `json` field that is only a placeholder keeps its type
+  (lists, numbers; left out when empty); header values with line breaks are refused; a text body
+  is escaped for its content type. Values are never read again for placeholders.
+* **Running.** `enqueue_job` sets `jobs.kind`; the dispatcher hands `http` jobs to the server
+  runner (`orchestrator/server_runner.py`, `CASTOR_SERVER_RUNNER_SLOTS` at once), fixing the
+  request on the job when it first starts (`jobs.request`: the resolved arguments, target lists
+  expanded, and the request part of the spec; never a variable value). The runner calls the
+  gateway's `job.log` and `job.finished` handlers in-process with a `ServerConnection` (agent id
+  None), so masking, activity, alerts, parsing, playbooks and summaries are the same as for agents.
+  The log shows the request (headers like Authorization as `••••`, secrets masked) and the response
+  status and headers; the body is the job's stdout, which parsers read (`json-records`,
+  `json-value`). `save_as`, or a body that isn't text, is kept as an artifact instead.
+* **Paging and batches.** `paginate` styles `cursor`, `link` (a dot path or the Link header; same
+  host only), `offset` and `page`, with `items` (a dot path to each page's records) and `stop`
+  limits; `batch: {arg, size}` sends one request per chunk of a list argument. Records are
+  appended to `<data_dir>/actions/<job id>.jsonl` and come out as one JSON array. `jobs.progress`
+  (batch, pages, items, the next cursor) is saved after each page and batch, so a retry or a
+  resume carries on there.
+* **Retries.** 429/503 wait for `Retry-After` (and pause everything under the credential); 5xx,
+  timeouts and dropped connections retry with backoff (`retry: {attempts, backoff_s,
+  max_backoff_s}`, default 3 from 2 s); other 4xx fail at once; `expect.status` (default any
+  2xx) decides success. A wait over 30 s parks the job: status `waiting` with `resume_at`, its slot
+  freed; `pump` starts waiting jobs whose time has come. A wait past the job's `timeout_s` fails it
+  instead. Cancelling a waiting job ends it at once; a running one is cancelled in the runner. At
+  startup `server_runner.recover` parks the server jobs the last process was running, to carry on.
+* **Rate limits** (`rate_limits.py`): token buckets per variable set (`variable_sets.rate_limit`,
+  counting every request made with its values) and per card (`tasks.rate_limit`, else the
+  definition's), state in `rate_buckets`; `60/minute`, optionally `, 2 at once`. A request waits
+  for room under every limit that applies. `X-RateLimit-Remaining: 0` with a reset pauses the
+  credential's bucket.
+* **Outbound guard** (`outbound.py`, also used by alert channels): loopback, link-local (cloud
+  metadata), multicast and reserved addresses are refused unless listed in
+  `app_settings.http_allow_addresses` or `CASTOR_HTTP_ALLOW_ADDRESSES`; `http_block_private` blocks
+  private networks too; `http_allowed_hosts` holds HTTP actions to some hosts. The check runs on
+  the resolved addresses at connect time (`GuardedBackend`, an httpcore network backend), and on
+  every redirect hop (followed only on the same host). Environment proxies aren't used, and
+  responses are capped at `CASTOR_HTTP_MAX_BYTES`.
 
 ## Variables
 

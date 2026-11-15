@@ -100,6 +100,7 @@
 		running: 'text-tertiary',
 		queued: 'text-on-surface-variant',
 		dispatched: 'text-on-surface-variant',
+		waiting: 'text-on-surface-variant',
 		cancelled: 'text-on-surface-variant'
 	};
 </script>

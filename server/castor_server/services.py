@@ -301,13 +301,6 @@ async def active_job_for(db: AsyncSession, task_id: uuid.UUID) -> m.Job | None:
     ).scalars().first()
 
 
-async def _spec_wants_tty(db: AsyncSession, task: m.Task) -> bool:
-    if not task.command_ref:
-        return False
-    spec = await load_spec(db, task.command_ref)
-    return bool(spec and spec.tty)
-
-
 async def enqueue_job(
     db: AsyncSession, task: m.Task, user: m.User | None, *, reason: str = "manual"
 ) -> m.Job:
@@ -323,8 +316,12 @@ async def enqueue_job(
     except ArgumentError:
         pass  # a list that no longer exists: the job runs with the last rendered command
 
+    spec = await load_spec(db, task.command_ref) if task.command_ref else None
+    kind = spec.kind if spec else "command"
+
     def new_job(**extra: Any) -> m.Job:
         return m.Job(
+            kind=kind,
             task_id=task.id,
             command=task.command,
             image=task.image,
@@ -338,8 +335,8 @@ async def enqueue_job(
             **extra,
         )
 
-    tty = task.tty or await _spec_wants_tty(db, task)
-    targets = await broadcast_targets(db, task, new_job()) if is_broadcast(task) else []
+    tty = (task.tty or bool(spec and spec.tty)) and kind == "command"
+    targets = await broadcast_targets(db, task, new_job()) if is_broadcast(task) and kind == "command" else []
     if len(targets) > 1:
         batch = uuid.uuid4()
         jobs = [new_job(batch_id=batch, target_agent_id=conn.agent_id) for conn in targets]

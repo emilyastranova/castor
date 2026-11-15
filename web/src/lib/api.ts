@@ -96,7 +96,9 @@ export type JobStatus =
 	| 'succeeded'
 	| 'failed'
 	| 'cancelled'
-	| 'lost';
+	| 'lost'
+	/** An HTTP action waiting for a rate limit or the API's Retry-After (until resume_at). */
+	| 'waiting';
 
 export interface Job {
 	id: UUID;
@@ -128,6 +130,26 @@ export interface Job {
 	waiting_input?: string | null;
 	/** Who took the terminal over. */
 	input_by?: UUID | null;
+	/** What it does: "command" (an agent runs it) or "http" (a request; docs/ACTIONS.md). */
+	kind?: ActionKind;
+	/** "server": the Castor server ran it, not an agent. */
+	runner?: string | null;
+	/** A waiting HTTP action carries on at this time. */
+	resume_at?: string | null;
+	/** Pages and batches done, so a retry carries on from there. */
+	progress?: { pages?: number; items?: number; batch?: number } | null;
+}
+
+export type ActionKind = 'command' | 'http';
+
+/** A library definition filled in with arguments: the command line, or an HTTP action's request
+ *  (variables as written, Authorization as ••••). */
+export interface RenderedCommand {
+	command: string;
+	image: string | null;
+	container_flags?: string[];
+	kind?: ActionKind;
+	request?: { method: string; url: string; headers: Record<string, string>; body: string | null } | null;
 }
 
 export interface LogChunk {
@@ -969,8 +991,25 @@ export interface VariableSet {
 	missing: string[];
 	/** A one-off set entered on a card or at run time; not in the library. */
 	ephemeral: boolean;
+	/** HTTP actions: the most requests made with this set's values ("60/minute"). */
+	rate_limit?: string | null;
 	created_at: string;
 	updated_at: string;
+}
+
+/** An HTTP action's request (kind: http; docs/ACTIONS.md). */
+export interface HttpRequestSpec {
+	method: string;
+	url: string;
+	query?: Record<string, unknown>;
+	headers?: Record<string, string>;
+	auth?: { basic?: string[] | null; bearer?: string | null } | null;
+	json_body?: unknown;
+	form?: Record<string, unknown> | null;
+	body?: string | null;
+	content_type?: string | null;
+	timeout_s?: number;
+	save_as?: string | null;
 }
 
 export interface CommandSpec {
@@ -988,6 +1027,13 @@ export interface CommandSpec {
 	vars?: VarSlot[];
 	command: string;
 	outputs: OutputSpec[];
+	/** "http": a request the Castor server makes, not a shell command. */
+	kind?: ActionKind;
+	request?: HttpRequestSpec | null;
+	paginate?: { style: 'cursor' | 'link' | 'offset' | 'page'; items?: string | null } | null;
+	batch?: { arg: string; size: number } | null;
+	/** A suggested limit for the API, used by cards without their own. */
+	rate_limit?: string | null;
 }
 
 export interface CommandDefinition {
@@ -1022,6 +1068,8 @@ export interface ArgErrors {
 export interface Task {
 	/** Run in an interactive terminal (or its library command says so). */
 	tty?: boolean;
+	/** HTTP actions: the most requests this card makes ("60/minute"); none: the definition's. */
+	rate_limit?: string | null;
 	/** Chat/webhook alerts for its runs (or, on a run card, the playbook run). */
 	alerts?: AlertRules | null;
 	id: UUID;
@@ -1654,7 +1702,7 @@ export function api(fetchFn: Fetch = fetch) {
 				request<CommandDefinition>(fetchFn, 'PUT', `/commands/${id}`, { yaml }),
 			remove: (id: string) => del(`/commands/${id}`),
 			render: (id: string, args: Record<string, unknown>) =>
-				post<{ command: string; image: string | null; container_flags?: string[] }>(`/commands/${id}/render`, { args })
+				post<RenderedCommand>(`/commands/${id}/render`, { args })
 		},
 		variables: {
 			kinds: () => get<VariableKind[]>('/variables/kinds'),
@@ -1678,10 +1726,11 @@ export function api(fetchFn: Fetch = fetch) {
 				project_ids?: UUID[];
 				values?: Record<string, unknown>;
 				ephemeral?: boolean;
+				rate_limit?: string | null;
 			}) => post<VariableSet>('/variables/sets', body),
 			updateSet: (
 				id: UUID,
-				body: { name?: string; description?: string; project_ids?: UUID[]; values?: Record<string, unknown>; ephemeral?: boolean }
+				body: { name?: string; description?: string; project_ids?: UUID[]; values?: Record<string, unknown>; ephemeral?: boolean; rate_limit?: string }
 			) => patch<VariableSet>(`/variables/sets/${id}`, body),
 			removeSet: (id: UUID) => del(`/variables/sets/${id}`),
 			uploadFile: (id: UUID, field: string, file: File) => {
@@ -2062,6 +2111,13 @@ export interface AppSettings {
 	default_theme: string;
 	/** Look for newer releases of installed plugins in the directory daily (Settings → Plugins). */
 	plugin_update_checks?: boolean;
+	/** Outbound requests (HTTP actions, alert channels): addresses exempt from the block on
+	 *  loopback, link-local and reserved ones (CIDRs). */
+	http_allow_addresses?: string[];
+	/** Block private networks (10/8, 172.16/12, 192.168/16, fc00::/7) too. */
+	http_block_private?: boolean;
+	/** The hosts HTTP actions may call (empty: any; *.example.com for a domain's). */
+	http_allowed_hosts?: string[];
 }
 
 /** People put together: @slug mentions them all; a project shared with it is theirs to see. */

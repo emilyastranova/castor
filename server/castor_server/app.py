@@ -90,6 +90,9 @@ async def lifespan(app: FastAPI):
     log.info("command library: %d built-in definitions", loaded)
     log.info("playbook library: %d built-in playbooks", loaded_playbooks)
     log.info("themes: %d built-in", loaded_themes)
+    from .orchestrator.server_runner import server_runner
+
+    await server_runner.recover()  # HTTP actions the last process was running carry on
     await dispatcher.start()
     await ssh_hosts.start()  # hosts Castor connects to over SSH
     plugins.APP = app  # plugins call the API in-process, as their own accounts
@@ -109,6 +112,7 @@ async def lifespan(app: FastAPI):
         await plugins.stop_all()
         await ssh_hosts.stop()
         await dispatcher.stop()
+        await server_runner.stop()
 
 
 API_DESCRIPTION = """Everything the Castor UI does goes through this API.

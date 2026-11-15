@@ -45,6 +45,7 @@
 	let kind = $state('');
 	let name = $state('');
 	let description = $state('');
+	let rateLimit = $state('');
 	let allProjects = $state(true);
 	let projectIds = $state<UUID[]>([]);
 	// Plain fields as typed text (booleans as booleans).
@@ -85,6 +86,7 @@
 		kind = set?.kind_id || kindId || (kinds.find((k) => k.id === 'credential') ?? kinds[0])?.id || '';
 		name = set?.ephemeral ? '' : (set?.name ?? '');
 		description = set?.description ?? '';
+		rateLimit = set?.rate_limit ?? '';
 		saveToLibrary = false;
 		allProjects = !set || set.project_ids.length === 0;
 		projectIds = [...(set?.project_ids ?? [])];
@@ -146,11 +148,11 @@
 					: await api().variables.createSet({ kind_id: kind, values, ephemeral: true });
 			} else if (set?.ephemeral) {
 				// Promote the one-off set: it joins the library and stays bound where it is.
-				saved = await api().variables.updateSet(set.id, { ephemeral: false, name, description, project_ids, values });
+				saved = await api().variables.updateSet(set.id, { ephemeral: false, name, description, project_ids, values, rate_limit: rateLimit.trim() });
 			} else {
 				saved = set
-					? await api().variables.updateSet(set.id, { name, description, project_ids, values })
-					: await api().variables.createSet({ kind_id: kind, name, description, project_ids, values });
+					? await api().variables.updateSet(set.id, { name, description, project_ids, values, rate_limit: rateLimit.trim() })
+					: await api().variables.createSet({ kind_id: kind, name, description, project_ids, values, rate_limit: rateLimit.trim() || null });
 			}
 			for (const [field, file] of Object.entries(pendingFiles)) saved = await api().variables.uploadFile(saved.id, field, file);
 			for (const field of Object.keys(removingFiles).filter((f) => removingFiles[f])) {
@@ -259,6 +261,13 @@
 				<TextField label="Name" bind:value={name} required placeholder="e.g. Corp domain admin" supporting="Unique; playbooks can refer to it by name" />
 			</div>
 			<TextField label="Description" bind:value={description} placeholder="What it's for, where it came from" />
+			<TextField
+				label="Rate limit (optional)"
+				bind:value={rateLimit}
+				mono
+				placeholder="60/minute"
+				supporting="For HTTP actions: the most requests made with these values, from every card and playbook together (5/second, 1000/day; add “, 2 at once” to cap how many run together)"
+			/>
 		{/if}
 
 		{#if spec}

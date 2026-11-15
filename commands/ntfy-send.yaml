@@ -1,0 +1,36 @@
+id: ntfy-send
+name: ntfy notification
+schema_version: 1
+kind: http
+description: Push a notification to an ntfy topic (ntfy.sh or your own server) for phones and desktops
+tags: [notify, ntfy, http]
+args:
+  - name: message
+    type: string
+    required: true
+    example: The overnight sweep finished
+  - name: title
+    type: string
+  - name: priority
+    type: string
+    description: 1 (min) to 5 (max)
+    choices: ["1", "2", "3", "4", "5"]
+    default: "3"
+  - name: tags
+    type: list
+    description: Emoji short codes or labels (warning, white_check_mark)
+    separator: ","
+vars:
+  - name: topic
+    kind: webhook
+    description: The topic's address, https://ntfy.sh/your-secret-topic
+request:
+  method: POST
+  url: "{{ topic.url }}"
+  headers:
+    Title: "{{ title }}"
+    Priority: "{{ priority }}"
+    Tags: "{{ tags }}"
+  body: "{{ message }}"
+  content_type: text/plain; charset=utf-8
+  timeout_s: 20

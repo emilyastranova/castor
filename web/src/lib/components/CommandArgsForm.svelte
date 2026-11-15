@@ -41,7 +41,10 @@
 		const timer = setTimeout(async () => {
 			try {
 				const r = await api().commands.render(id, snapshot);
-				preview = r.command;
+				// An HTTP action: the request as it will be sent (variables as written).
+				preview = r.request
+					? [`${r.request.method} ${r.request.url}`, ...Object.entries(r.request.headers).map(([k, v]) => `${k}: ${v}`), ...(r.request.body ? ['', r.request.body] : [])].join('\n')
+					: r.command;
 				previewError = null;
 			} catch (err) {
 				preview = null;
@@ -127,7 +130,11 @@
 		>
 			<span class="min-w-0 flex-1">
 				<span class="block label-small text-on-surface-variant">
-					Will run{spec.image ? ` in ${spec.image}` : ' in the agent shell'}{spec.container_flags?.length ? ` (flags: ${spec.container_flags.join(' ')})` : ''}{preview && !previewOpen && previewLines > 1 ? ` · ${previewLines} lines` : ''}
+					{#if spec.kind === 'http'}
+						Will send from the Castor server{spec.paginate ? ', every page' : ''}{spec.batch ? `, ${spec.batch.size} ${spec.batch.arg} per request` : ''}{preview && !previewOpen && previewLines > 1 ? ' · headers and body' : ''}
+					{:else}
+						Will run{spec.image ? ` in ${spec.image}` : ' in the agent shell'}{spec.container_flags?.length ? ` (flags: ${spec.container_flags.join(' ')})` : ''}{preview && !previewOpen && previewLines > 1 ? ` · ${previewLines} lines` : ''}
+					{/if}
 				</span>
 				{#if preview && !previewOpen}
 					<code class="mt-0.5 block truncate font-mono text-[12.5px] text-on-surface">{firstLine}</code>
@@ -135,7 +142,7 @@
 			</span>
 			{#if preview}
 				<Icon name={previewOpen ? 'expand_less' : 'expand_more'} size={20} class="mt-0.5 shrink-0 text-on-surface-variant" />
-				<span class="sr-only">{previewOpen ? 'Hide the command' : 'Show the whole command'}</span>
+				<span class="sr-only">{previewOpen ? (spec.kind === 'http' ? 'Hide the request' : 'Hide the command') : spec.kind === 'http' ? 'Show the whole request' : 'Show the whole command'}</span>
 			{/if}
 		</button>
 		{#if preview && previewOpen}

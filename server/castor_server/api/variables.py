@@ -8,7 +8,7 @@ import uuid
 from typing import Annotated, Any
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import func, select
 
 from .. import models as m
@@ -17,6 +17,7 @@ from .. import vault
 from ..access import visible_project_ids
 from ..config import settings
 from ..deps import DB, CurrentUser, Operator, parse_uuid
+from ..http_spec import check_rate
 from ..plugin_library import cant_delete, read_only, why_read_only
 from ..services import actor_of, library_activity, record_activity
 
@@ -60,6 +61,8 @@ class SetOut(BaseModel):
     missing: list[str]  # required fields that have no value yet
     # A one-off set entered on a card or at run time (not in the library).
     ephemeral: bool = False
+    # HTTP actions: the most requests made with this set's values ("60/minute").
+    rate_limit: str | None = None
     created_at: Any
     updated_at: Any
 
@@ -73,6 +76,12 @@ class SetIn(BaseModel):
     ephemeral: bool = False
     project_ids: list[uuid.UUID] = Field(default_factory=list)
     values: dict[str, Any] = Field(default_factory=dict)
+    rate_limit: str | None = None
+
+    @field_validator("rate_limit")
+    @classmethod
+    def rate(cls, value: str | None) -> str | None:
+        return check_rate(value)
 
 
 class SetPatch(BaseModel):
@@ -84,6 +93,12 @@ class SetPatch(BaseModel):
     values: dict[str, Any] | None = None
     # false promotes a one-off set into the library (give it a name too).
     ephemeral: bool | None = None
+    rate_limit: str | None = None  # "" clears it
+
+    @field_validator("rate_limit")
+    @classmethod
+    def rate(cls, value: str | None) -> str | None:
+        return check_rate(value) or ("" if value is not None else None)
 
 
 class FieldValue(BaseModel):
@@ -139,6 +154,7 @@ def _set_out(row: m.VariableSet, spec: v.KindSpec) -> SetOut:
         },
         missing=v.missing_required(row, spec),
         ephemeral=row.ephemeral,
+        rate_limit=row.rate_limit,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -284,6 +300,7 @@ async def create_set(body: SetIn, db: DB, user: Operator):
         description=body.description,
         ephemeral=body.ephemeral,
         project_ids=[] if body.ephemeral else [str(p) for p in body.project_ids],
+        rate_limit=body.rate_limit,
         values={},
         secrets={},
         files={},
@@ -314,6 +331,11 @@ async def update_set(set_id: str, body: SetPatch, db: DB, user: Operator):
         row.description = body.description
     if body.project_ids is not None:
         row.project_ids = [str(p) for p in body.project_ids]
+    if body.rate_limit is not None:
+        row.rate_limit = body.rate_limit or None
+        from ..rate_limits import limiter
+
+        limiter.forget(f"set:{row.id}")
     if body.values:
         _apply(row, spec, body.values)
     if not row.ephemeral:

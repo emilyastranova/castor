@@ -50,7 +50,8 @@
 		cancelled: { icon: 'cancel', text: 'text-on-surface-variant', label: 'Cancelled' },
 		running: { icon: 'progress_activity', text: 'text-primary', label: 'Running' },
 		queued: { icon: 'hourglass_empty', text: 'text-tertiary', label: 'Queued' },
-		dispatched: { icon: 'hourglass_empty', text: 'text-tertiary', label: 'Queued' }
+		dispatched: { icon: 'hourglass_empty', text: 'text-tertiary', label: 'Queued' },
+		waiting: { icon: 'hourglass_top', text: 'text-tertiary', label: 'Waiting' }
 	};
 
 	let meta = $derived(KIND[item.kind] ?? KIND.admin);

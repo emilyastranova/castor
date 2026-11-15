@@ -299,7 +299,7 @@
 
 	// Agents that can run this project's jobs (one limited to other projects doesn't count).
 	let online = $derived(agentsFor(agents, store.project.id).filter((a) => a.connected).length);
-	let running = $derived(store.taskList.filter((t) => t.latest_job && ['queued', 'dispatched', 'running'].includes(t.latest_job.status)).length);
+	let running = $derived(store.taskList.filter((t) => t.latest_job && ['queued', 'dispatched', 'running', 'waiting'].includes(t.latest_job.status)).length);
 
 	async function deleteProject() {
 		const ok = await confirmAction({

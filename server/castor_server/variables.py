@@ -195,6 +195,25 @@ BUILTIN_KINDS: list[dict[str, Any]] = [
             {"name": "base_url", "type": "text", "label": "Base URL"},
         ],
     },
+    {
+        "id": "webhook",
+        "name": "Webhook",
+        "description": "A webhook address (Slack, Teams, Discord, Mattermost, an ntfy topic): whoever has it can post, so it's kept secret",
+        "fields": [
+            {"name": "url", "type": "secret", "required": True, "label": "Address",
+             "description": "https://hooks.slack.com/services/…, https://ntfy.sh/your-topic"},
+        ],
+    },
+    {
+        "id": "jira-api",
+        "name": "Jira",
+        "description": "A Jira Cloud or Data Center site and an API token",
+        "fields": [
+            {"name": "base_url", "type": "text", "required": True, "label": "Site", "description": "https://your-team.atlassian.net"},
+            {"name": "email", "type": "text", "required": True, "description": "The account the token belongs to"},
+            {"name": "token", "type": "secret", "required": True, "label": "API token"},
+        ],
+    },
 ]
 
 

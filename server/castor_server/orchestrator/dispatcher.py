@@ -7,7 +7,7 @@ import logging
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import selectinload
 
 from .. import models as m
@@ -113,7 +113,10 @@ class Dispatcher:
                 await db.execute(
                     select(m.Job)
                     .options(selectinload(m.Job.task))
-                    .where(m.Job.status == m.JobStatus.queued)
+                    .where(or_(
+                        m.Job.status == m.JobStatus.queued,
+                        and_(m.Job.status == m.JobStatus.waiting, m.Job.resume_at <= utcnow()),
+                    ))
                     .order_by(m.Job.queued_at)
                 )
             ).scalars().all()
@@ -122,6 +125,11 @@ class Dispatcher:
             tools = await tools_by_id(db) if any(j.tool for j in queued) else {}
             for job in queued:
                 task = job.task
+                if job.kind == "http":
+                    await self._to_server(db, job, task)
+                    continue
+                if job.status != m.JobStatus.queued:
+                    continue
                 selector = task.agent_selector or {}
                 tool = tools.get(job.tool) if job.tool else None
                 if job.tool and tool is None:
@@ -183,6 +191,60 @@ class Dispatcher:
                 publish_job(job, task.project_id)
                 await publish_task(db, task)
 
+    async def _to_server(self, db, job: m.Job, task: m.Task) -> None:
+        """An HTTP action: the Castor server's runner makes it (docs/ACTIONS.md). The request
+        is fixed when it first starts (arguments and target lists as they are then); a job
+        that waited carries on with the same one."""
+        from ..command_render import ArgumentError, resolve_args
+        from ..command_spec import CommandSpec
+        from .server_runner import server_runner
+
+        if server_runner.free_slots <= 0:
+            return
+        first = job.request is None
+        if first:
+            spec = await load_spec(db, task.command_ref) if task.command_ref else None
+            if spec is None or spec.kind != "http":
+                await self._fail_unsent(db, job, task, "its HTTP action is no longer in the library")
+                return
+            try:
+                expanded = await variables.expand_list_refs(db, spec, task.command_args or {}, task.project_id)
+                args = resolve_args(spec, expanded)
+            except (ArgumentError, variables.VariableError) as exc:
+                await self._fail_unsent(db, job, task, f"arguments: {exc}")
+                return
+            job.request = {
+                "args": args,
+                "spec": spec.model_dump(mode="json", include={"args", "vars", "request", "paginate", "batch", "expect", "retry", "rate_limit"}),
+            }
+            job.output_specs = output_specs_for(spec.outputs)
+        else:
+            spec = CommandSpec.model_validate({"id": "job", "name": task.title, "kind": "http", **job.request["spec"]})
+        try:
+            resolved = await variables.resolve(db, spec.vars, job.var_bindings or {}, task.project_id)
+        except variables.VariableError as exc:
+            await self._fail_unsent(db, job, task, f"variables: {exc}")
+            return
+        job.runner = "server"
+        job.agent_id = None
+        if first:
+            job.status = m.JobStatus.dispatched
+            job.dispatched_at = utcnow()
+            await record_activity(
+                db,
+                type="job.dispatched",
+                message=f"Started “{task.title}” on the Castor server",
+                project_id=task.project_id,
+                task_id=task.id,
+                payload={"job_id": str(job.id), "runner": "server"},
+            )
+        else:
+            job.status = m.JobStatus.running
+        await db.commit()
+        server_runner.start(job.id, resolved)
+        publish_job(job, task.project_id)
+        await publish_task(db, task)
+
     async def _fail_unsent(self, db, job: m.Job, task: m.Task, error: str) -> None:
         """A job that can't be sent (e.g. its variable set is gone) fails on the card."""
         job.status = m.JobStatus.failed
@@ -211,9 +273,14 @@ class Dispatcher:
             if job is None or job.status.is_terminal:
                 return job
             task = await db.get(m.Task, job.task_id)
-            if job.status == m.JobStatus.queued:
+            parked = job.status == m.JobStatus.waiting and not (job.runner == "server" and gateway_running(job.id))
+            if job.status == m.JobStatus.queued or parked:
                 job.status = m.JobStatus.cancelled
                 job.finished_at = utcnow()
+                if parked:
+                    from .server_runner import records_file
+
+                    records_file(job.id).unlink(missing_ok=True)  # the pages it had kept
             else:
                 job.status = m.JobStatus.cancelled
                 sent = await gateway.cancel_job(job)
@@ -234,6 +301,13 @@ class Dispatcher:
                 publish_job(job, task.project_id)
                 await publish_task(db, task)
             return job
+
+
+def gateway_running(job_id: uuid.UUID) -> bool:
+    """Whether the server runner is working on this job right now."""
+    from .server_runner import server_runner
+
+    return job_id in server_runner.conn.running
 
 
 dispatcher = Dispatcher()

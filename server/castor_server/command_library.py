@@ -81,9 +81,23 @@ async def _retire_builtins(db: AsyncSession, seen: set[str]) -> None:
     gone = (await db.execute(select(m.CommandDefinition).where(
         m.CommandDefinition.origin == "builtin", m.CommandDefinition.id.not_in(seen)))).scalars().all()
     for row in gone:
-        await db.execute(update(m.Task).where(m.Task.command_ref == row.id).values(command_ref=None))
+        await forget_definition(db, row)
         await db.delete(row)
         log.info("retired built-in command %s (its file is gone)", row.id)
+
+
+async def forget_definition(db: AsyncSession, row: m.CommandDefinition) -> None:
+    """Cards stop pointing at a definition that's going away. A command card keeps its command
+    line as plain shell; an HTTP action's card becomes a manual card, since its summary line
+    isn't something to run."""
+    if (row.spec or {}).get("kind") == "http":
+        await db.execute(update(m.Task).where(m.Task.command_ref == row.id).values(command_ref=None, kind=m.TaskKind.manual))
+    else:
+        await db.execute(update(m.Task).where(m.Task.command_ref == row.id).values(command_ref=None))
+
+
+def is_http(row: m.CommandDefinition | None) -> bool:
+    return row is not None and (row.spec or {}).get("kind") == "http"
 
 
 async def load_spec(db: AsyncSession, command_id: str) -> CommandSpec | None:
@@ -100,7 +114,13 @@ def apply_to_task(task: m.Task, spec: CommandSpec, args: dict[str, Any]) -> None
     """Point a card at a library command: store its args and the rendered command line.
     Raises command_render.ArgumentError for invalid values."""
     resolved = resolve_args(spec, args)
-    task.command = render_command(spec, args)
+    if spec.kind == "http":
+        from .http_render import preview_line
+
+        # Its one-line summary; the request itself is made from the definition when it runs.
+        task.command = preview_line(spec, resolved)
+    else:
+        task.command = render_command(spec, args)
     task.command_ref = spec.id
     task.command_args = {k: v for k, v in resolved.items() if v is not None}
     task.image = spec.image

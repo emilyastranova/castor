@@ -13,7 +13,7 @@
 	import CommandRow from '$lib/components/library/CommandRow.svelte';
 	import CommandDetail from '$lib/components/library/CommandDetail.svelte';
 	import ToolDetail from '$lib/components/library/ToolDetail.svelte';
-	import { filterFolders, filtering, folders, NO_FILTERS, NO_TOOL, provision, readiness, type Filters } from '$lib/library';
+	import { filterFolders, filtering, folderKey, folders, HTTP_FOLDER, NO_FILTERS, provision, readiness, type Filters } from '$lib/library';
 
 	let { data } = $props();
 	// svelte-ignore state_referenced_locally
@@ -90,9 +90,9 @@
 		}
 	}
 
-	/** Keys for the rows the keyboard walks through: `t:<tool>`, `f:` (no-tool folder), `c:<command>`. */
+	/** Keys for the rows the keyboard walks through: `t:<tool>`, `f:<id>` (folders without a tool), `c:<command>`. */
 	let rows = $derived(
-		shown.flatMap((f) => [f.tool ? `t:${f.id}` : 'f:', ...(isOpen(f.id) ? f.commands.map((c) => `c:${c.id}`) : [])])
+		shown.flatMap((f) => [folderKey(f), ...(isOpen(f.id) ? f.commands.map((c) => `c:${c.id}`) : [])])
 	);
 
 	// ---- selection (in the URL: ?c=, ?t=, ?new=command|tool) ----
@@ -143,6 +143,33 @@ command: mkdir -p {{ work }}/artifacts && echo {{ targets }} > {{ work }}/artifa
 outputs:
   - name: result
     source: "{{ work }}/artifacts/result.txt"
+`;
+	const HTTP_TEMPLATE = `id: my-request
+name: My request
+kind: http                               # the Castor server sends it (docs: HTTP actions)
+description: What it does
+args:
+  - name: query
+    type: string
+    required: true
+vars:
+  - name: api                            # a variable set: the base URL and the token
+    kind: api-token
+request:
+  method: GET
+  url: "{{ api.base_url }}/search"
+  query:
+    q: "{{ query }}"
+  auth:
+    bearer: "{{ api.token }}"
+# paginate:                              # every page: cursor, link, offset or page
+#   style: link
+#   items: results
+outputs:
+  - name: results
+    parser: json-records
+    options: {records: results}
+rate_limit: 60/minute
 `;
 	const TOOL_TEMPLATE = `id: my-tool
 name: My tool
@@ -215,11 +242,10 @@ build:
 		const next = rows[Math.max(0, Math.min(rows.length - 1, i < 0 ? 0 : i + step))];
 		cursor = next;
 		document.getElementById(rowId(next))?.scrollIntoView({ block: 'nearest' });
-		if (next !== 'f:') void select(next);
+		if (!next.startsWith('f:')) void select(next);
 	}
 	function folderOf(key: string): string | null {
-		if (key.startsWith('t:')) return key.slice(2);
-		if (key === 'f:') return NO_TOOL;
+		if (key.startsWith('t:') || key.startsWith('f:')) return key.slice(2);
 		const c = commands.find((x) => x.id === key.slice(2));
 		return shown.find((f) => f.commands.some((x) => x.id === c?.id))?.id ?? null;
 	}
@@ -232,11 +258,12 @@ build:
 			const f = folderOf(cursor);
 			if (f === null) return;
 			if (cursor.startsWith('c:') && e.key === 'ArrowLeft') {
-				cursor = f === NO_TOOL ? 'f:' : `t:${f}`;
-				if (f !== NO_TOOL) void select(cursor);
+				const folder = shown.find((x) => x.id === f);
+				cursor = folder ? folderKey(folder) : `f:${f}`;
+				if (cursor.startsWith('t:')) void select(cursor);
 			} else if (!cursor.startsWith('c:')) toggle(f, e.key === 'ArrowRight');
 		} else if (e.key === 'Enter' && cursor) {
-			if (cursor === 'f:') toggle(NO_TOOL);
+			if (cursor.startsWith('f:')) toggle(cursor.slice(2));
 			else {
 				void select(cursor, true);
 				detail?.focus();
@@ -328,6 +355,7 @@ build:
 			<Menu bind:open={newOpen} align="right">
 				{#snippet anchor()}<Button icon="add" trailingIcon="arrow_drop_down" class="ml-2" aria-haspopup="menu" aria-expanded={newOpen}>New</Button>{/snippet}
 				<MenuItem icon="terminal" onclick={() => newCommand()}>Command <span class="ml-auto pl-6 font-mono text-on-surface-variant">n</span></MenuItem>
+				<MenuItem icon="api" onclick={() => newCommand(HTTP_TEMPLATE)}>HTTP request</MenuItem>
 				<MenuItem icon="handyman" onclick={() => newTool()}>Tool</MenuItem>
 				{#if aiStatus.enabled}
 					<div class="my-1 border-t border-outline-variant/60"></div>
@@ -365,6 +393,7 @@ build:
 				<Chip variant="filter" selected={filters.credentials} onclick={() => (filters.credentials = !filters.credentials)}>Credentials</Chip>
 				<Chip variant="filter" selected={filters.unused} onclick={() => (filters.unused = !filters.unused)}>Unused</Chip>
 				<Chip variant="filter" selected={filters.notReady} onclick={() => (filters.notReady = !filters.notReady)}>Not ready</Chip>
+				<Chip variant="filter" selected={!!filters.http} onclick={() => (filters.http = !filters.http)}>HTTP</Chip>
 				{#if filters.tag}<Chip variant="input" icon="sell" onremove={() => (filters.tag = null)}>{filters.tag}</Chip>{/if}
 			</div>
 			{#if noAgents}
@@ -393,7 +422,7 @@ build:
 		>
 			{#each shown as f (f.id)}
 				{@const open = isOpen(f.id)}
-				{@const key = f.tool ? `t:${f.id}` : 'f:'}
+				{@const key = folderKey(f)}
 				{@const ready = f.tool ? readiness(f.tool) : null}
 				<div class="pt-1">
 					<!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus (the tree owns focus and the keyboard) -->
@@ -423,7 +452,7 @@ build:
 						>
 							<Icon name="chevron_right" size={20} class="transition-transform duration-150 {open ? 'rotate-90' : ''}" />
 						</button>
-						<Icon name={f.tool ? 'handyman' : 'deployed_code'} size={20} class="shrink-0 text-on-surface-variant" />
+						<Icon name={f.tool ? 'handyman' : f.id === HTTP_FOLDER ? 'api' : 'deployed_code'} size={20} class="shrink-0 text-on-surface-variant" />
 						<span class="min-w-0 flex-1">
 							<span class="block truncate title-medium">{f.name}</span>
 							{#if f.tool}

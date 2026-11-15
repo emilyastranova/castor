@@ -86,6 +86,7 @@
 	let agentId = $state('');
 	let runOnMove = $state(true);
 	let timeout = $state('');
+	let rateLimit = $state('');
 	let priority = $state('0');
 	let tags = $state<string[]>([]);
 	let tagSuggestions = $state<TagSuggestion[]>([]);
@@ -107,6 +108,7 @@
 		agentId = selectorValue(task.agent_selector);
 		runOnMove = task.run_on_move;
 		timeout = task.timeout_s ? String(task.timeout_s) : '';
+		rateLimit = task.rate_limit ?? '';
 		priority = String(task.priority);
 		tags = [...task.tags];
 		void loadTags('cards', task.project_id).then((t) => (tagSuggestions = t));
@@ -140,6 +142,9 @@
 	let libraryDef = $state<CommandDefinition | null>(null);
 	/** The card's library command always runs in a terminal. */
 	let libTty = $derived(!!libraryDef?.spec.tty);
+	/** An HTTP action (docs/ACTIONS.md): the Castor server sends its request; the card only
+	 *  fills in arguments, variables and a rate limit. */
+	let isHttp = $derived(libraryDef?.spec.kind === 'http');
 	let libArgs = $state<Record<string, unknown>>({});
 	let libErrors = $state<Record<string, string>>({});
 	let libDirty = $state(false);
@@ -238,7 +243,7 @@
 		outputView = wantedView ?? (done && job.output_specs?.length ? 'results' : 'console');
 		wantedView = null;
 	});
-	let activeJob = $derived(task.latest_job && ['queued', 'dispatched', 'running'].includes(task.latest_job.status) ? task.latest_job : null);
+	let activeJob = $derived(task.latest_job && ['queued', 'dispatched', 'running', 'waiting'].includes(task.latest_job.status) ? task.latest_job : null);
 
 	// ---- comments / attachments / history ----
 	let comments = $state<Comment[]>([]);
@@ -773,7 +778,7 @@
 			<StepDecisions result={stepResult} />
 			{#if task.kind === 'command' && !formOpen}
 				<button type="button" class="state-layer flex w-full items-center gap-3 rounded-md bg-surface-container p-3 text-left" onclick={() => (formOpen = true)}>
-					<Icon name={task.command_ref ? 'menu_book' : 'terminal'} size={20} class="shrink-0 text-primary" />
+					<Icon name={isHttp ? 'api' : task.command_ref ? 'menu_book' : 'terminal'} size={20} class="shrink-0 text-primary" />
 					<span class="min-w-0 flex-1">
 						<span class="block label-medium text-on-surface-variant">{task.command_ref ? (libraryDef?.name ?? task.command_ref) : 'Command'}</span>
 						<code class="block truncate font-mono text-[12.5px] text-on-surface">{task.command || '—'}</code>
@@ -797,12 +802,17 @@
 						{/if}
 					{/if}
 					<div>
-						<p class="mb-1 label-medium text-on-surface-variant">Command</p>
+						<p class="mb-1 label-medium text-on-surface-variant">{isHttp ? 'Request' : 'Command'}</p>
 						<pre class="overflow-auto rounded-sm bg-surface-container-highest p-3 font-mono text-[12.5px] whitespace-pre-wrap break-words text-on-surface">{task.command || '—'}</pre>
 					</div>
 					<dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 body-small text-on-surface-variant">
+						{#if isHttp}
+							<dt>Sent by</dt><dd class="text-on-surface">the Castor server</dd>
+							<dt>Rate limit</dt><dd class="text-on-surface">{task.rate_limit ?? (libraryDef?.spec.rate_limit ? `${libraryDef.spec.rate_limit} (the action’s)` : 'none of its own')}</dd>
+						{:else}
 						<dt>Runs in</dt><dd class="truncate font-mono text-on-surface">{task.tool ? `the ${task.tool} tool` : task.image || 'the agent’s shell'}{task.container_flags?.length ? ` ${task.container_flags.join(' ')}` : ''}</dd>
 						<dt>Agent</dt><dd class="text-on-surface">{describeSelector(selectorFrom(agentId), agents)}</dd>
+						{/if}
 						<dt>Timeout</dt><dd class="text-on-surface">{task.timeout_s ? `${task.timeout_s}s` : 'none'}</dd>
 						<dt>On move</dt><dd class="text-on-surface">{task.run_on_move ? 'runs when moved to In Progress' : 'doesn’t run on move'}</dd>
 					</dl>
@@ -835,6 +845,26 @@
 						{/if}
 					{/if}
 
+					{#if isHttp}
+						<div class="grid gap-3 sm:grid-cols-2">
+							<div class="flex h-14 items-center gap-2 rounded-xs border border-outline-variant px-4" title="HTTP actions are sent by the Castor server, not an agent">
+								<Icon name="dns" size={20} class="text-primary" />
+								<span class="min-w-0">
+									<span class="block label-small text-on-surface-variant">Sent by</span>
+									<span class="block truncate body-medium text-on-surface">the Castor server</span>
+								</span>
+							</div>
+							<TextField
+								label="Rate limit (optional)"
+								bind:value={rateLimit}
+								mono
+								placeholder={libraryDef?.spec.rate_limit ? `the action’s: ${libraryDef.spec.rate_limit}` : '60/minute'}
+								supporting="This card’s requests, on top of its variable sets’ limits"
+								oninput={() => edited('rate_limit')}
+								onblur={() => (rateLimit.trim() || null) !== (task.rate_limit ?? null) && commit('rate_limit', { rate_limit: rateLimit.trim() || null })}
+							/>
+						</div>
+					{:else}
 					<TextField label="Command" bind:value={command} multiline rows={2} mono oninput={() => edited('command')} onblur={() => command !== task.command && commit('command', { command })} supporting={aiEdit ? `Changed by the AI: ${aiEdit.change ?? 'a corrected command'} (details at the top)` : ''} />
 					<div class="grid gap-3 sm:grid-cols-2">
 						{#if task.tool}
@@ -866,11 +896,14 @@
 							}}
 						/>
 					{/if}
+					{/if}
 					<div class="flex flex-wrap items-center gap-4">
 						<Switch bind:checked={runOnMove} label="Run when moved to In Progress" onchange={(v) => save({ run_on_move: v })} />
+						{#if !isHttp}
 						<span title="A real terminal: you can type into it while it runs, full-screen programs (tmux, vim, htop) work, and a run that stops at a prompt tells people.">
 							<Switch checked={!!task.tty || libTty} disabled={libTty} label={libTty ? 'Interactive terminal (its command asks for one)' : 'Interactive terminal'} onchange={(v) => save({ tty: v })} />
 						</span>
+						{/if}
 						<TextField label="Timeout (s)" bind:value={timeout} type="number" class="w-40 [&_div]:h-10" oninput={() => edited('timeout')} onblur={() => (timeout ? Number(timeout) : null) !== task.timeout_s && commit('timeout', { timeout_s: timeout ? Number(timeout) : null })} />
 					</div>
 				</div>
@@ -925,7 +958,11 @@
 					{/if}
 					{#if selectedJob}
 						<p class="flex flex-wrap items-center gap-x-2 body-small text-on-surface-variant">
+							{#if selectedJob.kind === 'http'}
+								HTTP request from the Castor server · queued {absoluteTime(selectedJob.queued_at)}{selectedJob.status === 'waiting' && selectedJob.resume_at ? ` · carries on at ${absoluteTime(selectedJob.resume_at)}` : ''}
+							{:else}
 							Agent {agentName(selectedJob.agent_id)}{selectedJob.image ? ` · ${selectedJob.image}` : ' · host shell'} · queued {absoluteTime(selectedJob.queued_at)}
+							{/if}
 							{#if aiStatus.enabled && (selectedJob.status === 'failed' || selectedJob.status === 'lost')}
 								<button type="button" class="ml-auto flex items-center gap-1 label-large text-primary hover:underline disabled:opacity-60" disabled={explaining} onclick={() => explain(selectedJob!.id)}>
 									<Icon name="auto_awesome" size={16} />{explaining ? 'Asking…' : 'Explain this failure'}
@@ -1184,7 +1221,7 @@
 					<dt>Kind</dt><dd class="text-on-surface">{task.run ? 'playbook run' : task.playbook_step_id ? 'playbook step' : task.kind}</dd>
 					{#if task.latest_job}
 						<dt>Last run</dt><dd class="text-on-surface">{task.latest_job.status}{task.latest_job.started_at ? ` · ${duration(task.latest_job.started_at, task.latest_job.finished_at)}` : ''}</dd>
-						<dt>Agent</dt><dd class="text-on-surface">{agentName(task.latest_job.agent_id)}</dd>
+						<dt>{task.latest_job.kind === 'http' ? 'Sent by' : 'Agent'}</dt><dd class="text-on-surface">{task.latest_job.kind === 'http' ? 'Castor server' : agentName(task.latest_job.agent_id)}</dd>
 					{/if}
 					<dt>ID</dt><dd class="truncate font-mono text-on-surface" title={task.id}>{task.id.slice(0, 8)}</dd>
 				</dl>

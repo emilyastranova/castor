@@ -110,6 +110,8 @@ def test_user_definition_lifecycle_and_render(client, auth):
         "image": "docker.io/library/alpine:3.20",
         "tool": None,
         "container_flags": [],
+        "kind": "command",
+        "request": None,
     }
 
 

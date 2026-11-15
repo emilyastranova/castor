@@ -517,6 +517,66 @@ def regex_matches(data: bytes, options: RegexOptions) -> list[str]:
     return [*dict.fromkeys(values)] if options.unique else values
 
 
+class JsonRecordsOptions(Options):
+    records: str = Field(
+        "",
+        description="Dot path to the records (results, data.items); empty: the document itself",
+        examples=["results"],
+    )
+
+
+def _json_doc(data: bytes) -> Any:
+    import json
+
+    try:
+        return json.loads(data.decode("utf-8", errors="replace") or "null")
+    except ValueError as exc:
+        raise ParseError(f"not valid JSON: {exc}") from exc
+
+
+@parser(
+    "json-records",
+    "list<object>",
+    "The records of a JSON document: an array, or the array at a dot path (an API's response)",
+    JsonRecordsOptions,
+    sample="api-page.json",
+    sample_options={"records": "results"},
+)
+def json_records(data: bytes, options: JsonRecordsOptions | None = None) -> list[dict[str, Any]]:
+    from .parser_spec import _dig
+
+    options = options or JsonRecordsOptions()
+    doc = _json_doc(data)
+    found = _dig(doc, options.records) if options.records.strip() else doc
+    if found is None:
+        raise ParseError(f"nothing at {options.records!r} in the JSON")
+    items = found if isinstance(found, list) else [found]
+    return [i if isinstance(i, dict) else {"value": i} for i in items]
+
+
+class JsonValueOptions(Options):
+    path: str = Field(description="Dot path to the value (key, data.id, items.0.name)", examples=["key"])
+
+
+@parser(
+    "json-value",
+    "string",
+    "One value of a JSON document, by dot path (an issue's key, a new record's id)",
+    JsonValueOptions,
+    sample="api-page.json",
+    sample_options={"path": "results.0.name"},
+)
+def json_value(data: bytes, options: JsonValueOptions) -> str:
+    import json
+
+    from .parser_spec import _dig
+
+    found = _dig(_json_doc(data), options.path)
+    if found is None:
+        raise ParseError(f"nothing at {options.path!r} in the JSON")
+    return found if isinstance(found, str) else json.dumps(found, ensure_ascii=False)
+
+
 @parser("text", "string", "The whole output as text", sample="http-response.txt")
 def text(data: bytes, options: Options | None = None) -> str:
     return data.decode("utf-8", errors="replace").strip()

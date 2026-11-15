@@ -1,0 +1,9 @@
+{
+  "count": 3,
+  "next": "https://api.example.com/v1/hosts?page=2",
+  "results": [
+    {"id": 101, "name": "web-01.example.com", "ip": "203.0.113.10", "tags": ["web", "prod"]},
+    {"id": 102, "name": "db-01.example.com", "ip": "203.0.113.20", "tags": ["db", "prod"]},
+    {"id": 103, "name": "build.example.com", "ip": "203.0.113.30", "tags": ["ci"]}
+  ]
+}

@@ -1,0 +1,50 @@
+id: jira-create-issue
+name: Create a Jira issue
+schema_version: 1
+kind: http
+description: Open an issue in a Jira project and keep its key (SEC-123) as the card's result
+tags: [ticketing, jira, http]
+args:
+  - name: project
+    type: string
+    description: The Jira project's key
+    required: true
+    example: SEC
+    regex: '^[A-Z][A-Z0-9_]+$'
+  - name: summary
+    type: string
+    required: true
+    example: Expired TLS certificate on vpn.example.com
+  - name: description
+    type: string
+    description: Plain text (Jira's own wiki markup works)
+  - name: issue_type
+    type: string
+    default: Task
+    example: Bug
+  - name: labels
+    type: list
+vars:
+  - name: jira
+    kind: jira-api
+request:
+  method: POST
+  url: "{{ jira.base_url }}/rest/api/2/issue"
+  auth:
+    basic: ["{{ jira.email }}", "{{ jira.token }}"]
+  headers:
+    Accept: application/json
+  json:
+    fields:
+      project: {key: "{{ project }}"}
+      summary: "{{ summary }}"
+      description: "{{ description }}"
+      issuetype: {name: "{{ issue_type }}"}
+      labels: "{{ labels }}"
+expect:
+  status: [201]
+outputs:
+  - name: key
+    parser: json-value
+    options: {path: key}
+rate_limit: 100/minute

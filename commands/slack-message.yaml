@@ -1,0 +1,25 @@
+id: slack-message
+name: Slack message
+schema_version: 1
+kind: http
+description: Post a message to a Slack channel through an incoming webhook (Markdown-style mrkdwn works)
+tags: [notify, slack, http]
+args:
+  - name: text
+    type: string
+    description: The message (*bold*, _italic_, <https://link|text>)
+    required: true
+    example: "*Recon done* for ACME: 12 new hosts"
+vars:
+  - name: slack
+    kind: webhook
+    description: The channel's incoming webhook (https://hooks.slack.com/services/…)
+request:
+  method: POST
+  url: "{{ slack.url }}"
+  json:
+    text: "{{ text }}"
+  timeout_s: 20
+expect:
+  status: [200]
+rate_limit: 1/second

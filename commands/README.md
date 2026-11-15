@@ -56,6 +56,8 @@ the card. A parse failure is shown there too and doesn't fail the job. An output
 | `lines` | `list<string>` | any text, one value per non-empty line | `match` (regex filter), `ignore_case`, `unique` |
 | `regex` | `list<string>` | any text | `pattern` (required), `group` (number or name, default 0), `ignore_case`, `unique` (default true) |
 | `text` | `string` | any text | |
+| `json-records` | `list<object>` | JSON: an array, or the array at a dot path (an API's response) | `records` (dot path, e.g. `results` or `data.items`) |
+| `json-value` | `string` | JSON: one value by dot path (a new issue's key) | `path` (required, e.g. `key` or `data.0.id`) |
 
 The **Parsers** page in the UI lists these with their options and lets you try each one on
 built-in sample data or your own pasted output, with the result updating as you type. It
@@ -171,3 +173,108 @@ every card that uses it. A list argument gets the entries as separate values (nm
 one target per argument); a text argument gets them comma-separated. Each entry is still
 checked against the argument's `regex`. The nmap commands take an `exclude` list for
 exclusion lists.
+
+## HTTP actions (`kind: http`)
+
+A definition can make an HTTP request instead of running a command: the **Castor server** sends
+it (no agent, no container), and the response comes back on the card like a command's output.
+Use it for ticketing systems, chat webhooks, scanners' APIs and anything else with an API.
+`webhook-post`, `slack-message`, `ntfy-send`, `jira-create-issue` and `github-issues` are the
+built-in examples. The design and the plans for MCP and plugin actions are in
+[docs/ACTIONS.md](../docs/ACTIONS.md).
+
+```yaml
+id: jira-create-issue
+name: Create a Jira issue
+kind: http                       # the default is command
+args:
+  - {name: project, type: string, required: true, regex: '^[A-Z][A-Z0-9_]+$'}
+  - {name: summary, type: string, required: true}
+  - {name: labels, type: list}
+vars:
+  - {name: jira, kind: jira-api} # base_url, email, token (secret)
+request:
+  method: POST                   # GET (default), POST, PUT, PATCH, DELETE, HEAD
+  url: "{{ jira.base_url }}/rest/api/2/issue"
+  query: {notifyUsers: "false"}  # optional; values URL-encoded, a list repeats the parameter
+  headers: {Accept: application/json}
+  auth: {basic: ["{{ jira.email }}", "{{ jira.token }}"]}   # or bearer: "{{ api.token }}"
+  json:                          # or form: {...}, or body: "..." with content_type
+    fields:
+      project: {key: "{{ project }}"}
+      summary: "{{ summary }}"
+      labels: "{{ labels }}"
+  timeout_s: 30                  # per request (default 60)
+  # save_as: report.pdf          # keep the response as a file on the card instead
+expect: {status: [201]}          # what counts as success (default: any 2xx)
+retry: {attempts: 3, backoff_s: 2, max_backoff_s: 60}       # the defaults
+rate_limit: 100/minute           # suggested; a card can set its own
+outputs:
+  - {name: key, parser: json-value, options: {path: key}}
+```
+
+**Values are escaped for where they land**, the way command values are shell-quoted:
+
+- A placeholder that starts the URL (a base URL from a variable set) goes in as it is and must be
+  an `http://` or `https://` address. Any other value in the URL is percent-encoded, so it stays
+  inside its path segment.
+- `query` and `form` values are URL-encoded. A list argument repeats the parameter, and an empty
+  one is left out.
+- In `json`, a field that is exactly one placeholder keeps its type: a list argument becomes an
+  array, a number a number, and an empty optional argument leaves the field out. Text around a
+  placeholder makes a string.
+- A header value with a line break is refused.
+- A text `body` is escaped for its `content_type` (JSON, XML or HTML, form, or as is).
+- Variable values (`{{ slot.field }}`) are filled in only as the request is sent. They are never
+  stored on the card or the job, and secrets are masked in the log.
+
+**The log** shows the request (`> POST https://…`, headers, Authorization as `••••`) and the
+response (`< 201 Created`, its headers, the time). The response body is the job's output (stdout),
+which the parsers read; `json-records` (the records of a JSON document, optionally at a dot path)
+and `json-value` (one value by dot path) are made for APIs. A response that isn't text, or any
+response with `save_as`, is kept as a file on the card instead.
+
+**Every page.** `paginate` follows an API's pages and joins their records into one JSON array:
+
+```yaml
+paginate:
+  style: cursor                  # cursor | link | offset | page
+  items: data                    # dot path to each page's records (default: the body is the list)
+  cursor: {from: meta.next_cursor, param: cursor}   # cursor: where the next one is, and how to send it
+  # next: links.next             # link: a dot path to the next URL (default: the Link header)
+  # param: offset                # offset and page: the parameter to send
+  # size_param: limit            # and the page size parameter and size
+  # size: 100
+  # start: 1                     # page: the first page's number
+  stop: {max_pages: 50, max_items: 10000}
+```
+
+Paging stops at an empty page, a missing next cursor or link, a short page (offset and page
+styles), or the `stop` limits. Next links are only followed on the same host.
+
+**Batches.** `batch: {arg: hosts, size: 100}` sends one request per 100 values of the list
+argument `hosts`, and joins the responses (JSON arrays) the same way.
+
+**When things go wrong:**
+
+- A `429` or `503` with `Retry-After` waits as told. It also pauses every other request made with
+  the same variable set.
+- A `5xx`, a timeout or a dropped connection is retried with backoff (`retry`).
+- Any other `4xx` fails at once, since the request itself is wrong.
+- Progress is saved after every page and batch, so a retry carries on from where it stopped.
+- A wait of more than 30 seconds parks the job (status **waiting**, with the time it carries on).
+  It gives its slot back meanwhile, and Cancel ends it.
+
+**Rate limits** keep Castor within what an API allows: `60/minute`, `5/second` or `1000/day`,
+optionally `, 2 at once`. They can be set on a variable set (every request made with its values,
+by any card or playbook: this is how APIs count, per key) and on a card (else the definition's
+`rate_limit`). A request waits until every limit that applies has room.
+
+**Where requests may go** is up to admins, in Settings → General:
+
+- Loopback, link-local (cloud metadata) and reserved addresses are refused unless an admin lists
+  them. That's also what `CASTOR_HTTP_ALLOW_ADDRESSES` is for.
+- Private networks can be blocked too.
+- HTTP actions can be limited to a list of hosts.
+
+Alert channels follow the same address rules.

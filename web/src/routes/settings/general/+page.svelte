@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { AppSettings } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
-	import { Card, Select, TopAppBar } from '$lib/m3';
+	import { Card, Select, Switch, TextField, TopAppBar } from '$lib/m3';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { appSettings } from '$lib/appSettings.svelte';
 
@@ -20,6 +20,21 @@
 			settings = before;
 			snackbar.error(err instanceof ApiError ? err.message : 'Could not save');
 		}
+	}
+
+	// Outbound requests (HTTP actions, alert channels): one entry per line.
+	const lines = (v: string[] | undefined) => (v ?? []).join('\n');
+	const parse = (text: string) => text.split(/[\n,]+/).map((l) => l.trim()).filter(Boolean);
+	// svelte-ignore state_referenced_locally
+	let hosts = $state(lines(settings.http_allowed_hosts));
+	// svelte-ignore state_referenced_locally
+	let addresses = $state(lines(settings.http_allow_addresses));
+	async function saveList(key: 'http_allowed_hosts' | 'http_allow_addresses', text: string) {
+		const next = parse(text);
+		if (JSON.stringify(next) === JSON.stringify(settings[key] ?? [])) return;
+		await change({ [key]: next });
+		if (key === 'http_allowed_hosts') hosts = lines(settings.http_allowed_hosts);
+		else addresses = lines(settings.http_allow_addresses);
 	}
 
 	const NOTE_LIMITS = [4, 6, 8, 12].map((n) => ({
@@ -48,6 +63,40 @@
 				value={String(settings.notes_per_project)}
 				options={NOTE_LIMITS.some((o) => o.value === String(settings.notes_per_project)) ? NOTE_LIMITS : [...NOTE_LIMITS, { value: String(settings.notes_per_project), label: String(settings.notes_per_project), description: '' }]}
 				onchange={(v) => change({ notes_per_project: Number(v) })}
+			/>
+		</Card>
+
+		<Card variant="outlined" class="flex flex-col gap-4 p-5">
+			<div>
+				<h2 class="title-medium text-on-surface">Outbound requests</h2>
+				<p class="body-medium text-on-surface-variant">
+					Where the Castor server itself may send requests: HTTP actions on cards and in playbooks, and alert channels. Loopback, link-local (where cloud metadata services live) and reserved addresses are always refused unless they're listed below.
+				</p>
+			</div>
+			<Switch
+				checked={!!settings.http_block_private}
+				label="Block private networks too (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, fc00::/7)"
+				onchange={(v) => change({ http_block_private: v })}
+			/>
+			<TextField
+				label="Hosts HTTP actions may call"
+				bind:value={hosts}
+				multiline
+				rows={3}
+				mono
+				placeholder="api.example.com&#10;*.atlassian.net"
+				supporting="One per line; *.example.com for a domain's hosts. Empty: any host (alert channels aren't limited by this)."
+				onblur={() => saveList('http_allowed_hosts', hosts)}
+			/>
+			<TextField
+				label="Addresses allowed anyway"
+				bind:value={addresses}
+				multiline
+				rows={2}
+				mono
+				placeholder="127.0.0.1/32"
+				supporting="Addresses or networks exempt from every block above, one per line: a service on this machine, say."
+				onblur={() => saveList('http_allow_addresses', addresses)}
 			/>
 		</Card>
 	</div>

@@ -72,7 +72,7 @@
 		const s = t.latest_job?.status;
 		if (!s) return t.kind === 'command' ? 7 : 8;
 		if (t.latest_job?.waiting_input) return 0;
-		return ({ running: 1, dispatched: 1, queued: 2, failed: 3, lost: 3, succeeded: 5, cancelled: 6 } as Record<string, number>)[s] ?? 6;
+		return ({ running: 1, dispatched: 1, waiting: 1, queued: 2, failed: 3, lost: 3, succeeded: 5, cancelled: 6 } as Record<string, number>)[s] ?? 6;
 	}
 	const firstAssignee = (t: Task) => assigneesOf(t)[0]?.display_name.toLowerCase() ?? '\uffff'; // nobody: last
 	function compare(a: Task, b: Task, s: NonNullable<Sort>): number {

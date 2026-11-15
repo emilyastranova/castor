@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,6 +35,38 @@ class AppSettings(BaseModel):
     # Check the plugin directory daily for newer releases of installed plugins (nothing updates
     # by itself; admins are told). Off for instances that shouldn't reach GitHub.
     plugin_update_checks: bool = True
+    # Outbound requests (HTTP actions, alert channels; outbound.py): addresses exempt from the
+    # block on loopback, link-local and reserved ones (CIDRs like 127.0.0.1/32), whether private
+    # networks are blocked too, and the hosts HTTP actions may call (empty: any; *.example.com).
+    http_allow_addresses: list[str] = Field(default_factory=list, max_length=100)
+    http_block_private: bool = False
+    http_allowed_hosts: list[str] = Field(default_factory=list, max_length=500)
+
+    @field_validator("http_allow_addresses")
+    @classmethod
+    def cidrs(cls, value: list[str]) -> list[str]:
+        import ipaddress
+
+        out = []
+        for item in value:
+            try:
+                out.append(str(ipaddress.ip_network(item.strip(), strict=False)))
+            except ValueError:
+                raise ValueError(f"{item!r} isn't an address or network (127.0.0.1/32, 10.0.0.0/8)") from None
+        return list(dict.fromkeys(out))
+
+    @field_validator("http_allowed_hosts")
+    @classmethod
+    def hosts(cls, value: list[str]) -> list[str]:
+        import re
+
+        out = []
+        for item in value:
+            host = item.strip().lower().rstrip(".")
+            if not re.fullmatch(r"(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*", host):
+                raise ValueError(f"{item!r} isn't a host name (api.example.com or *.example.com)")
+            out.append(host)
+        return list(dict.fromkeys(out))
 
 
 async def load(db: AsyncSession) -> AppSettings:

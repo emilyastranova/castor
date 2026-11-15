@@ -6,7 +6,7 @@
 	import { aiStatus } from '$lib/ai.svelte';
 	import { confirmAction } from '$lib/confirm.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
-	import { commandParts } from '$lib/library';
+	import { commandParts, pagingText, requestText } from '$lib/library';
 	import YamlPane from './YamlPane.svelte';
 
 	/** A command in the Library's detail pane: what it takes, runs and gives, who uses it, and
@@ -82,7 +82,7 @@
 
 <div class="flex flex-col gap-5">
 	<header class="flex flex-wrap items-start gap-x-4 gap-y-3">
-		<span class="flex size-12 shrink-0 items-center justify-center rounded-lg bg-primary-container text-on-primary-container"><Icon name="terminal" /></span>
+		<span class="flex size-12 shrink-0 items-center justify-center rounded-lg bg-primary-container text-on-primary-container"><Icon name={c?.spec.kind === 'http' ? 'api' : 'terminal'} /></span>
 		<div class="min-w-0 flex-1">
 			<h2 class="title-large text-on-surface">{c?.name ?? 'New command'}</h2>
 			{#if c}
@@ -124,9 +124,11 @@
 		{#if c.description}<p class="max-w-[70ch] body-medium text-on-surface">{c.description}</p>{/if}
 
 		<dl class="grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-6 gap-y-2 body-medium">
-			<dt class="label-large text-on-surface-variant">Runs with</dt>
+			<dt class="label-large text-on-surface-variant">{c.spec.kind === 'http' ? 'Sent by' : 'Runs with'}</dt>
 			<dd class="min-w-0">
-				{#if c.spec.tool}
+				{#if c.spec.kind === 'http'}
+					<span>the Castor server</span> <span class="text-on-surface-variant">(an HTTP request, no agent)</span>
+				{:else if c.spec.tool}
 					<button type="button" class="font-medium text-primary underline-offset-4 hover:underline" onclick={() => c.spec.tool && onselecttool(c.spec.tool)}>{toolName ?? c.spec.tool}</button>
 					<span class="text-on-surface-variant">(tool)</span>
 				{:else if c.spec.image}
@@ -138,6 +140,14 @@
 			{#if c.spec.container_flags?.length}
 				<dt class="label-large text-on-surface-variant">Container flags</dt>
 				<dd class="flex flex-wrap gap-1">{#each c.spec.container_flags as f (f)}<code class="rounded-xs bg-surface-container-highest px-1.5 font-mono text-[12px]">{f}</code>{/each}</dd>
+			{/if}
+			{#if pagingText(c)}
+				<dt class="label-large text-on-surface-variant">Results</dt>
+				<dd>{pagingText(c)}, joined into one list</dd>
+			{/if}
+			{#if c.spec.rate_limit}
+				<dt class="label-large text-on-surface-variant">Rate limit</dt>
+				<dd><code class="font-mono text-[12.5px]">{c.spec.rate_limit}</code> <span class="text-on-surface-variant">for cards without their own</span></dd>
 			{/if}
 			{#if c.spec.tty}
 				<dt class="label-large text-on-surface-variant">Terminal</dt>
@@ -154,9 +164,15 @@
 		</dl>
 
 		<section class="flex flex-col gap-2">
-			<h3 class="title-small text-on-surface">Command line</h3>
-			<pre class="overflow-x-auto rounded-md bg-surface-container-highest p-3 font-mono text-[12.5px] leading-5 whitespace-pre-wrap text-on-surface">{#each commandParts(c.spec.command) as part, i (i)}{#if part.arg}<span class="rounded-xs bg-primary-container px-0.5 text-on-primary-container">{part.text}</span>{:else}{part.text}{/if}{/each}</pre>
-			<p class="body-small text-on-surface-variant">Values are inserted shell-quoted, so each one is always a single word.</p>
+			<h3 class="title-small text-on-surface">{c.spec.kind === 'http' ? 'Request' : 'Command line'}</h3>
+			<pre class="overflow-x-auto rounded-md bg-surface-container-highest p-3 font-mono text-[12.5px] leading-5 whitespace-pre-wrap text-on-surface">{#each commandParts(c.spec.kind === 'http' ? requestText(c) : c.spec.command) as part, i (i)}{#if part.arg}<span class="rounded-xs bg-primary-container px-0.5 text-on-primary-container">{part.text}</span>{:else}{part.text}{/if}{/each}</pre>
+			<p class="body-small text-on-surface-variant">
+				{#if c.spec.kind === 'http'}
+					Values are escaped for where they go: encoded in the address, JSON values in a JSON body. Variable values are filled in only as the request is sent, and never stored.
+				{:else}
+					Values are inserted shell-quoted, so each one is always a single word.
+				{/if}
+			</p>
 		</section>
 
 		<section class="flex flex-col gap-2">

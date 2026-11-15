@@ -48,7 +48,7 @@ async def update(body: dict[str, Any], db: DB, user: Admin):
         settings = await app_settings.save(db, body, user.id)
     except ValidationError as exc:
         err = exc.errors()[0]
-        raise HTTPException(422, f"{err['loc'][0]}: {err['msg']}") from exc
+        raise HTTPException(422, f"{err['loc'][0]}: {err['msg'].removeprefix('Value error, ')}") from exc
     await record_activity(db, type="settings.updated", message="Changed settings: " + ", ".join(
         k if isinstance(v, (dict, list)) else f"{k} = {v}" for k, v in body.items()),
                           project_id=None, **actor_of(user))

@@ -415,7 +415,7 @@ class AgentGateway:
             job.started_at = utcnow()
             conn.running.add(job.id)
             task = await db.get(m.Task, job.task_id)
-            agent = await db.get(m.Agent, conn.agent_id)
+            agent = await db.get(m.Agent, conn.agent_id) if conn.agent_id else None
             if agent is not None:
                 agent.status = m.AgentStatus.busy
             await db.commit()
@@ -481,7 +481,7 @@ class AgentGateway:
 
                 await interactive_finished(db, job)
             task = await db.get(m.Task, job.task_id)
-            agent = await db.get(m.Agent, conn.agent_id)
+            agent = await db.get(m.Agent, conn.agent_id) if conn.agent_id else None
             if agent is not None:
                 agent.status = m.AgentStatus.busy if conn.running else m.AgentStatus.idle
             if task is not None:
@@ -497,8 +497,8 @@ class AgentGateway:
                     + (f" (exit {job.exit_code})" if job.exit_code not in (None, 0) else ""),
                     project_id=task.project_id,
                     task_id=task.id,
-                    actor_type="agent",
-                    actor_id=str(conn.agent_id),
+                    actor_type="agent" if conn.agent_id else "system",
+                    actor_id=str(conn.agent_id) if conn.agent_id else None,
                     actor_name=conn.name,
                     payload={"job_id": str(job.id), "exit_code": job.exit_code},
                 )
@@ -661,6 +661,10 @@ class AgentGateway:
         return True
 
     async def cancel_job(self, job: m.Job) -> bool:
+        if job.runner == "server":
+            from .server_runner import server_runner
+
+            return server_runner.cancel(job.id)
         if job.agent_id is None:
             return False
         conn = self.connections.get(job.agent_id)

@@ -6,7 +6,7 @@ from sqlalchemy import select
 from .. import models as m
 from .. import variables
 from ..access import visible_project_ids
-from ..command_library import definition_from_spec, ids_in_use, load_spec, usage
+from ..command_library import definition_from_spec, forget_definition, ids_in_use, load_spec, usage
 from ..command_render import ArgumentError, render_command
 from ..command_spec import CommandSpec, parse_spec
 from ..deps import DB, CurrentUser, Operator
@@ -124,10 +124,9 @@ async def delete_command(command_id: str, db: DB, user: Operator):
         raise HTTPException(404, "Command not found")
     if read_only(row.origin):
         raise HTTPException(409, cant_delete(row.origin, "command"))
-    # Cards that used it keep their rendered command line and become plain shell commands.
-    tasks = (await db.execute(select(m.Task).where(m.Task.command_ref == command_id))).scalars()
-    for task in tasks:
-        task.command_ref = None
+    # Cards that used it keep their rendered command line and become plain shell commands
+    # (an HTTP action's cards become manual cards).
+    await forget_definition(db, row)
     await db.delete(row)
     await library_activity(db, user, "command", "deleted", command_id, row.name)
     await db.commit()
@@ -143,6 +142,15 @@ async def render(command_id: str, body: RenderIn, db: DB, _: CurrentUser):
     except variables.VariableError as exc:
         name, _, message = str(exc).partition(": ")
         raise HTTPException(422, {"message": str(exc), "errors": {name: message}}) from exc
+    if spec.kind == "http":
+        from ..command_render import resolve_args
+        from ..http_render import preview_line, request_preview
+
+        try:
+            resolved = resolve_args(spec, args)
+        except ArgumentError as exc:
+            raise HTTPException(422, {"message": str(exc), "errors": exc.errors}) from exc
+        return RenderOut(command=preview_line(spec, resolved), image=None, kind="http", request=request_preview(spec, resolved))
     try:
         return RenderOut(
             command=render_command(spec, args),

@@ -170,6 +170,21 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `services._card_to_review`, `ensure_run_cards`); step cards have `playbook_step_id` and are
   filtered out of the board (server `get_board`, client `BoardStore`). Web: `RunPanel.svelte`
   in TaskDialog's Run tab; the board page opens `?step=` on top and redirects step links.
+- HTTP actions (docs/ACTIONS.md phase 1): a definition with `kind: http` (`http_spec.py` parts on
+  `CommandSpec`) is a request the Castor server sends. `http_render.py` fills arguments and variable
+  fields in one pass, escaped per place (never substitute twice: an argument's text must not be
+  read again for placeholders). `enqueue_job` sets `jobs.kind`; the dispatcher's `_to_server` hands
+  it to `orchestrator/server_runner.py`, which fixes `jobs.request` on first start (no variable
+  value ever) and drives the gateway's own `job.log`/`job.finished` handlers with a
+  `ServerConnection` (agent id None: guard `db.get(m.Agent, …)` on it). Paging, batches, retries,
+  parking (`JobStatus.waiting`, `resume_at`, `jobs.progress`, `server_runner.recover` at startup),
+  rate limits (`rate_limits.py`, `tasks.rate_limit`, `variable_sets.rate_limit`, `rate_buckets`).
+  Every outbound request the server makes for people goes through `outbound.py` (`client()` for
+  httpx, `resolve_sync` for urllib; alert channels too). HTTP cards can't be detached or edited by
+  hand; `command_library.forget_definition` makes them manual when their definition goes. Tests:
+  `tests/test_http_actions.py` (a fake API on loopback, allowed by conftest's
+  `CASTOR_HTTP_ALLOW_ADDRESSES`). Web: `CommandArgsForm` preview, `TaskDialog` `isHttp`, the
+  Library's HTTP folder (`lib/library.ts` `HTTP_FOLDER`, `requestText`), Settings → General.
 - Tools (Phase 3a): `tool_spec.py` (YAML → `ToolSpec`: `image`, `build` recipe, `host`;
   `way_for` picks one per agent; recipe tags hash the recipe), `tool_library.py` (built-ins
   from `CASTOR_TOOLS_DIR` = `tools/`), `api/tools.py`. Commands say `tool: <id>`; the

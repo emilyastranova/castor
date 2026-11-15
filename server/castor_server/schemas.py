@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .models import AgentStatus, ColumnRole, JobStatus, TaskKind, UserRole
 
@@ -238,11 +238,22 @@ class RenderIn(BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
 
 
+class RequestPreview(BaseModel):
+    """An HTTP action as it will be sent: arguments filled in, variables as written."""
+
+    method: str
+    url: str
+    headers: dict[str, str] = Field(default_factory=dict)
+    body: str | None = None
+
+
 class RenderOut(BaseModel):
     command: str
     image: str | None
     tool: str | None = None
     container_flags: list[str] = Field(default_factory=list)
+    kind: str = "command"
+    request: RequestPreview | None = None
 
 
 class AlertRules(BaseModel):
@@ -282,6 +293,15 @@ class TaskIn(BaseModel):
     waits_on: list[uuid.UUID] = Field(default_factory=list)
     var_bindings: dict[str, uuid.UUID | None] = Field(default_factory=dict)
     tty: bool = False
+    # HTTP actions: the most requests this card makes ("60/minute"); none: the definition's.
+    rate_limit: str | None = None
+
+    @field_validator("rate_limit")
+    @classmethod
+    def rate(cls, value: str | None) -> str | None:
+        from .http_spec import check_rate
+
+        return check_rate(value)
 
 
 class TaskPatch(BaseModel):
@@ -308,6 +328,14 @@ class TaskPatch(BaseModel):
     # Alerts for this card's runs; channels: [] turns them off.
     alerts: AlertRules | None = None
     tty: bool | None = None
+    rate_limit: str | None = None  # null or "" clears it
+
+    @field_validator("rate_limit")
+    @classmethod
+    def rate(cls, value: str | None) -> str | None:
+        from .http_spec import check_rate
+
+        return check_rate(value)
 
 
 class TaskMove(BaseModel):
@@ -343,6 +371,11 @@ class JobOut(ORM):
     tty_size: dict[str, Any] | None = None
     waiting_input: str | None = None
     input_by: uuid.UUID | None = None
+    # HTTP actions: run by the Castor server ("server"); waiting for a rate limit until resume_at.
+    kind: str = "command"
+    runner: str | None = None
+    resume_at: datetime | None = None
+    progress: dict[str, Any] | None = None
 
 
 class BatchSummary(BaseModel):
@@ -410,6 +443,7 @@ class TaskOut(ORM):
     var_bindings: dict[str, str] = Field(default_factory=dict)
     alerts: dict[str, Any] | None = None
     tty: bool = False
+    rate_limit: str | None = None
     latest_job: JobOut | None = None
     batch: BatchSummary | None = None
     # Set on a playbook run's card: where the run is.

@@ -79,6 +79,9 @@ class JobStatus(str, enum.Enum):
     failed = "failed"
     cancelled = "cancelled"
     lost = "lost"
+    # An HTTP action waiting for a rate limit or a Retry-After (Job.resume_at); it holds no
+    # runner slot and carries on from Job.progress.
+    waiting = "waiting"
 
     @property
     def is_terminal(self) -> bool:
@@ -355,6 +358,8 @@ class Task(Base, TimestampMixin):
     alerts: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True, default=None)
     # Run in an interactive terminal (also on when its library command says tty: true).
     tty: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # HTTP actions: this card's own limit on its requests ("60/minute"; rate_limits.py).
+    rate_limit: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     project: Mapped[Project] = relationship(back_populates="tasks")
     column: Mapped[BoardColumn] = relationship(back_populates="tasks")
@@ -415,6 +420,9 @@ class VariableSet(Base, TimestampMixin):
     secrets: Mapped[dict[str, str]] = mapped_column(JSONType, default=dict)
     # {field: {filename, size, data: <token>}}
     files: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    # HTTP actions: the most requests made with this set's values ("60/minute"), whichever
+    # card, playbook or project makes them (rate_limits.py).
+    rate_limit: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # One-off sets entered on a card or in the Run dialog without saving to the library:
     # hidden from listings and usable only by the card (or playbook run) that owns them,
     # and deleted with it. Unowned until first bound.
@@ -650,12 +658,33 @@ class Job(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # What it does (docs/ACTIONS.md): "command" runs on an agent, "http" is a request.
+    kind: Mapped[str] = mapped_column(String(16), default="command", server_default="command")
+    # Who ran it, for jobs that no agent ran: "server" (the Castor server's runner).
+    runner: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # An http job's request as queued: {"args": resolved arguments, "spec": the request,
+    # paginate, batch, expect and retry}. Variable values are never in it.
+    request: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
+    # How far it got (pages and batches done), so a retry or a resume carries on from there.
+    progress: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
+    resume_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
     task: Mapped[Task] = relationship(back_populates="jobs")
     agent: Mapped[Agent | None] = relationship(back_populates="jobs", foreign_keys="Job.agent_id")
     log_chunks: Mapped[list[JobLogChunk]] = relationship(
         back_populates="job", cascade="all, delete-orphan", order_by="JobLogChunk.seq"
     )
+
+
+class RateBucket(Base):
+    """A rate limit's token bucket (rate_limits.py), kept so a restart doesn't refill it."""
+
+    __tablename__ = "rate_buckets"
+
+    key: Mapped[str] = mapped_column(String(120), primary_key=True)  # set:<id>, task:<id>
+    tokens: Mapped[float] = mapped_column(Float, default=0)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    paused_until: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
 
 class JobOutput(Base):

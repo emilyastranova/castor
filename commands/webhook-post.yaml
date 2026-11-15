@@ -1,0 +1,26 @@
+id: webhook-post
+name: Post to a webhook
+schema_version: 1
+kind: http
+description: Send a JSON message ({"title", "text"}) to any webhook that takes one
+tags: [notify, webhook, http]
+args:
+  - name: text
+    type: string
+    description: The message
+    required: true
+    example: The external scan finished
+  - name: title
+    type: string
+    description: A heading, for receivers that show one
+vars:
+  - name: hook
+    kind: webhook
+request:
+  method: POST
+  url: "{{ hook.url }}"
+  json:
+    title: "{{ title }}"
+    text: "{{ text }}"
+  timeout_s: 20
+rate_limit: 30/minute

@@ -351,9 +351,29 @@ def sample_values() -> dict[str, Any]:
 # ---------- sending ----------
 
 
-def _post(request: urllib.request.Request) -> tuple[bool, int | None, str]:
+class _CheckedRedirects(urllib.request.HTTPRedirectHandler):
+    """Follow a redirect only to an address the outbound policy allows."""
+
+    def __init__(self, rules: Any) -> None:
+        self.rules = rules
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        from . import outbound
+
+        host = outbound.check_url(newurl)
+        outbound.resolve_sync(host, urlparse(newurl).port or (443 if newurl.startswith("https") else 80), self.rules)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _post(request: urllib.request.Request, rules: Any = None) -> tuple[bool, int | None, str]:
+    from . import outbound
+
     try:
-        with urllib.request.urlopen(request, timeout=10) as resp:
+        if rules is not None:
+            url = request.full_url
+            outbound.resolve_sync(outbound.check_url(url), urlparse(url).port or (443 if url.startswith("https") else 80), rules)
+        opener = urllib.request.build_opener(_CheckedRedirects(rules)) if rules is not None else urllib.request.build_opener()
+        with opener.open(request, timeout=10) as resp:
             resp.read(2048)
             return True, resp.status, ""
     except urllib.error.HTTPError as exc:
@@ -364,12 +384,18 @@ def _post(request: urllib.request.Request) -> tuple[bool, int | None, str]:
 
 
 async def send_now(channel: m.AlertChannel, values: dict[str, Any]) -> tuple[bool, int | None, str]:
-    """Send one alert and wait for the answer (the Test button)."""
+    """Send one alert and wait for the answer (the Test button). Its address goes through the
+    outbound policy (outbound.py), as HTTP actions' do."""
+    from . import outbound
+    from .db import SessionLocal
+
     try:
         request = build(channel, values)
     except (AlertError, vault.VaultError) as exc:
         return False, None, str(exc)
-    return await asyncio.to_thread(_post, request)
+    async with SessionLocal() as db:
+        rules = await outbound.policy(db, actions=False)
+    return await asyncio.to_thread(_post, request, rules)
 
 
 async def _deliver(channel_id: uuid.UUID, event: str, subject: str, values: dict[str, Any], delivery_id: uuid.UUID | None) -> None:

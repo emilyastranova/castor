@@ -136,7 +136,7 @@
 	let empty = $state(true);
 	let chunks: LogChunk[] = [];
 	const seen = new Set<number>();
-	let live = $derived(['queued', 'dispatched', 'running'].includes(job.status));
+	let live = $derived(['queued', 'dispatched', 'running', 'waiting'].includes(job.status));
 	let tty = $derived(!!job.tty);
 
 	/** Plain streams need CR before LF; stderr in red, Castor's own lines dim. Terminal

@@ -1,8 +1,10 @@
 # Actions beyond commands (plan)
 
-Status: **design only; nothing here is built yet.** This is the design the work follows: change it
-here first when a decision changes, then build. The roadmap entry ("Actions beyond commands")
-points here.
+Status: **phase 1 is built** (HTTP actions the Castor server sends, with paging, batches, rate
+limits, retries and waiting; the format is in [commands/README.md](../commands/README.md#http-actions-kind-http)
+and how it works in [ARCHITECTURE.md](ARCHITECTURE.md#http-actions)). Phases 2 to 5 are still plans.
+This is the design the work follows: change it here first when a decision changes, then build.
+The roadmap entry ("Actions beyond commands") points here.
 
 Today everything a card or a playbook step does is a shell command run by an agent. That reaches
 any tool installed on a box, but not the systems Castor most often needs to talk to, which have
@@ -76,8 +78,8 @@ vars:
   - {name: jira, kind: jira-api}          # a variable set kind: base_url, email, token (secret)
 request:
   method: POST
-  url: "{{ vars.jira.base_url }}/rest/api/3/issue"
-  auth: {basic: ["{{ vars.jira.email }}", "{{ vars.jira.token }}"]}
+  url: "{{ jira.base_url }}/rest/api/2/issue"
+  auth: {basic: ["{{ jira.email }}", "{{ jira.token }}"]}
   headers: {Accept: application/json}
   json:                                   # or body + content_type; form: {...}
     fields:
@@ -88,27 +90,30 @@ request:
 expect:
   status: [201]                           # default: any 2xx
 outputs:
-  - {name: issue, parser: json, options: {select: "key"}}
+  - {name: issue, parser: json-value, options: {path: key}}
 ```
 
 What happens when it runs:
 
 - **Placeholders and escaping:** placeholders are filled per place: `json` values are put in as
   JSON values (a string stays a string, a list argument becomes a JSON array), the URL path and
-  query are URL-encoded, form fields form-encoded, headers checked for newlines. `vars.*` secrets
-  are resolved by the runner just before sending, from the vault.
+  query are URL-encoded, form fields form-encoded, headers checked for newlines. Variable fields
+  (`{{ jira.token }}`) are resolved by the runner just before sending, from the vault, in the same
+  pass as the arguments, so an argument's text is never read again for placeholders.
 - **The log** on the card shows what an engineer would want and nothing secret: the request line,
   the headers with secret values masked, the size of the body sent, then the response status and
   headers, timing, and the body (truncated over a limit, the whole body kept for parsers).
-- **Result:** the response body is the job's stdout, so the existing parsers and field maps read
-  it. A response that's a file (by `Content-Type` or `save_as: report.pdf`) is stored as the job's
+- **Result:** the response body is the job's stdout, so the parsers and field maps read it
+  (`json-records` and `json-value` are built for this). A response that's a file (by `Content-Type` or `save_as: report.pdf`) is stored as the job's
   artifact. Exit is 0 when `expect` holds, else 1 with the reason (`status 403, expected 201`).
 - **Paging and batching:** see [Paging](#paging) below.
 - **Server-side safety** (server runner only):
-  - requests to link-local, loopback and cloud metadata addresses (169.254.0.0/16, ::1, fd00::/8…)
-    are refused unless an admin allows them;
-  - `CASTOR_HTTP_ALLOW` (or an app setting) can restrict outbound hosts to a list;
-  - redirects are followed only to the same host by default;
+  - requests to loopback, link-local (cloud metadata), multicast and reserved addresses are
+    refused unless an admin lists them (Settings → General, or `CASTOR_HTTP_ALLOW_ADDRESSES`); the
+    check is on the resolved address at connect time, so DNS can't be used to slip past it;
+  - private networks can be blocked too, and HTTP actions held to a list of hosts (Settings →
+    General); alert channels follow the same address rules;
+  - redirects are followed only on the same host, each hop checked;
   - responses are capped (`CASTOR_HTTP_MAX_BYTES`).
 
   An agent-run request follows the agent's own network instead; that's the point of choosing one.
@@ -125,10 +130,10 @@ cover nearly every API:
 ```yaml
 paginate:
   style: cursor            # cursor | link | offset | page
-  items: "$.results"       # where each page's records are (JSONPath); default: the body if it's a list
+  items: results           # where each page's records are (a dot path); default: the body if it's a list
   # cursor: take a value from the response, send it back as a parameter
-  cursor: {from: "$.next_cursor", param: cursor}
-  # link:   follow a URL in the body ("$.next") or the Link header (rel="next")
+  cursor: {from: meta.next_cursor, param: cursor}
+  # link:   follow a URL in the body (next: links.next) or the Link header (rel="next")
   # offset: {param: offset, size_param: limit, size: 100}
   # page:   {param: page, start: 1, size_param: per_page, size: 100}
   stop: {max_pages: 50, max_items: 10000}   # also stops on an empty page or no next cursor
@@ -138,7 +143,7 @@ paginate:
   job's stdout. Parsers see a single response, as if the API had returned everything at once.
 - **The log** shows one line per page (`page 3: 100 items, 412 ms`), not every body.
 - **Progress is saved:** after each page the runner records the cursor or offset it reached in
-  `jobs.progress`. A retry continues from there instead of starting over, so a failure on page 40
+  `jobs.progress`, and the records so far in `<data_dir>/actions/<job id>.jsonl`. A retry continues from there instead of starting over, so a failure on page 40
   doesn't cost the first 39 again.
 - **Pages count against limits:** each request waits for the rate limits like any other.
 - **Link-style next URLs** must stay on the same host as the first request. A next link pointing
@@ -271,11 +276,11 @@ that), filled in as the default when someone first binds a variable set to it.
   with a reset time, pauses everything under that credential until then, not only the request
   that hit it.
 - **One counter for the whole instance.** Limits are kept on the server (a token bucket per
-  scope, kept in the database so a restart doesn't reset them). An agent-run request asks the
-  server for room before sending (`job.permit` → `job.permit_ok`), so a credential's limit holds
-  across every agent using it.
-- **Visible:** a variable set and a plugin show how much of their limit is in use and what's
-  waiting.
+  scope, in `rate_buckets` so a restart doesn't reset them). An agent-run request (phase 2) will
+  ask the server for room before sending (`job.permit` → `job.permit_ok`), so a credential's limit
+  holds across every agent using it.
+- **Visible (later):** a variable set and a plugin show how much of their limit is in use and
+  what's waiting. Today a waiting request says so in its card's log.
 
 ## When a call goes wrong
 
@@ -321,17 +326,18 @@ that times out) and to plugin actions, which can return `{retry_after: 30}`.
 - `command_definitions`: the YAML gains `kind`, and `request` (http), `server`/`tool`/`arguments`
   (mcp) or nothing (plugin). The spec models live in `action_spec.py`, with `command_spec.py` as the
   `command` kind.
-- `tasks` and `jobs`: no new tables. `jobs.kind` (`command` default) and `jobs.request`, the
-  request as sent, secrets masked, for the log and for `ai`. `jobs.agent_id` is null for
-  server-run jobs; `jobs.runner` says `server`, `agent` or `plugin:<id>`. `jobs.progress` (JSON:
-  the page cursor or offset and batches done, for resuming) and `jobs.resume_at` (with a new
-  status `waiting`).
+- `tasks` and `jobs`: no new tables. `jobs.kind` (`command` default) and `jobs.request` (the
+  resolved arguments and the request part of the definition, fixed when the job first starts;
+  never a variable value). `jobs.agent_id` is null for server-run jobs; `jobs.runner` says
+  `server` (later `plugin:<id>`). `jobs.progress` (JSON: the page cursor or offset and batches
+  done, for resuming) and `jobs.resume_at` (with a new status `waiting`). `tasks.rate_limit` and
+  `variable_sets.rate_limit` hold the limits.
 - `mcp_connections`: id, name, transport (`http`, `sse`, `stdio`), url and auth (vault tokens) for
   HTTP; for stdio, the tool or host command, arguments, a variable set for its environment, an
   agent selector and `idle_s`. Enabled, last checked, a cache of its tool list.
-- `rate_limits`: scope (`variable_set`, `plugin`, `task`, `step`) and the scope's id, the limit
-  (count, period, concurrent), and the bucket's state (tokens, updated, paused until). The
-  per-step limit lives in the playbook spec and gets its row when the run starts.
+- `rate_buckets`: one row per limit in use (`set:<id>`, `task:<id>`; later `plugin:<id>`): tokens,
+  when it was last filled, and paused until (a Retry-After). A playbook step's card is a card, so
+  its limit is the card's.
 - App settings: outbound HTTP allow-list, allow private addresses, response cap, runner slots.
 
 ## UI
@@ -350,7 +356,7 @@ that times out) and to plugin actions, which can return `{retry_after: 30}`.
 
 ## Phases
 
-1. **Foundations + HTTP on the server:**
+1. **Foundations + HTTP on the server** (built):
    - `kind` in definitions;
    - the server runner, dispatcher routing and cancel/timeout;
    - HTTP actions with escaping, vault secrets, the log, `expect`, artifacts, outbound safety
@@ -358,8 +364,11 @@ that times out) and to plugin actions, which can return `{retry_after: 30}`.
    - paging, batching and resuming from `jobs.progress`;
    - rate limits on credentials and cards, the fixed retry rules, the `waiting` status;
    - Library and card UI;
-   - a few built-in examples: a generic webhook, Jira issue, Slack message, ntfy, and one paged
-     API (GitHub's issues or a scanner's findings).
+   - built-in examples: `webhook-post`, `slack-message`, `ntfy-send`, `jira-create-issue`,
+     `github-issues` (paged); variable kinds `webhook` and `jira-api`.
+
+   Not in it yet: **Try it** in the Library, a step's own `rate_limit` in a playbook spec (set it on
+   the step's card), and usage shown on variable sets.
 2. **HTTP on agents and AI recovery:** `job.run` for `http`, the agent capability and the agent
    picker, `job.permit`; `on_failure: ai` with the recovery moves.
 3. **MCP:** HTTP connections on the server, stdio connections hosted by agents, tool listing,
