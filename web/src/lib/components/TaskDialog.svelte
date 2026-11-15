@@ -573,6 +573,22 @@
 		if (task.parent_id) url.searchParams.set('task', task.parent_id);
 		return url.pathname + url.search;
 	});
+	// ---- moving this card into another one, as its subtask ----
+	let intoOpen = $state(false);
+	/** Not a run's card or step, not a subtask already, and not an activity itself (one level deep). */
+	let canMoveInto = $derived(!task.run && !task.playbook_step_id && !task.playbook_run_id && !task.parent_id && !task.subtasks?.total);
+	async function moveInto(parentId: UUID | null) {
+		if (!parentId) return;
+		await api().tasks.addSubtasks(parentId, [task.id]); // a failure keeps the picker open, saying why
+		snackbar.show(`“${task.title}” is a subtask now`);
+		// It's off the board: show it on top of the card it went into.
+		const url = new URL(page.url);
+		for (const k of ['comment', 'tab', 'job', 'view']) url.searchParams.delete(k);
+		url.searchParams.set('task', parentId);
+		url.searchParams.set('step', task.id);
+		void goto(url, { replaceState: true, noScroll: true, keepFocus: true });
+	}
+
 	async function release() {
 		try {
 			const t = await api().tasks.release(task.id);
@@ -810,6 +826,12 @@
 					{:else}
 						<MenuItem icon="content_copy" onclick={() => (duplicateOpen = true)}>Duplicate…</MenuItem>
 					{/if}
+				{/if}
+				{#if editable && canMoveInto}
+					<MenuItem icon="subdirectory_arrow_right" onclick={() => (intoOpen = true)}>Move into a card…</MenuItem>
+				{/if}
+				{#if editable && task.parent_id}
+					<MenuItem icon="move_up" onclick={release}>Make it its own card</MenuItem>
 				{/if}
 				{#if editable && !task.playbook_step_id}<PluginActions projectId={task.project_id} place="card" taskId={task.id} as="menu" />{/if}
 				<MenuItem icon="link" onclick={() => { navigator.clipboard.writeText(location.href); snackbar.show('Link copied'); }}>Copy link</MenuItem>
@@ -1388,6 +1410,10 @@
 		</div>
 	{/if}
 </Dialog>
+
+{#if intoOpen}
+	<MoveWritingDialog bind:open={intoOpen} projectId={task.project_id} what="card" fromTaskId={task.id} onpick={moveInto} />
+{/if}
 
 {#if images.pending[0]}
 	{#key images.pending[0]}

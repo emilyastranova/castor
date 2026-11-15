@@ -35,6 +35,10 @@
 	let dueAt = $state<string | null>(null);
 	let runOnMove = $state(true);
 	let busy = $state(false);
+	// Inside a card: the new one is a subtask of it (off the board). Cards that can hold subtasks:
+	// the board's cards, not a playbook run's.
+	let parentId = $state('');
+	let parents = $state<Task[]>([]);
 
 	// Library commands
 	let source = $state<'library' | 'custom'>('library');
@@ -70,6 +74,10 @@
 		if (open) {
 			columnId = column?.id ?? columns.find((c) => c.role === 'todo')?.id ?? columns[0]?.id ?? '';
 			void loadTags('cards', projectId).then((t) => (tagSuggestions = t));
+			void api()
+				.projects.board(projectId)
+				.then((b) => (parents = b.tasks.filter((t) => !t.run && !t.playbook_step_id).sort((a, z) => a.title.localeCompare(z.title))))
+				.catch(() => (parents = []));
 		}
 	});
 
@@ -83,6 +91,7 @@
 		priority = '0';
 		dueAt = null;
 		runOnMove = true;
+		parentId = '';
 	}
 
 	async function submit(e: SubmitEvent) {
@@ -108,8 +117,10 @@
 				tags,
 				priority: Number(priority),
 				due_at: dueAt,
-				run_on_move: runOnMove
+				run_on_move: runOnMove,
+				parent_id: parentId || null
 			});
+			if (parentId) snackbar.show(`Added “${task.title}” to “${parents.find((p) => p.id === parentId)?.title ?? 'the card'}”`);
 			oncreated?.(task);
 			open = false;
 			reset();
@@ -197,6 +208,19 @@
 			</Select>
 			<TagInput label="Tags" bind:value={tags} suggestions={tagSuggestions} noun="cards" placeholder="Add a tag" class="sm:col-span-2" />
 			<div class="sm:col-span-2"><DueDateField value={dueAt} desktopHint={false} onchange={(iso) => (dueAt = iso)} /></div>
+			{#if parents.length}
+				<div class="sm:col-span-2">
+					<Select
+						label="Inside a card (optional)"
+						bind:value={parentId}
+						options={[
+							{ value: '', label: 'No, on the board', description: 'A card of its own' },
+							...parents.map((p) => ({ value: p.id, label: p.title, description: p.subtasks?.total ? `${p.subtasks.total} subtask${p.subtasks.total === 1 ? '' : 's'}` : columns.find((c) => c.id === p.column_id)?.name, group: p.subtasks?.total ? 'Cards with subtasks' : 'Other cards' }))
+						]}
+						supporting={parentId ? 'It becomes a subtask of that card: off the board, in its Subtasks tab' : ''}
+					/>
+				</div>
+			{/if}
 		</div>
 		{#if kind === 'command' && targetColumn?.role === 'active' && runOnMove}
 			<p class="rounded-sm bg-tertiary-container px-3 py-2 body-small text-on-tertiary-container">This card will be dispatched to an agent as soon as it is created.</p>

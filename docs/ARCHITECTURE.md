@@ -862,7 +862,8 @@ Activities: `task.subtasks_added`, `task.subtask_released`. MCP: `consolidate_ca
 Web: `SubtaskPanel.svelte` (TaskDialog's Subtasks tab: drag to reorder, tick manual ones done, Run all or a few at
 a time, a graph through `PlaybookVisualizer` when they wait on each other, Save as a playbook through the editor's
 `?draft=1`; subtasks open on top via `?step=`, and the board page redirects `?task=<subtask>` there),
-`ManySubtasksDialog.svelte`, a drop strip on activity cards while a card is dragged (`lib/dropInto.svelte.ts`,
+`ManySubtasksDialog.svelte`, "Inside a card" in `NewTaskDialog` (`parent_id` on create), "Move into a card…" in the card menu
+(`MoveWritingDialog` with `what="card"`, then `add_subtasks`), a drop strip on activity cards while a card is dragged (`lib/dropInto.svelte.ts`,
 TaskCard), "Start as a card with subtasks" in `RunPlaybookDialog`, `GroupCardsDialog.svelte` (the project menu's "Group cards into one…" and
 "Add cards from the board"), the progress on `TaskCard`/`BoardList` (`taskStatus.subtaskState`), and a
 "subtask of" banner on a subtask's card.

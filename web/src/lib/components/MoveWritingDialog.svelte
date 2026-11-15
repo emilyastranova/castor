@@ -5,14 +5,14 @@
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { kindIcon } from '$lib/taskStatus';
 
-	/** Where a comment or a timeline post goes: a card of the same project (searched by title
-	 *  or tag, grouped by column), or the project's timeline. `onpick` does the move; the dialog
+	/** Where a comment or a timeline post goes (or a card, as a subtask): a card of the same
+	 *  project (searched by title or tag, grouped by column), or the project's timeline. `onpick` does the move; the dialog
 	 *  closes when it's done and stays open (saying why) when it fails. */
 	interface Props {
 		open: boolean;
 		projectId: UUID;
-		/** What's moving, for the title ("comment" or "post"). */
-		what: 'comment' | 'post';
+		/** What's moving, for the title: a comment, a post, or a card (into another one, as its subtask). */
+		what: 'comment' | 'post' | 'card';
 		/** The card it's on now (not offered). */
 		fromTaskId?: UUID | null;
 		/** Offer the timeline (moving a comment off its card). */
@@ -37,8 +37,8 @@
 			.projects.board(projectId)
 			.then((b) => {
 				columns = [...b.columns].sort((x, y) => x.position - y.position);
-				// Step cards belong to their run's card; the run card itself is offered.
-				tasks = b.tasks.filter((t) => !t.playbook_step_id && t.id !== fromTaskId);
+				// Step cards belong to their run's card; a card goes into one that can hold subtasks (not a run).
+				tasks = b.tasks.filter((t) => !t.playbook_step_id && t.id !== fromTaskId && !(what === 'card' && t.run));
 			})
 			.catch(() => snackbar.error("Couldn't load the board"))
 			.finally(() => {
@@ -87,10 +87,10 @@
 	const indexOf = (id: UUID | null) => flat.indexOf(id);
 </script>
 
-<Dialog bind:open title={`Move this ${what}`} icon="drive_file_move" size="md">
+<Dialog bind:open title={what === 'card' ? 'Move into a card' : `Move this ${what}`} icon={what === 'card' ? 'subdirectory_arrow_right' : 'drive_file_move'} size="md">
 	<div class="flex min-h-0 flex-col gap-3 pb-2">
 		<p class="body-medium text-on-surface-variant">
-			{what === 'post' ? 'It becomes a comment on the card you pick,' : timeline ? 'Pick a card, or the timeline (where it becomes a post),' : 'Pick a card,'} keeping its author, text and when it was written.
+			{#if what === 'card'}It becomes a subtask of the card you pick: it leaves the board and shows in that card's Subtasks tab, keeping everything it has.{:else}{what === 'post' ? 'It becomes a comment on the card you pick,' : timeline ? 'Pick a card, or the timeline (where it becomes a post),' : 'Pick a card,'} keeping its author, text and when it was written.{/if}
 		</p>
 		<label class="flex h-11 items-center gap-2 rounded-full bg-surface-container-highest px-4 text-on-surface-variant focus-within:outline-2 focus-within:outline-secondary">
 			<Icon name="search" size={20} />
