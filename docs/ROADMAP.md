@@ -75,8 +75,6 @@ Ansible inventory, a cloud's run-command service, a remote management tool's API
   recipes, host installs) map onto machines Castor doesn't prepare itself; and whether the
   official SaltStack and Puppet plugins live in castor-plugins.
 
-## People and access
-
 ## Cards and the board
 
 ### Cards with subtasks
@@ -125,28 +123,6 @@ playbooks).
   search and the people pages show subtasks.
 
 ## Running work
-
-### Actions beyond commands
-Today the work a card or playbook step does is a shell command on an agent. Look into a general
-kind of action that's part of Castor itself, of which a command is one sort:
-- **Other sorts:** an HTTP/API call made by the server (a ticketing system, a scanner's API, a chat
-  message), a tool call through an MCP server, or a plugin action, with typed inputs and outputs
-  like a command's arguments and parsed results.
-- **From plugins:** plugins could add new sorts of action (manifest-declared, run in their sandbox),
-  usable on cards and as playbook steps next to commands, with their outputs feeding later steps,
-  parsers, assets and triggers.
-- **The same rules:** permissions and scope checks, approvals, secrets only through the vault and
-  never rendered into what's stored, logs and results on the card, and the activity feed.
-- **Design:** [ACTIONS.md](ACTIONS.md) covers where each sort runs, how retries, cancel and
-  `on_failure` apply to something that isn't a process, how the library and the playbook editor
-  show them, and the phases. All five phases are built: HTTP actions the server sends, with paging,
-  batches, rate limits, retries and waiting, sent through an agent's network when a card chooses
-  one, AI recovery for playbook steps, MCP actions (Castor as an MCP client, over HTTP or with
-  stdio servers agents run), and plugin actions (a plugin's library actions on cards and as
-  steps), and approvals (`confirm: true`, or a card that asks before each run). The leftovers are
-  built too: Try it in the Library, a step's own rate limit and sender, limits' use shown, the older
-  SSE transport for MCP, MCP servers in exports, stdio servers per project, and large paged results
-  as JSON lines.
 
 ### Ansible playbooks
 Run Ansible playbooks from Castor, with their results on the card like any other run. (They're
