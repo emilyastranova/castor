@@ -1,15 +1,16 @@
 <script lang="ts">
 	import type { ProjectSummary, UUID } from '$lib/api';
 	import { api } from '$lib/api';
-	import { Icon, Switch } from '$lib/m3';
+	import { Chip, Icon } from '$lib/m3';
 
 	/** Which projects' jobs an agent may run: any project (null), or the ones ticked here. */
 	interface Props {
 		value: UUID[] | null;
-		/** What it's about, under the switch. */
+		/** What it's about, under the choice. */
 		supporting?: string;
 	}
 	let { value = $bindable(null), supporting = '' }: Props = $props();
+	const labelId = `agent-projects-${Math.random().toString(36).slice(2, 8)}`;
 
 	let projects = $state<ProjectSummary[]>([]);
 	let q = $state('');
@@ -29,12 +30,16 @@
 </script>
 
 <div class="flex flex-col gap-2">
-	<Switch checked={value === null} label="Runs jobs from any project" onchange={(on) => (value = on ? null : [])} />
-	{#if supporting}<p class="-mt-1 body-small text-on-surface-variant">{supporting}</p>{/if}
+	<span class="label-large text-on-surface" id={labelId}>Projects</span>
+	<div class="flex flex-wrap gap-2" role="radiogroup" aria-labelledby={labelId}>
+		<Chip variant="filter" role="radio" aria-checked={value === null} selected={value === null} onclick={() => (value = null)}>Any project</Chip>
+		<Chip variant="filter" role="radio" aria-checked={value !== null} selected={value !== null} onclick={() => value === null && (value = [])}>Only some projects</Chip>
+	</div>
+	{#if supporting}<p class="body-small text-on-surface-variant">{supporting}</p>{/if}
 	{#if value !== null}
 		<div class="flex flex-col gap-1 rounded-md border border-outline-variant/70 p-2">
 			<div class="flex items-center gap-2 px-1">
-				<span class="flex-1 label-large text-on-surface">Only these projects</span>
+				<span class="flex-1 label-large text-on-surface">Runs jobs from</span>
 				<span class="body-small {value.length ? 'text-on-surface-variant' : 'text-error'}">{value.length ? `${value.length} chosen` : 'None: it runs nothing'}</span>
 			</div>
 			{#if projects.length > 8}

@@ -17,7 +17,7 @@ from ..deps import DB, Admin, parse_uuid
 from ..events import bus
 from ..orchestrator.gateway import gateway
 from ..orchestrator.ssh import fingerprint, generate_key, import_key, load_config, ssh_hosts
-from ..services import record_activity
+from ..services import existing_projects, record_activity
 
 router = APIRouter(prefix="/ssh-hosts", tags=["ssh hosts"])
 config_router = APIRouter(prefix="/ssh-config", tags=["ssh hosts"])
@@ -38,6 +38,8 @@ class SshHostIn(BaseModel):
     enabled: bool = True
     tags: list[str] = Field(default_factory=list)
     max_concurrency: int = Field(default=1, ge=1, le=64)
+    # The projects whose jobs it may run; null: any project.
+    project_ids: list[uuid.UUID] | None = None
     # A new key: generate one, or paste a private key (with its passphrase, if any). On an
     # update, leave both out to keep the current key.
     generate_key: bool = False
@@ -59,6 +61,7 @@ class SshHostOut(BaseModel):
     enabled: bool
     tags: list[str]
     max_concurrency: int
+    project_ids: list[uuid.UUID] | None = None
     public_key: str
     key_fingerprint: str | None
     host_key_fingerprint: str | None
@@ -90,7 +93,8 @@ def _out(row: m.SshHost, agent: m.Agent, parsed: ssh_config.Parsed) -> SshHostOu
     return SshHostOut(
         id=row.id, agent_id=row.agent_id, name=agent.name, host=row.host, port=row.port, username=row.username,
         workdir=row.workdir, network=row.network, allow_host=row.allow_host, allow_host_install=row.allow_host_install,
-        enabled=row.enabled, tags=agent.tags or [], max_concurrency=agent.max_concurrency, public_key=row.public_key,
+        enabled=row.enabled, tags=agent.tags or [], max_concurrency=agent.max_concurrency, project_ids=agent.project_ids,
+        public_key=row.public_key,
         key_fingerprint=fingerprint(row.public_key), host_key_fingerprint=fingerprint(row.host_key),
         host_key_pending_fingerprint=fingerprint(row.host_key_pending), state=state, route=route, route_error=route_error,
         jump_host_keys={k: fingerprint(v) for k, v in (row.jump_host_keys or {}).items()},
@@ -169,6 +173,7 @@ async def create_host(body: SshHostIn, db: DB, user: Admin):
     row = m.SshHost(agent_id=agent.id, host=body.host, port=body.port, username=body.username,
                     private_key=vault.encrypt(key[0].encode()), public_key=key[1])
     _apply(row, agent, body)
+    agent.project_ids = await existing_projects(db, body.project_ids)
     db.add(row)
     await record_activity(db, type="ssh_host.added", message=f"SSH host {body.name} added ({body.username}@{body.host})",
                           project_id=None, actor_type="user", actor_id=str(user.id), actor_name=user.username)
@@ -193,6 +198,7 @@ class SshHostPatch(BaseModel):
     enabled: bool | None = None
     tags: list[str] | None = None
     max_concurrency: int | None = Field(default=None, ge=1, le=64)
+    project_ids: list[uuid.UUID] | None = None  # null: any project; left out: unchanged
     generate_key: bool = False
     private_key: str | None = None
     passphrase: str | None = None
@@ -204,7 +210,8 @@ async def patch_host(host_id: str, body: SshHostPatch, db: DB, user: Admin):
     row, agent = await _row(db, host_id)
     current = {"name": agent.name, "host": row.host, "port": row.port, "username": row.username, "workdir": row.workdir,
                "network": row.network, "allow_host": row.allow_host, "allow_host_install": row.allow_host_install,
-               "enabled": row.enabled, "tags": agent.tags or [], "max_concurrency": agent.max_concurrency}
+               "enabled": row.enabled, "tags": agent.tags or [], "max_concurrency": agent.max_concurrency,
+               "project_ids": agent.project_ids}
     return await update_host(host_id, SshHostIn(**{**current, **body.model_dump(exclude_unset=True)}), db, user)
 
 
@@ -220,13 +227,15 @@ async def update_host(host_id: str, body: SshHostIn, db: DB, _: Admin):
         row.private_key, row.public_key = vault.encrypt(key[0].encode()), key[1]
     agent.name = body.name
     _apply(row, agent, body)
+    agent.project_ids = await existing_projects(db, body.project_ids)
     await db.commit()
     after = (agent.name, row.host, row.port, row.username, row.workdir, row.network, row.allow_host,
              row.allow_host_install, row.enabled)
     if key is not None or before != after:
         await ssh_hosts.reload(row.id, agent.id)  # reconnects: jobs running there are lost
-    elif conn := gateway.get(agent.id):  # tags and slots apply at once
+    elif conn := gateway.get(agent.id):  # tags, slots and projects apply at once
         conn.tags, conn.max_concurrency = agent.tags, agent.max_concurrency
+        conn.project_ids = list(agent.project_ids) if agent.project_ids is not None else None
         gateway._notify()
     bus.publish("agent.updated", None, await gateway.agent_out(agent))
     _changed(row)

@@ -3,6 +3,7 @@
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, Icon, Switch, TagInput, TextField } from '$lib/m3';
 	import { loadTags, type TagSuggestion } from '$lib/tags';
+	import AgentProjectsPicker from './AgentProjectsPicker.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
 
 	/** Add or edit an SSH host: a machine Castor connects to and runs jobs on. After adding
@@ -27,6 +28,7 @@
 	let tags = $state<string[]>([]);
 	let tagSuggestions = $state<TagSuggestion[]>([]);
 	let concurrency = $state('1');
+	let projectIds = $state<string[] | null>(null);
 	let allowHost = $state(true);
 	let allowInstall = $state(false);
 	let enabled = $state(true);
@@ -53,6 +55,7 @@
 		tags = [...(h?.tags ?? [])];
 		void loadTags('agents').then((t) => (tagSuggestions = t));
 		concurrency = String(h?.max_concurrency ?? 1);
+		projectIds = h?.project_ids == null ? null : [...h.project_ids];
 		allowHost = h?.allow_host ?? true;
 		allowInstall = h?.allow_host_install ?? false;
 		enabled = h?.enabled ?? true;
@@ -84,6 +87,7 @@
 			enabled,
 			tags,
 			max_concurrency: Number(concurrency) || 1,
+			project_ids: projectIds,
 			generate_key: keyMode === 'generate',
 			...(keyMode === 'paste' ? { private_key: privateKey, passphrase: passphrase || undefined } : {})
 		};
@@ -202,6 +206,7 @@
 				<TagInput label="Tags" bind:value={tags} suggestions={tagSuggestions} noun="agents" placeholder="Add a tag" supporting="Cards and playbooks can target hosts by tag." />
 				<TextField label="Max concurrent jobs" bind:value={concurrency} type="number" />
 			</div>
+			<AgentProjectsPicker bind:value={projectIds} supporting="Limit it to some projects to keep their work on this host and other projects' work off it." />
 
 			<button type="button" class="flex items-center gap-1 self-start label-large text-primary" aria-expanded={advanced} onclick={() => (advanced = !advanced)}>
 				<Icon name={advanced ? 'expand_less' : 'expand_more'} size={20} />More settings

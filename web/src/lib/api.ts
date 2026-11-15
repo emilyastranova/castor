@@ -1273,6 +1273,8 @@ export interface SshHost {
 	enabled: boolean;
 	tags: string[];
 	max_concurrency: number;
+	/** The projects whose jobs it may run; null: any project. */
+	project_ids?: UUID[] | null;
 	/** How the SSH config reaches it: each hop as user@host:port, the host itself last. */
 	route: string[];
 	route_error: string | null;
@@ -1312,6 +1314,7 @@ export interface SshHostIn {
 	enabled: boolean;
 	tags: string[];
 	max_concurrency: number;
+	project_ids?: UUID[] | null;
 	generate_key?: boolean;
 	private_key?: string;
 	passphrase?: string;

@@ -150,6 +150,8 @@ _SSH_HOST = {
     "enabled": {"type": "boolean", "description": "Off: Castor disconnects and leaves it alone"},
     "tags": {"type": "array", "items": {"type": "string"}},
     "max_concurrency": {"type": "integer", "minimum": 1},
+    "project_ids": {"type": ["array", "null"], "items": {"type": "string"},
+                    "description": "Only these projects' jobs run on it; null: any project"},
 }
 ID = {"project_id": _s("Project id (from list_projects)"), "task_id": _s("Card id"), "job_id": _s("Job id"),
       "run_id": _s("Playbook run id")}
