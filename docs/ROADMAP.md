@@ -93,6 +93,60 @@ listener, or a log tail:
   a hash captured or a hostname seen in traffic.
 - **Control:** start, stop and restart from the card, and a per-agent limit on how many run at once.
 
+## Results and assets
+
+Today each run's results stay with their card, Changes compares one run with an earlier run of
+the same card or playbook, and assets collect what parsers recognise. These items make results
+add up across runs, cards, scopes and vantage points, so the project shows what's true now and
+how it got there.
+
+### One picture from many scans
+Two Nmap scans of overlapping scopes, a GoWitness run per subnet, a rescan a week later: the
+results should combine into one view of the environment, wherever and however they were run.
+- **Merged by identity:** every result with a known identity (a host, a service `host:port`, a
+  URL, a share) folds into one asset, the way hosts seen by name and address are folded today.
+  Overlapping scopes don't duplicate anything; a host scanned twice gets two observations.
+- **Observations, not overwrites:** each asset keeps a dated history of what each run saw
+  (`port 443 open` from scan A on the 3rd, `closed` from scan B on the 10th), with the card, job
+  and agent it came from. The asset shows the latest state, and its history shows each change.
+- **Seen and not seen:** a run whose scope covered an asset but didn't find it records that as
+  well ("not seen by the 10th's scan"), which is different from never having been scanned.
+  Scope comes from the job's targets, so a scan of 10.0.1.0/24 says nothing about 10.0.2.5.
+- **Project-wide changes:** a Changes view for the whole project over a date range, not only per
+  card: new hosts, ports that opened or closed, pages whose title, status or screenshot changed,
+  services that went away. It filters by asset type, scope group and source, and can feed a
+  trigger ("a new port opened in scope") and reports.
+
+### Richer assets
+Assets are mostly fields of text today. Scans like GoWitness, httpx or a TLS check produce more:
+- **Pictures and files on an asset:** a web page's screenshot, a certificate, a response's
+  headers and body, kept as the asset's evidence (with the job that captured it) rather than only
+  as a job artifact. A parser output can say which file belongs to which asset.
+- **Visual changes:** screenshots of the same URL compared over time (shown side by side, and a
+  perceptual hash so "the page looks different" can be a change and a trigger), along with the
+  title, status code, technologies and favicon hash.
+- **A gallery:** web assets shown as a grid of screenshots, grouped by what they look like (the
+  same login page on 40 hosts is one group), filterable like the Files page.
+- **Built-in support** for GoWitness (a command, a tool and a parser that maps its results and
+  screenshots onto URL assets), next to httpx.
+
+### Comparing from different vantage points
+Where something is reachable from matters as much as whether it's up: the same scan from five
+agents in five network segments should answer "which VLANs can reach this, and what does each
+see?"
+- **Run it from everywhere:** a card or playbook already fans out to every agent with some tags
+  (`{tags, all: true}`). Each result stays labelled with its agent and that agent's network
+  segment (an agent setting, e.g. "VLAN 20 / user LAN"), and the batch's results can be compared
+  side by side.
+- **A reachability matrix:** for each host, service or URL, which segments reached it and what
+  each saw: open from the server VLAN and filtered from the user LAN, or a login prompt from the
+  guest network but none from the management network, or different certificates or pages.
+- **Vantage point on every observation:** assets record where each observation came from, so the
+  matrix builds up from ordinary runs too, not only from fan-out runs made for the purpose.
+- **Differences as findings:** a difference between segments that shouldn't be there (a
+  management interface reachable from the guest network) can be flagged, fire a trigger, and go
+  into a report as a segmentation finding.
+
 ## Reporting and the interface
 
 ### Reporting workflows
