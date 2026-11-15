@@ -711,7 +711,7 @@ class McpConnection(Base, TimestampMixin):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)  # what `mcp.server` names
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")
-    transport: Mapped[str] = mapped_column(String(16), default="http")  # http | stdio
+    transport: Mapped[str] = mapped_column(String(16), default="http")  # http | sse (the older HTTP+SSE) | stdio
     url: Mapped[str] = mapped_column(String(1000), default="")
     # Templates: {"Authorization": "Bearer {{ token }}"} (HTTP), {"GITHUB_TOKEN": "{{ token }}"} (stdio).
     headers: Mapped[dict[str, str]] = mapped_column(JSONType, default=dict)

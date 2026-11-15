@@ -148,6 +148,30 @@ class PlaybookStepSpec(BaseModel):
     expect: dict[str, Any] | None = None
     # Command steps: one card and job per item of a list; args use {{ item }} / {{ item.f }}.
     for_each: ForEach | None = None
+    # HTTP action steps: the most requests the step makes ("60/minute"), like a card's own limit.
+    rate_limit: str | None = None
+    # HTTP action steps: send its requests through an agent ({tags: [lab]} or {agent_id: …});
+    # none: from the Castor server.
+    send_from: dict[str, Any] | None = None
+
+    @field_validator("rate_limit")
+    @classmethod
+    def check_rate_limit(cls, value: str | None) -> str | None:
+        from .http_spec import check_rate
+
+        return check_rate(value)
+
+    @field_validator("send_from")
+    @classmethod
+    def check_send_from(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not value:
+            return None
+        extra = set(value) - {"tags", "agent_id"}
+        if extra or not (value.get("tags") or value.get("agent_id")):
+            raise ValueError("send_from: {tags: [...]} or {agent_id: ...}")
+        if value.get("tags") and not (isinstance(value["tags"], list) and all(isinstance(t, str) and t for t in value["tags"])):
+            raise ValueError("send_from.tags: a list of agent tags")
+        return value
 
     @field_validator("when")
     @classmethod
@@ -194,6 +218,8 @@ class PlaybookStepSpec(BaseModel):
             raise ValueError(f"step {self.id}: transform steps take no args (use transform.input)")
         if self.transform is not None and self.vars:
             raise ValueError(f"step {self.id}: transform steps take no vars")
+        if self.transform is not None and (self.rate_limit or self.send_from):
+            raise ValueError(f"step {self.id}: rate_limit and send_from are for HTTP action steps")
         if self.transform is not None and self.for_each is not None:
             raise ValueError(f"step {self.id}: for_each is for command steps (a transform already works on the whole list)")
         if self.for_each is None and uses_item(list(self.args.values())):

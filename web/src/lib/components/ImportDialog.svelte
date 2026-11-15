@@ -89,6 +89,7 @@
 		project: { label: 'Projects', icon: 'view_kanban' },
 		variable_kind: { label: 'Variable kinds', icon: 'category' },
 		tool: { label: 'Tools', icon: 'handyman' },
+		mcp_server: { label: 'MCP servers', icon: 'hub' },
 		parser: { label: 'Parsers', icon: 'data_object' },
 		command: { label: 'Commands', icon: 'terminal' },
 		playbook: { label: 'Playbooks', icon: 'account_tree' },

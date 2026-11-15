@@ -157,6 +157,7 @@ RULES: list[tuple[str, str, str]] = [
     ("POST", "/api/playbooks/to-yaml", "library:read"),
     ("POST", "/api/tools/validate", "library:read"),
     ("POST", "/api/commands/*/render", "library:read"),
+    ("POST", "/api/commands/*/try", "jobs:write"),  # runs the action once, on a card made for it
     ("POST", "/api/parsers/*/test", "library:read"),
     ("POST", "/api/parsers/validate", "library:read"),
     ("POST", "/api/parsers/draft", "ai:use"),

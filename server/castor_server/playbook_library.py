@@ -157,6 +157,8 @@ async def check_against_library(db: AsyncSession, spec: PlaybookSpec) -> list[st
                 if arg.required and arg.default is None and arg.name not in step.args:
                     problems.append(f"step {step.id}: required argument {arg.name} is not bound")
             problems += await _check_step_vars(db, spec, step, cmd)
+            if (step.rate_limit or step.send_from) and cmd.kind != "http":
+                problems.append(f"step {step.id}: rate_limit and send_from are for HTTP actions ({cmd.id} is {cmd.kind or 'a command'})")
         expect = step.expectation()
         cmd = commands.get(step.command_ref or "") if expect is not None else None
         if expect is not None and cmd is not None:

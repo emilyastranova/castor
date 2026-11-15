@@ -14,12 +14,12 @@ from .playbook_spec import PlaybookStepSpec
 TOP_ORDER = ["id", "name", "schema_version", "description", "tags", "inputs", "steps", "layout"]
 STEP_ORDER = [
     "id", "name", "description", "command_ref", "transform", "for_each", "when", "join",
-    "skip_if_empty", "on_failure", "ai", "expect", "vars", "args", "depends_on",
+    "skip_if_empty", "on_failure", "ai", "expect", "rate_limit", "send_from", "vars", "args", "depends_on",
 ]
 STEP_DEFAULTS: dict[str, Any] = {
     "description": "", "command_ref": None, "transform": None, "args": {}, "depends_on": [],
     "skip_if_empty": False, "vars": {}, "when": None, "join": "all", "on_failure": "stop",
-    "expect": None, "for_each": None, "ai": None,
+    "expect": None, "for_each": None, "ai": None, "rate_limit": None, "send_from": None,
 }
 INPUT_ORDER = ["name", "type", "kind", "description", "required", "default", "example", "choices", "regex"]
 

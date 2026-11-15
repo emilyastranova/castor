@@ -287,6 +287,15 @@ async def get_set(set_id: str, db: DB, user: CurrentUser):
     return _set_out(row, spec)
 
 
+@router.get("/sets/{set_id}/usage")
+async def set_usage(set_id: str, db: DB, user: CurrentUser) -> dict[str, Any] | None:
+    """How much of the set's rate limit is in use now (null: it has none)."""
+    from ..rate_limits import limiter
+
+    row, _ = await _set_or_404(db, set_id, user)
+    return await limiter.usage(f"set:{row.id}", row.rate_limit)
+
+
 @router.post("/sets", response_model=SetOut, status_code=201)
 async def create_set(body: SetIn, db: DB, user: Operator):
     _, spec = await _kind_or_404(db, body.kind_id)

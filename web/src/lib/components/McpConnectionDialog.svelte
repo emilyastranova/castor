@@ -16,7 +16,8 @@
 	let id = $state('');
 	let name = $state('');
 	let description = $state('');
-	let transport = $state<'http' | 'stdio'>('http');
+	let transport = $state<'http' | 'sse' | 'stdio'>('http');
+	let remote = $derived(transport !== 'stdio');
 	let url = $state('');
 	let headers = $state('');
 	let env = $state('');
@@ -93,8 +94,8 @@
 			name: name.trim(),
 			description,
 			transport,
-			url: transport === 'http' ? url.trim() : '',
-			headers: transport === 'http' ? fromLines(headers, ':') : {},
+			url: remote ? url.trim() : '',
+			headers: remote ? fromLines(headers, ':') : {},
 			env: transport === 'stdio' ? fromLines(env, '=') : {},
 			variable_set_id: setId || null,
 			command: transport === 'stdio' ? split(command) : [],
@@ -130,6 +131,7 @@
 			bind:value={transport}
 			options={[
 				{ value: 'http', label: 'Over HTTP, from the Castor server', description: 'A remote MCP server (Streamable HTTP)' },
+				{ value: 'sse', label: 'Over HTTP with SSE (older servers)', description: 'A remote MCP server that still uses the 2024-11-05 HTTP+SSE transport' },
 				{ value: 'stdio', label: 'A program an agent runs', description: 'An MCP server that speaks stdio (npx, uvx, a container image)' }
 			]}
 		/>
@@ -139,7 +141,7 @@
 			options={[{ value: '', label: 'None' }, ...sets.map((s) => ({ value: s.id, label: s.name, description: s.kind_id }))]}
 			supporting={"Where its token or keys come from: {{ field }} below is filled from this set, at the moment it's used"}
 		/>
-		{#if transport === 'http'}
+		{#if remote}
 			<TextField label="Address" bind:value={url} required mono placeholder="https://mcp.example.com/mcp" />
 			<TextField label="Headers" bind:value={headers} multiline rows={2} mono placeholder="Authorization: Bearer {'{{ token }}'}" supporting="One “Name: value” per line" />
 		{:else}
@@ -168,7 +170,13 @@
 				supporting={mcpAgents.length ? 'Which agent runs the program (one that’s connected and up to date)' : 'No agent can run MCP servers yet: they need Castor 1.3’s agent'}
 			/>
 		{/if}
-		<AgentProjectsPicker bind:value={projectIds} supporting="Limit it to some projects: only their cards and playbooks can call its tools." />
+		<AgentProjectsPicker
+			bind:value={projectIds}
+			limited={transport === 'stdio'}
+			supporting={transport === 'stdio'
+				? 'Only these projects\' cards and playbooks can call its tools, and each project gets its own running program, so one never sees another\'s calls.'
+				: 'Limit it to some projects: only their cards and playbooks can call its tools.'}
+		/>
 		<Switch bind:checked={enabled} label="On" />
 		{#if error}<p class="body-small text-error">{error}</p>{/if}
 	</div>

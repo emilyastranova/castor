@@ -174,7 +174,7 @@ export interface McpConnectionIn {
 	id: string;
 	name: string;
 	description: string;
-	transport: 'http' | 'stdio';
+	transport: 'http' | 'sse' | 'stdio';
 	url: string;
 	headers: Record<string, string>;
 	env: Record<string, string>;
@@ -1801,6 +1801,9 @@ export function api(fetchFn: Fetch = fetch) {
 			update: (id: string, yaml: string) =>
 				request<CommandDefinition>(fetchFn, 'PUT', `/commands/${id}`, { yaml }),
 			remove: (id: string) => del(`/commands/${id}`),
+			/** Run an HTTP, MCP or plugin action once in a project (a card made for it, archived at once). */
+			try: (id: string, body: { project_id: UUID; args: Record<string, unknown>; var_bindings: Record<string, UUID> }) =>
+				post<{ task_id: UUID; job_id: UUID }>(`/commands/${id}/try`, body),
 			render: (id: string, args: Record<string, unknown>) =>
 				post<RenderedCommand>(`/commands/${id}/render`, { args })
 		},
@@ -1833,6 +1836,8 @@ export function api(fetchFn: Fetch = fetch) {
 				body: { name?: string; description?: string; project_ids?: UUID[]; values?: Record<string, unknown>; ephemeral?: boolean; rate_limit?: string }
 			) => patch<VariableSet>(`/variables/sets/${id}`, body),
 			removeSet: (id: UUID) => del(`/variables/sets/${id}`),
+			/** How much of its rate limit is in use now (null: it has none). */
+			setUsage: (id: UUID) => get<RateUsage | null>(`/variables/sets/${id}/usage`),
 			uploadFile: (id: UUID, field: string, file: File) => {
 				const form = new FormData();
 				form.append('file', file);
@@ -1944,6 +1949,8 @@ export function api(fetchFn: Fetch = fetch) {
 			checkUpdates: () => post<{ updates: { id: string; name: string; from: string; to: string }[] }>('/plugin-directory/check'),
 			remove: (id: string) => del(`/plugins/${id}`),
 			logs: (id: string, limit = 200) => get<PluginLogEntry[]>(`/plugins/${id}/logs?limit=${limit}`),
+			/** How much of its actions' rate limit is in use now (null: it has none). */
+			usage: (id: string) => get<RateUsage | null>(`/plugins/${id}/usage`),
 			runs: (id: string) => get<PluginRun[]>(`/plugins/${id}/runs`),
 			/** The actions of the plugins enabled in a project. */
 			actions: (projectId: UUID) => get<ProjectPluginAction[]>(`/projects/${projectId}/plugin-actions`),
@@ -2685,7 +2692,7 @@ export type ImportChoice = 'import' | 'skip' | 'replace' | 'copy';
 
 export interface ImportItem {
 	key: string;
-	kind: 'parser' | 'command' | 'tool' | 'playbook' | 'variable_kind' | 'variable_set' | 'project';
+	kind: 'parser' | 'command' | 'tool' | 'playbook' | 'variable_kind' | 'variable_set' | 'project' | 'mcp_server';
 	id: string;
 	name: string;
 	/** new; exists (yours); builtin; same (identical, nothing to do). */
@@ -2714,6 +2721,20 @@ export interface ImportResult {
 	projects: UUID[];
 }
 
+/** A saved rate limit in use right now (rate_limits.Limiter.usage). */
+export interface RateUsage {
+	limit: string;
+	count: number;
+	period_s: number;
+	concurrent: number | null;
+	available: number;
+	in_flight: number;
+	/** Seconds until a request is allowed again (0: now). */
+	next_in_s: number;
+	/** The API asked to wait (Retry-After) until then. */
+	paused_until: string | null;
+}
+
 export interface ExportRequest {
 	everything?: boolean;
 	parsers?: string[];
@@ -2721,6 +2742,8 @@ export interface ExportRequest {
 	tools?: string[];
 	playbooks?: string[];
 	themes?: string[];
+	/** Settings → MCP servers (the MCP actions exported bring theirs along). */
+	mcp_servers?: string[];
 	variable_kinds?: string[];
 	variable_sets?: UUID[];
 	projects?: UUID[];

@@ -206,13 +206,14 @@ def test_a_stdio_server_on_an_agent(client, auth):
     assert json.loads(agent.receive_text())["type"] == "hello.ok"
     vset = _token_set(client, auth)
     cid = f"local-{uuid.uuid4().hex[:5]}"
-    assert client.post("/api/mcp-connections", json={
-        "id": cid, "name": "Local tool", "transport": "stdio", "command": ["fake-mcp", "--stdio"],
-        "env": {"API_TOKEN": "{{ token }}"}, "variable_set_id": vset["id"], "agent_selector": {"tags": [tag]},
-    }, headers=auth).status_code == 201
+    project, other = _project(client, auth), _project(client, auth)
+    body = {"id": cid, "name": "Local tool", "transport": "stdio", "command": ["fake-mcp", "--stdio"],
+            "env": {"API_TOKEN": "{{ token }}"}, "variable_set_id": vset["id"], "agent_selector": {"tags": [tag]}}
+    r = client.post("/api/mcp-connections", json=body, headers=auth)
+    assert r.status_code == 422 and "project_ids" in r.text  # a stdio server names its projects
+    assert client.post("/api/mcp-connections", json={**body, "project_ids": [project["id"], other["id"]]}, headers=auth).status_code == 201
     yaml_text = f"id: {cid}-echo\nname: Echo\nkind: mcp\nargs: [{{name: text, type: string}}]\nmcp: {{server: {cid}, tool: echo}}\n"
     assert client.post("/api/commands", json={"yaml": yaml_text}, headers=auth).status_code == 201
-    project = _project(client, auth)
     card = client.post(f"/api/projects/{project['id']}/tasks", json={"title": "Echo", "kind": "command", "command_ref": f"{cid}-echo",
                                                                       "command_args": {"text": "hi"}}, headers=auth).json()
     try:
@@ -274,8 +275,122 @@ def test_a_stdio_server_on_an_agent(client, auth):
                 break
         job = _wait(client, auth, job_id, timeout=30)
         assert job["status"] == "succeeded" and "stopped: exit 1: boom; trying again" in _log(client, auth, job_id)
+
+        # Another project's call gets a program of its own, never the first project's.
+        card2 = client.post(f"/api/projects/{other['id']}/tasks", json={"title": "Echo", "kind": "command", "command_ref": f"{cid}-echo",
+                                                                         "command_args": {"text": "hi"}}, headers=auth).json()
+        job_id = client.post(f"/api/tasks/{card2['id']}/run", headers=auth).json()["id"]
+        start = json.loads(agent.receive_text())
+        while start["type"] != "mcp.start":
+            assert start["type"] != "mcp.send" or start["session_id"] != restart["session_id"]
+            start = json.loads(agent.receive_text())
+        assert start["session_id"] not in (sid, restart["session_id"])
+        client.post(f"/api/jobs/{job_id}/cancel", headers=auth)
     finally:
         ws.__exit__(None, None, None)
         client.delete(f"/api/commands/{cid}-echo", headers=auth)
         client.delete(f"/api/mcp-connections/{cid}", headers=auth)
         client.delete(f"/api/projects/{project['id']}", headers=auth)
+        client.delete(f"/api/projects/{other['id']}", headers=auth)
+
+
+@pytest.fixture(scope="module")
+def sse_server():
+    """The older HTTP+SSE transport: GET /sse streams events, POST /messages takes requests."""
+    import queue
+
+    state = {"streams": [], "endpoint": "/messages?session=1"}
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def do_GET(self):
+            if self.headers.get("Authorization") != f"Bearer {TOKEN}":
+                self.send_response(401)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            q = queue.Queue()
+            state["streams"].append(q)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            try:
+                self.wfile.write(f"event: endpoint\ndata: {state['endpoint']}\n\n".encode())
+                self.wfile.flush()
+                while True:
+                    try:
+                        msg = q.get(timeout=30)
+                    except queue.Empty:
+                        return
+                    if msg is None:
+                        return
+                    self.wfile.write(f"event: message\ndata: {json.dumps(msg)}\n\n".encode())
+                    self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                return
+
+        def do_POST(self):
+            msg = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
+            self.send_response(202)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            if "id" not in msg:
+                return
+            q = state["streams"][-1]
+            method = msg.get("method")
+            if method == "initialize":
+                q.put({"jsonrpc": "2.0", "id": msg["id"], "result": {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}},
+                                                                     "serverInfo": {"name": "old-sse", "version": "0.1"}}})
+            elif method == "tools/list":
+                q.put({"jsonrpc": "2.0", "id": msg["id"], "result": {"tools": [TOOLS[0]]}})
+            elif method == "tools/call":
+                q.put({"jsonrpc": "2.0", "method": "notifications/message", "params": {"level": "info", "data": "via sse"}})
+                q.put({"jsonrpc": "2.0", "id": msg["id"], "result": _call_result(msg["params"]["name"], msg["params"]["arguments"])})
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    state["url"] = f"http://127.0.0.1:{server.server_address[1]}/sse"
+    yield state
+    for q in state["streams"]:
+        q.put(None)
+    server.shutdown()
+
+
+def test_an_sse_mcp_server(client, auth, sse_server):
+    vset = _token_set(client, auth)
+    cid = f"old-{uuid.uuid4().hex[:5]}"
+    body = {"id": cid, "name": "Old server", "transport": "sse", "url": sse_server["url"],
+            "headers": {"Authorization": "Bearer {{ token }}"}, "variable_set_id": vset["id"]}
+    assert client.post("/api/mcp-connections", json=body, headers=auth).status_code == 201
+    conn = client.post(f"/api/mcp-connections/{cid}/check", headers=auth).json()
+    assert conn["last_error"] is None, conn
+    assert conn["server_info"]["name"] == "old-sse" and [t["name"] for t in conn["tools"]] == ["host_lookup"]
+
+    yaml_text = (f"id: {cid}-lookup\nname: Lookup\nkind: mcp\nargs: [{{name: ip, type: string}}]\n"
+                 f"mcp: {{server: {cid}, tool: host_lookup, arguments: {{ip: '{{{{ ip }}}}'}}}}\n")
+    assert client.post("/api/commands", json={"yaml": yaml_text}, headers=auth).status_code == 201
+    project = _project(client, auth)
+    card = client.post(f"/api/projects/{project['id']}/tasks", json={"title": "Old", "kind": "command", "command_ref": f"{cid}-lookup",
+                                                                     "command_args": {"ip": "198.51.100.7"}}, headers=auth).json()
+    job_id = client.post(f"/api/tasks/{card['id']}/run", headers=auth).json()["id"]
+    job = _wait(client, auth, job_id)
+    log = _log(client, auth, job_id)
+    assert job["status"] == "succeeded", log
+    assert "[info] via sse" in log and json.loads(_log(client, auth, job_id, "stdout"))["ip"] == "198.51.100.7"
+
+    # A server that names an endpoint on another origin is refused.
+    sse_server["endpoint"] = "http://203.0.113.9/messages"
+    try:
+        conn = client.post(f"/api/mcp-connections/{cid}/check", headers=auth).json()
+        assert "another origin" in (conn["last_error"] or "")
+    finally:
+        sse_server["endpoint"] = "/messages?session=1"
+    client.delete(f"/api/commands/{cid}-lookup", headers=auth)
+    client.delete(f"/api/mcp-connections/{cid}", headers=auth)
+    client.delete(f"/api/projects/{project['id']}", headers=auth)

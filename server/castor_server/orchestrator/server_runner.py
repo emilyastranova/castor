@@ -50,6 +50,12 @@ log = logging.getLogger(__name__)
 NAME = "Castor server"
 PARK_AFTER_S = 30.0  # waits up to this long happen in place; longer ones park the job
 MAX_WAIT_S = 24 * 3600  # without a job timeout, the longest a job waits in all
+# Paged results past either of these are kept as a JSON-lines artifact (RECORDS_FILE) rather
+# than printed as one array: the console shows the first few, parsers read the file.
+LARGE_RECORDS = 20_000
+LARGE_BYTES = 8 * 1024 * 1024
+RECORDS_FILE = "records.jsonl"
+SHOWN_RECORDS = 20
 LOG_CHUNK = 32 * 1024
 TEXTUAL = ("text/", "json", "xml", "javascript", "x-www-form-urlencoded", "yaml", "csv")
 HIDDEN_HEADERS = {"authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key", "api-key"}
@@ -908,6 +914,8 @@ class ServerRunner:
         return 0, None
 
     async def _output(self, run: _Run, paged: bool) -> tuple[int, str | None]:
+        if paged and run.records_path is not None and run.records_path.exists() and await self._large(run):
+            return 0, None
         if paged and run.records_path is not None and run.records_path.exists():
             records = [json.loads(line) for line in run.records_path.read_text(encoding="utf-8").splitlines() if line]
             text = json.dumps(records, ensure_ascii=False, indent=2) + "\n"
@@ -919,6 +927,41 @@ class ServerRunner:
         if text:
             await self._log(run, text if text.endswith("\n") else text + "\n", stream="stdout")
         return 0, None
+
+
+    async def _large(self, run: _Run) -> bool:
+        """Too many records to print as one array: keep them as RECORDS_FILE (JSON lines) and
+        show the first few. `progress.records_file` sends the parsers to the file."""
+        path = run.records_path
+        size = path.stat().st_size
+        with path.open("rb") as f:
+            count = sum(1 for line in f if line.strip())
+        if size <= LARGE_BYTES and count <= LARGE_RECORDS:
+            return False
+        from .. import artifacts
+
+        async def chunks():
+            with path.open("rb") as f:
+                while block := f.read(1024 * 1024):
+                    yield block
+
+        async with SessionLocal() as db:
+            job = await db.get(m.Job, run.job_id)
+            try:
+                await artifacts.store(db, job, RECORDS_FILE, "application/x-ndjson", chunks())
+            except artifacts.ArtifactRefused as exc:
+                raise Failed(f"{count} records ({_size(size)}) are too many to print, and keeping them as {RECORDS_FILE} failed: {exc}") from exc
+        run.progress["records_file"] = RECORDS_FILE
+        await self._save_progress(run)
+        with path.open(encoding="utf-8") as f:
+            first = [json.loads(line) for _, line in zip(range(SHOWN_RECORDS), f, strict=False) if line.strip()]
+        await self._log(run, f"{count} records in all ({_size(size)}): too many to print, so they're kept as {RECORDS_FILE} "
+                             f"(one JSON record per line), and parsers read that. The first {len(first)} are below.\n")
+        text = json.dumps(first, ensure_ascii=False, indent=2) + "\n"
+        if run.texts:
+            text += "\n".join(run.texts)
+        await self._log(run, text if text.endswith("\n") else text + "\n", stream="stdout")
+        return True
 
 
 async def _ai_settings(db: Any, task: m.Task) -> dict[str, Any] | None:

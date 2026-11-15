@@ -172,10 +172,12 @@ saved to `jobs.progress` the same way pages are.
 Castor already *is* an MCP server. This makes it a client too.
 
 - **Connections:** **Settings → MCP servers** (admins) lists the servers Castor may call: a name,
-  an id (what actions name), the URL (Streamable HTTP; the older SSE transport isn't supported
-  yet), headers, and a variable set whose fields fill `{{ field }}` in the headers (or a stdio
+  an id (what actions name), the URL (Streamable HTTP, or the older HTTP+SSE transport of
+  protocol 2024-11-05, whose message endpoint must be on the same origin as the URL), headers, and a variable set whose fields fill `{{ field }}` in the headers (or a stdio
   program's environment) when it's used, so the token stays in the vault. **Check** connects and
-  reads the server's name and tools. A connection can be limited to projects, like agents.
+  reads the server's name and tools. A connection can be limited to projects, like agents; a stdio
+  one must be (it names its projects), and each project gets its own running program, so one
+  project's calls never share a process, or what it keeps between calls, with another's.
 - **stdio servers** are programs that speak MCP over stdin and stdout, and most published MCP
   servers are this kind. Castor never runs them on the server. An agent hosts them instead:
   - the connection names what to run the way a command does: a tool from the tool library (an
@@ -308,8 +310,16 @@ that), filled in as the default when someone first binds a variable set to it.
 - **One counter for the whole instance.** Limits are kept on the server (a token bucket per
   scope, in `rate_buckets` so a restart doesn't reset them). Requests sent through agents are
   decided on the server too, so a credential's limit holds across every agent using it.
-- **Visible (later):** a variable set and a plugin show how much of their limit is in use and
-  what's waiting. Today a waiting request says so in its card's log.
+- **Visible:** a variable set's and a plugin's dialog shows how much of their limit is in use now
+  (room left, requests in flight, a pause the API asked for; `GET /api/variables/sets/{id}/usage`,
+  `GET /api/plugins/{id}/usage`, MCP `variable_set_usage`, `plugin_usage`). A waiting request also
+  says so in its card's log.
+- **In exports:** a variable set's limit (the setting) travels with it; the counter doesn't, so the
+  importing instance starts with the full limit.
+- **Large paged results:** past 20,000 records or 8 MB, the joined records are kept as a
+  `records.jsonl` artifact (one record per line) instead of one array on stdout; the console shows
+  the first 20, `jobs.progress.records_file` sends the output's parsers to the file, and
+  `json-records` reads JSON lines.
 
 ## When a call goes wrong
 
@@ -373,8 +383,10 @@ that times out) and to plugin actions, which can return `{retry_after: 30}`.
 
 - **Library:** the Library page shows each definition's kind as an icon and a facet (command, HTTP,
   MCP, plugin). A definition's detail pane shows its request (HTTP) or its server and tool (MCP),
-  and has a **Try it** that runs it once, outside any card, against arguments you give: the parser
-  playground, for actions. "New" offers *Command*, *HTTP request*, *From an MCP tool*.
+  and has a **Try it** tab that sends it once in a project you pick, with arguments and credentials
+  you give (`POST /api/commands/{id}/try`, MCP `try_action`): it runs on a card made for it and
+  archived at once (limits, approvals and masked secrets as for any card), and the pane shows the
+  run live with its parsed results. The card stays under Archived cards for the record. "New" offers *Command*, *HTTP request*, *From an MCP tool*.
 - **Cards:** a card using an HTTP or MCP action looks like a command card: arguments, variables,
   Run. In place of the shell preview, "Will run" shows the request (method and URL, folded like the
   command preview). The agent picker shows "Castor server" for server-run kinds, plus agents for
@@ -396,17 +408,19 @@ that times out) and to plugin actions, which can return `{retry_after: 30}`.
    - built-in examples: `webhook-post`, `slack-message`, `ntfy-send`, `jira-create-issue`,
      `github-issues` (paged); variable kinds `webhook` and `jira-api`.
 
-   Not in it yet: **Try it** in the Library, a step's own `rate_limit` in a playbook spec (set it on
-   the step's card), and usage shown on variable sets.
+   Later (built): **Try it** in the Library, a step's own `rate_limit`, and usage shown on variable
+   sets and plugins.
 2. **HTTP on agents and AI recovery** (built): agents as a proxy (`http.request`, the `http`
    capability, `--no-http`), "Sent from" on the card (the server, an agent or a tag),
    `jobs.via_agent_id`; `on_failure: ai` with the recovery moves (wait, smaller, slower,
-   skip_batch, ask, fail; `ai.max_wait_s`). Playbook steps are always sent from the server for now;
-   a step-level choice can come later.
+   skip_batch, ask, fail; `ai.max_wait_s`). A playbook step is sent from the server unless it says
+   `send_from: {tags: [...]}` (or `{agent_id: ...}`).
 3. **MCP** (built): HTTP connections on the server (Streamable HTTP), stdio connections hosted by
    agents (`mcp_stdio` capability), Settings → MCP servers with Check and the tool list, `mcp`
-   actions, "From an MCP tool" in the Library, result handling. Not yet: the older SSE transport,
-   MCP connections in exports, and MCP tools (on Castor's own MCP server) to manage connections.
+   actions, "From an MCP tool" in the Library, result handling. Later (built): the older HTTP+SSE
+   transport, MCP servers in exports (`library/mcp_servers.json`, brought along by the MCP actions
+   exported; admins import them), stdio servers limited to projects with a program per project, and
+   MCP tools to manage connections.
 4. **Plugin actions** (built): `library_actions` in the manifest, `run.args`/`run.vars`/
    `run.job`/`run.signal` and `{message, output}` in the SDK, the runner bridge (`_call_plugin`, log
    and progress forwarded through `plugins.job_runs`), the plugin's rate limit, and the
@@ -419,22 +433,13 @@ that times out) and to plugin actions, which can return `{retry_after: 30}`.
    agents is decided together; a playbook step waits as queued, and a rejected one ends cancelled.
    `app_settings.approval_by_someone_else` makes it a two-person rule. MCP tools for MCP servers
    (`list_mcp_servers`, `add_mcp_server`, `check_mcp_server`, `draft_mcp_action`…); limits already
-   had theirs (`update_card`, `update_variable_set`). Still to do from earlier phases: **Try it** in
-   the Library, a step's own `rate_limit`, use of limits shown on variable sets, the older SSE
-   transport for MCP, and MCP servers in exports.
+   had theirs (`update_card`, `update_variable_set`). The leftovers of earlier phases are built too.
 
 Each phase ships on its own and keeps commands exactly as they are.
 
 ## Open questions
 
-- **A stdio server shared by projects.** A warm stdio program on an agent holds whatever state it
-  keeps between calls. Should a connection be limited to projects (like agents are), and should
-  two projects' calls ever share one running program, or does each project get its own?
-- **Huge paged results.** Joining every page into one array is simple, but 200,000 records is a
-  lot of stdout. Past some size, should the runner write JSON lines to an artifact and point the
-  parsers at it?
-- **Credential limits in exports.** A variable set's rate limit travels with it in an export, but
-  its bucket state shouldn't. Confirm that's the right split.
-
-Settled and moved elsewhere: incoming webhooks belong to "Triggers beyond assets" on the roadmap
+None left. Settled: a stdio server names its projects and each project gets its own program; large
+paged results become a JSON-lines artifact; a set's limit travels in exports but its counter
+doesn't. Moved elsewhere: incoming webhooks belong to "Triggers beyond assets" on the roadmap
 and need authentication; they're on the back burner.

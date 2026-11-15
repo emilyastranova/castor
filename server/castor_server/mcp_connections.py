@@ -89,7 +89,8 @@ async def pick_agent(db: AsyncSession, row: m.McpConnection, project_id: uuid.UU
         raise Unusable("no connected agent can run it (it needs one that matches its agent choice"
                                + (", has a container runtime" if row.tool or row.image else ", allows host commands")
                                + " and is up to date)")
-    return min(able, key=lambda c: ((row.id, c.agent_id) not in mcp_client.hub.programs, len(c.running))), tool
+    warm = (row.id, None, str(project_id or ""))
+    return min(able, key=lambda c: ((warm[0], c.agent_id, warm[2]) not in mcp_client.hub.programs, len(c.running))), tool
 
 
 async def open_session(db: AsyncSession, row: m.McpConnection, project_id: uuid.UUID | None,
@@ -98,9 +99,12 @@ async def open_session(db: AsyncSession, row: m.McpConnection, project_id: uuid.
     runs ("the server", or the agent's name)."""
     if not row.enabled:
         raise Unusable("it's turned off in Settings → MCP servers")
+    if project_id is not None and not allowed(row, project_id):
+        raise Unusable("it isn't allowed in this project (Settings → MCP servers)")
     values = await secrets(db, row, project_id)
-    if row.transport == "http":
-        session = mcp_client.HttpSession(row.url, fill(row.headers, values), await outbound.policy(db), timeout)
+    if row.transport in ("http", "sse"):
+        kind = mcp_client.SseSession if row.transport == "sse" else mcp_client.HttpSession
+        session = kind(row.url, fill(row.headers, values), await outbound.policy(db), timeout)
         try:
             await mcp_client.initialize(session)
         except BaseException:
@@ -118,7 +122,7 @@ async def open_session(db: AsyncSession, row: m.McpConnection, project_id: uuid.
         "env": fill(row.env, values),
         "idle_s": row.idle_s,
     }
-    session = await mcp_client.hub.session(conn, row.id, launch)
+    session = await mcp_client.hub.session(conn, row.id, launch, project_id=project_id)
     return session, values, conn.name
 
 

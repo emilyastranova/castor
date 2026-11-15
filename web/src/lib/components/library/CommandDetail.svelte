@@ -8,6 +8,8 @@
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { commandParts, pagingText, requestText } from '$lib/library';
 	import YamlPane from './YamlPane.svelte';
+	import TryAction from './TryAction.svelte';
+	import { canEdit } from '$lib/session';
 
 	/** A command in the Library's detail pane: what it takes, runs and gives, who uses it, and
 	 *  its YAML (where it is edited). `command` null is a new one, starting from `draft`. */
@@ -35,6 +37,8 @@
 	let error = $state<string | null>(null);
 	let saving = $state(false);
 	let readOnly = $derived(!editable || readOnlyOrigin(c?.origin));
+	/** HTTP, MCP and plugin actions can be sent once from here (operators). */
+	let canTry = $derived(!!c && ['http', 'mcp', 'plugin'].includes(c.spec.kind ?? '') && canEdit());
 	$effect(() => {
 		dirty = yaml !== original;
 	});
@@ -114,13 +118,16 @@
 		<Tabs
 			tabs={[
 				{ id: 'overview', label: 'Overview' },
+				...(canTry ? [{ id: 'try', label: 'Try it' }] : []),
 				{ id: 'yaml', label: readOnly ? 'YAML' : dirty ? 'YAML (edited)' : 'YAML' }
 			]}
 			bind:value={tab}
 		/>
 	{/if}
 
-	{#if c && tab === 'overview'}
+	{#if c && tab === 'try' && canTry}
+		<TryAction command={c} />
+	{:else if c && tab === 'overview'}
 		{#if c.description}<p class="max-w-[70ch] body-medium text-on-surface">{c.description}</p>{/if}
 
 		<dl class="grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-6 gap-y-2 body-medium">

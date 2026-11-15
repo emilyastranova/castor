@@ -1800,9 +1800,11 @@ async def _prepare_command_step(
     except ArgumentError as exc:
         return str(exc)
     if cmd_spec.kind == "http":
-        # The run's agent is where its commands run; an HTTP step is sent from the server,
-        # as an API outside the lab expects (docs/ACTIONS.md).
-        task.agent_selector = {}
+        # The run's agent is where its commands run; an HTTP step is sent from the server, as an
+        # API outside the lab expects, unless the step says to send it through an agent
+        # (`send_from`, docs/ACTIONS.md). Its own rate limit goes on its card.
+        task.agent_selector = dict(step.send_from or {})
+        task.rate_limit = step.rate_limit
     bindings = {}
     for slot, value in step.vars.items():
         ref = PLACEHOLDER_RE.match(value.strip())

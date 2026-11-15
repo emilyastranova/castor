@@ -196,7 +196,14 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `StdioHub` for stdio programs agents run via `mcp.start`/`mcp.send`/`mcp.message`, agent
   `mcp_bridge.py`, capability `mcp_stdio`), `mcp_connections.py` (secrets from the connection's
   variable set into headers/env, agent choice, `check`, `draft_definition`), runner `_call_mcp`.
-  `command_library.ACTION_KINDS`/`is_action` cover both kinds. Tests: `tests/test_mcp_actions.py`
+  `command_library.ACTION_KINDS`/`is_action` cover both kinds. Also `transport: sse` (`mcp_client.SseSession`, the older
+  HTTP+SSE; its message endpoint must be same-origin); a stdio connection must name its projects and the hub keys its
+  programs by (connection, agent, project), so projects never share one. MCP servers travel in exports
+  (`library/mcp_servers.json`, `transfer.MCP_LOCAL` left out). Try it: `POST /api/commands/{id}/try` (a card made and
+  archived at once; web `library/TryAction.svelte`). A step's `rate_limit`/`send_from` (HTTP steps) go on its card in
+  `services._prepare_command_step`. `rate_limits.Limiter.usage` (web `RateUsage.svelte`). Paged results past
+  `server_runner.LARGE_RECORDS`/`LARGE_BYTES` become `records.jsonl` (`progress.records_file`; `outputs.read_inputs`
+  reads it). Tests: `tests/test_mcp_actions.py`
   (a fake Streamable HTTP server; a fake agent for stdio), agent `tests/test_mcp_bridge.py`. Web:
   `routes/settings/mcp`, `McpConnectionDialog`, the Library's MCP folder and "From an MCP tool".
   Phase 4, plugin actions (`kind: plugin`): manifest `library_actions` become generated pack items

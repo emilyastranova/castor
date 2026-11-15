@@ -143,8 +143,10 @@ kind of action that's part of Castor itself, of which a command is one sort:
   batches, rate limits, retries and waiting, sent through an agent's network when a card chooses
   one, AI recovery for playbook steps, MCP actions (Castor as an MCP client, over HTTP or with
   stdio servers agents run), and plugin actions (a plugin's library actions on cards and as
-  steps), and approvals (`confirm: true`, or a card that asks before each run). Left over: Try it
-  in the Library, a step's own rate limit, the older SSE transport for MCP, MCP servers in exports.
+  steps), and approvals (`confirm: true`, or a card that asks before each run). The leftovers are
+  built too: Try it in the Library, a step's own rate limit and sender, limits' use shown, the older
+  SSE transport for MCP, MCP servers in exports, stdio servers per project, and large paged results
+  as JSON lines.
 
 ### Ansible playbooks
 Run Ansible playbooks from Castor, with their results on the card like any other run. (They're

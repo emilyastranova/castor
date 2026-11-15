@@ -6,6 +6,7 @@
 	import { confirmAction } from '$lib/confirm.svelte';
 	import { relativeTime } from '$lib/format';
 	import McpConnectionDialog from '$lib/components/McpConnectionDialog.svelte';
+	import LibraryTransfer from '$lib/components/LibraryTransfer.svelte';
 
 	let { data } = $props();
 	// svelte-ignore state_referenced_locally
@@ -44,7 +45,7 @@
 			snackbar.error(err instanceof ApiError ? err.message : 'Could not remove it');
 		}
 	}
-	const where = (c: McpConnection) => (c.transport === 'http' ? c.url : `${c.command.join(' ') || c.image || c.tool} · on an agent`);
+	const where = (c: McpConnection) => (c.transport !== 'stdio' ? c.url : `${c.command.join(' ') || c.image || c.tool} · on an agent`);
 	const argNames = (t: McpConnection['tools'][number]) => Object.keys(t.inputSchema?.properties ?? {});
 </script>
 
@@ -52,6 +53,7 @@
 
 <TopAppBar title="MCP servers" subtitle="Other MCP servers whose tools cards and playbooks can call">
 	{#snippet actions()}
+		<LibraryTransfer noun="MCP servers" request={{ mcp_servers: connections.map((c) => c.id), label: 'castor-mcp-servers' }} count={connections.length} onimported={async () => (connections = await api().mcp.list())} />
 		<Button icon="add" onclick={() => open(null)}>New MCP server</Button>
 	{/snippet}
 </TopAppBar>
@@ -62,7 +64,7 @@
 			<Card variant="outlined" class="flex flex-col gap-3 p-4 {c.enabled ? '' : 'opacity-60'}">
 				<div class="flex items-center gap-4">
 					<span class="flex size-10 shrink-0 items-center justify-center rounded-md bg-secondary-container text-on-secondary-container">
-						<Icon name={c.transport === 'http' ? 'cloud' : 'terminal'} />
+						<Icon name={c.transport !== 'stdio' ? 'cloud' : 'terminal'} />
 					</span>
 					<button type="button" class="min-w-0 flex-1 text-left" onclick={() => open(c)}>
 						<span class="flex items-center gap-2">

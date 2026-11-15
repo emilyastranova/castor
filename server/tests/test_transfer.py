@@ -236,3 +236,37 @@ steps:
     preview = _preview(client, auth, text.encode(), name=f"{pid}.yaml").json()
     notes = preview["items"][0]["notes"]
     assert notes == [f"step gone runs no-such-command-{pid}, which isn't here"]
+
+
+def test_mcp_servers_travel_with_their_actions(client, auth):
+    n = uuid.uuid4().hex[:6]
+    vset = client.post("/api/variables/sets", json={"kind_id": "api-token", "name": f"tr-mcp-{n}", "values": {"token": "t0ken-xyz"}},
+                       headers=auth).json()
+    p = client.post("/api/projects", json={"codename": f"TRM-{n}", "name": "MCP", "kind": "internal"}, headers=auth).json()
+    cid = f"tr-intel-{n}"
+    conn = {"id": cid, "name": "Intel", "transport": "http", "url": "https://mcp.example.com/mcp",
+            "headers": {"Authorization": "Bearer {{ token }}"}, "variable_set_id": vset["id"], "project_ids": [p["id"]]}
+    assert client.post("/api/mcp-connections", json=conn, headers=auth).status_code == 201
+    yaml_text = f"id: {cid}-look\nname: Look\nkind: mcp\nmcp: {{server: {cid}, tool: lookup}}\n"
+    assert client.post("/api/commands", json={"yaml": yaml_text}, headers=auth).status_code == 201
+
+    data = _export(client, auth, commands=[f"{cid}-look"])
+    zf = zipfile.ZipFile(io.BytesIO(data))
+    servers = json.loads(zf.read("library/mcp_servers.json"))
+    assert [s["id"] for s in servers] == [cid] and "tools" not in servers[0] and b"t0ken-xyz" not in data
+    preview = _preview(client, auth, data).json()
+    assert {i["kind"]: i["state"] for i in preview["items"]}["mcp_server"] == "same"
+
+    client.delete(f"/api/commands/{cid}-look", headers=auth)
+    client.delete(f"/api/mcp-connections/{cid}", headers=auth)
+    preview = _preview(client, auth, data).json()
+    item = next(i for i in preview["items"] if i["kind"] == "mcp_server")
+    assert item["state"] == "new" and item["choices"] == ["import", "skip"]
+    result = _import(client, auth, preview)
+    assert result["imported"]["MCP servers"] == ["Intel"]
+    back = client.get(f"/api/mcp-connections/{cid}", headers=auth).json()
+    assert back["variable_set_id"] == vset["id"] and back["project_ids"] == [p["id"]] and back["url"] == conn["url"]
+    assert client.get(f"/api/commands/{cid}-look", headers=auth).status_code == 200
+    client.delete(f"/api/commands/{cid}-look", headers=auth)
+    client.delete(f"/api/mcp-connections/{cid}", headers=auth)
+    client.delete(f"/api/projects/{p['id']}", headers=auth)

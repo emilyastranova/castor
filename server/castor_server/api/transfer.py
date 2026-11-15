@@ -30,6 +30,7 @@ class ExportIn(BaseModel):
     tools: list[str] = []
     playbooks: list[str] = []
     themes: list[str] = []
+    mcp_servers: list[str] = []
     variable_kinds: list[str] = []
     variable_sets: list[uuid.UUID] = []
     projects: list[uuid.UUID] = []
@@ -78,7 +79,7 @@ async def export(body: ExportIn, db: DB, user: CurrentUser):
 
 
 def _summary(contents: dict[str, int]) -> str:
-    words = {"parsers": "parser", "commands": "command", "tools": "tool", "playbooks": "playbook", "themes": "theme", "variable_kinds": "variable kind",
+    words = {"parsers": "parser", "commands": "command", "tools": "tool", "playbooks": "playbook", "themes": "theme", "mcp_servers": "MCP server", "variable_kinds": "variable kind",
              "variable_sets": "variable set", "projects": "project", "users": "user"}
     parts = [f"{n} {words.get(k, k)}{'' if n == 1 else 's'}" for k, n in contents.items() if n]
     return ", ".join(parts) or "nothing"

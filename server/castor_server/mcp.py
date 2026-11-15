@@ -363,8 +363,8 @@ TOOLS += [
     _auto("list_mcp_servers", "GET", "/api/mcp-connections", "The MCP servers Castor calls tools on, with their tools (as last checked) "
           "and the actions that call them."),
     _auto("get_mcp_server", "GET", "/api/mcp-connections/{connection_id}", "One MCP server Castor calls tools on, with its tools."),
-    _auto("add_mcp_server", "POST", "/api/mcp-connections", "Add an MCP server for MCP actions: transport http (url, headers) or stdio "
-          "(command, tool or image, env, agent_selector, run by an agent). Secrets go in a variable set (variable_set_id) and are "
+    _auto("add_mcp_server", "POST", "/api/mcp-connections", "Add an MCP server for MCP actions: transport http (url, headers), sse (the older HTTP+SSE transport, url, headers) "
+          "or stdio (command, tool or image, env, agent_selector, run by an agent; project_ids required). Secrets go in a variable set (variable_set_id) and are "
           "named {{ field }} in headers or env."),
     _auto("update_mcp_server", "PUT", "/api/mcp-connections/{connection_id}", "Change an MCP server (every field; the id stays)."),
     _auto("remove_mcp_server", "DELETE", "/api/mcp-connections/{connection_id}", "Remove an MCP server; actions that call it fail "
@@ -486,6 +486,7 @@ TOOLS += [
     _auto("unlink_assets", "DELETE", "/api/asset-links/{link_id}", "Remove a relationship between two assets.", **_DESTRUCTIVE),
     # Plugins: run what an admin installed in the project; installing them is the admin's, in the UI.
     _auto("list_plugins", "GET", "/api/plugins", "Installed plugins (admins): status, what they're allowed, their actions and projects."),
+    _auto("plugin_usage", "GET", "/api/plugins/{plugin_id}/usage", "How much of a plugin's actions rate limit is in use now (admins; null: no limit)."),
     _auto("browse_plugin_directory", "GET", "/api/plugin-directory",
           "The plugin directory (admins): every listed plugin, its newest release and whether it's installed or has an update. "
           "Nothing in it is vetted; installing stays in Settings → Plugins, where an admin reviews what it asks for.", **_UNTRUSTED),
@@ -516,6 +517,9 @@ TOOLS += [
     _auto("delete_command", "DELETE", "/api/commands/{command_id}", "Delete a library command.", **_DESTRUCTIVE),
     _auto("render_command", "POST", "/api/commands/{command_id}/render", "The command line a command makes with these arguments."),
     _auto("command_usage", "GET", "/api/commands/{command_id}/usage", "Cards and playbooks that use a command."),
+    _auto("try_action", "POST", "/api/commands/{command_id}/try",
+          "Run an HTTP, MCP or plugin action once in a project (args, var_bindings), on a card made for it and archived at once. "
+          "Returns task_id and job_id (read the run with get_job_output and get_job_results). Run only what a person asked you to."),
     # Tools
     _auto("list_tools", "GET", "/api/tools", "Tools commands run with (image, build recipe or host install) and which agents have them."),
     _auto("get_tool", "GET", "/api/tools/{tool_id}", "One tool, with its YAML."),
@@ -564,6 +568,8 @@ TOOLS += [
     _auto("get_variable_set", "GET", "/api/variables/sets/{set_id}", "One variable set (secret values aren't shown)."),
     _auto("create_variable_set", "POST", "/api/variables/sets", "Add a variable set; secret fields are stored in the vault."),
     _auto("update_variable_set", "PATCH", "/api/variables/sets/{set_id}", "Change a variable set (a blank secret keeps the stored one)."),
+    _auto("variable_set_usage", "GET", "/api/variables/sets/{set_id}/usage",
+          "How much of a variable set's rate limit is in use now: room left, requests in flight, a pause the API asked for (null: no limit)."),
     _auto("delete_variable_set", "DELETE", "/api/variables/sets/{set_id}", "Delete a variable set.", **_DESTRUCTIVE),
     _auto("upload_variable_file", "PUT", "/api/variables/sets/{set_id}/files/{field}", "Store a file field of a set (a key file…).",
           properties=_FILE, required=("filename", "content_base64"), upload=True),

@@ -8,8 +8,13 @@
 		value: UUID[] | null;
 		/** What it's about, under the choice. */
 		supporting?: string;
+		/** Only some projects: "Any project" isn't offered. */
+		limited?: boolean;
 	}
-	let { value = $bindable(null), supporting = '' }: Props = $props();
+	let { value = $bindable(null), supporting = '', limited = false }: Props = $props();
+	$effect(() => {
+		if (limited && value === null) value = [];
+	});
 	const labelId = `agent-projects-${Math.random().toString(36).slice(2, 8)}`;
 
 	let projects = $state<ProjectSummary[]>([]);
@@ -31,10 +36,12 @@
 
 <div class="flex flex-col gap-2">
 	<span class="label-large text-on-surface" id={labelId}>Projects</span>
+	{#if !limited}
 	<div class="flex flex-wrap gap-2" role="radiogroup" aria-labelledby={labelId}>
 		<Chip variant="filter" role="radio" aria-checked={value === null} selected={value === null} onclick={() => (value = null)}>Any project</Chip>
 		<Chip variant="filter" role="radio" aria-checked={value !== null} selected={value !== null} onclick={() => value === null && (value = [])}>Only some projects</Chip>
 	</div>
+	{/if}
 	{#if supporting}<p class="body-small text-on-surface-variant">{supporting}</p>{/if}
 	{#if value !== null}
 		<div class="flex flex-col gap-1 rounded-md border border-outline-variant/70 p-2">

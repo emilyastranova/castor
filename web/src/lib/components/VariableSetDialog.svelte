@@ -7,6 +7,7 @@
 	import { bytes } from '$lib/format';
 	import { fieldLabel, isFile, kindIcon } from '$lib/variables';
 	import ListIngestDialog from './ListIngestDialog.svelte';
+	import RateUsage from './RateUsage.svelte';
 
 	interface Props {
 		open: boolean;
@@ -268,6 +269,10 @@
 				placeholder="60/minute"
 				supporting="For HTTP actions: the most requests made with these values, from every card and playbook together (5/second, 1000/day; add “, 2 at once” to cap how many run together)"
 			/>
+			{#if set?.rate_limit}
+				{@const id = set.id}
+				<RateUsage load={() => api().variables.setUsage(id)} />
+			{/if}
 		{/if}
 
 		{#if spec}

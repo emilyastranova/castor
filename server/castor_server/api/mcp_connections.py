@@ -25,7 +25,7 @@ class ConnectionIn(BaseModel):
     id: str = Field(min_length=1, max_length=63)
     name: str = Field(min_length=1, max_length=200)
     description: str = ""
-    transport: Literal["http", "stdio"] = "http"
+    transport: Literal["http", "sse", "stdio"] = "http"  # sse: the older HTTP+SSE transport
     url: str = ""
     headers: dict[str, str] = Field(default_factory=dict)
     env: dict[str, str] = Field(default_factory=dict)
@@ -55,7 +55,7 @@ class ConnectionIn(BaseModel):
 
     @model_validator(mode="after")
     def fits(self) -> ConnectionIn:
-        if self.transport == "http":
+        if self.transport in ("http", "sse"):
             if not re.match(r"^https?://[^\s/]+", self.url.strip()):
                 raise ValueError("url: an http:// or https:// address")
         else:
@@ -63,6 +63,10 @@ class ConnectionIn(BaseModel):
                 raise ValueError("give a tool or an image, not both")
             if not (self.command or self.tool or self.image):
                 raise ValueError("command: what to run (or a tool or image whose entrypoint is the server)")
+            # A stdio program runs on an agent with what it was given; it's named per project
+            # (and each project gets its own running program), never "any project".
+            if self.project_ids is None:
+                raise ValueError("project_ids: a stdio server is limited to the projects you choose")
         return self
 
 
@@ -111,10 +115,11 @@ async def _check(db, body: ConnectionIn) -> None:
             raise HTTPException(422, "variable_set_id: no such variable set")
         kind = await db.get(m.VariableKind, vset.kind_id)
         fields = {f.name for f in variables.kind_spec(kind).fields if not f.is_file} if kind else set()
-    unknown = mcp_connections.check_templates(body.headers if body.transport == "http" else body.env, fields)
+    remote = body.transport != "stdio"
+    unknown = mcp_connections.check_templates(body.headers if remote else body.env, fields)
     if unknown:
         where = "the variable set" if body.variable_set_id else "a variable set (choose one)"
-        raise HTTPException(422, f"{'headers' if body.transport == 'http' else 'env'}: {{{{ {unknown[0]} }}}} isn't a field of {where}")
+        raise HTTPException(422, f"{'headers' if remote else 'env'}: {{{{ {unknown[0]} }}}} isn't a field of {where}")
     if body.tool and await db.get(m.ToolDefinition, body.tool) is None:
         raise HTTPException(422, f"tool: no tool {body.tool} in the library")
 

@@ -249,12 +249,17 @@ class ExportOptions:
     tools: list[str] = field(default_factory=list)
     playbooks: list[str] = field(default_factory=list)
     themes: list[str] = field(default_factory=list)
+    mcp_servers: list[str] = field(default_factory=list)  # Settings → MCP servers (and those its MCP actions call)
     variable_kinds: list[str] = field(default_factory=list)
     variable_sets: list[uuid.UUID] = field(default_factory=list)
     projects: list[uuid.UUID] = field(default_factory=list)
     jobs: bool = False
     activity: bool = False
     passphrase: str | None = None
+
+
+# What an MCP server row says about this instance, not about the server: left out of exports.
+MCP_LOCAL = ("server_info", "tools", "checked_at", "last_error", "created_at", "updated_at")
 
 
 def _dump(obj: Any) -> str:
@@ -326,12 +331,20 @@ async def export_archive(db: AsyncSession, user: m.User, opts: ExportOptions, ou
             zf.writestr(name, text)
             referenced.update(UUID_RE.findall(text))
 
+        servers = set(opts.mcp_servers)  # and the ones the exported MCP actions call
         for folder, (model, _) in LIBRARY.items():
             wanted = getattr(opts, folder)
             query = select(model).where(model.origin == "user") if opts.everything else select(model).where(model.id.in_(wanted))
             for row in await _rows(db, query.order_by(model.id)):
                 zf.writestr(f"library/{folder}/{row.id}.yaml", row.source_yaml or yaml.safe_dump(row.spec, sort_keys=False))
                 contents[folder] = contents.get(folder, 0) + 1
+                if folder == "commands" and (row.spec or {}).get("kind") == "mcp":
+                    servers.add(str(((row.spec or {}).get("mcp") or {}).get("server") or ""))
+        mq = select(m.McpConnection) if opts.everything else select(m.McpConnection).where(m.McpConnection.id.in_(servers))
+        if conns := await _rows(db, mq.order_by(m.McpConnection.id)):
+            # Templates only: secrets stay in the variable set (exported with it, or matched by name).
+            put("library/mcp_servers.json", _dump([row_of(c, skip=MCP_LOCAL) for c in conns]))
+            contents["mcp_servers"] = len(conns)
         kq = select(m.VariableKind).where(m.VariableKind.origin == "user") if opts.everything else select(m.VariableKind).where(m.VariableKind.id.in_(opts.variable_kinds))
         if kinds := await _rows(db, kq):
             put("library/variable_kinds.json", _dump([row_of(k) for k in kinds]))
@@ -617,6 +630,19 @@ async def _plan(db: AsyncSession, user: m.User, archive: Archive, passphrase: st
                 continue
             item(label, spec.id, spec.name, state, new_name=_free(spec.id, taken) if row else "", notes=notes)
 
+    for c in archive.json("library/mcp_servers.json", []):
+        row = await db.get(m.McpConnection, c["id"])
+        same = row is not None and all(getattr(row, k) == c.get(k) for k in ("name", "transport", "url", "headers", "env", "command", "tool", "image"))
+        notes = [] if user.is_admin else ["only admins add MCP servers; it will be skipped"]
+        if c.get("variable_set_id"):
+            notes.append("its secrets come from a variable set: the one in the file, or the one of the same name here")
+        state = "new" if row is None else "same" if same else "exists"
+        # Never "copy": the definitions that call it name its id.
+        choices = ["skip"] if not user.is_admin or state == "same" else ["import", "skip"] if state == "new" else ["skip", "replace"]
+        items.append({"key": f"mcp_server:{c['id']}", "kind": "mcp_server", "id": c["id"], "name": c.get("name") or c["id"],
+                      "state": state, "choices": choices, "default": "import" if "import" in choices else "skip", "new_name": "",
+                      "notes": notes})
+
     set_names = {n for (n,) in (await db.execute(select(m.VariableSet.name))).all()}
     for s in archive.json("variable_sets.json", []):
         notes = []
@@ -848,6 +874,28 @@ async def _run_import(
         codename = by_key[key]["new_name"] if picked == "copy" else bundle["project"]["codename"]
         old = bundle["project"]["id"]
         ids[old] = str(await _import_project(db, user, archive, bundle, ids, known_users, codename, sec, result))
+    # MCP servers (admins): their variable set and projects follow what came in with them.
+    for c in archive.json("library/mcp_servers.json", []):
+        picked = choice(f"mcp_server:{c['id']}")
+        if picked not in ("import", "replace"):
+            continue
+        data = {k: v for k, v in c.items() if k in m.McpConnection.__table__.columns and k not in MCP_LOCAL}
+        old_set = str(c.get("variable_set_id") or "")
+        data["variable_set_id"] = uuid.UUID(ids[old_set]) if old_set in ids else None
+        if c.get("project_ids") is not None:
+            data["project_ids"] = remap(c["project_ids"], ids)
+        row = await db.get(m.McpConnection, c["id"])
+        if row is None:
+            db.add(m.McpConnection(**data))
+        else:
+            for k, v in data.items():
+                setattr(row, k, v)
+            row.server_info, row.tools, row.checked_at, row.last_error = None, [], None, None
+            from .mcp_client import hub
+
+            hub.forget(row.id)
+        result.add("MCP servers", c.get("name") or c["id"])
+    await db.flush()
     # Sets limited to projects: point at the imported copies (projects not in the file stay
     # as they were, so a limited set never becomes visible to everyone).
     for s in archive.json("variable_sets.json", []):

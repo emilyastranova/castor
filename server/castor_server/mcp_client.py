@@ -6,10 +6,13 @@ server's notifications):
 - `HttpSession`: Streamable HTTP from the Castor server. Every POST goes through the outbound
   policy (`outbound.client`), answers come back as JSON or as an event stream (server
   notifications such as log messages and progress arrive on it before the result).
+- `SseSession`: the older HTTP+SSE transport (protocol 2024-11-05): a long GET event stream that
+  first names an endpoint (same origin only) to POST messages to; answers and notifications
+  arrive on the stream.
 - `StdioSession`: a program that speaks MCP on stdin/stdout, run by an agent (never on the
   server): `mcp.start` starts it (in a container from a tool or image, or on the agent's host),
   `mcp.send`/`mcp.message` carry JSON-RPC lines, `mcp.exited` says it stopped. One warm program
-  per connection and agent is shared by the calls made through it; the agent stops it after
+  per connection, agent and project is shared by that project's calls; the agent stops it after
   `idle_s` without use.
 
 Secrets (a token in a header or an environment variable) come from the connection's variable
@@ -19,6 +22,7 @@ set and exist only in the request or the `mcp.start` message.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import uuid
@@ -222,14 +226,161 @@ class HttpSession(Session):
         await self.client.aclose()
 
 
+# ---------- the older HTTP+SSE transport ----------
+
+
+class SseSession(Session):
+    """HTTP+SSE (MCP 2024-11-05): GET `url` opens an event stream whose first `endpoint` event
+    says where to POST messages; responses and notifications come back on the stream. The
+    endpoint must be on the same origin as `url` (a server can't send our requests elsewhere)."""
+
+    def __init__(self, url: str, headers: dict[str, str], rules: outbound.Policy, timeout: float = 120) -> None:
+        self.url = url
+        self.headers = headers
+        self.rules = rules
+        self.timeout = timeout
+        # No read timeout on the stream (it's quiet between answers); each request has its own.
+        self.client = outbound.client(rules, timeout)
+        self.endpoint: asyncio.Future[str] | None = None
+        self.pending: dict[int, asyncio.Future] = {}
+        self.notes: dict[int, Notify] = {}
+        self.reader: asyncio.Task | None = None
+        self.failure: McpError | None = None
+        self._ids = 0
+
+    async def _open(self) -> str:
+        if self.endpoint is None:
+            self.rules.check_host(outbound.check_url(self.url))
+            self.endpoint = asyncio.get_running_loop().create_future()
+            self.endpoint.add_done_callback(lambda f: f.cancelled() or f.exception())  # seen: no "never retrieved"
+            self.reader = asyncio.create_task(self._read())
+        try:
+            return await asyncio.wait_for(asyncio.shield(self.endpoint), self.timeout)
+        except TimeoutError as exc:
+            raise McpError("the server didn't say where to send messages (no endpoint event)") from exc
+
+    def _fail(self, error: McpError) -> None:
+        self.failure = error
+        if self.endpoint is not None and not self.endpoint.done():
+            self.endpoint.set_exception(error)
+            self.endpoint.exception()
+        for future in self.pending.values():
+            if not future.done():
+                future.set_exception(error)
+
+    def _endpoint(self, data: str) -> str:
+        from urllib.parse import urljoin, urlsplit
+
+        target = urljoin(self.url, data.strip())
+        a, b = urlsplit(self.url), urlsplit(target)
+        if (a.scheme, a.hostname, a.port) != (b.scheme, b.hostname, b.port):
+            raise McpError("the server named an endpoint on another origin; refused")
+        return target
+
+    async def _read(self) -> None:
+        headers = {"Accept": "text/event-stream", **self.headers}
+        try:
+            async with self.client.stream("GET", self.url, headers=headers,
+                                          timeout=httpx.Timeout(self.timeout, read=None)) as resp:
+                if resp.status_code >= 400:
+                    text = (await resp.aread())[:300].decode("utf-8", "replace").strip()
+                    raise McpError(f"HTTP {resp.status_code}" + (f": {text}" if text else ""))
+                kind = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+                if kind != "text/event-stream":
+                    raise McpError(f"the server answered {kind or 'nothing'}, not an event stream")
+                event, data = "message", []
+                async for line in resp.aiter_lines():
+                    if line.startswith("event:"):
+                        event = line[6:].strip()
+                    elif line.startswith("data:"):
+                        data.append(line[5:].lstrip())
+                    elif not line.strip() and data:
+                        await self._event(event, "\n".join(data))
+                        event, data = "message", []
+            raise McpError("the server closed the event stream")
+        except asyncio.CancelledError:
+            raise
+        except McpError as exc:
+            self._fail(exc)
+        except (httpx.HTTPError, outbound.OutboundRefused) as exc:
+            self._fail(McpError(str(exc) or type(exc).__name__))
+        except Exception as exc:  # noqa: BLE001 - a broken stream fails the calls waiting on it
+            self._fail(McpError(f"the event stream broke: {exc}"))
+
+    async def _event(self, event: str, data: str) -> None:
+        if len(data) > MAX_BYTES:
+            raise McpError("the answer is too large")
+        if event == "endpoint":
+            if self.endpoint is not None and not self.endpoint.done():
+                self.endpoint.set_result(self._endpoint(data))
+            return
+        if event != "message":
+            return
+        try:
+            msg = json.loads(data)
+        except ValueError:
+            return
+        for one in msg if isinstance(msg, list) else [msg]:
+            if not isinstance(one, dict):
+                continue
+            rid = one.get("id")
+            if rid in self.pending and ("result" in one or "error" in one):
+                if not self.pending[rid].done():
+                    self.pending[rid].set_result(one)
+            elif one.get("method"):
+                token = ((one.get("params") or {}).get("_meta") or {}).get("progressToken")
+                targets = [self.notes[token]] if token in self.notes else list(self.notes.values())
+                for note in targets:
+                    try:
+                        await note(one)
+                    except Exception:
+                        log.exception("MCP notification handler failed")
+
+    async def _post(self, body: dict[str, Any]) -> None:
+        endpoint = await self._open()
+        self.rules.check_host(outbound.check_url(endpoint))
+        try:
+            resp = await self.client.post(endpoint, headers={"Content-Type": "application/json", **self.headers}, content=json.dumps(body))
+        except httpx.HTTPError as exc:
+            raise McpError(str(exc) or type(exc).__name__) from exc
+        if resp.status_code >= 400:
+            raise McpError(f"HTTP {resp.status_code}" + (f": {resp.text[:300].strip()}" if resp.text.strip() else ""))
+
+    async def request(self, method: str, params: dict[str, Any] | None = None, on_note: Notify = _ignore) -> Any:
+        if self.failure is not None:
+            raise self.failure
+        self._ids += 1
+        rid = self._ids
+        future = asyncio.get_running_loop().create_future()
+        self.pending[rid] = future
+        self.notes[rid] = on_note
+        try:
+            await self._post({"jsonrpc": "2.0", "id": rid, "method": method, "params": params or {}})
+            return _answer(await future)
+        finally:
+            self.pending.pop(rid, None)
+            self.notes.pop(rid, None)
+
+    async def notify(self, method: str, params: dict[str, Any] | None = None) -> None:
+        await self._post({"jsonrpc": "2.0", "method": method, **({"params": params} if params else {})})
+
+    async def close(self) -> None:
+        if self.reader is not None:
+            self.reader.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):  # it failed or was stopped: either way it's done
+                await self.reader
+        await self.client.aclose()
+
+
 # ---------- stdio programs on agents ----------
 
 
 @dataclass
 class _Program:
-    """One warm stdio program on one agent."""
+    """One warm stdio program on one agent, for one project: two projects never share a program
+    (or whatever it keeps between calls)."""
 
-    key: tuple[str, uuid.UUID]
+    key: tuple[str, uuid.UUID, str]
     session_id: str
     started: asyncio.Future
     pending: dict[Any, asyncio.Future] = field(default_factory=dict)
@@ -256,16 +407,18 @@ class StdioSession(Session):
 
 
 class StdioHub:
-    """The stdio programs agents run for the server, by (connection id, agent id)."""
+    """The stdio programs agents run for the server, by (connection id, agent id, project id or
+    "" for a check from Settings)."""
 
     def __init__(self) -> None:
-        self.programs: dict[tuple[str, uuid.UUID], _Program] = {}
+        self.programs: dict[tuple[str, uuid.UUID, str], _Program] = {}
         self.by_session: dict[str, _Program] = {}
 
-    async def session(self, conn: Any, connection_id: str, launch: dict[str, Any], timeout: float = 300) -> StdioSession:
-        """The connection's program on this agent (`conn`, a gateway AgentConnection),
-        started and initialized if it isn't already."""
-        key = (connection_id, conn.agent_id)
+    async def session(self, conn: Any, connection_id: str, launch: dict[str, Any], timeout: float = 300,
+                      project_id: uuid.UUID | None = None) -> StdioSession:
+        """The connection's program on this agent (`conn`, a gateway AgentConnection) for this
+        project, started and initialized if it isn't already."""
+        key = (connection_id, conn.agent_id, str(project_id or ""))
         program = self.programs.get(key)
         if program is None or program.started.done() and program.started.exception() is not None:
             program = _Program(key=key, session_id=uuid.uuid4().hex, started=asyncio.get_running_loop().create_future())

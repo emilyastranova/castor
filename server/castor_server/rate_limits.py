@@ -129,6 +129,32 @@ class Limiter:
     def forget(self, key: str) -> None:
         self._buckets.pop(key, None)
 
+    async def usage(self, key: str, text: str | None) -> dict[str, Any] | None:
+        """How much of a limit is in use right now (for the variable set's or plugin's page):
+        room left, requests in flight, and a pause the API asked for. Reads, never takes."""
+        rate = _rate(text)
+        if rate is None:
+            return None
+        now = time.time()
+        bucket = self._buckets.get(key)
+        if bucket is not None:
+            tokens, updated, paused, flying = bucket.tokens, bucket.updated, bucket.paused_until, bucket.in_flight
+        else:
+            async with SessionLocal() as db:
+                row = await db.get(m.RateBucket, key)
+            tokens = row.tokens if row is not None else float(rate.count)
+            updated = row.updated_at.timestamp() if row is not None else now
+            paused = row.paused_until.timestamp() if row is not None and row.paused_until else 0.0
+            flying = 0
+        tokens = min(float(rate.count), tokens + max(now - updated, 0) * rate.count / rate.period_s)
+        return {
+            "limit": text, "count": rate.count, "period_s": rate.period_s, "concurrent": rate.concurrent,
+            "available": max(int(tokens), 0), "in_flight": flying,
+            # Seconds until a request is allowed again (0: now).
+            "next_in_s": 0.0 if tokens >= 1 else round((1 - tokens) * rate.period_s / rate.count, 1),
+            "paused_until": datetime.fromtimestamp(paused, UTC).isoformat() if paused > now else None,
+        }
+
 
 limiter = Limiter()
 

@@ -5,6 +5,7 @@
 	import { absoluteTime, relativeTime } from '$lib/format';
 	import PluginProjects from './PluginProjects.svelte';
 	import PluginSettingsForm from './PluginSettingsForm.svelte';
+	import RateUsage from './RateUsage.svelte';
 
 	/** One installed plugin: its settings, projects, recent runs and log. */
 	interface Props {
@@ -116,6 +117,10 @@
 							placeholder="10/minute"
 							supporting="The most its library actions run, from every card and playbook together"
 						/>
+						{#if plugin.actions_rate_limit}
+							{@const id = plugin.id}
+							<RateUsage load={() => api().plugins.usage(id)} />
+						{/if}
 					</section>
 				{/if}
 				<section aria-label="Projects">

@@ -106,7 +106,12 @@ def is_mismatch(error: str | None) -> bool:
 
 
 async def read_inputs(db: AsyncSession, job: m.Job, spec: OutputSpec, artifacts: list[m.Attachment] | None = None) -> tuple[list[bytes], list[str]]:
-    """What an output's parser reads: its source files (or stdout), and their names."""
+    """What an output's parser reads: its source files (or stdout), and their names. An HTTP
+    action's paged results too large to print were kept as a JSON-lines file instead of stdout
+    (`progress.records_file`): its parsers read that."""
+    records_file = (job.progress or {}).get("records_file") if not spec.source else None
+    if records_file:
+        spec = spec.model_copy(update={"source": records_file})
     if spec.source:
         if artifacts is None:
             artifacts = list((await db.execute(select(m.Attachment).where(m.Attachment.job_id == job.id))).scalars())

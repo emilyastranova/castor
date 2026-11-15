@@ -336,6 +336,15 @@ async def remove_plugin(plugin_id: str, db: DB, user: Admin):
     await P.uninstall(db, user, await _or_404(db, plugin_id))
 
 
+@router.get("/plugins/{plugin_id}/usage")
+async def plugin_usage(plugin_id: str, db: DB, _: Admin) -> dict[str, Any] | None:
+    """How much of the plugin's actions rate limit is in use now (null: it has none)."""
+    from ..rate_limits import limiter
+
+    row = await _or_404(db, plugin_id)
+    return await limiter.usage(f"plugin:{row.id}", row.actions_rate_limit)
+
+
 @router.get("/plugins/{plugin_id}/logs")
 async def plugin_logs(plugin_id: str, db: DB, _: Admin, run_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
     await _or_404(db, plugin_id)

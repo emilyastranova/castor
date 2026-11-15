@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import uuid
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from .. import models as m
@@ -170,3 +174,63 @@ async def render(command_id: str, body: RenderIn, db: DB, _: CurrentUser):
         )
     except ArgumentError as exc:
         raise HTTPException(422, {"message": str(exc), "errors": exc.errors}) from exc
+
+
+class TryIn(BaseModel):
+    project_id: uuid.UUID
+    args: dict[str, Any] = Field(default_factory=dict)
+    # Variable slot → set id (the credentials the action uses).
+    var_bindings: dict[str, uuid.UUID | None] = Field(default_factory=dict)
+
+
+class TryOut(BaseModel):
+    task_id: uuid.UUID
+    job_id: uuid.UUID
+
+
+@router.post("/{command_id}/try", response_model=TryOut, status_code=201)
+async def try_action(command_id: str, body: TryIn, db: DB, user: Operator):
+    """Run an HTTP, MCP or plugin action once, from the Library, in a project: on a card made
+    for it and archived straight away (off the board, kept with its run for the record). It runs
+    like any card's: limits, approvals, masked secrets, parsed results."""
+    from ..access import project_or_404
+    from ..api.tasks import _bind_vars, _use_library_command
+    from ..command_library import ACTION_KINDS
+    from ..models import utcnow
+    from ..orchestrator.dispatcher import dispatcher
+    from ..services import (
+        actor_of,
+        column_with_role,
+        enqueue_job,
+        next_position,
+        publish_task,
+        record_activity,
+    )
+
+    spec = await load_spec(db, command_id)
+    if spec is None:
+        raise HTTPException(404, "Command not found")
+    if spec.kind not in ACTION_KINDS:
+        raise HTTPException(422, "Try it is for HTTP, MCP and plugin actions; a command runs on an agent from a card")
+    project = await project_or_404(db, user, body.project_id, write=True)
+    column = await column_with_role(db, project.id, m.ColumnRole.todo) or (
+        await db.execute(select(m.BoardColumn).where(m.BoardColumn.project_id == project.id).order_by(m.BoardColumn.position).limit(1))
+    ).scalar_one_or_none()
+    if column is None:
+        raise HTTPException(409, "Project has no columns")
+    now = utcnow()
+    task = m.Task(project_id=project.id, column_id=column.id, position=await next_position(db, column.id), created_by=user.id,
+                  title=f"Try: {spec.name}"[:300], description=f"Tried from the Library ({spec.id}).", kind=m.TaskKind.command,
+                  run_on_move=False, archived_at=now, archived_by=user.id)
+    await _use_library_command(db, task, spec.id, body.args)
+    db.add(task)
+    await db.flush()
+    if body.var_bindings:
+        await _bind_vars(db, task, {k: v for k, v in body.var_bindings.items()})
+    await record_activity(db, type="command.tried", message=f"Tried “{spec.name}” from the Library", project_id=project.id,
+                          task_id=task.id, payload={"command": spec.id}, **actor_of(user))
+    job = await enqueue_job(db, task, user, reason="tried from the Library")
+    await db.commit()
+    await publish_task(db, task)
+    dispatcher.wake()
+    return TryOut(task_id=task.id, job_id=job.id)

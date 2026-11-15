@@ -546,12 +546,37 @@ def json_records(data: bytes, options: JsonRecordsOptions | None = None) -> list
     from .parser_spec import _dig
 
     options = options or JsonRecordsOptions()
+    lines = _json_lines(data)
+    if lines is not None:  # JSON lines (records.jsonl of a large paged result): one record per line
+        return [i if isinstance(i, dict) else {"value": i} for i in lines]
     doc = _json_doc(data)
     found = _dig(doc, options.records) if options.records.strip() else doc
     if found is None:
         raise ParseError(f"nothing at {options.records!r} in the JSON")
     items = found if isinstance(found, list) else [found]
     return [i if isinstance(i, dict) else {"value": i} for i in items]
+
+
+def _json_lines(data: bytes) -> list[Any] | None:
+    """Records of JSON lines (one value per line), or None when it isn't that."""
+    import json
+
+    text = data.decode("utf-8", "replace").strip()
+    if not text or text[0] not in "{[" or "\n" not in text:
+        return None
+    try:
+        json.loads(text)
+        return None  # one JSON document that spans lines
+    except json.JSONDecodeError:
+        pass
+    out = []
+    for line in text.splitlines():
+        if line.strip():
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError:
+                return None
+    return out
 
 
 class JsonValueOptions(Options):

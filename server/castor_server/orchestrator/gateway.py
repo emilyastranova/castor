@@ -597,6 +597,8 @@ class AgentGateway:
         `job` None: a batch on several agents that all succeeded (_advance_batch)."""
         if job is not None and (job.status != m.JobStatus.succeeded or job.batch_id is not None):
             return
+        if task.archived_at is not None:  # off the board (a run tried from the Library): it stays where it is
+            return
         project = await db.get(m.Project, task.project_id)
         if project is None or not (project.settings or {}).get("auto_advance", True):
             return

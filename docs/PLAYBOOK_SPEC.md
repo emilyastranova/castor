@@ -140,6 +140,8 @@ Every step has these fields:
 | `ai` | no | object | With `on_failure: ai`: what the AI resolver may do on its own. See 8.3. |
 | `expect` | no | mapping | Command steps only: what a good result looks like. See 8.4. |
 | `for_each` | no | reference or mapping | Command steps only: run once per item of a list. See 5.3. |
+| `rate_limit` | no | string | HTTP action steps only: the most requests the step makes (`60/minute`, `5/second, 2 at once`), on top of the credential's limit. |
+| `send_from` | no | mapping | HTTP action steps only: send its requests through an agent, `{tags: [lab]}` or `{agent_id: <id>}`. Default: from the Castor server. |
 
 A step is **either** a command step (`command_ref` + `args`) **or** a transform step
 (`transform`). Giving both, or neither, is an error. Don't write `kind:` yourself; it's

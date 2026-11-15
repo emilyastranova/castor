@@ -314,6 +314,37 @@ def test_paging_joins_every_page(client, auth, api):
     client.delete(f"/api/projects/{project['id']}", headers=auth)
 
 
+def test_large_paged_results_become_json_lines(client, auth, api, monkeypatch):
+    from castor_server.orchestrator import server_runner
+
+    monkeypatch.setattr(server_runner, "LARGE_RECORDS", 4)
+    monkeypatch.setattr(server_runner, "SHOWN_RECORDS", 2)
+
+    def page(query, _body):
+        n = int((query.get("cursor") or ["0"])[0])
+        return _json(200, {"data": [{"name": f"h{n}"}, {"name": f"h{n + 1}"}], "meta": {"next": str(n + 2) if n < 4 else None}})
+
+    api.plan["/hosts"] = [page]
+    ref = _definition(client, auth, PAGED)
+    project = _project(client, auth)
+    job_id = _run(client, auth, _card(client, auth, project, ref, {}, _set(client, auth, api)))
+    job = _wait(client, auth, job_id)
+    log = _log(client, auth, job_id)
+    assert job["status"] == "succeeded", log
+    assert "6 records in all" in log and "kept as records.jsonl" in log
+    assert [r["name"] for r in json.loads(_log(client, auth, job_id, "stdout"))] == ["h0", "h1"]  # the first few
+    files = client.get(f"/api/jobs/{job_id}/artifacts", headers=auth).json()
+    assert [f["filename"] for f in files] == ["records.jsonl"]
+    deadline = time.time() + 10
+    outputs = []
+    while time.time() < deadline and not outputs:
+        outputs = client.get(f"/api/jobs/{job_id}/outputs", headers=auth).json()
+        time.sleep(0.1)
+    hosts = next(o for o in outputs if o["name"] == "hosts")
+    assert hosts["error"] is None and [r["name"] for r in hosts["value"]] == [f"h{i}" for i in range(6)]
+    client.delete(f"/api/projects/{project['id']}", headers=auth)
+
+
 BATCHED = """
 id: test-lookup-batch
 name: Look up in batches
@@ -624,3 +655,62 @@ steps:
         client.delete(f"/api/playbooks/{pid}", headers=auth)
     client.delete(f"/api/projects/{project['id']}", headers=auth)
     client.patch("/api/settings", json={"ai_chains": {}}, headers=auth)
+
+
+def test_a_step_sets_its_own_limit_and_sender(client, auth, api):
+    api.plan["/ping"] = [lambda _q, _b: _json(200, {"ok": True})]
+    ref = _definition(client, auth, SIMPLE)
+    creds = _set(client, auth, api)
+    pb_id = f"test-step-limit-{uuid.uuid4().hex[:6]}"
+    tag = f"nowhere-{uuid.uuid4().hex[:5]}"
+    yaml_text = f"""
+id: {pb_id}
+name: Step limits
+steps:
+  - id: ping
+    name: Ping
+    command_ref: {ref}
+    vars: {{api: "{creds['name']}"}}
+    rate_limit: 30/minute
+    send_from: {{tags: [{tag}]}}
+"""
+    r = client.post("/api/playbooks", json={"yaml": yaml_text}, headers=auth)
+    assert r.status_code == 201, r.text
+    back = client.post("/api/playbooks/to-yaml", json={"spec": r.json()["spec"]}, headers=auth).json()["yaml"]
+    assert "rate_limit: 30/minute" in back and tag in back
+    project = _project(client, auth)
+    run = client.post(f"/api/playbooks/{pb_id}/run", json={"project_id": project["id"], "inputs": {}}, headers=auth).json()
+    deadline = time.time() + 10
+    while time.time() < deadline and not (client.get(f"/api/playbook-runs/{run['id']}", headers=auth).json().get("step_task_ids") or {}).get("ping"):
+        time.sleep(0.1)
+    step_card = client.get(f"/api/playbook-runs/{run['id']}", headers=auth).json()["step_task_ids"]["ping"]
+    card = client.get(f"/api/tasks/{step_card}", headers=auth).json()
+    assert card["rate_limit"] == "30/minute" and card["agent_selector"] == {"tags": [tag]}
+    client.post(f"/api/playbook-runs/{run['id']}/cancel", headers=auth)
+
+    # Not on a transform step, and the library check refuses them on a shell command.
+    bad = yaml_text.replace(f"command_ref: {ref}", "command_ref: nmap-ping-sweep").replace(f"vars: {{api: \"{creds['name']}\"}}", "args: {targets: 10.0.0.1}")
+    r = client.post("/api/playbooks/validate", json={"yaml": bad.replace(pb_id, pb_id + "-x")}, headers=auth).json()
+    assert any("for HTTP actions" in p for p in r.get("problems", []) + r.get("errors", [])), r
+    client.delete(f"/api/playbooks/{pb_id}", headers=auth)
+    client.delete(f"/api/projects/{project['id']}", headers=auth)
+
+
+def test_try_it_and_limit_usage(client, auth, api):
+    api.plan["/ping"] = [lambda _q, _b: _json(200, {"ok": True})] * 3
+    ref = _definition(client, auth, SIMPLE)
+    creds = _set(client, auth, api)
+    assert client.patch(f"/api/variables/sets/{creds['id']}", json={"rate_limit": "10/minute"}, headers=auth).status_code == 200
+    project = _project(client, auth)
+    r = client.post(f"/api/commands/{ref}/try", json={"project_id": project["id"], "var_bindings": {"api": creds["id"]}}, headers=auth)
+    assert r.status_code == 201, r.text
+    job = _wait(client, auth, r.json()["job_id"])
+    assert job["status"] == "succeeded", _log(client, auth, job["id"])
+    card = client.get(f"/api/tasks/{r.json()['task_id']}", headers=auth).json()
+    assert card["archived_at"] and card["title"].startswith("Try: ")
+    assert not client.get(f"/api/projects/{project['id']}/board", headers=auth).json()["tasks"]  # off the board
+
+    usage = client.get(f"/api/variables/sets/{creds['id']}/usage", headers=auth).json()
+    assert usage["count"] == 10 and usage["available"] == 9 and usage["paused_until"] is None
+    assert client.post("/api/commands/nmap-ping-sweep/try", json={"project_id": project["id"]}, headers=auth).status_code == 422
+    client.delete(f"/api/projects/{project['id']}", headers=auth)
