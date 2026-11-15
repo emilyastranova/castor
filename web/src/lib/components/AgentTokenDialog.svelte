@@ -1,7 +1,8 @@
 <script lang="ts">
-	import type { AgentToken } from '$lib/api';
+	import type { AgentToken, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, Icon, TagInput, TextField } from '$lib/m3';
+	import AgentProjectsPicker from './AgentProjectsPicker.svelte';
 	import { loadTags, type TagSuggestion } from '$lib/tags';
 	import { snackbar } from '$lib/snackbar.svelte';
 
@@ -20,6 +21,7 @@
 
 	let label = $state('');
 	let tags = $state<string[]>([]);
+	let projectIds = $state<UUID[] | null>(null);
 	let tagSuggestions = $state<TagSuggestion[]>([]);
 	let creating = $state(false);
 	let created = $state<(AgentToken & { token: string }) | null>(null);
@@ -32,6 +34,7 @@
 		if (open) {
 			label = '';
 			tags = [];
+			projectIds = null;
 			void loadTags('agents').then((t) => (tagSuggestions = t));
 			created = revealed;
 			copied = null;
@@ -51,7 +54,8 @@
 		try {
 			created = await api().agentTokens.create({
 				label: label.trim(),
-				tags
+				tags,
+				project_ids: projectIds
 			});
 			oncreated?.(created);
 		} catch (err) {
@@ -80,6 +84,7 @@
 			</p>
 			<TextField label="Agent name" bind:value={label} placeholder="e.g. kali-lab-01" supporting="Used in the command below and to recognise the token. The agent's --name decides its name." />
 			<TagInput label="Tags (optional)" bind:value={tags} suggestions={tagSuggestions} noun="agents" placeholder="Add a tag" supporting="Given to the agent when it enrolls." />
+			<AgentProjectsPicker bind:value={projectIds} supporting="The agent that enrolls with this token gets this limit. You can change it later on the agent." />
 		{:else}
 			<div class="flex items-start gap-2 rounded-md bg-tertiary-container/50 px-3 py-2 body-small text-on-surface">
 				<Icon name="warning" size={18} class="mt-px shrink-0 text-tertiary" />

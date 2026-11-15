@@ -1180,6 +1180,8 @@ export interface AgentToken {
 	/** The token's first characters, to recognise it. */
 	prefix: string;
 	tags: string[];
+	/** Given to the agent when it enrolls; null: any project. */
+	project_ids?: UUID[] | null;
 	agent_id: UUID | null;
 	agent_name: string | null;
 	created_at: string;
@@ -1241,6 +1243,8 @@ export interface Agent {
 	version: string;
 	capabilities: { runtimes?: string[]; default_image?: string };
 	tags: string[];
+	/** The projects whose jobs it may run; null: any project (an empty list: none). */
+	project_ids?: UUID[] | null;
 	max_concurrency: number;
 	status: AgentStatus;
 	last_seen_at: string | null;
@@ -1671,7 +1675,8 @@ export function api(fetchFn: Fetch = fetch) {
 		},
 		agents: {
 			list: () => get<Agent[]>('/agents'),
-			update: (id: UUID, body: { tags?: string[]; max_concurrency?: number }) =>
+			/** project_ids: null lifts the limit; leave it out to keep it. */
+			update: (id: UUID, body: { tags?: string[]; max_concurrency?: number; project_ids?: UUID[] | null }) =>
 				patch<Agent>(`/agents/${id}`, body),
 			remove: (id: UUID) => del(`/agents/${id}`)
 		},
@@ -1700,7 +1705,7 @@ export function api(fetchFn: Fetch = fetch) {
 		agentTokens: {
 			list: () => get<{ tokens: AgentToken[]; shared_secret_allowed: boolean }>('/agent-tokens'),
 			/** The token is in the reply only this once. */
-			create: (body: { label?: string; tags?: string[] }) => post<AgentToken & { token: string }>('/agent-tokens', body),
+			create: (body: { label?: string; tags?: string[]; project_ids?: UUID[] | null }) => post<AgentToken & { token: string }>('/agent-tokens', body),
 			rotate: (id: UUID) => post<AgentToken & { token: string }>(`/agent-tokens/${id}/rotate`),
 			revoke: (id: UUID) => post<AgentToken>(`/agent-tokens/${id}/revoke`),
 			remove: (id: UUID) => del(`/agent-tokens/${id}`)

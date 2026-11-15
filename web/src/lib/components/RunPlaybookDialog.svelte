@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Agent, AlertRules, PlaybookInputSpec, PlaybookSpec, PlaybookRun, Project, VariableKind, VariableSet } from '$lib/api';
-	import { describeSelector, selectorFrom, selectorOptions } from '$lib/agentSelector';
+	import { agentsFor, describeSelector, selectorFrom, selectorOptions } from '$lib/agentSelector';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, Select, Switch, TextField } from '$lib/m3';
 	import { snackbar } from '$lib/snackbar.svelte';
@@ -67,7 +67,7 @@
 			.then((a) => (agents = a))
 			.catch(() => (agents = []));
 	});
-	let agentOptions = $derived(selectorOptions(agents));
+	let agentOptions = $derived(selectorOptions(agentsFor(agents, selectedProjectId)));
 	/** With "every agent tagged …": the connected agents it would start a run on. */
 	let fanOut = $derived.by(() => {
 		const s = selectorFrom(agentChoice);

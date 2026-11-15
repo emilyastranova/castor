@@ -525,6 +525,8 @@ class AgentOut(ORM):
     version: str
     capabilities: dict[str, Any]
     tags: list[str]
+    # The projects whose jobs it may run; null: any project.
+    project_ids: list[uuid.UUID] | None = None
     max_concurrency: int
     status: AgentStatus
     last_seen_at: datetime | None
@@ -538,11 +540,15 @@ class AgentOut(ORM):
 class AgentPatch(BaseModel):
     tags: list[str] | None = None
     max_concurrency: int | None = None
+    # Limit it to these projects' jobs; null lifts the limit (any project). Left out: unchanged.
+    project_ids: list[uuid.UUID] | None = None
 
 
 class AgentTokenIn(BaseModel):
     label: str = Field("", max_length=128)
     tags: list[str] = Field(default_factory=list)
+    # The agent that enrolls with it runs only these projects' jobs; null: any project.
+    project_ids: list[uuid.UUID] | None = None
 
 
 class AgentTokenOut(ORM):
@@ -550,6 +556,7 @@ class AgentTokenOut(ORM):
     label: str
     prefix: str
     tags: list[str]
+    project_ids: list[uuid.UUID] | None = None
     agent_id: uuid.UUID | None
     agent_name: str | None = None
     created_at: datetime

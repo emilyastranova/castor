@@ -467,17 +467,50 @@ class SelectorError(ValueError):
     pass
 
 
-async def check_selector(db: AsyncSession, selector: dict[str, Any] | None) -> dict[str, Any]:
-    """An agent selector as stored: {} (any agent), {agent_id} (one that exists), {tags} (any
-    one agent with all of them) or {tags, all: true} (every connected agent with them)."""
+
+async def existing_projects(db: AsyncSession, ids: list[uuid.UUID] | None) -> list[str] | None:
+    """An agent's (or enrollment token's) project limit as stored: the ids as strings, every one
+    an existing project (422 otherwise); None stays None (any project)."""
+    if ids is None:
+        return None
+    from fastapi import HTTPException
+
+    wanted = list(dict.fromkeys(ids))
+    found = set((await db.execute(select(m.Project.id).where(m.Project.id.in_(wanted)))).scalars()) if wanted else set()
+    if missing := [str(i) for i in wanted if i not in found]:
+        raise HTTPException(422, f"project_ids: no project {', '.join(missing)}")
+    return [str(i) for i in wanted]
+
+
+async def forget_project_for_agents(db: AsyncSession, project_id: uuid.UUID) -> None:
+    """A deleted project leaves agents' and tokens' limits. One limited to only it then runs
+    nothing (an empty list), rather than becoming free to run any project's jobs."""
+    from .orchestrator.gateway import gateway
+
+    pid = str(project_id)
+    for model in (m.Agent, m.AgentToken):
+        for row in (await db.execute(select(model).where(model.project_ids.is_not(None)))).scalars():
+            if pid in (row.project_ids or []):
+                row.project_ids = [p for p in row.project_ids if p != pid]
+                if model is m.Agent and (conn := gateway.get(row.id)) is not None:
+                    conn.project_ids = list(row.project_ids)
+
+async def check_selector(db: AsyncSession, selector: dict[str, Any] | None,
+                         project_id: uuid.UUID | None = None) -> dict[str, Any]:
+    """An agent selector as stored: {} (any agent), {agent_id} (one that exists, and may run
+    this project's jobs), {tags} (any one agent with all of them) or {tags, all: true} (every
+    connected agent with them)."""
     selector = selector or {}
     if selector.get("agent_id"):
         try:
             agent_id = uuid.UUID(str(selector["agent_id"]))
         except ValueError:
             agent_id = None
-        if agent_id is None or await db.get(m.Agent, agent_id) is None:
+        agent = await db.get(m.Agent, agent_id) if agent_id is not None else None
+        if agent is None:
             raise SelectorError("agent_selector: no such agent")
+        if project_id is not None and agent.project_ids is not None and str(project_id) not in agent.project_ids:
+            raise SelectorError(f"agent_selector: {agent.name} doesn't run this project's jobs")
         return {"agent_id": str(agent_id)}
     tags = sorted({str(t).strip() for t in selector.get("tags") or [] if str(t).strip()})
     if selector.get("all") and not tags:
@@ -494,13 +527,14 @@ def is_broadcast(task: m.Task) -> bool:
 
 async def broadcast_targets(db: AsyncSession, task: m.Task, job: m.Job) -> list:
     """The connected agents a broadcast card runs on: every one with the tags that can run it."""
-    from .orchestrator.dispatcher import agent_can_run, selector_matches
+    from .orchestrator.dispatcher import agent_can_run, project_allowed, selector_matches
     from .orchestrator.gateway import gateway
     from .tool_library import tools_by_id
 
     tool = (await tools_by_id(db)).get(task.tool) if task.tool else None
     selector = {"tags": (task.agent_selector or {}).get("tags") or []}
-    found = [c for c in gateway.connections.values() if selector_matches(c, selector) and agent_can_run(c, job, tool)]
+    found = [c for c in gateway.connections.values()
+             if project_allowed(c, task.project_id) and selector_matches(c, selector) and agent_can_run(c, job, tool)]
     return sorted(found, key=lambda c: c.name)
 
 

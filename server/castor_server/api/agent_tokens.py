@@ -16,7 +16,7 @@ from ..events import bus
 from ..models import utcnow
 from ..orchestrator.gateway import gateway
 from ..schemas import AgentTokenCreated, AgentTokenIn, AgentTokenList, AgentTokenOut
-from ..services import actor_of, record_activity
+from ..services import actor_of, existing_projects, record_activity
 
 router = APIRouter(prefix="/agent-tokens", tags=["agents"])
 
@@ -66,6 +66,7 @@ async def create_token(body: AgentTokenIn, db: DB, user: Admin):
         token_hash=digest,
         prefix=prefix,
         tags=sorted({t.strip() for t in body.tags if t.strip()}),
+        project_ids=await existing_projects(db, body.project_ids),
         created_by=user.id,
     )
     db.add(row)

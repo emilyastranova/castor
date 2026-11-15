@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { agentsFor } from '$lib/agentSelector';
 	import { goto, invalidateAll } from '$app/navigation';
 	import { tick } from 'svelte';
 	import { flying, fly, rectOf, shift, snapshot } from '$lib/motion';
@@ -290,7 +291,8 @@
 		return list.filter((t) => t.title.toLowerCase().includes(q) || t.command.toLowerCase().includes(q) || t.tags.some((x) => x.toLowerCase().includes(q)));
 	}
 
-	let online = $derived(agents.filter((a) => a.connected).length);
+	// Agents that can run this project's jobs (one limited to other projects doesn't count).
+	let online = $derived(agentsFor(agents, store.project.id).filter((a) => a.connected).length);
 	let running = $derived(store.taskList.filter((t) => t.latest_job && ['queued', 'dispatched', 'running'].includes(t.latest_job.status)).length);
 
 	async function deleteProject() {

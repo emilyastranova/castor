@@ -3,7 +3,7 @@
 	import { isAdmin } from '$lib/session';
 	import { invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
-	import type { Agent, AgentToken, Job, SshHost } from '$lib/api';
+	import type { Agent, AgentToken, Job, SshHost, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { TopAppBar, Card, Icon, IconButton, Chip, Dialog, Button, TextField, TagInput } from '$lib/m3';
 	import { loadTags, type TagSuggestion } from '$lib/tags';
@@ -16,6 +16,7 @@
 	import SshHostDialog from '$lib/components/SshHostDialog.svelte';
 	import SshConfigDialog from '$lib/components/SshConfigDialog.svelte';
 	import TagManagerDialog from '$lib/components/TagManagerDialog.svelte';
+	import AgentProjectsPicker from '$lib/components/AgentProjectsPicker.svelte';
 
 	let { data } = $props();
 	// svelte-ignore state_referenced_locally
@@ -187,11 +188,29 @@
 	let tags = $state<string[]>([]);
 	let tagSuggestions = $state<TagSuggestion[]>([]);
 	let concurrency = $state('1');
+	let limitTo = $state<UUID[] | null>(null);
 	let enrollOpen = $state(false);
+
+	// Project names for the agents' "Projects" line (only those you can see).
+	let projectNames = $state<Record<string, string>>({});
+	$effect(() => {
+		api()
+			.projects.list()
+			.then((ps) => (projectNames = Object.fromEntries(ps.map((p) => [p.id, p.codename]))))
+			.catch(() => {});
+	});
+	function projectsOf(a: Agent): string {
+		if (a.project_ids == null) return 'Any project';
+		if (!a.project_ids.length) return 'None (runs nothing)';
+		const known = a.project_ids.map((id) => projectNames[id]).filter(Boolean);
+		const hidden = a.project_ids.length - known.length;
+		return [...known, ...(hidden ? [`${hidden} other${hidden === 1 ? '' : 's'}`] : [])].join(', ');
+	}
 
 	function edit(a: Agent) {
 		editing = a;
 		tags = [...a.tags];
+		limitTo = a.project_ids == null ? null : [...a.project_ids];
 		void loadTags('agents').then((t) => (tagSuggestions = t));
 		concurrency = String(a.max_concurrency);
 	}
@@ -200,7 +219,8 @@
 		try {
 			const a = await api().agents.update(editing.id, {
 				tags,
-				max_concurrency: Number(concurrency) || 1
+				max_concurrency: Number(concurrency) || 1,
+				project_ids: limitTo
 			});
 			agents = agents.map((x) => (x.id === a.id ? a : x));
 			editing = null;
@@ -281,6 +301,7 @@
 						<dt>OS</dt><dd class="truncate text-on-surface" title={a.os}>{a.os || '—'}</dd>
 						<dt>Runtimes</dt><dd class="text-on-surface">{(a.capabilities.runtimes ?? []).join(', ') || '—'}</dd>
 						<dt>Slots</dt><dd class="text-on-surface">{a.running_jobs}/{a.max_concurrency}</dd>
+						<dt>Projects</dt><dd class="truncate {a.project_ids && !a.project_ids.length ? 'text-error' : 'text-on-surface'}" title={projectsOf(a)}>{projectsOf(a)}</dd>
 						{#if (sshOf(a)?.route.length ?? 0) > 1}
 							{@const hops = sshOf(a)!.route.slice(0, -1)}
 							<dt>Via</dt><dd class="truncate font-mono text-[12px] text-on-surface" title="Jump hosts, from the SSH config">{hops.map((h) => h.replace(/:22$/, '')).join(' › ')}</dd>
@@ -411,6 +432,7 @@
 	<div class="flex flex-col gap-5 pt-2 pb-2">
 		<TagInput label="Tags" bind:value={tags} suggestions={tagSuggestions} noun="agents" placeholder="Add a tag" supporting="Cards and playbooks can target agents by tag." />
 		<TextField label="Max concurrent jobs" bind:value={concurrency} type="number" />
+		<AgentProjectsPicker bind:value={limitTo} supporting="Limit it to some projects to keep their work (and their targets' traffic) on this machine and other projects' work off it." />
 	</div>
 	{#snippet actions()}
 		<Button variant="text" onclick={() => (editing = null)}>Cancel</Button>

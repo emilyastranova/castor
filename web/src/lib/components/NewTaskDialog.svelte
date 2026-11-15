@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { selectorFrom, selectorOptions } from '$lib/agentSelector';
+	import { agentsFor, selectorFrom, selectorOptions } from '$lib/agentSelector';
 	import type { Agent, ArgErrors, Column, CommandDefinition, Task, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, TextField, Select, Chip, Switch, TagInput } from '$lib/m3';
@@ -135,7 +135,7 @@
 				keywords: [c.id, ...c.tags, c.spec.tool ?? '', c.spec.image ?? ''].join(' ')
 			}))
 	);
-	let agentOptions = $derived(selectorOptions(agents));
+	let agentOptions = $derived(selectorOptions(agentsFor(agents, projectId)));
 </script>
 
 <Dialog bind:open title="New card" size="md">

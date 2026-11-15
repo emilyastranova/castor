@@ -57,6 +57,11 @@ def selector_matches(conn: AgentConnection, selector: dict[str, Any]) -> bool:
     return not wanted_tags or wanted_tags.issubset(set(conn.tags))
 
 
+def project_allowed(conn: AgentConnection, project_id: uuid.UUID | str | None) -> bool:
+    """Whether the agent may run this project's jobs (Agent.project_ids; None: any project)."""
+    return conn.project_ids is None or (project_id is not None and str(project_id) in conn.project_ids)
+
+
 def agent_matches(conn: AgentConnection, job: m.Job, selector: dict[str, Any], tool: ToolSpec | None = None) -> bool:
     if conn.free_slots <= 0:
         return False
@@ -123,7 +128,8 @@ class Dispatcher:
                     await self._fail_unsent(db, job, task, f"the tool {job.tool} isn't in the library")
                     continue
                 candidates = [
-                    c for c in gateway.connections.values() if agent_matches(c, job, selector, tool)
+                    c for c in gateway.connections.values()
+                    if project_allowed(c, task.project_id) and agent_matches(c, job, selector, tool)
                 ]
                 if not candidates:
                     continue

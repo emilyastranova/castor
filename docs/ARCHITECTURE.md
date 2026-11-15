@@ -751,6 +751,17 @@ needs an agent that has a way to provide it; an interactive job needs an agent t
 advertises `tty`). It sends `job.run`
 and marks the job `dispatched`. Jobs with no eligible agent stay `queued`.
 
+**Agents limited to projects.** `agents.project_ids` (ids as strings; null: any project, `[]`: none) keeps
+an agent to some projects' jobs: `dispatcher.project_allowed` in `pump`, `broadcast_targets` and a playbook's
+`{tags, all}` fan-out; `check_selector(…, project_id)` refuses `{agent_id}` for an agent that can't run the
+project's jobs (422). Only admins set it (`PATCH /api/agents/{id}` `project_ids`; left out keeps it, null lifts
+it), or the enrollment token it used (`agent_tokens.project_ids`, copied when it enrolls); an agent's `hello`
+never changes it. Deleting a project takes it out of every list (`services.forget_project_for_agents`), so an
+agent limited to only that project runs nothing rather than anything. `GET /api/agents` shows non-admins the
+agents that may work in a project they can see. Web: `AgentProjectsPicker` (agent editor, Enroll agent), a
+Projects line on agent cards, `agentSelector.agentsFor` narrows the card, New card and Run playbook pickers and
+the board's "agents online".
+
 **Every agent with some tags.** A card with `agent_selector: {tags, all: true}` gets, from
 `enqueue_job`, one job per connected agent that has the tags and can run it
 (`broadcast_targets`, using `dispatcher.agent_can_run`). Its jobs share a `batch_id`, and each

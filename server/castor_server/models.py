@@ -501,6 +501,9 @@ class Agent(Base, TimestampMixin):
     version: Mapped[str] = mapped_column(String(32), default="")
     capabilities: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     tags: Mapped[list[str]] = mapped_column(JSONType, default=list)
+    # The projects whose jobs it may run (ids as strings); None: any project. Set by admins (or
+    # its enrollment token), never by the agent itself. An empty list runs nothing.
+    project_ids: Mapped[list[str] | None] = mapped_column(JSONType, nullable=True, default=None)
     max_concurrency: Mapped[int] = mapped_column(Integer, default=1)
     status: Mapped[AgentStatus] = mapped_column(
         Enum(AgentStatus, name="agent_status", native_enum=False, length=16),
@@ -964,6 +967,7 @@ class AgentToken(Base):
     prefix: Mapped[str] = mapped_column(String(16))
     # Applied to the agent when it enrolls.
     tags: Mapped[list[str]] = mapped_column(JSONType, default=list)
+    project_ids: Mapped[list[str] | None] = mapped_column(JSONType, nullable=True, default=None)
     agent_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("agents.id", ondelete="CASCADE"), nullable=True, index=True
     )

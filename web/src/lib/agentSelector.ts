@@ -18,6 +18,12 @@ export function selectorFrom(value: string): AgentSelector {
 	return m[1] === 'all' ? { tags, all: true } : { tags };
 }
 
+/** The agents that may run a project's jobs (an agent limited to other projects isn't offered). */
+export function agentsFor(agents: Agent[], projectId: string | null | undefined): Agent[] {
+	if (!projectId) return agents;
+	return agents.filter((a) => a.project_ids == null || a.project_ids.includes(projectId));
+}
+
 const hasTags = (a: Agent, tags: string[]) => tags.every((t) => a.tags.includes(t));
 
 export function describeSelector(s: AgentSelector | null | undefined, agents: Agent[]): string {

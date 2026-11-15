@@ -33,6 +33,8 @@ class AgentConnection:
     capabilities: dict[str, Any]
     tags: list[str]
     max_concurrency: int
+    # Projects whose jobs it may run (ids as strings); None: any (Agent.project_ids).
+    project_ids: list[str] | None = None
     # The token it authenticated with (None: the shared secret).
     token_id: uuid.UUID | None = None
     running: set[uuid.UUID] = field(default_factory=set)
@@ -183,6 +185,8 @@ class AgentGateway:
                 if token is not None:
                     token.agent_id = agent.id
                     agent.tags = sorted(set(agent.tags or []) | set(token.tags or []))
+                    if token.project_ids is not None:  # the token's limit, set when it was made
+                        agent.project_ids = list(token.project_ids)
                     enrolled = True
             if ssh_agent_id is None and await db.scalar(select(m.SshHost.id).where(m.SshHost.agent_id == agent.id)):
                 raise RegisterError(f"{agent.name} is an SSH host that Castor connects to; give this agent another --name")
@@ -214,6 +218,7 @@ class AgentGateway:
                 capabilities=agent.capabilities,
                 tags=agent.tags,
                 max_concurrency=agent.max_concurrency,
+                project_ids=agent.project_ids,
                 token_id=token.id if token else None,
             )
             self.connections[agent.id] = conn

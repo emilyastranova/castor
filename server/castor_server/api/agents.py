@@ -1,21 +1,29 @@
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
 from .. import models as m
+from ..access import visible_project_ids
 from ..deps import DB, Admin, CurrentUser, parse_uuid
 from ..events import bus
 from ..orchestrator.gateway import gateway
 from ..schemas import AgentOut, AgentPatch
-from ..services import actor_of, record_activity
+from ..services import actor_of, existing_projects, record_activity
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
 
 @router.get("", response_model=list[AgentOut])
-async def list_agents(db: DB, _: CurrentUser):
+async def list_agents(db: DB, user: CurrentUser):
+    """Every agent for admins; for others, the ones that may run work in a project they can see."""
     agents = (await db.execute(select(m.Agent).order_by(m.Agent.name))).scalars().all()
+    visible = await visible_project_ids(db, user)
+    if visible is not None:
+        mine = {str(p) for p in visible}
+        agents = [a for a in agents if a.project_ids is None or mine & set(a.project_ids)]
     return [await gateway.agent_out(a) for a in agents]
 
 
@@ -34,10 +42,23 @@ async def update_agent(agent_id: str, body: AgentPatch, db: DB, user: Admin):
         conn = gateway.get(agent.id)
         if conn:
             conn.max_concurrency = agent.max_concurrency
-    await record_activity(db, type="agent.updated", message=f"Changed the agent {agent.name}", project_id=None, **actor_of(user))
+    message = f"Changed the agent {agent.name}"
+    if "project_ids" in body.model_fields_set:  # null is a value here: any project
+        agent.project_ids = await existing_projects(db, body.project_ids)
+        if conn := gateway.get(agent.id):
+            conn.project_ids = list(agent.project_ids) if agent.project_ids is not None else None
+        if agent.project_ids is None:
+            message = f"Let the agent {agent.name} run any project's jobs"
+        else:
+            names = (await db.execute(select(m.Project.codename).where(m.Project.id.in_([uuid.UUID(p) for p in agent.project_ids])))).scalars().all()
+            message = f"Limited the agent {agent.name} to {', '.join(sorted(names)) or 'no projects'}"
+    await record_activity(db, type="agent.updated", message=message, project_id=None, **actor_of(user))
     await db.commit()
     out = await gateway.agent_out(agent)
     bus.publish("agent.updated", None, out)
+    from ..orchestrator.dispatcher import dispatcher
+
+    dispatcher.wake()  # queued jobs it may now run (or no longer)
     return out
 
 

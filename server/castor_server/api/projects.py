@@ -26,6 +26,7 @@ from ..services import (
     actor_of,
     board_payload,
     create_default_columns,
+    forget_project_for_agents,
     record_activity,
     tasks_out,
 )
@@ -140,6 +141,7 @@ async def update_project(project_id: str, body: ProjectPatch, db: DB, user: Curr
 @router.delete("/{project_id}", status_code=204)
 async def delete_project(project_id: str, db: DB, user: Admin):
     project = await _project_or_404(db, user, project_id)
+    await forget_project_for_agents(db, project.id)
     await db.delete(project)
     await record_activity(db, type="project.deleted", message=f"Deleted the project {project.codename} ({project.name})", project_id=None, **actor_of(user))
     await db.commit()

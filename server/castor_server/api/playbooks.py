@@ -11,7 +11,7 @@ from .. import models as m
 from .. import variables
 from ..access import check_project, project_or_404, visible_project_ids
 from ..deps import DB, CurrentUser, Operator, parse_uuid
-from ..orchestrator.dispatcher import dispatcher, selector_matches
+from ..orchestrator.dispatcher import dispatcher, project_allowed, selector_matches
 from ..orchestrator.gateway import gateway
 from ..playbook_library import check_against_library, definition_from_spec, load_playbook_spec
 from ..playbook_spec import parse_playbook_spec
@@ -200,14 +200,15 @@ async def _execute_playbook_run(
             inputs[inp.name] = str(row.id)
 
     try:
-        selector = await check_selector(db, agent_selector)
+        selector = await check_selector(db, agent_selector, project_id)
     except SelectorError as exc:
         raise HTTPException(422, str(exc)) from exc
     # Every agent with the tags: one run each, pinned to it, so each one's results stay apart.
     if selector.get("all"):
-        targets = sorted((c for c in gateway.connections.values() if selector_matches(c, selector)), key=lambda c: c.name)
+        targets = sorted((c for c in gateway.connections.values()
+                          if project_allowed(c, project_id) and selector_matches(c, selector)), key=lambda c: c.name)
         if not targets:
-            raise HTTPException(409, f"No connected agent has the tags {', '.join(selector['tags'])}")
+            raise HTTPException(409, f"No connected agent that runs this project's jobs has the tags {', '.join(selector['tags'])}")
         plans = [({"agent_id": str(c.agent_id)}, f"{spec.name} · {c.name}") for c in targets]
     else:
         plans = [(selector, None)]

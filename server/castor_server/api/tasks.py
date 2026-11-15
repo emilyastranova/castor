@@ -111,7 +111,7 @@ async def create_task(project_id: str, body: TaskIn, db: DB, user: CurrentUser):
     data = body.model_dump(exclude={"column_id", "command_ref", "command_args", "var_bindings"})
     data["assignees"] = await people.check_assignees(db, project.id, body.assignees)
     data["group_assignees"] = await people.check_group_assignees(db, body.group_assignees)
-    data["agent_selector"] = await _selector(db, body.agent_selector)
+    data["agent_selector"] = await _selector(db, body.agent_selector, project.id)
     task = m.Task(
         project_id=project.id,
         column_id=column.id,
@@ -161,7 +161,7 @@ async def update_task(task_id: str, body: TaskPatch, db: DB, user: CurrentUser):
     changes = body.model_dump(exclude_unset=True)
     bindings = changes.pop("var_bindings", None)
     if "agent_selector" in changes:
-        changes["agent_selector"] = await _selector(db, changes["agent_selector"])
+        changes["agent_selector"] = await _selector(db, changes["agent_selector"], task.project_id)
     if "alerts" in changes:
         changes.pop("alerts")
         if body.alerts and body.alerts.people:
@@ -292,7 +292,7 @@ async def run(task_id: str, db: DB, user: CurrentUser, body: RunIn | None = None
     if await active_job_for(db, task.id) is not None:
         raise HTTPException(409, "A job for this card is already queued or running")
     if body is not None and body.agent_selector is not None:
-        task.agent_selector = await _selector(db, body.agent_selector)
+        task.agent_selector = await _selector(db, body.agent_selector, task.project_id)
     job, moved = await start_run(db, task, user)
     await db.commit()
     await publish_task(db, task, "task.moved" if moved else "task.updated")
@@ -502,8 +502,8 @@ async def delete_comment(task_id: str, comment_id: str, db: DB, user: CurrentUse
     await publish_task(db, task)
 
 
-async def _selector(db, selector: dict | None) -> dict:
+async def _selector(db, selector: dict | None, project_id: uuid.UUID) -> dict:
     try:
-        return await check_selector(db, selector)
+        return await check_selector(db, selector, project_id)
     except SelectorError as exc:
         raise HTTPException(422, str(exc)) from exc

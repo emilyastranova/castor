@@ -239,9 +239,12 @@ TOOLS: list[Tool] = [
     # connects to itself. Each needs the same scope as its endpoint (agents:*, admin).
     Tool("list_agents", "Agents and SSH hosts: ids, names, tags, slots, runtimes, whether they're connected and busy "
          "(ssh_host_id is set for an SSH host).", "GET", "/api/agents"),
-    Tool("update_agent", "Change an agent's tags or how many jobs it runs at once.", "PATCH", "/api/agents/{agent_id}",
+    Tool("update_agent", "Change an agent's tags, how many jobs it runs at once, or which projects' jobs it may run "
+         "(project_ids: a list limits it, null lets it run any project's; leave it out to keep it).", "PATCH", "/api/agents/{agent_id}",
          {"agent_id": _s("Agent id (from list_agents)"), "tags": {"type": "array", "items": {"type": "string"}},
-          "max_concurrency": {"type": "integer", "minimum": 1}}, ("agent_id",)),
+          "max_concurrency": {"type": "integer", "minimum": 1},
+          "project_ids": {"type": ["array", "null"], "items": {"type": "string"},
+                          "description": "Project ids whose jobs it may run; null: any project"}}, ("agent_id",)),
     Tool("forget_agent", "Remove a disconnected agent from the list (its tags and settings go too; an SSH host is "
          "removed with remove_ssh_host instead).", "DELETE", "/api/agents/{agent_id}",
          {"agent_id": _s("Agent id")}, ("agent_id",), destructive=True),
@@ -251,7 +254,9 @@ TOOLS: list[Tool] = [
          "`command` to run on the new agent's machine (needs `pip install ./agent` from the Castor repository). The "
          "first agent that connects with it becomes its agent. Treat the token as a password.", "POST", "/api/agent-tokens",
          {"label": _s("The agent's name, e.g. kali-lab-01"), "tags": {"type": "array", "items": {"type": "string"},
-                                                                       "description": "Tags the agent gets"}}),
+                                                                       "description": "Tags the agent gets"},
+          "project_ids": {"type": ["array", "null"], "items": {"type": "string"},
+                          "description": "Limit the agent to these projects' jobs (omit or null: any project)"}}),
     Tool("rotate_agent_token", "Replace an agent's token: the old one stops working at once (the agent disconnects "
          "until it restarts with the new one, in the result).", "POST", "/api/agent-tokens/{token_id}/rotate",
          {"token_id": _s("Token id (from list_agent_tokens)")}, ("token_id",), destructive=True),

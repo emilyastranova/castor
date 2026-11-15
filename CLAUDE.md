@@ -111,7 +111,8 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
 - `orchestrator/dispatcher.py` runs `pump()` on wake (new job, agent change, job finish)
   and every `CASTOR_DISPATCH_INTERVAL` seconds. Matching rule is in `agent_matches`:
   free slot, required runtime (image → needs podman/docker), optional `agent_id` or
-  `tags` selector. `{tags, all: true}` fans a card out to every connected agent with the tags
+  `tags` selector; and `project_allowed` (an agent's `project_ids`, null = any project, `[]` = none; set by admins or
+  its enrollment token, never by the agent) wherever an agent is chosen. `{tags, all: true}` fans a card out to every connected agent with the tags
   (`services.enqueue_job`: one job each, a `batch_id`, `target_agent_id`), and a playbook run
   to one run per agent; step cards never fan out.
 - Command library: `command_spec.py` (YAML format → `CommandSpec`), `command_render.py`

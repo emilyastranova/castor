@@ -45,7 +45,7 @@
 	import { goto } from '$app/navigation';
 	import { canEdit as roleCanEdit } from '$lib/session';
 	import { isListRef, lists } from '$lib/lists.svelte';
-	import { describeSelector, selectorFrom, selectorOptions, selectorValue } from '$lib/agentSelector';
+	import { agentsFor, describeSelector, selectorFrom, selectorOptions, selectorValue } from '$lib/agentSelector';
 
 	interface Props {
 		task: Task;
@@ -636,7 +636,7 @@
 	});
 	let columnMenu = $state(false);
 	// A playbook step runs where its run does: one agent per run, never a batch.
-	let agentOptions = $derived(selectorOptions(agents, task.agent_selector, !task.playbook_step_id));
+	let agentOptions = $derived(selectorOptions(agentsFor(agents, task.project_id), task.agent_selector, !task.playbook_step_id));
 	let agentName = (id: UUID | null) => agents.find((a) => a.id === id)?.name ?? '—';
 	let runFiles = $derived(attachments.filter((a) => a.job_id && a.job_id === selectedJob?.id));
 	let screenshots = $derived(attachments.filter((a) => a.content_type.startsWith('image/')));
