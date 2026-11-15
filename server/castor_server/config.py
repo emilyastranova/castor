@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     tools_dir: Path = Path(__file__).resolve().parents[2] / "tools"
     # Built-in playbook definitions (playbooks/*.yaml), synced into the library on startup.
     playbooks_dir: Path = Path(__file__).resolve().parents[2] / "playbooks"
+    # Reference the AI reads (docs/PLAYBOOK_SPEC.md when it writes or fixes playbooks); the
+    # server image carries it at /app/library/docs.
+    docs_dir: Path = Path(__file__).resolve().parents[2] / "docs"
     # Built-in themes for the web UI (theme_spec.py).
     themes_dir: Path = Path(__file__).resolve().parents[2] / "themes"
     # The plugin directory (docs/PLUGINS.md): its directory.json ("" turns browsing and update

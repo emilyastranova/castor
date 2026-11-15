@@ -78,9 +78,10 @@ instance (`seed_demo.py`, `capture.py`); the steps are in that folder's README.
 Releases: `scripts/release.sh X.Y.Z` sets the version in `server/pyproject.toml`, `agent/pyproject.toml` and
 `web/package.json` (+ lock), commits and tags `vX.Y.Z`; pushing the tag runs `.github/workflows/ci.yml`: tests, then
 `emilyastranova/castor` (the server), `castor-web` and `castor-agent` on Docker Hub (X.Y.Z, X.Y, latest; amd64 and arm64) and a GitHub Release
-with generated notes. Pushes to main publish `edge`. It needs the secrets `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`.
-The server image builds from the repository root (`.dockerignore` lets in only `server/` and the built-in library,
-which it carries at `/app/library`; `compose.dev.yaml` mounts the checkout's over it); the server reports its version (package metadata) at `/api/health`.
+with generated notes. Pushes to main publish `edge`; pushes and PRs that only change docs, Markdown or README assets skip CI
+(`paths-ignore`; tags always run). It needs the secrets `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`.
+The server image builds from the repository root (`.dockerignore` lets in only `server/`, the built-in library and
+`docs/PLAYBOOK_SPEC.md`, which the AI reads (`CASTOR_DOCS_DIR`); it carries them at `/app/library`; `compose.dev.yaml` mounts the checkout's over it); the server reports its version (package metadata) at `/api/health`.
 The web image builds and installs its packages on `$BUILDPLATFORM` (plain JS, no native modules), so its arm64
 image needs no emulation; keep its runtime dependencies free of native modules or move that back.
 

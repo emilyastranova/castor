@@ -7,5 +7,6 @@
 !playbooks/
 !tools/
 !themes/
+!docs/PLAYBOOK_SPEC.md
 **/__pycache__
 **/*.pyc

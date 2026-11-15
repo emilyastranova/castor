@@ -21,11 +21,13 @@ services:
       CASTOR_PLAYBOOKS_DIR: /playbooks
       CASTOR_TOOLS_DIR: /tools
       CASTOR_THEMES_DIR: /themes
+      CASTOR_DOCS_DIR: /docs
     volumes:
       - ./commands:/commands:ro
       - ./playbooks:/playbooks:ro
       - ./tools:/tools:ro
       - ./themes:/themes:ro
+      - ./docs:/docs:ro
 
   web:
     build:

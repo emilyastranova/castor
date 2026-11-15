@@ -389,8 +389,13 @@ async def _library_summary(db: AsyncSession) -> str:
 
 
 def _playbook_spec_doc() -> str:
-    path = Path(__file__).resolve().parents[2] / "docs" / "PLAYBOOK_SPEC.md"
-    return path.read_text()[:30000] if path.is_file() else ""
+    from .config import settings
+
+    path = Path(settings.docs_dir) / "PLAYBOOK_SPEC.md"
+    if not path.is_file():
+        log.warning("no playbook spec at %s: the AI writes playbooks without it", path)
+        return ""
+    return path.read_text()[:30000]
 
 
 async def _validate(db: AsyncSession, kind: str, text: str) -> tuple[Any, list[str]]:
