@@ -278,6 +278,8 @@ class TaskIn(BaseModel):
     group_assignees: list[str] = Field(default_factory=list)  # group ids (or @handles)
     custom_fields: dict[str, Any] = Field(default_factory=dict)
     due_at: datetime | None = None
+    # Cards of the project this one waits on (blocked until each is done, reported or archived).
+    waits_on: list[uuid.UUID] = Field(default_factory=list)
     var_bindings: dict[str, uuid.UUID | None] = Field(default_factory=dict)
     tty: bool = False
 
@@ -299,7 +301,8 @@ class TaskPatch(BaseModel):
     assignees: list[str] | None = None
     group_assignees: list[str] | None = None  # group ids (or @handles)
     custom_fields: dict[str, Any] | None = None
-    due_at: datetime | None = None
+    due_at: datetime | None = None  # null clears it
+    waits_on: list[uuid.UUID] | None = None  # replaces the list; [] clears it
     # Variable slot → set id; null unbinds a slot. Replaces all bindings when given.
     var_bindings: dict[str, uuid.UUID | None] | None = None
     # Alerts for this card's runs; channels: [] turns them off.
@@ -310,6 +313,8 @@ class TaskPatch(BaseModel):
 class TaskMove(BaseModel):
     column_id: uuid.UUID
     position: float | None = None  # None: the top of the column
+    # Start it although cards it waits on aren't finished (otherwise that's a 409).
+    force: bool = False
 
 
 class JobOut(ORM):
@@ -399,6 +404,9 @@ class TaskOut(ORM):
     playbook_step_id: str | None = None
     playbook_item: int | None = None
     depends_on: list[str] = Field(default_factory=list)
+    waits_on: list[str] | None = None  # cards it waits on (ids)
+    # Of those, the ones not finished yet: [{id, title}]. Empty: it can start.
+    blocked_by: list[dict[str, str]] = Field(default_factory=list)
     var_bindings: dict[str, str] = Field(default_factory=dict)
     alerts: dict[str, Any] | None = None
     tty: bool = False

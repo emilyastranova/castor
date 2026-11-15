@@ -656,6 +656,28 @@ links to copied files in the description and comments are rewritten, one-off var
 are cloned. Playbook run and step cards are refused (409). Activity: `task.created` on the
 copy, `task.duplicated` on the source.
 
+## Cards waiting on cards, and due dates
+
+**Depends on.** `tasks.waits_on` (card ids as strings; not playbook steps' `depends_on`) lists cards of the same
+project a card waits on; `services.check_waits_on` refuses itself, other projects, step cards and circles (422).
+A blocker is unfinished until it's in a Done or Reported column or archived (`unfinished_blockers`);
+`TaskOut.blocked_by` is that list. `move_task` refuses to start a blocked card (into the active column) with
+`BlockedError` unless `force`; the move and run routes answer 409 `{message, blocked_by}` and take `force`
+(web `lib/blocked.ts` `startAnyway` asks, then retries). Finishing a card (moving it into Done/Reported, or
+archiving it) calls `notify_unblocked`: the people (`card_people`: assignees and their groups, else the creator)
+of each card it was the last blocker of get `task.unblocked`. After a card moves, is archived, restored or
+deleted, `publish_waiting` sends out the cards that wait on it so boards update; a deleted card leaves the lists
+(`forget_card_in_waits`). `GET /api/tasks/{id}/dependencies` gives `waits_on` and `blocks` with columns.
+
+**Due dates.** `tasks.due_at` (the web stores a date without a time as 23:59 local). `due.py`'s sweep
+(`remind_forever`, every minute, started in `app.py`) notifies a card's people once when it's due within a day
+(`task.due_soon`) and once when it's past (`task.overdue`, severity warning), remembered in
+`tasks.due_reminded` and cleared when `due_at` changes; finished, archived and step cards aren't reminded.
+They're ordinary notifications, so the bell shows them and `notifications.svelte.ts` puts them on the desktop
+for people who allow it. Web: `DueDateField` (card dialog, New card), `lib/due.ts` (`dueInfo`: label and tone),
+the board card's and list row's chips, `CardDependencies` in the card dialog.
+MCP: `create_card`/`update_card` take `due_at` and `waits_on`, `move_card`/`run_card` `force`, `card_dependencies`.
+
 ## Archived cards
 
 `tasks.archived_at` / `archived_by`: an archived card is left off the board (`get_board`), the dashboard's open

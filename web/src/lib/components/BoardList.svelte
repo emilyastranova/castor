@@ -7,6 +7,7 @@
 	import { isRunning, kindIcon, runState } from '$lib/taskStatus';
 	import StatusChip from './StatusChip.svelte';
 	import PriorityGlyph, { priorityLabels } from './PriorityGlyph.svelte';
+	import { DUE_TONE, dueInfo } from '$lib/due';
 	import ColumnGlyph from './ColumnGlyph.svelte';
 
 	/** The board as a list: every card as a row, grouped by column (in board order), with the
@@ -162,6 +163,8 @@
 				</tr>
 				{#if open}
 					{#each g.tasks as t (t.id)}
+						{@const fin = g.column.role === 'done' || g.column.role === 'reported'}
+						{@const due = t.due_at ? dueInfo(t.due_at, fin) : null}
 						{@const who = assigneesOf(t)}
 						<tr
 							class="group cursor-pointer align-middle outline-none hover:bg-on-surface/5 focus-visible:bg-on-surface/8 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary {isRunning(t) ? 'bg-tertiary-container/15' : ''}"
@@ -178,6 +181,12 @@
 										{#if t.kind === 'command' && t.command}<p class="truncate font-mono text-[12px] text-on-surface-variant">{t.command}</p>{/if}
 										<div class="mt-1 sm:hidden">{@render status(t)}</div>
 									</div>
+									{#if !fin && t.blocked_by?.length}
+										<span class="flex shrink-0 items-center gap-0.5 rounded-sm bg-tertiary-container px-1 py-0.5 label-small text-on-tertiary-container" title="Waits on {t.blocked_by.map((b) => `“${b.title}”`).join(', ')}"><Icon name="lock" size={14} /><span class="max-sm:hidden">Blocked</span></span>
+									{/if}
+									{#if due}
+										<span class="flex shrink-0 items-center gap-0.5 rounded-sm px-1 py-0.5 label-small {DUE_TONE[due.tone]}" title={due.title}><Icon name={due.icon} size={14} />{due.label}</span>
+									{/if}
 									<span class="ml-auto hidden shrink-0 items-center gap-2 label-small text-on-surface-variant sm:flex">
 										{#if t.comment_count}<span class="flex items-center gap-0.5" title="{t.comment_count} comments"><Icon name="chat_bubble" size={14} />{t.comment_count}</span>{/if}
 										{#if t.attachment_count}<span class="flex items-center gap-0.5" title="{t.attachment_count} files"><Icon name="attach_file" size={14} />{t.attachment_count}</span>{/if}

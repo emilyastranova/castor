@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { agentsFor } from '$lib/agentSelector';
+	import { startAnyway } from '$lib/blocked';
 	import { goto, invalidateAll } from '$app/navigation';
 	import { tick } from 'svelte';
 	import { flying, fly, rectOf, shift, snapshot } from '$lib/motion';
@@ -227,7 +228,12 @@
 		const before = store.tasks.get(taskId);
 		store.moveLocal(taskId, columnId, position);
 		try {
-			const task = await api().tasks.move(taskId, columnId, position);
+			// A card that waits on unfinished cards asks before it starts; no: it goes back.
+			const task = await startAnyway(before?.title ?? 'this card', (force) => api().tasks.move(taskId, columnId, position, force));
+			if (!task) {
+				if (before) store.upsertTask(before);
+				return;
+			}
 			store.upsertTask(task);
 			const column = store.columns.find((c) => c.id === columnId);
 			if (task.latest_job && column?.role === 'active' && task.kind === 'command' && before?.column_id !== columnId) {

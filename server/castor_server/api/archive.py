@@ -11,7 +11,15 @@ from .. import models as m
 from ..access import check_project, project_or_404
 from ..deps import DB, CurrentUser, parse_uuid
 from ..schemas import TaskOut
-from ..services import ArchiveError, archive_task, get_task, publish_task, restore_task, tasks_out
+from ..services import (
+    ArchiveError,
+    archive_task,
+    get_task,
+    publish_task,
+    publish_waiting,
+    restore_task,
+    tasks_out,
+)
 
 router = APIRouter(tags=["tasks"])
 
@@ -36,6 +44,7 @@ async def archive_card(task_id: str, db: DB, user: CurrentUser):
     if not changed:
         return await _out(db, task)  # already archived
     await db.commit()
+    await publish_waiting(db, task.project_id, task.id)
     return await publish_task(db, task)
 
 
@@ -46,6 +55,7 @@ async def restore_card(task_id: str, db: DB, user: CurrentUser):
     if not await restore_task(db, task, user):
         return await _out(db, task)  # wasn't archived
     await db.commit()
+    await publish_waiting(db, task.project_id, task.id)
     return await publish_task(db, task)
 
 
@@ -79,6 +89,7 @@ async def archive_column(project_id: str, column_id: str, db: DB, user: CurrentU
     await db.commit()
     for task in done:
         await publish_task(db, task)
+        await publish_waiting(db, project.id, task.id)
     return ColumnArchived(archived=len(done), skipped=skipped)
 
 

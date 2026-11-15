@@ -283,6 +283,10 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   Web: `ExportDialog`, `ImportDialog`, `LibraryTransfer`, `routes/settings/transfer`.
   Duplicating a card (3m), `services.duplicate_task`, reuses `values_for`/`remap`; a new
   table hanging off a card must decide whether a duplicate copies it.
+  Depends on: `tasks.waits_on` (card ids; blocked until each is done, reported or archived: `services.unfinished_blockers`,
+  `TaskOut.blocked_by`; starting a blocked card is a 409 unless `force`, web `lib/blocked.ts`); finishing a card calls
+  `notify_unblocked`, and anything that changes a blocker calls `publish_waiting` after the commit. Due dates:
+  `due.py` reminds a card's people (`services.card_people`) once soon and once overdue (`tasks.due_reminded`).
   Archived cards: `tasks.archived_at` (`services.archive_task`/`restore_task`, `api/archive.py`); every query of
   "cards on the board" or "open cards" must add `archived_at.is_(None)` (board, dashboard counts, people's plates);
   web `BoardStore.upsertTask` drops archived ones, `ArchivedCardsDialog`.

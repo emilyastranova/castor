@@ -327,7 +327,12 @@ class Task(Base, TimestampMixin):
     # Group ids (strings) the card is assigned to: everyone in them, as far as they can see it.
     group_assignees: Mapped[list[str]] = mapped_column(JSONType, default=list)
     custom_fields: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
-    due_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    due_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True, index=True)
+    # The due reminder already sent for this due_at: "soon" or "overdue" (reset when it changes).
+    due_reminded: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Cards (ids as strings, same project) this one waits on: it's blocked until each is done,
+    # reported or archived (services.unfinished_blockers). Not playbook steps' depends_on.
+    waits_on: Mapped[list[str] | None] = mapped_column(JSONType, default=list, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

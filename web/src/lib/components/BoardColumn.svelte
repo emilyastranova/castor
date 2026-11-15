@@ -91,7 +91,7 @@
 		{#each items as task (task.id)}
 			<!-- A card flying in from another column (fly) doesn't also grow in or shrink out. -->
 			<div data-card={task.id} use:holdToArrange animate:glide={{ duration: 150 }} in:enter={{ enabled: live && !flying.has(task.id) }} out:leave={{ enabled: live && !flying.has(task.id) }} class="touch-callout-none {(task as unknown as Record<string, unknown>)[SHADOW_ITEM_MARKER_PROPERTY_NAME] ? 'opacity-40' : ''} {arrange.on && !readonly ? 'wiggle' : ''}">
-				<TaskCard {task} {onopen} />
+				<TaskCard {task} {onopen} finished={column.role === 'done' || column.role === 'reported'} />
 			</div>
 		{/each}
 	</div>

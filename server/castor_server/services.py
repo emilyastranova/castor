@@ -9,7 +9,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import Text, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -173,6 +173,7 @@ async def tasks_out(db: AsyncSession, tasks: list[m.Task]) -> list[TaskOut]:
     # Only cards that don't belong to a step can be a run's card.
     runs = await run_summaries(db, [t.id for t in tasks if t.playbook_step_id is None and t.kind == m.TaskKind.manual])
     batches = await batch_summaries(db, [j.batch_id for j in latest.values() if j.batch_id])
+    blockers = await unfinished_blockers(db, tasks)
     result = []
     for task in tasks:
         out = TaskOut.model_validate(task)
@@ -182,6 +183,8 @@ async def tasks_out(db: AsyncSession, tasks: list[m.Task]) -> list[TaskOut]:
         out.comment_count = comments.get(task.id, 0)
         out.attachment_count = attachments.get(task.id, 0)
         out.run = runs.get(task.id)
+        out.waits_on = list(task.waits_on or [])
+        out.blocked_by = blockers.get(task.id, [])
         result.append(out)
     return result
 
@@ -538,6 +541,165 @@ async def broadcast_targets(db: AsyncSession, task: m.Task, job: m.Job) -> list:
     return sorted(found, key=lambda c: c.name)
 
 
+
+# ---------- cards waiting on cards ----------
+
+FINISHED_ROLES = (m.ColumnRole.done, m.ColumnRole.reported)
+
+
+class BlockedError(Exception):
+    """A card can't start: cards it waits on aren't finished (`blockers`: [{id, title}])."""
+
+    def __init__(self, task: m.Task, blockers: list[dict[str, str]]) -> None:
+        names = ", ".join(f"“{b['title']}”" for b in blockers[:3]) + (f" and {len(blockers) - 3} more" if len(blockers) > 3 else "")
+        super().__init__(f"“{task.title}” waits on {names}")
+        self.blockers = blockers
+
+
+async def finished_ids(db: AsyncSession, ids: list[str]) -> set[str]:
+    """Which of these cards are finished: in a Done or Reported column, archived, or gone."""
+    wanted = [uuid.UUID(i) for i in ids if _is_uuid_text(i)]
+    if not wanted:
+        return set(ids)
+    rows = (await db.execute(
+        select(m.Task.id, m.Task.archived_at, m.BoardColumn.role)
+        .join(m.BoardColumn, m.BoardColumn.id == m.Task.column_id).where(m.Task.id.in_(wanted))
+    )).all()
+    open_ids = {str(tid) for tid, archived, role in rows if archived is None and role not in FINISHED_ROLES}
+    return {i for i in ids if i not in open_ids}
+
+
+def _is_uuid_text(value: Any) -> bool:
+    try:
+        uuid.UUID(str(value))
+    except ValueError:
+        return False
+    return True
+
+
+async def unfinished_blockers(db: AsyncSession, tasks: list[m.Task]) -> dict[uuid.UUID, list[dict[str, str]]]:
+    """For each card, the cards it waits on that aren't finished yet ({id, title}, in its order)."""
+    every = sorted({i for t in tasks for i in (t.waits_on or []) if _is_uuid_text(i)})
+    if not every:
+        return {}
+    rows = (await db.execute(
+        select(m.Task.id, m.Task.title, m.Task.archived_at, m.BoardColumn.role)
+        .join(m.BoardColumn, m.BoardColumn.id == m.Task.column_id).where(m.Task.id.in_([uuid.UUID(i) for i in every]))
+    )).all()
+    open_cards = {str(tid): title for tid, title, archived, role in rows if archived is None and role not in FINISHED_ROLES}
+    out = {}
+    for t in tasks:
+        left = [{"id": i, "title": open_cards[i]} for i in (t.waits_on or []) if i in open_cards]
+        if left:
+            out[t.id] = left
+    return out
+
+
+async def check_waits_on(db: AsyncSession, task: m.Task, ids: list[Any]) -> list[str]:
+    """The cards a card may wait on, as stored: existing cards of its project (not itself, not
+    playbook step cards), no repeats, and no circle (A waits on B waits on A)."""
+    from fastapi import HTTPException
+
+    wanted: list[str] = []
+    for raw in ids or []:
+        if not _is_uuid_text(raw):
+            raise HTTPException(422, f"waits_on: {raw} isn't a card id")
+        text = str(uuid.UUID(str(raw)))
+        if text not in wanted:
+            wanted.append(text)
+    if str(task.id) in wanted:
+        raise HTTPException(422, "waits_on: a card can't wait on itself")
+    if not wanted:
+        return []
+    rows = {str(t.id): t for t in (await db.execute(select(m.Task).where(m.Task.id.in_([uuid.UUID(i) for i in wanted])))).scalars()}
+    for i in wanted:
+        other = rows.get(i)
+        if other is None or other.project_id != task.project_id:
+            raise HTTPException(422, f"waits_on: no card {i} in this project")
+        if other.playbook_step_id is not None:
+            raise HTTPException(422, f"waits_on: “{other.title}” is a playbook step; wait on its run's card")
+    # A circle: following what the new list waits on must never come back to this card.
+    seen, frontier = set(), list(wanted)
+    while frontier:
+        batch = [uuid.UUID(i) for i in frontier if i not in seen]
+        seen.update(frontier)
+        if not batch:
+            break
+        frontier = []
+        for tid, deps in (await db.execute(select(m.Task.id, m.Task.waits_on).where(m.Task.id.in_(batch)))).all():
+            for d in deps or []:
+                if d == str(task.id):
+                    raise HTTPException(422, f"waits_on: that would go round in a circle (a card it waits on waits on “{task.title}”)")
+                frontier.append(d)
+    return wanted
+
+
+async def blocked_check(db: AsyncSession, task: m.Task) -> None:
+    """Raise BlockedError when a card waits on cards that aren't finished."""
+    if not task.waits_on:
+        return
+    left = (await unfinished_blockers(db, [task])).get(task.id)
+    if left:
+        raise BlockedError(task, left)
+
+
+async def notify_unblocked(db: AsyncSession, finished: m.Task, actor: m.User | None) -> None:
+    """A card was finished: tell the people of each card that was waiting on it and now waits
+    on nothing unfinished that it can start (in-app, and on the desktop for those who allow it)."""
+    if finished.project_id is None:
+        return
+    pattern = f'%"{finished.id}"%'
+    waiting = (await db.execute(
+        select(m.Task).where(m.Task.project_id == finished.project_id, m.Task.archived_at.is_(None),
+                             func.cast(m.Task.waits_on, Text).like(pattern))
+    )).scalars().all()
+    if not waiting:
+        return
+    blockers = await unfinished_blockers(db, list(waiting))
+    for card in waiting:
+        if str(finished.id) not in (card.waits_on or []) or blockers.get(card.id):
+            continue
+        people = await card_people(db, card)
+        if actor is not None:
+            people = [p for p in people if p != actor.id]
+        await notifications.notify(
+            db, kind="task.unblocked", title=f"“{card.title}” can start", severity="success",
+            body=f"“{finished.title}”, which it was waiting on, is done.",
+            link=f"/projects/{card.project_id}?task={card.id}", project_id=card.project_id,
+            subject=f"task:{card.id}:unblocked", user_ids=people, webhooks=False,
+        )
+
+
+async def card_people(db: AsyncSession, task: m.Task) -> list[uuid.UUID]:
+    """Who a card concerns: its assignees and the people of its groups; else whoever made it."""
+    from .people import group_people
+
+    ids = {uuid.UUID(a) for a in (task.assignees or []) if _is_uuid_text(a)}
+    if task.group_assignees:
+        ids |= {u.id for u in await group_people(db, task.project_id, task.group_assignees)}
+    if not ids and task.created_by:
+        ids.add(task.created_by)
+    return sorted(ids, key=str)
+
+
+async def publish_waiting(db: AsyncSession, project_id: uuid.UUID, card_id: uuid.UUID) -> None:
+    """Send out again the cards that wait on this one (after it moved, was archived, restored or
+    deleted), so boards show whether they're still blocked. After the commit."""
+    pattern = f'%"{card_id}"%'
+    for card in (await db.execute(
+        select(m.Task).where(m.Task.project_id == project_id, func.cast(m.Task.waits_on, Text).like(pattern))
+    )).scalars().all():
+        await publish_task(db, card)
+
+
+async def forget_card_in_waits(db: AsyncSession, task: m.Task) -> None:
+    """A deleted card leaves the lists of cards that waited on it."""
+    pattern = f'%"{task.id}"%'
+    for card in (await db.execute(
+        select(m.Task).where(m.Task.project_id == task.project_id, func.cast(m.Task.waits_on, Text).like(pattern))
+    )).scalars():
+        card.waits_on = [i for i in card.waits_on or [] if i != str(task.id)]
+
 # ---------- archiving cards ----------
 
 
@@ -565,6 +727,7 @@ async def archive_task(db: AsyncSession, task: m.Task, user: m.User | None) -> b
         raise ArchiveError(f"“{task.title}” can't be archived: {reason}")
     task.archived_at = utcnow()
     task.archived_by = user.id if user is not None else None
+    await notify_unblocked(db, task, user)
     await record_activity(db, type="task.archived", message=f"Archived “{task.title}”", project_id=task.project_id,
                           task_id=task.id, **actor_of(user))
     return True
@@ -592,8 +755,13 @@ async def move_task(
     column: m.BoardColumn,
     position: float,
     user: m.User | None,
+    *,
+    force: bool = False,
 ) -> m.Job | None:
-    """Move a task. Returns a newly queued job if the move triggered a run."""
+    """Move a task. Returns a newly queued job if the move triggered a run. Starting a card
+    (into the active column) that waits on unfinished cards raises BlockedError unless `force`."""
+    if column.role == m.ColumnRole.active and task.column_id != column.id and not force:
+        await blocked_check(db, task)
     previous_column_id = task.column_id
     task.column_id = column.id
     task.position = position
@@ -626,6 +794,9 @@ async def move_task(
             payload={"from": str(previous_column_id), "to": str(column.id)},
             **actor_of(user),
         )
+        before_role = before.role if before else None
+        if column.role in FINISHED_ROLES and before_role not in FINISHED_ROLES:
+            await notify_unblocked(db, task, user)
         if column.role == m.ColumnRole.done:
             await alerts.card_done(db, task, user)
             if task.kind == m.TaskKind.manual:
@@ -672,7 +843,7 @@ def board_payload(project: m.Project, columns: list[m.BoardColumn], tasks: list[
 
 
 # Columns a duplicate never copies: identity, place, provenance, and playbook membership.
-_NOT_COPIED = {"id", "column_id", "position", "created_by", "created_at", "updated_at", "archived_at", "archived_by",
+_NOT_COPIED = {"id", "column_id", "position", "created_by", "created_at", "updated_at", "archived_at", "archived_by", "due_reminded",
                "playbook_run_id", "playbook_step_id", "playbook_item", "depends_on"}
 _FINISHED = (m.JobStatus.succeeded, m.JobStatus.failed, m.JobStatus.cancelled, m.JobStatus.lost)
 

@@ -6,12 +6,17 @@
 	import StatusChip from './StatusChip.svelte';
 	import PriorityGlyph, { priorityLabels } from './PriorityGlyph.svelte';
 	import { isRunning, kindIcon, runState as runStateOf } from '$lib/taskStatus';
+	import { DUE_TONE, dueInfo } from '$lib/due';
 
 	interface Props {
 		task: Task;
 		onopen: (task: Task) => void;
+		/** In a Done or Reported column: its due date no longer needs attention. */
+		finished?: boolean;
 	}
-	let { task, onopen }: Props = $props();
+	let { task, onopen, finished = false }: Props = $props();
+	let due = $derived(task.due_at ? dueInfo(task.due_at, finished) : null);
+	let blockers = $derived(finished ? [] : (task.blocked_by ?? []));
 	let assignees = $derived(people.assigneesOf(task));
 	let running = $derived(isRunning(task));
 	/** A playbook run's card: its state in a word, and how far along it is. */
@@ -52,9 +57,17 @@
 	{#if task.kind === 'command' && task.command}
 		<code class="truncate rounded-xs bg-surface-container px-2 py-1 font-mono text-[12px] text-on-surface-variant">{task.command}</code>
 	{/if}
-	{#if task.tags.length || task.latest_job || task.comment_count || task.attachment_count || assignees.length}
+	{#if task.tags.length || task.latest_job || task.comment_count || task.attachment_count || assignees.length || due || blockers.length}
 		<div class="flex flex-wrap items-center gap-1.5">
 			<StatusChip job={task.latest_job} batch={task.batch} />
+			{#if blockers.length}
+				<span class="inline-flex items-center gap-1 rounded-sm bg-tertiary-container px-1.5 py-0.5 label-small text-on-tertiary-container" title="Waits on {blockers.map((b) => `“${b.title}”`).join(', ')}">
+					<Icon name="lock" size={14} />Blocked{blockers.length > 1 ? ` · ${blockers.length}` : ''}
+				</span>
+			{/if}
+			{#if due}
+				<span class="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 label-small {DUE_TONE[due.tone]}" title={due.title}><Icon name={due.icon} size={14} />{due.label}</span>
+			{/if}
 			{#if task.latest_job?.waiting_input && running}<span class="flex items-center gap-1 rounded-full bg-tertiary-container px-1.5 py-0.5 label-small text-on-tertiary-container" title="Waiting for input: {task.latest_job.waiting_input}"><Icon name="keyboard" size={14} />input</span>{/if}
 			{#each task.tags.slice(0, 3) as tag (tag)}
 				<span class="rounded-xs border border-outline-variant px-1.5 py-0.5 label-small text-on-surface-variant">{tag}</span>

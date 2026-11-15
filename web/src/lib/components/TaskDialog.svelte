@@ -28,6 +28,9 @@
 	import RunPanel from './RunPanel.svelte';
 	import AiSummary from './AiSummary.svelte';
 	import DuplicateDialog from './DuplicateDialog.svelte';
+	import DueDateField from './DueDateField.svelte';
+	import CardDependencies from './CardDependencies.svelte';
+	import { startAnyway } from '$lib/blocked';
 	import AlertRulesDialog from './AlertRulesDialog.svelte';
 	import StepDecisions from './StepDecisions.svelte';
 	import StepDecision from './StepDecision.svelte';
@@ -343,7 +346,8 @@
 				const updated = await api().tasks.update(task.id, patch);
 				onupdated(updated);
 			}
-			const job = await api().tasks.run(task.id);
+			const job = await startAnyway(task.title, (force) => api().tasks.run(task.id, force));
+			if (!job) return; // they chose not to start it while it waits on other cards
 			selectedJobId = job.id;
 			tab = 'output';
 			// Run also moves the card to In Progress; refresh it here in case the live
@@ -506,12 +510,17 @@
 		void save({ custom_fields: next });
 	}
 
+	// Bumped when a move doesn't happen, so the Column field shows where the card still is.
+	let columnPick = $state(0);
 	async function moveTo(columnId: string) {
 		const col = columns.find((c) => c.id === columnId);
 		if (!col) return;
 		try {
-			onupdated(await api().tasks.move(task.id, columnId, Number.MAX_SAFE_INTEGER / 2));
+			const moved = await startAnyway(task.title, (force) => api().tasks.move(task.id, columnId, Number.MAX_SAFE_INTEGER / 2, force));
+			if (moved) onupdated(moved);
+			else columnPick++;
 		} catch (err) {
+			columnPick++;
 			snackbar.error(err instanceof ApiError ? err.message : 'Move failed');
 		}
 	}
@@ -1140,14 +1149,20 @@
 				<!-- A step lives in its run's card, not in a column. -->
 				<p class="flex items-center gap-2 rounded-md bg-surface-container px-3 py-2 body-small text-on-surface-variant"><Icon name="account_tree" size={18} />A step of a playbook run</p>
 			{:else}
-				<Select label="Column" value={task.column_id} disabled={!editable} options={columns.map((c) => ({ value: c.id, label: c.name }))} onchange={moveTo}>
-					{#snippet leading(id)}<ColumnGlyph role={columns.find((c) => c.id === id)?.role} />{/snippet}
-				</Select>
+				{#key `${task.column_id}:${columnPick}`}
+					<Select label="Column" value={task.column_id} disabled={!editable} options={columns.map((c) => ({ value: c.id, label: c.name }))} onchange={moveTo}>
+						{#snippet leading(id)}<ColumnGlyph role={columns.find((c) => c.id === id)?.role} />{/snippet}
+					</Select>
+				{/key}
 			{/if}
 			<Select label="Priority" bind:value={priority} disabled={!editable} options={priorityOptions} onchange={(v) => save({ priority: Number(v) })}>
 				{#snippet leading(level)}<PriorityGlyph {level} />{/snippet}
 			</Select>
 			<AssigneePicker projectId={task.project_id} value={task.assignees} groups={task.group_assignees ?? []} {editable} onchange={(ids) => save({ assignees: ids })} ongroupschange={(ids) => save({ group_assignees: ids })} />
+			{#if !task.playbook_step_id}
+				<DueDateField value={task.due_at} {editable} finished={column?.role === 'done' || column?.role === 'reported'} onchange={(iso) => void save({ due_at: iso })} />
+				<CardDependencies {task} {editable} onchange={async (ids) => { onupdated(await api().tasks.update(task.id, { waits_on: ids })); }} onopen={openCard} />
+			{/if}
 			{#if !task.playbook_step_id}
 				<div class="flex flex-col gap-1.5">
 					<p class="label-large text-on-surface-variant">When it finishes</p>

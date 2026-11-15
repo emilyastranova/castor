@@ -68,7 +68,9 @@
 
 	let focused = $state(false);
 	let populated = $derived(value !== '' && value !== null && value !== undefined);
-	let float = $derived(focused || populated || !!placeholder);
+	// Date and time inputs always show their own format (mm/dd/yyyy, --:--): keep the label up.
+	const SHOWS_FORMAT = new Set(['date', 'time', 'datetime-local', 'month', 'week']);
+	let float = $derived(focused || populated || !!placeholder || SHOWS_FORMAT.has(String(type)));
 	let colour = $derived(error ? 'text-error' : focused ? 'text-primary' : 'text-on-surface-variant');
 	let border = $derived(
 		error

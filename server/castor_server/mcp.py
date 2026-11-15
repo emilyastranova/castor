@@ -174,11 +174,14 @@ TOOLS: list[Tool] = [
           "command_ref": _s("Library command id (from list_commands)"),
           "command_args": {"type": "object", "description": "Arguments for command_ref"},
           "column_id": _s("Column id (from get_board)"), "tags": {"type": "array", "items": {"type": "string"}},
-          "agent_selector": _SELECTOR},
+          "agent_selector": _SELECTOR, "due_at": _s("Due date-time, ISO 8601 (its people are reminded the day before and when it's overdue)"),
+          "waits_on": {"type": "array", "items": {"type": "string"}, "description": "Card ids of this project it depends on"}},
          ("project_id", "title")),
-    Tool("move_card", "Move a card to another column (top of it unless position is given). Moving a command card into the active column runs it.",
+    Tool("move_card", "Move a card to another column (top of it unless position is given). Moving a command card into the active column runs it. "
+         "A card that waits on unfinished cards (blocked_by in get_board) is refused into the active column unless force is true.",
          "POST", "/api/tasks/{task_id}/move",
-         {"task_id": ID["task_id"], "column_id": _s("Column id (from get_board)"), "position": {"type": "number"}},
+         {"task_id": ID["task_id"], "column_id": _s("Column id (from get_board)"), "position": {"type": "number"},
+          "force": {"type": "boolean", "description": "Start it although cards it waits on aren't finished"}},
          ("task_id", "column_id")),
     Tool("comment", "Add a comment to a card (markdown; @username mentions notify people).", "POST",
          "/api/tasks/{task_id}/comments", {"task_id": ID["task_id"], "body": _s("Markdown")}, ("task_id", "body")),
@@ -188,8 +191,11 @@ TOOLS: list[Tool] = [
           "content_base64": _s("The file's bytes, base64-encoded"), "content_type": _s("MIME type, e.g. image/png (guessed from the name if left out)")},
          ("task_id", "filename", "content_base64"), upload=True),
     Tool("run_card", "Run a command card now. agent_selector (optional) sets where it runs first, and stays on the card; "
-         "with all, it runs on every connected agent with the tags at once (one job each, listed by list_jobs).",
-         "POST", "/api/tasks/{task_id}/run", {"task_id": ID["task_id"], "agent_selector": _SELECTOR}, ("task_id",)),
+         "with all, it runs on every connected agent with the tags at once (one job each, listed by list_jobs). "
+         "A card waiting on unfinished cards is refused unless force is true.",
+         "POST", "/api/tasks/{task_id}/run", {"task_id": ID["task_id"], "agent_selector": _SELECTOR,
+                                             "force": {"type": "boolean", "description": "Run it although cards it waits on aren't finished"}},
+         ("task_id",)),
     Tool("list_alert_channels", "Chat and webhook channels alerts can go to (Slack, ntfy, a webhook…): ids, names and kinds.",
          "GET", "/api/alert-channels/brief"),
     Tool("list_people", "Everyone who can see a project (ids, usernames, names): for alert people and @mentions.",
@@ -336,9 +342,13 @@ TOOLS += [
     _auto("update_card", "PATCH", "/api/tasks/{task_id}",
           "Change a card (move it with move_card); only the fields given change: title, description, command (shell) or command_ref + "
           "command_args (library), image, container_flags, agent_selector (where it runs), tags, priority, assignees "
-          "(user ids from list_people), group_assignees (group ids or @handles from list_groups), timeout_s, run_on_move, tty, var_bindings, alerts (see set_card_alerts).",
+          "(user ids from list_people), group_assignees (group ids or @handles from list_groups), timeout_s, run_on_move, tty, var_bindings, alerts (see set_card_alerts), "
+          "due_at (ISO date-time, null clears it; its people are reminded the day before and when it's overdue), waits_on (card ids of the "
+          "project it depends on; it's blocked until each is done, reported or archived; [] clears it).",
           properties={"task_id": ID["task_id"], "agent_selector": _SELECTOR}),
     _auto("delete_card", "DELETE", "/api/tasks/{task_id}", "Delete a card with its comments, attachments and runs.", **_DESTRUCTIVE),
+    _auto("card_dependencies", "GET", "/api/tasks/{task_id}/dependencies",
+          "What a card waits on and which cards wait on it, with each one's column and whether it's finished."),
     _auto("archive_card", "POST", "/api/tasks/{task_id}/archive",
           "Archive a card: it leaves the board (and get_board) but keeps its comments, files and runs, and can be restored. "
           "Not while it's running."),

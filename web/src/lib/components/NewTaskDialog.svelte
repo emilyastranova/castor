@@ -7,6 +7,7 @@
 	import { snackbar } from '$lib/snackbar.svelte';
 	import ColumnGlyph from './ColumnGlyph.svelte';
 	import PriorityGlyph, { priorityOptions } from './PriorityGlyph.svelte';
+	import DueDateField from './DueDateField.svelte';
 	import CommandArgsForm from './CommandArgsForm.svelte';
 	import VarBindings from './VarBindings.svelte';
 
@@ -31,6 +32,7 @@
 	let tags = $state<string[]>([]);
 	let tagSuggestions = $state<TagSuggestion[]>([]);
 	let priority = $state('0');
+	let dueAt = $state<string | null>(null);
 	let runOnMove = $state(true);
 	let busy = $state(false);
 
@@ -79,6 +81,7 @@
 		title = description = command = image = containerFlagsText = agentId = '';
 		tags = [];
 		priority = '0';
+		dueAt = null;
 		runOnMove = true;
 	}
 
@@ -104,6 +107,7 @@
 				agent_selector: selectorFrom(agentId),
 				tags,
 				priority: Number(priority),
+				due_at: dueAt,
 				run_on_move: runOnMove
 			});
 			oncreated?.(task);
@@ -192,6 +196,7 @@
 				{#snippet leading(level)}<PriorityGlyph {level} />{/snippet}
 			</Select>
 			<TagInput label="Tags" bind:value={tags} suggestions={tagSuggestions} noun="cards" placeholder="Add a tag" class="sm:col-span-2" />
+			<div class="sm:col-span-2"><DueDateField value={dueAt} desktopHint={false} onchange={(iso) => (dueAt = iso)} /></div>
 		</div>
 		{#if kind === 'command' && targetColumn?.role === 'active' && runOnMove}
 			<p class="rounded-sm bg-tertiary-container px-3 py-2 body-small text-on-tertiary-container">This card will be dispatched to an agent as soon as it is created.</p>

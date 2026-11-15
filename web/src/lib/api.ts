@@ -1051,6 +1051,10 @@ export interface Task {
 	custom_fields: Record<string, unknown>;
 	due_at: string | null;
 	created_by: UUID | null;
+	/** Cards of the project it waits on (ids). */
+	waits_on?: UUID[] | null;
+	/** Of those, the ones not finished yet: it's blocked while any are. */
+	blocked_by?: { id: UUID; title: string }[];
 	/** Archived: off the board until restored (it keeps everything). */
 	archived_at?: string | null;
 	archived_by?: UUID | null;
@@ -1320,6 +1324,20 @@ export interface SshHostIn {
 	passphrase?: string;
 }
 
+export interface CardRef {
+	id: UUID;
+	title: string;
+	column: string;
+	/** Done, reported or archived. */
+	finished: boolean;
+	archived: boolean;
+}
+
+export interface CardDependencies {
+	waits_on: CardRef[];
+	blocks: CardRef[];
+}
+
 export class ApiError extends Error {
 	constructor(
 		public status: number,
@@ -1477,9 +1495,12 @@ export function api(fetchFn: Fetch = fetch) {
 			/** A copy at the top of To Do; comments, files and finished runs only if asked. */
 			duplicate: (id: UUID, body: { assignees?: boolean; comments?: boolean; attachments?: boolean; output?: boolean }) =>
 				post<Task>(`/tasks/${id}/duplicate`, body),
-			move: (id: UUID, column_id: UUID, position: number) =>
-				post<Task>(`/tasks/${id}/move`, { column_id, position }),
-			run: (id: UUID) => post<Job>(`/tasks/${id}/run`),
+			/** force: start it although cards it waits on aren't finished (else a 409 with blocked_by). */
+			move: (id: UUID, column_id: UUID, position: number, force = false) =>
+				post<Task>(`/tasks/${id}/move`, { column_id, position, ...(force ? { force } : {}) }),
+			run: (id: UUID, force = false) => post<Job>(`/tasks/${id}/run`, force ? { force } : undefined),
+			/** What it waits on and which cards wait on it. */
+			dependencies: (id: UUID) => get<CardDependencies>(`/tasks/${id}/dependencies`),
 			jobs: (id: UUID) => get<Job[]>(`/tasks/${id}/jobs`),
 			activity: (id: UUID) => get<Activity[]>(`/tasks/${id}/activity`),
 			comments: (id: UUID) => get<Comment[]>(`/tasks/${id}/comments`),

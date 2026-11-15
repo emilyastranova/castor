@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import Text, func, select
 
 from .. import api_tokens, notifications, people, variables
 from .. import models as m
@@ -28,18 +28,23 @@ from ..schemas import (
 )
 from ..services import (
     ArchiveError,
+    BlockedError,
     SelectorError,
     active_job_for,
     actor_of,
+    blocked_check,
     check_selector,
+    check_waits_on,
     column_with_role,
     duplicate_task,
     enqueue_job,
+    forget_card_in_waits,
     get_task,
     move_task,
     next_position,
     not_archived,
     publish_task,
+    publish_waiting,
     record_activity,
     start_run,
     task_out,
@@ -108,7 +113,7 @@ async def create_task(project_id: str, body: TaskIn, db: DB, user: CurrentUser):
             ).scalar_one_or_none()
         if column is None:
             raise HTTPException(409, "Project has no columns")
-    data = body.model_dump(exclude={"column_id", "command_ref", "command_args", "var_bindings"})
+    data = body.model_dump(exclude={"column_id", "command_ref", "command_args", "var_bindings", "waits_on"})
     data["assignees"] = await people.check_assignees(db, project.id, body.assignees)
     data["group_assignees"] = await people.check_group_assignees(db, body.group_assignees)
     data["agent_selector"] = await _selector(db, body.agent_selector, project.id)
@@ -123,6 +128,8 @@ async def create_task(project_id: str, body: TaskIn, db: DB, user: CurrentUser):
         await _use_library_command(db, task, body.command_ref, body.command_args)
     db.add(task)
     await db.flush()
+    if body.waits_on:
+        task.waits_on = await check_waits_on(db, task, body.waits_on)
     if body.var_bindings:
         await _bind_vars(db, task, body.var_bindings)
     await record_activity(
@@ -160,6 +167,10 @@ async def update_task(task_id: str, body: TaskPatch, db: DB, user: CurrentUser):
     task = await _task_or_404(db, user, task_id, write=True)
     changes = body.model_dump(exclude_unset=True)
     bindings = changes.pop("var_bindings", None)
+    if "waits_on" in changes:
+        changes["waits_on"] = await check_waits_on(db, task, changes["waits_on"] or [])
+    if "due_at" in changes and changes["due_at"] != task.due_at:
+        task.due_reminded = None  # a new date: remind again
     if "agent_selector" in changes:
         changes["agent_selector"] = await _selector(db, changes["agent_selector"], task.project_id)
     if "alerts" in changes:
@@ -223,6 +234,7 @@ async def update_task(task_id: str, body: TaskPatch, db: DB, user: CurrentUser):
 async def delete_task(task_id: str, db: DB, user: CurrentUser):
     task = await _task_or_404(db, user, task_id, write=True)
     project_id = task.project_id
+    await forget_card_in_waits(db, task)
     await record_activity(
         db,
         type="task.deleted",
@@ -233,6 +245,7 @@ async def delete_task(task_id: str, db: DB, user: CurrentUser):
     await db.delete(task)
     await db.commit()
     bus.publish("task.deleted", project_id, {"id": parse_uuid(task_id)})
+    await publish_waiting(db, project_id, parse_uuid(task_id))
 
 
 class TaskDuplicate(BaseModel):
@@ -269,9 +282,13 @@ async def move(task_id: str, body: TaskMove, db: DB, user: CurrentUser):
     if position is None:
         top = (await db.execute(select(func.min(m.Task.position)).where(m.Task.column_id == column.id))).scalar()
         position = (top if top is not None else 1.0) - 1.0
-    job = await move_task(db, task, column, position, user)
+    try:
+        job = await move_task(db, task, column, position, user, force=body.force)
+    except BlockedError as exc:
+        raise _blocked(exc) from exc
     await db.commit()
     out = await publish_task(db, task, "task.moved")
+    await publish_waiting(db, task.project_id, task.id)
     if job is not None:
         dispatcher.wake()
     return out
@@ -280,6 +297,13 @@ async def move(task_id: str, body: TaskMove, db: DB, user: CurrentUser):
 class RunIn(BaseModel):
     # Set where the card runs first (kept on the card), as its agent_selector.
     agent_selector: dict[str, Any] | None = None
+    # Run it although cards it waits on aren't finished (otherwise that's a 409).
+    force: bool = False
+
+
+def _blocked(exc: BlockedError) -> HTTPException:
+    """409 with the cards it waits on, so the UI can ask whether to start it anyway."""
+    return HTTPException(409, {"message": f"{exc}; start it anyway with force", "blocked_by": exc.blockers})
 
 
 @router.post("/tasks/{task_id}/run", response_model=JobOut, status_code=201)
@@ -291,6 +315,11 @@ async def run(task_id: str, db: DB, user: CurrentUser, body: RunIn | None = None
         raise HTTPException(400, "This card has no command to run")
     if await active_job_for(db, task.id) is not None:
         raise HTTPException(409, "A job for this card is already queued or running")
+    if not (body and body.force):
+        try:
+            await blocked_check(db, task)
+        except BlockedError as exc:
+            raise _blocked(exc) from exc
     if body is not None and body.agent_selector is not None:
         task.agent_selector = await _selector(db, body.agent_selector, task.project_id)
     job, moved = await start_run(db, task, user)
@@ -390,7 +419,7 @@ async def _mention(db, task: m.Task, comment: m.Comment, author: m.User, already
 
 
 FIELD_WORDS = {"command_ref": "command", "command_args": "command", "image": "image", "container_flags": "container flags",
-               "agent_selector": "where it runs", "run_on_move": "run on move", "timeout_s": "timeout", "due_at": "due date",
+               "agent_selector": "where it runs", "run_on_move": "run on move", "timeout_s": "timeout", "due_at": "due date", "waits_on": "what it waits on",
                "custom_fields": "fields", "tty": "interactive"}
 
 
@@ -507,3 +536,37 @@ async def _selector(db, selector: dict | None, project_id: uuid.UUID) -> dict:
         return await check_selector(db, selector, project_id)
     except SelectorError as exc:
         raise HTTPException(422, str(exc)) from exc
+
+
+class CardRef(BaseModel):
+    id: uuid.UUID
+    title: str
+    column: str
+    finished: bool  # done, reported or archived
+    archived: bool = False
+
+
+class Dependencies(BaseModel):
+    waits_on: list[CardRef]  # in the card's order
+    blocks: list[CardRef]  # cards that wait on this one
+
+
+@router.get("/tasks/{task_id}/dependencies", response_model=Dependencies)
+async def dependencies(task_id: str, db: DB, user: CurrentUser):
+    """What a card waits on, and which cards wait on it, with where each is."""
+    task = await _task_or_404(db, user, task_id)
+    pattern = f'%"{task.id}"%'
+    blocks = (await db.execute(
+        select(m.Task).where(m.Task.project_id == task.project_id, func.cast(m.Task.waits_on, Text).like(pattern))
+    )).scalars().all()
+    blocks = [b for b in blocks if str(task.id) in (b.waits_on or [])]
+    ids = [uuid.UUID(i) for i in task.waits_on or []]
+    waits = {t.id: t for t in (await db.execute(select(m.Task).where(m.Task.id.in_(ids)))).scalars()} if ids else {}
+    cols = {c.id: c for c in (await db.execute(select(m.BoardColumn).where(m.BoardColumn.project_id == task.project_id))).scalars()}
+
+    def ref(t: m.Task) -> CardRef:
+        col = cols.get(t.column_id)
+        finished = t.archived_at is not None or (col is not None and col.role in (m.ColumnRole.done, m.ColumnRole.reported))
+        return CardRef(id=t.id, title=t.title, column=col.name if col else "", finished=finished, archived=t.archived_at is not None)
+
+    return Dependencies(waits_on=[ref(waits[i]) for i in ids if i in waits], blocks=[ref(b) for b in blocks])
