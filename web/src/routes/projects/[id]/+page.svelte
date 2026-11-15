@@ -18,6 +18,7 @@
 	import MembersDialog from '$lib/components/MembersDialog.svelte';
 	import TagManagerDialog from '$lib/components/TagManagerDialog.svelte';
 	import ExportDialog from '$lib/components/ExportDialog.svelte';
+	import ArchivedCardsDialog from '$lib/components/ArchivedCardsDialog.svelte';
 	import ProjectSwitcher from '$lib/components/ProjectSwitcher.svelte';
 	import { currentProject } from '$lib/currentProject.svelte';
 	import { canEdit, isAdmin, me } from '$lib/session';
@@ -92,6 +93,8 @@
 				if (from) flying.add(changed.id);
 			}
 			store.apply(e);
+			// The open card was archived off the board (here or elsewhere): close it, like a delete.
+			if (changed?.archived_at && before && changed.id === selectedTaskId) closeTask();
 			if (layout && changed) {
 				const id = changed.id;
 				const was = layout;
@@ -119,6 +122,34 @@
 	let newOpen = $state(false);
 	let newColumn = $state<Column | null>(null);
 	let editOpen = $state(false);
+	let archivedOpen = $state(false);
+	/** An archived card opened by a link, search or the Archived cards list: it isn't on the board. */
+	let archivedTask = $state<Task | null>(null);
+	function updated(t: Task) {
+		const onBoard = store.tasks.has(t.id);
+		store.upsertTask(t);
+		if (archivedTask?.id === t.id) archivedTask = t.archived_at ? t : null;
+		else if (t.archived_at && onBoard && selectedTaskId === t.id) closeTask(); // archived from its dialog
+	}
+	async function archiveColumn(column: Column) {
+		const n = store.tasksIn(column.id).length;
+		const ok = await confirmAction({
+			title: `Archive ${n} card${n === 1 ? '' : 's'} in ${column.name}?`,
+			message: 'They leave the board but keep their comments, files and runs. Running cards stay. Find them again under Archived cards in the project menu.',
+			confirmLabel: 'Archive',
+			danger: false, // nothing is lost: it can be restored
+			icon: 'inventory_2'
+		});
+		if (!ok) return;
+		try {
+			const r = await api().projects.archiveColumn(store.project.id, column.id);
+			snackbar.show(`Archived ${r.archived} card${r.archived === 1 ? '' : 's'}${r.skipped.length ? `; ${r.skipped.length} still running` : ''}`, {
+				action: { label: 'Show', run: () => (archivedOpen = true) }
+			});
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not archive the column');
+		}
+	}
 	let membersOpen = $state(false);
 	let tagsOpen = $state(false);
 	let exportOpen = $state(false);
@@ -127,7 +158,7 @@
 	let filter = $state('');
 
 	let selectedTaskId = $derived(page.url.searchParams.get('task'));
-	let selectedTask = $derived(selectedTaskId ? (store.tasks.get(selectedTaskId) ?? null) : null);
+	let selectedTask = $derived(selectedTaskId ? (store.tasks.get(selectedTaskId) ?? (archivedTask?.id === selectedTaskId ? archivedTask : null)) : null);
 
 	function openTask(task: Task) {
 		const url = new URL(page.url);
@@ -174,6 +205,10 @@
 		void (async () => {
 			try {
 				const t = await api().tasks.get(id);
+				if (t.archived_at && !t.playbook_step_id) {
+					if (page.url.searchParams.get('task') === id) archivedTask = t;
+					return;
+				}
 				if (!t.playbook_step_id || !t.playbook_run_id) return;
 				const run = await api().playbookRuns.get(t.playbook_run_id);
 				if (!run.card_id) return;
@@ -309,6 +344,7 @@
 			<MenuItem icon="group" onclick={() => (membersOpen = true)}>Members</MenuItem>
 			{#if editable}<MenuItem icon="sell" onclick={() => (tagsOpen = true)}>Manage tags…</MenuItem>{/if}
 			{#if editable}<MenuItem icon="edit" onclick={() => (editOpen = true)}>Edit project</MenuItem>{/if}
+			<MenuItem icon="inventory_2" onclick={() => (archivedOpen = true)}>Archived cards…</MenuItem>
 			<MenuItem icon="download" onclick={() => (exportOpen = true)}>Export project…</MenuItem>
 			<MenuItem icon="refresh" onclick={() => invalidateAll()}>Reload board</MenuItem>
 			{#if isAdmin()}<MenuItem icon="delete" danger onclick={deleteProject}>Delete project</MenuItem>{/if}
@@ -355,7 +391,7 @@
 		<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (Escape and Done also end arranging) -->
 		<div bind:this={columnsEl} onclick={tapBoard} class="flex min-h-0 flex-1 gap-3 overflow-x-auto px-4 pb-4 max-sm:scroll-px-4 {arrange.on ? 'max-sm:pb-20' : 'max-sm:snap-x max-sm:snap-mandatory'}">
 			{#each store.columns as column (column.id)}
-				<BoardColumn {column} tasks={filtered(column)} readonly={!editable} onopen={openTask} onadd={(c) => { newColumn = c; newOpen = true; }} onmove={move} />
+				<BoardColumn {column} tasks={filtered(column)} readonly={!editable} onopen={openTask} onadd={(c) => { newColumn = c; newOpen = true; }} onmove={move} onarchive={archiveColumn} />
 			{/each}
 		</div>
 	{/if}
@@ -381,11 +417,19 @@
 	history
 />
 <ProjectDialog bind:open={editOpen} project={store.project} onsaved={(p) => (store.project = p)} />
+<ArchivedCardsDialog
+	bind:open={archivedOpen}
+	projectId={store.project.id}
+	columns={store.columns}
+	{editable}
+	onopen={(t) => { archivedTask = t; archivedOpen = false; openTask(t); }}
+	onrestored={(t) => store.upsertTask(t)}
+/>
 
 {#if selectedTask}
 	<!-- Keyed so each card gets a fresh dialog: no field state can carry over between cards. -->
 	{#key selectedTask.id}
-		<TaskDialog task={selectedTask} columns={store.columns} {agents} onclose={closeTask} onupdated={(t) => store.upsertTask(t)} ondeleted={(id) => { store.tasks.delete(id); closeTask(); }} />
+		<TaskDialog task={selectedTask} columns={store.columns} {agents} onclose={closeTask} onupdated={updated} ondeleted={(id) => { store.tasks.delete(id); closeTask(); }} />
 	{/key}
 {/if}
 

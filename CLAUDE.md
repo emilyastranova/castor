@@ -280,6 +280,9 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   Web: `ExportDialog`, `ImportDialog`, `LibraryTransfer`, `routes/settings/transfer`.
   Duplicating a card (3m), `services.duplicate_task`, reuses `values_for`/`remap`; a new
   table hanging off a card must decide whether a duplicate copies it.
+  Archived cards: `tasks.archived_at` (`services.archive_task`/`restore_task`, `api/archive.py`); every query of
+  "cards on the board" or "open cards" must add `archived_at.is_(None)` (board, dashboard counts, people's plates);
+  web `BoardStore.upsertTask` drops archived ones, `ArchivedCardsDialog`.
 - Plugins (phase A of docs/PLUGINS.md): `plugin_manifest.py`, `plugin_package.py`, `plugin_runtime.py` (Deno, one
   process per plugin, sandboxed: no permissions but the SDK over stdin/stdout; `check_graph` refuses imports from outside
   its folder; never run plugin code as Python), `plugins.py` (service account = a user with `plugin_id`, seeing the

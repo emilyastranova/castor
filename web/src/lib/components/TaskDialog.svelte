@@ -595,6 +595,28 @@
 		}
 	}
 
+	/** Off the board (it keeps everything); the dialog closes, with an Undo. */
+	async function archive() {
+		try {
+			const t = await api().tasks.archive(task.id);
+			open = false;
+			onupdated(t);
+			snackbar.show(`Archived “${t.title}”`, {
+				action: { label: 'Undo', run: () => void api().tasks.restore(t.id).then(onupdated).catch(() => snackbar.error('Could not restore it')) }
+			});
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not archive the card');
+		}
+	}
+	async function restore() {
+		try {
+			onupdated(await api().tasks.restore(task.id));
+			snackbar.show('Back on the board');
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not restore the card');
+		}
+	}
+
 	async function remove() {
 		const ok = await confirmAction({
 			title: 'Delete card?',
@@ -709,12 +731,28 @@
 				{/if}
 				{#if editable && !task.playbook_step_id}<PluginActions projectId={task.project_id} place="card" taskId={task.id} as="menu" />{/if}
 				<MenuItem icon="link" onclick={() => { navigator.clipboard.writeText(location.href); snackbar.show('Link copied'); }}>Copy link</MenuItem>
+				{#if editable && !task.playbook_step_id}
+					{#if task.archived_at}
+						<MenuItem icon="unarchive" onclick={restore}>Restore to the board</MenuItem>
+					{:else}
+						<MenuItem icon="inventory_2" onclick={archive}>Archive</MenuItem>
+					{/if}
+				{/if}
 				{#if editable}<MenuItem icon="delete" danger onclick={remove}>Delete card</MenuItem>{/if}
 			</Menu>
 			<IconButton icon="close" label="Close" onclick={() => (open = false)} />
 		</div>
 	{/snippet}
 
+	{#if task.archived_at}
+		<div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-surface-container-high px-3 py-2">
+			<Icon name="inventory_2" size={20} class="shrink-0 text-on-surface-variant" />
+			<span class="min-w-0 flex-1 body-medium text-on-surface" title={absoluteTime(task.archived_at)}>
+				Archived {relativeTime(task.archived_at)}: it's not on the board.
+			</span>
+			{#if editable}<Button variant="tonal" icon="unarchive" onclick={restore}>Restore</Button>{/if}
+		</div>
+	{/if}
 	<!-- minmax(0, …) and min-w-0 let the main column shrink: wide output scrolls inside the
 	     console instead of pushing the side column out of the dialog. -->
 	<div class="grid min-h-full grid-cols-[minmax(0,1fr)] gap-6 pt-2 pb-6 lg:grid-cols-[minmax(0,1fr)_300px]" onpaste={onPaste}>

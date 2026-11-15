@@ -57,7 +57,8 @@ async def _open_assigned(db: DB, scope, user_ids: list[uuid.UUID]) -> dict[uuid.
         await db.execute(
             select(m.Task.assignees)
             .join(m.BoardColumn, m.BoardColumn.id == m.Task.column_id)
-            .where(_scoped(m.Task.project_id, scope), m.BoardColumn.role.is_(None) | m.BoardColumn.role.not_in(DONE_ROLES))
+            .where(_scoped(m.Task.project_id, scope), m.Task.archived_at.is_(None),
+                   m.BoardColumn.role.is_(None) | m.BoardColumn.role.not_in(DONE_ROLES))
         )
     ).scalars().all()
     wanted = {str(u): u for u in user_ids}
@@ -131,6 +132,7 @@ async def person(username: str, db: DB, user: CurrentUser):
             .where(
                 _scoped(m.Task.project_id, scope),
                 _assigned_to(person.id),
+                m.Task.archived_at.is_(None),
                 m.BoardColumn.role.is_(None) | m.BoardColumn.role.not_in(DONE_ROLES),
             )
             .order_by(m.Task.priority.desc(), m.Task.updated_at.desc())

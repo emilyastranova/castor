@@ -33,7 +33,8 @@ export class BoardStore {
 
 	upsertTask(task: Task): void {
 		if (task.playbook_step_id) return; // a run's steps live in its card, not on the board
-		this.tasks.set(task.id, task);
+		if (task.archived_at) this.tasks.delete(task.id); // archived: off the board
+		else this.tasks.set(task.id, task);
 	}
 
 	/** Optimistic move; the server's task.moved event will confirm or correct it. */
@@ -49,7 +50,7 @@ export class BoardStore {
 			case 'task.updated':
 			case 'task.moved': {
 				const task = event.data as Task;
-				if (task.project_id === this.project.id && !task.playbook_step_id) this.tasks.set(task.id, task);
+				if (task.project_id === this.project.id) this.upsertTask(task);
 				break;
 			}
 			case 'task.deleted':

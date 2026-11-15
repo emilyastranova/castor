@@ -656,6 +656,22 @@ links to copied files in the description and comments are rewritten, one-off var
 are cloned. Playbook run and step cards are refused (409). Activity: `task.created` on the
 copy, `task.duplicated` on the source.
 
+## Archived cards
+
+`tasks.archived_at` / `archived_by`: an archived card is left off the board (`get_board`), the dashboard's open
+and failed counts and people's open cards, but keeps everything and is still found by search (titled
+"(archived)") and links. `services.archive_task` / `restore_task` record `task.archived` / `task.restored` and
+the routes publish `task.updated`, which the web `BoardStore` reads as "off the board" or "back on it"
+(`api/archive.py`):
+- `POST /api/tasks/{id}/archive` and `…/restore`. A running card (or a run card whose run is going) and a
+  playbook step's card can't be archived (409); an archived card can't be moved or run until restored (409).
+- `POST /api/projects/{id}/columns/{column}/archive` archives a column's cards, skipping running ones.
+- `GET /api/projects/{id}/archived?q=` lists them, most recently archived first.
+
+A duplicate is never archived. MCP: `archive_card`, `restore_card`, `archive_column`, `list_archived_cards`.
+Web: Archive / Restore in the card menu and a banner on an archived card (the board page opens one that isn't on
+the board as `archivedTask`), "Archive all" in a column's header, `ArchivedCardsDialog` in the project menu.
+
 ## Import and export
 
 `transfer.py`, `api/transfer.py`. `POST /api/export` (JSON: library ids, variable set ids,

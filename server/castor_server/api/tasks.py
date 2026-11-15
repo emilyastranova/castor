@@ -27,6 +27,7 @@ from ..schemas import (
     TaskPatch,
 )
 from ..services import (
+    ArchiveError,
     SelectorError,
     active_job_for,
     actor_of,
@@ -37,6 +38,7 @@ from ..services import (
     get_task,
     move_task,
     next_position,
+    not_archived,
     publish_task,
     record_activity,
     start_run,
@@ -68,6 +70,13 @@ async def _use_library_command(db, task: m.Task, command_ref: str, args: dict) -
         await apply_library(db, task, spec, args)
     except ArgumentError as exc:
         raise HTTPException(422, {"message": str(exc), "errors": exc.errors}) from exc
+
+
+def _not_archived(task: m.Task) -> None:
+    try:
+        not_archived(task)
+    except ArchiveError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 async def _task_or_404(db, user: m.User, task_id: str, *, write: bool = False) -> m.Task:
@@ -252,6 +261,7 @@ async def duplicate(task_id: str, body: TaskDuplicate, db: DB, user: CurrentUser
 @router.post("/tasks/{task_id}/move", response_model=TaskOut)
 async def move(task_id: str, body: TaskMove, db: DB, user: CurrentUser):
     task = await _task_or_404(db, user, task_id, write=True)
+    _not_archived(task)
     column = await db.get(m.BoardColumn, body.column_id)
     if column is None or column.project_id != task.project_id:
         raise HTTPException(404, "Column not found")
@@ -276,6 +286,7 @@ class RunIn(BaseModel):
 async def run(task_id: str, db: DB, user: CurrentUser, body: RunIn | None = None):
     """Run a command card now. With `agent_selector`, the card's is set to it first."""
     task = await _task_or_404(db, user, task_id, write=True)
+    _not_archived(task)
     if task.kind != m.TaskKind.command or not task.command.strip():
         raise HTTPException(400, "This card has no command to run")
     if await active_job_for(db, task.id) is not None:

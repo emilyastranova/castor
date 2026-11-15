@@ -260,9 +260,10 @@ class Searcher:
         for (task,) in rows:
             text = next((v for v in (task.title, task.description, task.command, " ".join(task.tags)) if any(x in (v or "").lower() for x in q.terms)), task.description)
             out.append({
-                "id": str(task.id), "title": task.title, "snippet": snippet(text, q.terms) if text != task.title else "",
+                "id": str(task.id), "title": f"{task.title} (archived)" if task.archived_at else task.title,
+                "snippet": snippet(text, q.terms) if text != task.title else "",
                 "project": self.project_ref(task.project_id), "at": task.updated_at,
-                "icon": "terminal" if task.kind == m.TaskKind.command else "person",
+                "icon": "inventory_2" if task.archived_at else "terminal" if task.kind == m.TaskKind.command else "person",
                 "link": f"/projects/{task.project_id}?task={task.id}",
             })
         return out

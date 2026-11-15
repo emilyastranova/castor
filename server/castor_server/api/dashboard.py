@@ -546,6 +546,7 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
             .where(
                 in_scope(m.Task.project_id),
                 m.Task.playbook_step_id.is_(None),  # a run counts once, as its card
+                m.Task.archived_at.is_(None),
                 m.BoardColumn.role.is_(None) | m.BoardColumn.role.not_in(done_roles),
             )
         )
@@ -669,6 +670,7 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
                 in_scope(m.Task.project_id),
                 # A playbook step's failure shows as its run's decision, not as a card.
                 m.Task.playbook_step_id.is_(None),
+                m.Task.archived_at.is_(None),
                 m.Job.status.in_([m.JobStatus.failed, m.JobStatus.lost]),
                 m.Job.finished_at >= week,
                 m.BoardColumn.role.is_(None) | m.BoardColumn.role.not_in(done_roles),
@@ -761,7 +763,8 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
         await db.execute(
             select(m.Task.assignees, m.Task.created_by, m.Task.group_assignees)
             .join(m.BoardColumn, m.BoardColumn.id == m.Task.column_id)
-            .where(in_scope(m.Task.project_id), m.BoardColumn.role.is_(None) | m.BoardColumn.role.not_in(done_roles))
+            .where(in_scope(m.Task.project_id), m.Task.archived_at.is_(None),
+                   m.BoardColumn.role.is_(None) | m.BoardColumn.role.not_in(done_roles))
         )
     ).all()
     me = str(user.id)

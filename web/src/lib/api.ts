@@ -1051,6 +1051,9 @@ export interface Task {
 	custom_fields: Record<string, unknown>;
 	due_at: string | null;
 	created_by: UUID | null;
+	/** Archived: off the board until restored (it keeps everything). */
+	archived_at?: string | null;
+	archived_by?: UUID | null;
 	playbook_run_id?: UUID | null;
 	playbook_step_id?: string | null;
 	/** Item cards of a for_each step: the item's position. */
@@ -1439,6 +1442,11 @@ export function api(fetchFn: Fetch = fetch) {
 			update: (id: UUID, body: Partial<Project>) => patch<Project>(`/projects/${id}`, body),
 			remove: (id: UUID) => del(`/projects/${id}`),
 			board: (id: UUID) => get<Board>(`/projects/${id}/board`),
+			/** Archived cards, most recently archived first. */
+			archived: (id: UUID, q = '', offset = 0) =>
+				get<{ items: Task[]; total: number }>(`/projects/${id}/archived?${new URLSearchParams({ q, offset: String(offset), limit: '50' })}`),
+			/** Archive every card in a column, except running ones. */
+			archiveColumn: (id: UUID, columnId: UUID) => post<{ archived: number; skipped: string[] }>(`/projects/${id}/columns/${columnId}/archive`),
 			activity: (id: UUID, limit = 50) => get<Activity[]>(`/projects/${id}/activity?limit=${limit}`),
 			createColumn: (id: UUID, body: Partial<Column> & { name: string }) =>
 				post<Column>(`/projects/${id}/columns`, body),
@@ -1455,6 +1463,10 @@ export function api(fetchFn: Fetch = fetch) {
 			get: (id: UUID) => get<Task>(`/tasks/${id}`),
 			update: (id: UUID, body: Partial<Task>) => patch<Task>(`/tasks/${id}`, body),
 			remove: (id: UUID) => del(`/tasks/${id}`),
+			/** Off the board, keeping everything; not while it's running. */
+			archive: (id: UUID) => post<Task>(`/tasks/${id}/archive`),
+			/** Back on the board, in the column it was in. */
+			restore: (id: UUID) => post<Task>(`/tasks/${id}/restore`),
 			/** A copy at the top of To Do; comments, files and finished runs only if asked. */
 			duplicate: (id: UUID, body: { assignees?: boolean; comments?: boolean; attachments?: boolean; output?: boolean }) =>
 				post<Task>(`/tasks/${id}/duplicate`, body),

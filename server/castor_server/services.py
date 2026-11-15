@@ -504,6 +504,54 @@ async def broadcast_targets(db: AsyncSession, task: m.Task, job: m.Job) -> list:
     return sorted(found, key=lambda c: c.name)
 
 
+# ---------- archiving cards ----------
+
+
+class ArchiveError(Exception):
+    """Why a card can't be archived (or moved or run while archived), in words for people."""
+
+
+async def why_not_archive(db: AsyncSession, task: m.Task) -> str | None:
+    if task.playbook_step_id is not None:
+        return "a playbook step's card is archived with its run's card"
+    if await active_job_for(db, task.id) is not None:
+        return "it's running; cancel the run or wait for it to finish"
+    run = (await db.execute(select(m.PlaybookRun).where(m.PlaybookRun.card_id == task.id))).scalar_one_or_none()
+    if run is not None and run.status == m.PlaybookRunStatus.running:
+        return "its playbook run is still going; cancel it or wait for it to finish"
+    return None
+
+
+async def archive_task(db: AsyncSession, task: m.Task, user: m.User | None) -> bool:
+    """Take a card off the board (it keeps its column, comments, files and runs). False when it
+    already was; raises ArchiveError when it can't be. Caller commits and publishes."""
+    if task.archived_at is not None:
+        return False
+    if reason := await why_not_archive(db, task):
+        raise ArchiveError(f"“{task.title}” can't be archived: {reason}")
+    task.archived_at = utcnow()
+    task.archived_by = user.id if user is not None else None
+    await record_activity(db, type="task.archived", message=f"Archived “{task.title}”", project_id=task.project_id,
+                          task_id=task.id, **actor_of(user))
+    return True
+
+
+async def restore_task(db: AsyncSession, task: m.Task, user: m.User | None) -> bool:
+    """Put an archived card back on the board where it was. Caller commits and publishes."""
+    if task.archived_at is None:
+        return False
+    task.archived_at = None
+    task.archived_by = None
+    await record_activity(db, type="task.restored", message=f"Restored “{task.title}” to the board",
+                          project_id=task.project_id, task_id=task.id, **actor_of(user))
+    return True
+
+
+def not_archived(task: m.Task) -> None:
+    """Refuse to move or run an archived card (restore it first)."""
+    if task.archived_at is not None:
+        raise ArchiveError(f"“{task.title}” is archived; restore it first")
+
 async def move_task(
     db: AsyncSession,
     task: m.Task,
@@ -590,7 +638,7 @@ def board_payload(project: m.Project, columns: list[m.BoardColumn], tasks: list[
 
 
 # Columns a duplicate never copies: identity, place, provenance, and playbook membership.
-_NOT_COPIED = {"id", "column_id", "position", "created_by", "created_at", "updated_at",
+_NOT_COPIED = {"id", "column_id", "position", "created_by", "created_at", "updated_at", "archived_at", "archived_by",
                "playbook_run_id", "playbook_step_id", "playbook_item", "depends_on"}
 _FINISHED = (m.JobStatus.succeeded, m.JobStatus.failed, m.JobStatus.cancelled, m.JobStatus.lost)
 

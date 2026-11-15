@@ -331,6 +331,11 @@ class Task(Base, TimestampMixin):
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # Archived: off the board (and its counts) until restored; still found by search and links.
+    archived_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True, index=True)
+    archived_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     playbook_run_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("playbook_runs.id", ondelete="CASCADE"), nullable=True, index=True
     )

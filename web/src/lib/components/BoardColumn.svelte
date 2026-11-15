@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { dndzone, type DndEvent, SHADOW_ITEM_MARKER_PROPERTY_NAME } from 'svelte-dnd-action';
 	import type { Column, Task, UUID } from '$lib/api';
-	import { IconButton } from '$lib/m3';
+	import { IconButton, Menu, MenuItem } from '$lib/m3';
 	import TaskCard from './TaskCard.svelte';
 	import ColumnGlyph from './ColumnGlyph.svelte';
 	import { enter, flying, glide, leave } from '$lib/motion';
@@ -13,10 +13,12 @@
 		onopen: (task: Task) => void;
 		onadd: (column: Column) => void;
 		onmove: (taskId: UUID, columnId: UUID, position: number) => void;
+		/** Archive every card in the column (asks first). */
+		onarchive?: (column: Column) => void;
 		/** Viewers: no dragging, no adding. */
 		readonly?: boolean;
 	}
-	let { column, tasks, onopen, onadd, onmove, readonly = false }: Props = $props();
+	let { column, tasks, onopen, onadd, onmove, onarchive, readonly = false }: Props = $props();
 
 	// Local copy so svelte-dnd-action can insert its placeholder while dragging.
 	let items = $state<Task[]>([]);
@@ -68,6 +70,12 @@
 			{tasks.length}{column.wip_limit !== null ? `/${column.wip_limit}` : ''}
 		</span>
 		{#if !readonly}<IconButton icon="add" label="Add card to {column.name}" size="sm" onclick={() => onadd(column)} />{/if}
+		{#if !readonly && onarchive && tasks.length}
+			<Menu>
+				{#snippet anchor()}<IconButton icon="more_vert" label="{column.name} column menu" size="sm" />{/snippet}
+				<MenuItem icon="inventory_2" onclick={() => onarchive(column)}>Archive all {tasks.length} card{tasks.length === 1 ? '' : 's'}…</MenuItem>
+			</Menu>
+		{/if}
 	</header>
 	{#if column.role === 'active'}
 		<p class="px-4 label-small text-on-surface-variant">Command cards dropped here run on an agent</p>

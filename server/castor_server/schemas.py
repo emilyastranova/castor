@@ -393,6 +393,8 @@ class TaskOut(ORM):
     created_by: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
+    archived_at: datetime | None = None  # off the board until restored
+    archived_by: uuid.UUID | None = None
     playbook_run_id: uuid.UUID | None = None
     playbook_step_id: str | None = None
     playbook_item: int | None = None
