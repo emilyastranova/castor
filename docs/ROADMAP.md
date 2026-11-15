@@ -22,6 +22,30 @@ flow). Phase E is built too: the plugin directory (its own repository,
 plugins), browsing and installing from it, daily update checks, publisher pages, and packs of
 library content. Still to come: hooks, and signed releases.
 
+### More repositories
+Today the library has two sources: what ships with Castor and the one plugin directory
+(`CASTOR_PLUGIN_DIRECTORY_URL`). Admins should be able to add more repositories, such as a team's
+own, a vendor's, or a community collection:
+- **What a repository offers:** library definitions (tools, commands, parsers, playbooks,
+  themes, variable kinds) and its own plugins, described by one index file at its root, like
+  `directory.json` today.
+- **Adding one:** Settings → Repositories (admins) takes a URL (a Git repository or a plain HTTPS
+  address), with a token from the vault for private ones. Castor shows what it offers before
+  anything is added, and checks for updates daily as the plugin directory does.
+- **Choosing what to use:** subscribe to a whole repository, or take single items. Its content
+  shows in the Library and the plugin Browse tab with where it came from (`origin =
+  "repo:<id>"`), and it's read-only like built-ins: you copy an item to change it.
+- **Trust:** each repository is marked as official, trusted or community. Plugins from one still
+  go through the same install review and sandbox, and an unrestricted plugin still needs
+  restricted mode off. Updates that change a command line, a tool's image or recipe, or a
+  plugin's permissions wait for an admin to approve them; nothing changes under a running board.
+- **Conflicts:** two repositories offering the same id are kept apart by origin. A card or step
+  names which one it uses, and removing a repository retires its items the way a removed built-in
+  is retired (cards keep their command line).
+- **Open questions:** whether projects can be limited to some repositories, whether a
+  repository's items should be pinned to a version (a Git tag or commit) per project, and signing,
+  shared with signed plugin releases.
+
 ## People and access
 
 ### More for groups
