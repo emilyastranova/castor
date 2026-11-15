@@ -82,6 +82,44 @@ Groups (Settings → Groups) can already be mentioned, share projects, take card
 sign-on provider's groups. Still to come:
 - **Alerts and approvals:** a group receiving an alert, or approving a waiting trigger.
 
+## Cards and the board
+
+### Cards with subtasks
+A board fills up fast when every small piece of work is its own card. A card should be able to
+be an over-arching activity ("Update homelab LXCs", "Patch the DMZ hosts", "Q3 external
+retest") with subtasks inside it, so the board and Home show the activity once, not twenty small
+cards. Playbook runs already work this way (one card on the board, its steps hidden, a Run tab
+with their progress), so this reuses that look and machinery:
+- **On the board:** the activity is one card with its progress (5 of 12 done, 1 failed, 2
+  running), its earliest due date and who's working on it, like a run card. Subtasks don't show as
+  cards of their own (`parent_id`, filtered out like step cards), unless a filter asks for them.
+- **Inside the card:** a **Subtasks** tab in the style of a playbook run's panel: the subtasks
+  with their status, assignee, due date and latest run, in order or as a graph when they depend on
+  each other (Depends on between subtasks), each opening on top of the activity as step cards do.
+  Quick add (type a title, Enter), reorder by dragging, tick a manual one done in place.
+- **Subtasks are real cards:** manual or command (a library command, an HTTP or MCP action),
+  with their own comments, files, assignees, due dates, runs and results; they can wait on each
+  other, and commands run like any card's.
+- **Many at once:** one subtask per target from a target list or an asset query (one per LXC,
+  one per host in a scope group), all running the same command, like a playbook's `for_each`;
+  **Run all**, with how many at once, or one after another.
+- **The activity moves itself (optional):** to In Progress when a subtask starts, and to Review
+  or Done when every subtask is done (or skipped); a failed subtask shows on the card and in
+  Home's "needs attention" without moving it back.
+- **Moving work in and out:** drag a card onto an activity to make it a subtask, turn a subtask
+  back into its own card, and turn a card into an activity by adding a first subtask. Archiving or
+  duplicating an activity takes its subtasks along (a duplicate as fresh, unstarted ones), and
+  exports carry them.
+- **Home and the feed:** subtasks' activity rolls up under the activity ("3 subtasks of Update
+  homelab LXCs finished"), counts on Home count the activity once, and people's own subtasks still
+  show in "yours".
+- **From and to playbooks:** save an activity's subtasks as a playbook to repeat it next month,
+  or start an activity from a playbook, so a playbook run and an activity are one idea on the
+  board.
+- **Open questions:** how deep it nests (one level of subtasks, or subtasks of subtasks); whether
+  a subtask can sit in a column of its own on the board when someone wants it there; and how
+  search and the people pages show subtasks.
+
 ## Running work
 
 ### Actions beyond commands
@@ -97,10 +135,10 @@ kind of action that's part of Castor itself, of which a command is one sort:
   never rendered into what's stored, logs and results on the card, and the activity feed.
 - **Design:** [ACTIONS.md](ACTIONS.md) covers where each sort runs, how retries, cancel and
   `on_failure` apply to something that isn't a process, how the library and the playbook editor
-  show them, and the phases. Phases 1 and 2 are built: HTTP actions the server sends, with paging,
+  show them, and the phases. Phases 1 to 3 are built: HTTP actions the server sends, with paging,
   batches, rate limits, retries and waiting, sent through an agent's network when a card chooses
-  one, and AI recovery for playbook steps. Still to come: MCP (including stdio servers hosted by
-  agents), plugin actions, approvals.
+  one, AI recovery for playbook steps, and MCP actions (Castor as an MCP client, over HTTP or with
+  stdio servers agents run). Still to come: plugin actions and approvals.
 
 ### Ansible playbooks
 Run Ansible playbooks from Castor, with their results on the card like any other run. (They're
