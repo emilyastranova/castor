@@ -576,4 +576,6 @@ network):
 ## Open questions
 
 - Resource limits per plugin: fixed defaults, or set per plugin by the admin.
-- Plugins on agents (new runtimes, not just tools) are out of scope for now.
+- Plugins on agents (new runtimes, not just tools) are out of scope for now. Plugins adding
+  agent *types* (SaltStack, Puppet: machines reached through another system) are on the roadmap
+  ("Agent types from plugins").
