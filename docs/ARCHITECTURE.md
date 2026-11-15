@@ -809,6 +809,41 @@ A duplicate is never archived. MCP: `archive_card`, `restore_card`, `archive_col
 Web: Archive / Restore in the card menu and a banner on an archived card (the board page opens one that isn't on
 the board as `archivedTask`), "Archive all" in a column's header, `ArchivedCardsDialog` in the project menu.
 
+## Cards with subtasks
+
+`tasks.parent_id` (FK to `tasks`, `SET NULL`) makes a card a subtask of an activity card (`subtasks.py`). One
+level deep: an activity can't be a subtask, a subtask can't have subtasks, both are in the same project, and
+playbook run and step cards take no part (`check_parent`/`check_child`, 422 with the reason). Subtasks are left
+off the board (`get_board`; the web `BoardStore.upsertTask` drops a task with `parent_id`), and `TaskOut.subtasks`
+(`SubtaskSummary`: `total`, `done`, `running`, `failed`, `approvals`, `next_due`) gives an activity's progress;
+finished means a Review, Done or Reported column, or archived (`DONE_ROLES`). `publish_task` publishes a
+subtask's activity too so its card stays current.
+
+Unless the project's `settings.subtasks_move_card` is `false`, the activity follows its subtasks (`follow`,
+called from `move_task`, `start_run` and the gateway's auto-move to Review): into the active column when one
+starts, and to Review (else Done) when every one is finished. Archiving an activity archives its subtasks at the
+same moment and restoring it brings back those (not ones archived on their own before); deleting it puts its
+subtasks back on the board; duplicating it copies its subtasks as fresh cards (a subtask's copy stays in the same
+activity); import inserts activities before their subtasks.
+
+- `GET /api/tasks/{id}/subtasks` (`?archived=true` for archived ones too), in `position` order.
+- `POST /api/tasks/{id}/subtasks {task_ids}` adds existing cards (all or nothing);
+  `POST /api/projects/{id}/tasks` with `parent_id` creates one.
+- `POST /api/tasks/{id}/subtasks/order {task_ids}`, `POST /api/tasks/{id}/release` (its own card again, at
+  the top of its column).
+- `POST /api/tasks/{id}/subtasks/run {force}` runs every unfinished command subtask that isn't running;
+  ones waiting on unfinished cards are skipped unless `force` (`{started, skipped: [{id, title, reason}]}`).
+- `POST /api/projects/{id}/consolidate {title, description?, task_ids, column_id?}` makes a new activity
+  holding the cards, in `column_id` or the column most of them are in (the active one rather than Done when
+  some aren't finished).
+
+Activities: `task.subtasks_added`, `task.subtask_released`. MCP: `consolidate_cards`, `add_subtasks`,
+`list_subtasks`, `release_subtask`, `order_subtasks`, `run_subtasks`, and `create_card` takes `parent_id`.
+Web: `SubtaskPanel.svelte` (TaskDialog's Subtasks tab; subtasks open on top via `?step=`, and the board page
+redirects `?task=<subtask>` there), `GroupCardsDialog.svelte` (the project menu's "Group cards into one…" and
+"Add cards from the board"), the progress on `TaskCard`/`BoardList` (`taskStatus.subtaskState`), and a
+"subtask of" banner on a subtask's card.
+
 ## Import and export
 
 `transfer.py`, `api/transfer.py`. `POST /api/export` (JSON: library ids, variable set ids,

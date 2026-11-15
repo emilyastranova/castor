@@ -327,6 +327,10 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `TaskOut.blocked_by`; starting a blocked card is a 409 unless `force`, web `lib/blocked.ts`); finishing a card calls
   `notify_unblocked`, and anything that changes a blocker calls `publish_waiting` after the commit. Due dates:
   `due.py` reminds a card's people (`services.card_people`) once soon and once overdue (`tasks.due_reminded`).
+  Subtasks: `subtasks.py` (`tasks.parent_id`, one level deep; `summaries` → `TaskOut.subtasks`; `follow` moves the
+  activity with them; `consolidate`), `api/subtasks.py`; subtasks are off the board like step cards (server `get_board`,
+  client `BoardStore`), open on top via `?step=`; web `SubtaskPanel`, `GroupCardsDialog`. A new "cards on the board" query
+  must also add `parent_id.is_(None)`.
   Archived cards: `tasks.archived_at` (`services.archive_task`/`restore_task`, `api/archive.py`); every query of
   "cards on the board" or "open cards" must add `archived_at.is_(None)` (board, dashboard counts, people's plates);
   web `BoardStore.upsertTask` drops archived ones, `ArchivedCardsDialog`.

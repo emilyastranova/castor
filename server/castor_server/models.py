@@ -370,6 +370,11 @@ class Task(Base, TimestampMixin):
     rate_limit: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # Ask before each run: a person approves every job of it (its definition can demand it too).
     confirm: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # A subtask: the card it belongs to (an activity). Subtasks stay off the board and show in
+    # their card's Subtasks tab; one level deep. Deleting the activity puts them back on the board.
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     project: Mapped[Project] = relationship(back_populates="tasks")
     column: Mapped[BoardColumn] = relationship(back_populates="tasks")

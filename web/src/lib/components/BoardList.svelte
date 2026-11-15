@@ -4,7 +4,7 @@
 	import AssigneeFace from './AssigneeFace.svelte';
 	import { people } from '$lib/people.svelte';
 	import { relativeTime, absoluteTime } from '$lib/format';
-	import { isRunning, kindIcon, runState } from '$lib/taskStatus';
+	import { isRunning, kindIcon, runState, subtaskState } from '$lib/taskStatus';
 	import StatusChip from './StatusChip.svelte';
 	import PriorityGlyph, { priorityLabels } from './PriorityGlyph.svelte';
 	import { DUE_TONE, dueInfo } from '$lib/due';
@@ -110,10 +110,10 @@
 {/snippet}
 
 {#snippet status(t: Task)}
-	{@const run = runState(t)}
+	{@const run = runState(t) ?? subtaskState(t)}
 	{#if run}
 		<span class="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 label-small {run.tone}">
-			<Icon name={run.icon} size={14} class={t.run?.status === 'running' && !t.run.attention ? 'motion-safe:animate-spin' : ''} />{run.label}
+			<Icon name={run.icon} size={14} class={run.icon === 'progress_activity' ? 'motion-safe:animate-spin' : ''} />{run.label}
 		</span>
 	{:else if t.latest_job}
 		<StatusChip job={t.latest_job} batch={t.batch} />

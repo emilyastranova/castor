@@ -146,6 +146,7 @@ RULES: list[tuple[str, str, str]] = [
     ("POST", "/api/playbook-runs/*/summary", "ai:use"),
     ("POST", "/api/tasks/*/summary", "ai:use"),
     ("POST", "/api/tasks/*/run", "jobs:write"),
+    ("POST", "/api/tasks/*/subtasks/run", "jobs:write"),
     ("GET", "/api/tasks/*/jobs", "jobs:read"),
     ("*", "/api/jobs/**", "jobs:rw"),
     ("POST", "/api/playbooks/*/run", "playbooks:run"),

@@ -5,7 +5,7 @@
 	import AssigneeFace from './AssigneeFace.svelte';
 	import StatusChip from './StatusChip.svelte';
 	import PriorityGlyph, { priorityLabels } from './PriorityGlyph.svelte';
-	import { isRunning, kindIcon, runState as runStateOf } from '$lib/taskStatus';
+	import { isRunning, kindIcon, runState as runStateOf, subtaskState } from '$lib/taskStatus';
 	import { DUE_TONE, dueInfo } from '$lib/due';
 
 	interface Props {
@@ -21,6 +21,8 @@
 	let running = $derived(isRunning(task));
 	/** A playbook run's card: its state in a word, and how far along it is. */
 	let runState = $derived(runStateOf(task));
+	/** An activity card: how far along its subtasks are. */
+	let subs = $derived(subtaskState(task));
 </script>
 
 <div
@@ -51,6 +53,20 @@
 					<Icon name={runState.icon} size={14} class={task.run.status === 'running' && !task.run.attention ? 'motion-safe:animate-spin' : ''} />{runState.label}
 				</span>
 				<span class="label-small text-on-surface-variant">Playbook</span>
+			</span>
+		</div>
+	{/if}
+	{#if task.subtasks && subs}
+		<div class="flex flex-col gap-1.5">
+			<span class="flex h-1.5 overflow-hidden rounded-full bg-surface-container-highest" title="{task.subtasks.done} of {task.subtasks.total} subtasks done">
+				<span class="block h-full bg-primary transition-all" style:width="{(100 * task.subtasks.done) / task.subtasks.total}%"></span>
+				{#if task.subtasks.failed}<span class="block h-full bg-error transition-all" style:width="{(100 * task.subtasks.failed) / task.subtasks.total}%"></span>{/if}
+			</span>
+			<span class="flex items-center gap-1.5">
+				<span class="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 label-small {subs.tone}">
+					<Icon name={subs.icon} size={14} class={subs.icon === 'progress_activity' ? 'motion-safe:animate-spin' : ''} />{subs.label}
+				</span>
+				<span class="label-small text-on-surface-variant">Subtasks</span>
 			</span>
 		</div>
 	{/if}

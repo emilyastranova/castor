@@ -1184,8 +1184,22 @@ export interface Task {
 	latest_job: Job | null;
 	/** Set on a playbook run's card: where the run is (its steps are hidden cards). */
 	run?: RunSummary | null;
+	/** A subtask: the activity card it's in (it's off the board). */
+	parent_id?: UUID | null;
+	/** An activity card: how its subtasks are doing. */
+	subtasks?: SubtaskSummary | null;
 	comment_count: number;
 	attachment_count: number;
+}
+
+/** An activity card's subtasks: finished means Review, Done, Reported or archived. */
+export interface SubtaskSummary {
+	total: number;
+	done: number;
+	running: number;
+	failed: number;
+	approvals: number;
+	next_due: string | null;
 }
 
 export interface Board {
@@ -1593,7 +1607,10 @@ export function api(fetchFn: Fetch = fetch) {
 				patch<Column>(`/projects/${id}/columns/${columnId}`, body),
 			removeColumn: (id: UUID, columnId: UUID) => del(`/projects/${id}/columns/${columnId}`),
 			createTask: (id: UUID, body: Partial<Task> & { title: string }) =>
-				post<Task>(`/projects/${id}/tasks`, body)
+				post<Task>(`/projects/${id}/tasks`, body),
+			/** A new activity card holding these cards as its subtasks (column: where most of them are). */
+			consolidate: (id: UUID, body: { title: string; description?: string; task_ids: UUID[]; column_id?: UUID }) =>
+				post<Task>(`/projects/${id}/consolidate`, body)
 		},
 		tasks: {
 			/** A manual card's own AI summary (from its description and comments). */
@@ -1604,6 +1621,16 @@ export function api(fetchFn: Fetch = fetch) {
 			remove: (id: UUID) => del(`/tasks/${id}`),
 			/** Off the board, keeping everything; not while it's running. */
 			archive: (id: UUID) => post<Task>(`/tasks/${id}/archive`),
+			/** An activity card's subtasks, in order. */
+			subtasks: (id: UUID, archived = false) => get<Task[]>(`/tasks/${id}/subtasks${archived ? '?archived=true' : ''}`),
+			/** Put existing cards into this one, after its subtasks (all or nothing). */
+			addSubtasks: (id: UUID, taskIds: UUID[]) => post<Task[]>(`/tasks/${id}/subtasks`, { task_ids: taskIds }),
+			orderSubtasks: (id: UUID, taskIds: UUID[]) => post<Task[]>(`/tasks/${id}/subtasks/order`, { task_ids: taskIds }),
+			/** Run every command subtask that isn't finished or running. */
+			runSubtasks: (id: UUID, force = false) =>
+				post<{ started: UUID[]; skipped: { id: UUID; title: string; reason: string }[] }>(`/tasks/${id}/subtasks/run`, { force }),
+			/** Make a subtask its own card on the board again. */
+			release: (id: UUID) => post<Task>(`/tasks/${id}/release`),
 			/** Back on the board, in the column it was in. */
 			restore: (id: UUID) => post<Task>(`/tasks/${id}/restore`),
 			/** A copy at the top of To Do; comments, files and finished runs only if asked. */

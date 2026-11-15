@@ -113,7 +113,7 @@ async def create_task(project_id: str, body: TaskIn, db: DB, user: CurrentUser):
             ).scalar_one_or_none()
         if column is None:
             raise HTTPException(409, "Project has no columns")
-    data = body.model_dump(exclude={"column_id", "command_ref", "command_args", "var_bindings", "waits_on"})
+    data = body.model_dump(exclude={"column_id", "command_ref", "command_args", "var_bindings", "waits_on", "parent_id"})
     data["assignees"] = await people.check_assignees(db, project.id, body.assignees)
     data["group_assignees"] = await people.check_group_assignees(db, body.group_assignees)
     data["agent_selector"] = await _selector(db, body.agent_selector, project.id)
@@ -128,6 +128,16 @@ async def create_task(project_id: str, body: TaskIn, db: DB, user: CurrentUser):
         await _use_library_command(db, task, body.command_ref, body.command_args)
     db.add(task)
     await db.flush()
+    if body.parent_id is not None:  # a subtask of an activity card, at the end of its list
+        from ..subtasks import SubtaskError, adopt
+
+        parent = await db.get(m.Task, body.parent_id)
+        if parent is None or parent.project_id != project.id:
+            raise HTTPException(404, "The card to add it to wasn't found in this project")
+        try:
+            await adopt(db, parent, [task], user)
+        except SubtaskError as exc:
+            raise HTTPException(422, str(exc)) from exc
     if body.waits_on:
         task.waits_on = await check_waits_on(db, task, body.waits_on)
     if body.var_bindings:
@@ -242,6 +252,11 @@ async def delete_task(task_id: str, db: DB, user: CurrentUser):
     task = await _task_or_404(db, user, task_id, write=True)
     project_id = task.project_id
     await forget_card_in_waits(db, task)
+    from ..subtasks import children
+
+    kids = await children(db, task.id)
+    for kid in kids:  # an activity's subtasks go back on the board rather than with it
+        kid.parent_id = None
     await record_activity(
         db,
         type="task.deleted",
@@ -249,9 +264,14 @@ async def delete_task(task_id: str, db: DB, user: CurrentUser):
         project_id=project_id,
         **actor_of(user),
     )
+    parent_id = task.parent_id
     await db.delete(task)
     await db.commit()
     bus.publish("task.deleted", project_id, {"id": parse_uuid(task_id)})
+    for kid in kids:
+        await publish_task(db, kid)
+    if parent_id is not None and (parent := await db.get(m.Task, parent_id)) is not None:
+        await publish_task(db, parent)
     await publish_waiting(db, project_id, parse_uuid(task_id))
 
 
@@ -273,6 +293,13 @@ async def duplicate(task_id: str, body: TaskDuplicate, db: DB, user: CurrentUser
     if (await db.execute(select(m.PlaybookRun.id).where(m.PlaybookRun.card_id == src.id))).first():
         raise HTTPException(409, "This is a playbook run; run the playbook again instead")
     task = await duplicate_task(db, src, user, **body.model_dump())
+    from ..subtasks import children
+
+    for kid in await children(db, src.id, archived=False):  # an activity comes with fresh copies of its subtasks
+        copy = await duplicate_task(db, kid, user, assignees=body.assignees)
+        copy.title, copy.parent_id, copy.position = kid.title, task.id, kid.position
+    if src.parent_id is not None:
+        task.parent_id = src.parent_id  # a subtask's copy stays in the same card
     await _assigned(db, task, user, task.assignees, task.group_assignees)
     await db.commit()
     return await publish_task(db, task, "task.created")

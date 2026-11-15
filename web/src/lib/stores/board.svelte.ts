@@ -33,7 +33,7 @@ export class BoardStore {
 
 	upsertTask(task: Task): void {
 		if (task.playbook_step_id) return; // a run's steps live in its card, not on the board
-		if (task.archived_at) this.tasks.delete(task.id); // archived: off the board
+		if (task.archived_at || task.parent_id) this.tasks.delete(task.id); // archived, or inside an activity: off the board
 		else this.tasks.set(task.id, task);
 	}
 

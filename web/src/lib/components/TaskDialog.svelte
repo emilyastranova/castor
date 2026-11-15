@@ -26,6 +26,8 @@
 	import NameImageDialog from './NameImageDialog.svelte';
 	import MoveWritingDialog from './MoveWritingDialog.svelte';
 	import RunPanel from './RunPanel.svelte';
+	import SubtaskPanel from './SubtaskPanel.svelte';
+	import { kindIcon } from '$lib/taskStatus';
 	import AiSummary from './AiSummary.svelte';
 	import DuplicateDialog from './DuplicateDialog.svelte';
 	import DueDateField from './DueDateField.svelte';
@@ -76,7 +78,7 @@
 		if (!editable && Object.values(task.command_args ?? {}).some(isListRef) && !lists.loaded) void lists.load();
 	});
 	// Built-in tabs, or a plugin's (`plugin:<plugin id>:<panel id>`, manifest `ui` slot card.tab).
-	let tab = $state<'run' | 'output' | 'comments' | 'attachments' | 'fields' | 'history' | `plugin:${string}`>('output');
+	let tab = $state<'run' | 'subtasks' | 'output' | 'comments' | 'attachments' | 'fields' | 'history' | `plugin:${string}`>('output');
 
 	// ---- editable fields (debounced save) ----
 	let title = $state('');
@@ -118,15 +120,17 @@
 		// Search results link straight to a tab, a run and its results (?tab=&job=&view=). With
 		// ?step= those are for the step's card on top of this run card, not for this one.
 		const params = new URLSearchParams(page.url.searchParams);
-		if (params.get('step') && task.run) for (const k of ['comment', 'tab', 'job', 'view']) params.delete(k);
+		if (params.get('step') && (task.run || task.subtasks?.total)) for (const k of ['comment', 'tab', 'job', 'view']) params.delete(k);
 		const linked = params.get('comment');
 		const wantedTab = params.get('tab');
 		tab = linked
 			? 'comments'
-			: wantedTab && (['run', 'output', 'comments', 'attachments', 'fields', 'history'].includes(wantedTab) || wantedTab.startsWith('plugin:'))
+			: wantedTab && (['run', 'subtasks', 'output', 'comments', 'attachments', 'fields', 'history'].includes(wantedTab) || wantedTab.startsWith('plugin:'))
 				? (wantedTab as typeof tab)
 				: task.run
 					? 'run'
+					: task.subtasks?.total
+					? 'subtasks'
 					: task.kind === 'command'
 					? 'output'
 					: 'comments';
@@ -555,7 +559,34 @@
 		}
 	}
 
-	/** A run card's step opens as its own card on top (?step=<its card>). */
+	// ---- a subtask: its activity card ----
+	let parentTitle = $state<string | null>(null);
+	$effect(() => {
+		const id = task.parent_id;
+		parentTitle = null;
+		if (id) void api().tasks.get(id).then((p) => (parentTitle = p.title)).catch(() => {});
+	});
+	let parentHref = $derived.by(() => {
+		const url = new URL(page.url);
+		for (const k of ['step', 'comment', 'tab', 'job', 'view']) url.searchParams.delete(k);
+		if (task.parent_id) url.searchParams.set('task', task.parent_id);
+		return url.pathname + url.search;
+	});
+	async function release() {
+		try {
+			const t = await api().tasks.release(task.id);
+			onupdated(t);
+			snackbar.show(`“${t.title}” is its own card on the board again`);
+			const url = new URL(page.url);
+			for (const k of ['step', 'comment', 'tab', 'job', 'view']) url.searchParams.delete(k);
+			url.searchParams.set('task', t.id);
+			void goto(url, { replaceState: true, noScroll: true, keepFocus: true });
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not take it out');
+		}
+	}
+
+	/** A run card's step (or an activity's subtask) opens as its own card on top (?step=<its card>). */
 	function openStep(taskId: UUID) {
 		const url = new URL(page.url);
 		url.searchParams.set('step', taskId);
@@ -692,8 +723,11 @@
 	$effect(() => void pluginPanels.load(task.project_id));
 	let cardPanels = $derived(task.playbook_step_id ? [] : pluginPanels.for(task.project_id, 'card.tab'));
 	let openPanel = $derived(tab.startsWith('plugin:') ? cardPanels.find((p) => tab === `plugin:${p.plugin.id}:${p.id}`) : undefined);
+	/** Cards inside this one (an activity); not for playbook runs, their steps, or a subtask. */
+	let canHaveSubtasks = $derived(!task.run && !task.playbook_step_id && !task.playbook_run_id && !task.parent_id);
 	let tabs = $derived([
 		...(task.run ? [{ id: 'run', label: 'Run', icon: 'account_tree', badge: undefined }] : []),
+		...(canHaveSubtasks ? [{ id: 'subtasks', label: 'Subtasks', icon: 'checklist', badge: task.subtasks?.total || undefined }] : []),
 		...(task.kind === 'command' ? [{ id: 'output', label: 'Output', icon: 'terminal', badge: jobs.length }] : []),
 		{ id: 'comments', label: 'Comments', icon: 'chat_bubble', badge: comments.length },
 		{ id: 'attachments', label: 'Attachments', icon: 'attach_file', badge: attachments.length },
@@ -706,7 +740,7 @@
 <Dialog bind:open size="lg" initialFocus="dialog" onclose={onclose}>
 	{#snippet header()}
 		<div class="flex items-start gap-2 px-4 pt-4 pb-3 sm:gap-3 sm:px-6 sm:pt-5">
-			<Icon name={task.run ? 'account_tree' : task.kind === 'command' ? 'terminal' : 'person'} class="mt-2 {task.run || task.kind === 'command' ? 'text-primary' : 'text-on-surface-variant'}" />
+			<Icon name={kindIcon(task)} class="mt-2 {task.run || task.kind === 'command' ? 'text-primary' : 'text-on-surface-variant'}" />
 			<div class="min-w-0 flex-1">
 				<input
 					class="w-full bg-transparent headline-small text-on-surface outline-none focus:underline decoration-primary/40 underline-offset-4"
@@ -784,6 +818,15 @@
 		</div>
 	{/snippet}
 
+	{#if task.parent_id}
+		<div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-surface-container-high px-3 py-2">
+			<Icon name="checklist" size={20} class="shrink-0 text-on-surface-variant" />
+			<span class="min-w-0 flex-1 body-medium text-on-surface">
+				A subtask of <a class="text-primary underline-offset-2 hover:underline" href={parentHref}>“{parentTitle ?? '…'}”</a>: it's not on the board by itself.
+			</span>
+			{#if editable}<Button variant="text" icon="move_up" onclick={release}>Make it its own card</Button>{/if}
+		</div>
+	{/if}
 	{#if task.archived_at}
 		<div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-surface-container-high px-3 py-2">
 			<Icon name="inventory_2" size={20} class="shrink-0 text-on-surface-variant" />
@@ -1015,6 +1058,8 @@
 
 			{#if tab === 'run' && task.run}
 				<RunPanel runId={task.run.run_id} {editable} onopenstep={openStep} />
+			{:else if tab === 'subtasks' && canHaveSubtasks}
+				<SubtaskPanel {task} {columns} {editable} onopen={openStep} />
 			{:else if tab === 'output'}
 				<div class="flex min-h-[320px] flex-1 flex-col gap-2">
 					{#if jobs.length > 1}

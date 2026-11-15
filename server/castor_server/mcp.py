@@ -175,7 +175,8 @@ TOOLS: list[Tool] = [
           "command_args": {"type": "object", "description": "Arguments for command_ref"},
           "column_id": _s("Column id (from get_board)"), "tags": {"type": "array", "items": {"type": "string"}},
           "agent_selector": _SELECTOR, "due_at": _s("Due date-time, ISO 8601 (its people are reminded the day before and when it's overdue)"),
-          "waits_on": {"type": "array", "items": {"type": "string"}, "description": "Card ids of this project it depends on"}},
+          "waits_on": {"type": "array", "items": {"type": "string"}, "description": "Card ids of this project it depends on"},
+          "parent_id": _s("Make it a subtask of this card (an activity card of the project); it stays off the board")},
          ("project_id", "title")),
     Tool("move_card", "Move a card to another column (top of it unless position is given). Moving a command card into the active column runs it. "
          "A card that waits on unfinished cards (blocked_by in get_board) is refused into the active column unless force is true.",
@@ -343,6 +344,18 @@ _FILE = {"filename": _s("File name"), "content_base64": _s("The file's bytes, ba
 # approves what a plugin may do, in Settings → Plugins), and plugins' panels (pages for people to
 # look at; their handlers are the plugin's own and are reached through the panel).
 TOOLS += [
+    # Cards with subtasks: activity cards that hold other cards, to keep a board tidy
+    _auto("consolidate_cards", "POST", "/api/projects/{project_id}/consolidate",
+          "Tidy a board: a new card (title, description) holding existing cards of the project (task_ids) as its subtasks, "
+          "which leave the board. It goes in the column most of them are in unless column_id is given."),
+    _auto("add_subtasks", "POST", "/api/tasks/{task_id}/subtasks", "Put existing cards of the project (task_ids) into this card as "
+          "its subtasks. One level deep: a card with subtasks of its own, or a playbook run's, can't be one."),
+    _auto("list_subtasks", "GET", "/api/tasks/{task_id}/subtasks", "A card's subtasks, in order, with their status and latest run "
+          "(archived ones too with archived=true). A card's `subtasks` in get_board sums them up."),
+    _auto("release_subtask", "POST", "/api/tasks/{task_id}/release", "Make a subtask its own card on the board again."),
+    _auto("order_subtasks", "POST", "/api/tasks/{task_id}/subtasks/order", "Put a card's subtasks in this order (task_ids)."),
+    _auto("run_subtasks", "POST", "/api/tasks/{task_id}/subtasks/run", "Run every command subtask that isn't finished or running "
+          "(ones waiting on unfinished cards only with force)."),
     # MCP servers Castor calls tools on (Settings → MCP servers; changing them needs an admin)
     _auto("list_mcp_servers", "GET", "/api/mcp-connections", "The MCP servers Castor calls tools on, with their tools (as last checked) "
           "and the actions that call them."),

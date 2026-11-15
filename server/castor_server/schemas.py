@@ -297,6 +297,8 @@ class TaskIn(BaseModel):
     rate_limit: str | None = None
     # Ask before each run (a person approves every job).
     confirm: bool = False
+    # A subtask of this card (an activity in the same project): it stays off the board.
+    parent_id: uuid.UUID | None = None
 
     @field_validator("rate_limit")
     @classmethod
@@ -397,6 +399,17 @@ class BatchSummary(BaseModel):
     job_ids: list[uuid.UUID]
 
 
+class SubtaskSummary(BaseModel):
+    """An activity card's subtasks, as its card on the board shows them."""
+
+    total: int = 0
+    done: int = 0  # in Review, Done or Reported, or archived
+    running: int = 0  # started (In Progress, or a run on its way), not finished
+    failed: int = 0  # latest run failed, not finished
+    approvals: int = 0  # a run waiting for approval
+    next_due: datetime | None = None  # the soonest due date of the unfinished ones
+
+
 class RunSummary(BaseModel):
     """A playbook run, as its card on the board shows it (Phase 3h)."""
 
@@ -452,6 +465,9 @@ class TaskOut(ORM):
     tty: bool = False
     rate_limit: str | None = None
     confirm: bool = False
+    # A subtask: its activity. An activity: its subtasks' progress.
+    parent_id: uuid.UUID | None = None
+    subtasks: SubtaskSummary | None = None
     latest_job: JobOut | None = None
     batch: BatchSummary | None = None
     # Set on a playbook run's card: where the run is.

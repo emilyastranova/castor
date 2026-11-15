@@ -174,6 +174,9 @@ async def tasks_out(db: AsyncSession, tasks: list[m.Task]) -> list[TaskOut]:
     runs = await run_summaries(db, [t.id for t in tasks if t.playbook_step_id is None and t.kind == m.TaskKind.manual])
     batches = await batch_summaries(db, [j.batch_id for j in latest.values() if j.batch_id])
     blockers = await unfinished_blockers(db, tasks)
+    from .subtasks import summaries as subtask_summaries
+
+    subs = await subtask_summaries(db, [t.id for t in tasks if t.parent_id is None and t.playbook_step_id is None])
     result = []
     for task in tasks:
         out = TaskOut.model_validate(task)
@@ -185,6 +188,7 @@ async def tasks_out(db: AsyncSession, tasks: list[m.Task]) -> list[TaskOut]:
         out.run = runs.get(task.id)
         out.waits_on = list(task.waits_on or [])
         out.blocked_by = blockers.get(task.id, [])
+        out.subtasks = subs.get(task.id)
         result.append(out)
     return result
 
@@ -237,6 +241,10 @@ async def run_summaries(db: AsyncSession, card_ids: list[uuid.UUID]) -> dict[uui
 async def publish_task(db: AsyncSession, task: m.Task, name: str = "task.updated") -> TaskOut:
     out = await task_out(db, task)
     bus.publish(name, task.project_id, out)
+    if task.parent_id is not None:  # its activity's progress changed with it
+        parent = await db.get(m.Task, task.parent_id)
+        if parent is not None:
+            bus.publish("task.updated", parent.project_id, await task_out(db, parent))
     return out
 
 
@@ -779,11 +787,20 @@ async def archive_task(db: AsyncSession, task: m.Task, user: m.User | None) -> b
         return False
     if reason := await why_not_archive(db, task):
         raise ArchiveError(f"“{task.title}” can't be archived: {reason}")
+    from .subtasks import children
+
+    kids = [k for k in await children(db, task.id) if k.archived_at is None]
+    for kid in kids:
+        if reason := await why_not_archive(db, kid):
+            raise ArchiveError(f"“{task.title}” can't be archived: its subtask “{kid.title}”: {reason}")
     task.archived_at = utcnow()
     task.archived_by = user.id if user is not None else None
+    for kid in kids:  # its subtasks go with it (the same moment, so restoring brings them back)
+        kid.archived_at, kid.archived_by = task.archived_at, task.archived_by
+        await notify_unblocked(db, kid, user)
     await notify_unblocked(db, task, user)
-    await record_activity(db, type="task.archived", message=f"Archived “{task.title}”", project_id=task.project_id,
-                          task_id=task.id, **actor_of(user))
+    await record_activity(db, type="task.archived", message=f"Archived “{task.title}”" + (f" and its {len(kids)} subtasks" if kids else ""),
+                          project_id=task.project_id, task_id=task.id, **actor_of(user))
     return True
 
 
@@ -791,6 +808,12 @@ async def restore_task(db: AsyncSession, task: m.Task, user: m.User | None) -> b
     """Put an archived card back on the board where it was. Caller commits and publishes."""
     if task.archived_at is None:
         return False
+    from .subtasks import children
+
+    when = task.archived_at
+    for kid in await children(db, task.id):
+        if kid.archived_at == when:  # archived with it: back with it
+            kid.archived_at = kid.archived_by = None
     task.archived_at = None
     task.archived_by = None
     await record_activity(db, type="task.restored", message=f"Restored “{task.title}” to the board",
@@ -857,6 +880,10 @@ async def move_task(
                 from .summaries import after_card_done
 
                 after_card_done(task.id)  # once committed, if the project wants AI summaries
+        if task.parent_id is not None:
+            from .subtasks import follow
+
+            await follow(db, task.parent_id, user)  # its activity follows (published with it)
     return job
 
 
@@ -884,6 +911,10 @@ async def start_run(db: AsyncSession, task: m.Task, user: m.User | None) -> tupl
             **actor_of(user),
         )
         moved = True
+        if task.parent_id is not None:
+            from .subtasks import follow
+
+            await follow(db, task.parent_id, user)
     job = await enqueue_job(db, task, user, reason="run")
     return job, moved
 

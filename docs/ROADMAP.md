@@ -89,7 +89,16 @@ A board fills up fast when every small piece of work is its own card. A card sho
 be an over-arching activity ("Update homelab LXCs", "Patch the DMZ hosts", "Q3 external
 retest") with subtasks inside it, so the board and Home show the activity once, not twenty small
 cards. Playbook runs already work this way (one card on the board, its steps hidden, a Run tab
-with their progress), so this reuses that look and machinery:
+with their progress), so this reuses that look and machinery.
+
+The first part is built: one level of subtasks (`tasks.parent_id`), hidden from the board, with
+the activity's progress on its card; a Subtasks tab (quick add, cards from the board, order, make
+one its own card again, Run all); subtasks opening on top of the activity; the activity following
+its subtasks (a project setting); archive, restore, duplicate, delete and export taking them into
+account; and **Group cards into one** (the project menu, `POST /api/projects/{id}/consolidate`,
+MCP `consolidate_cards`) for tidying a board. Still to come: the rest of this list (many at once
+from a target list, a graph of their dependencies, dragging onto an activity, Home's roll-up,
+playbooks).
 - **On the board:** the activity is one card with its progress (5 of 12 done, 1 failed, 2
   running), its earliest due date and who's working on it, like a run card. Subtasks don't show as
   cards of their own (`parent_id`, filtered out like step cards), unless a filter asks for them.

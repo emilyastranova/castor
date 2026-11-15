@@ -21,6 +21,7 @@
 	import TagManagerDialog from '$lib/components/TagManagerDialog.svelte';
 	import ExportDialog from '$lib/components/ExportDialog.svelte';
 	import ArchivedCardsDialog from '$lib/components/ArchivedCardsDialog.svelte';
+	import GroupCardsDialog from '$lib/components/GroupCardsDialog.svelte';
 	import ProjectSwitcher from '$lib/components/ProjectSwitcher.svelte';
 	import { currentProject } from '$lib/currentProject.svelte';
 	import { canEdit, isAdmin, me } from '$lib/session';
@@ -125,6 +126,7 @@
 	let newColumn = $state<Column | null>(null);
 	let editOpen = $state(false);
 	let archivedOpen = $state(false);
+	let groupOpen = $state(false);
 	/** An archived card opened by a link, search or the Archived cards list: it isn't on the board. */
 	let archivedTask = $state<Task | null>(null);
 	function updated(t: Task) {
@@ -175,7 +177,7 @@
 		void goto(url, { replaceState: true, noScroll: true });
 	}
 
-	// ---- a playbook run's steps (3h): hidden from the board, opened on top of the run card ----
+	// ---- a playbook run's steps (3h) and an activity's subtasks: hidden from the board, opened on top of their card ----
 	let stepTaskId = $derived(page.url.searchParams.get('step'));
 	let stepTask = $state<Task | null>(null);
 	$effect(() => {
@@ -197,7 +199,7 @@
 		for (const k of ['step', 'comment', 'tab', 'job', 'view']) url.searchParams.delete(k);
 		void goto(url, { replaceState: true, noScroll: true, keepFocus: true });
 	}
-	// A link to a step's card (old links, search, notifications) opens its run card with the
+	// A link to a step's or subtask's card (old links, search, notifications) opens its run card (or activity) with the
 	// step on top, keeping where it pointed (?comment=, ?tab=…).
 	let redirecting: string | null = null;
 	$effect(() => {
@@ -211,11 +213,14 @@
 					if (page.url.searchParams.get('task') === id) archivedTask = t;
 					return;
 				}
-				if (!t.playbook_step_id || !t.playbook_run_id) return;
-				const run = await api().playbookRuns.get(t.playbook_run_id);
-				if (!run.card_id) return;
+				let parentId: UUID | null = t.parent_id ?? null; // a subtask: on top of its activity
+				if (!parentId) {
+					if (!t.playbook_step_id || !t.playbook_run_id) return;
+					parentId = (await api().playbookRuns.get(t.playbook_run_id)).card_id ?? null;
+				}
+				if (!parentId) return;
 				const url = new URL(page.url);
-				url.searchParams.set('task', run.card_id);
+				url.searchParams.set('task', parentId);
 				url.searchParams.set('step', t.id);
 				void goto(url, { replaceState: true, noScroll: true, keepFocus: true });
 			} catch {
@@ -352,6 +357,7 @@
 			<MenuItem icon="group" onclick={() => (membersOpen = true)}>Members</MenuItem>
 			{#if editable}<MenuItem icon="sell" onclick={() => (tagsOpen = true)}>Manage tags…</MenuItem>{/if}
 			{#if editable}<MenuItem icon="edit" onclick={() => (editOpen = true)}>Edit project</MenuItem>{/if}
+			{#if editable}<MenuItem icon="checklist" onclick={() => (groupOpen = true)}>Group cards into one…</MenuItem>{/if}
 			<MenuItem icon="inventory_2" onclick={() => (archivedOpen = true)}>Archived cards…</MenuItem>
 			<MenuItem icon="download" onclick={() => (exportOpen = true)}>Export project…</MenuItem>
 			<MenuItem icon="refresh" onclick={() => invalidateAll()}>Reload board</MenuItem>
@@ -425,6 +431,9 @@
 	history
 />
 <ProjectDialog bind:open={editOpen} project={store.project} onsaved={(p) => (store.project = p)} />
+{#if groupOpen}
+	<GroupCardsDialog bind:open={groupOpen} projectId={store.project.id} columns={store.columns} ondone={(t) => { store.upsertTask(t); openTask(t); }} />
+{/if}
 <ArchivedCardsDialog
 	bind:open={archivedOpen}
 	projectId={store.project.id}

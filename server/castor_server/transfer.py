@@ -916,6 +916,10 @@ async def _import_project(
             elif table == "activity":
                 values["project_id"] = project_id
             rows.append(values)
+        if table == "tasks":  # activities before their subtasks (tasks.parent_id)
+            await insert_rows(db, model, [r for r in rows if not r.get("parent_id")])
+            await insert_rows(db, model, [r for r in rows if r.get("parent_id")])
+            continue
         await insert_rows(db, model, rows)
     for run_id, card_id in card_ids.items():
         await db.execute(update(m.PlaybookRun).where(m.PlaybookRun.id == run_id).values(card_id=card_id))

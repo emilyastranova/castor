@@ -615,6 +615,10 @@ class AgentGateway:
             task_id=task.id,
             payload={"to": str(review.id), "auto": True},
         )
+        if task.parent_id is not None:
+            from ..subtasks import follow
+
+            await follow(db, task.parent_id, None)  # its activity follows; published with the subtask
 
     async def _redaction(self, db, job: m.Job) -> variables.Resolved:
         cached = self._redactions.get(job.id)
