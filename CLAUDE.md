@@ -81,6 +81,8 @@ Releases: `scripts/release.sh X.Y.Z` sets the version in `server/pyproject.toml`
 with generated notes. Pushes to main publish `edge`. It needs the secrets `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`.
 The server image builds from the repository root (`.dockerignore` lets in only `server/` and the built-in library,
 which it carries at `/app/library`; `compose.dev.yaml` mounts the checkout's over it); the server reports its version (package metadata) at `/api/health`.
+The web image builds and installs its packages on `$BUILDPLATFORM` (plain JS, no native modules), so its arm64
+image needs no emulation; keep its runtime dependencies free of native modules or move that back.
 
 Full stack from this checkout: `cp .env.example .env && docker compose -f compose.yaml -f compose.dev.yaml up -d --build`
 (or `COMPOSE_FILE=compose.yaml:compose.dev.yaml` in `.env`). `compose.yaml` alone runs the published images and needs no
