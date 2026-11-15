@@ -1,0 +1,11 @@
+# Only the server image builds from the repository root (web/ and agent/ have their own
+# contexts). Let in just what server/Dockerfile copies.
+*
+!server/pyproject.toml
+!server/castor_server/
+!commands/
+!playbooks/
+!tools/
+!themes/
+**/__pycache__
+**/*.pyc

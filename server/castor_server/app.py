@@ -28,6 +28,7 @@ from .services import ensure_run_cards
 from .theme_library import sync_builtin_themes
 from .tool_library import sync_builtin_tools
 from .variables import drop_unclaimed, sync_builtin_kinds
+from .version import VERSION
 from .ws.terminal import router as terminal_ws_router
 from .ws.ui import router as ui_ws_router
 
@@ -147,7 +148,7 @@ def _openapi(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Castor", version="0.1.0", lifespan=lifespan, docs_url="/api/docs", redoc_url="/api/redoc",
+    app = FastAPI(title="Castor", version=VERSION, lifespan=lifespan, docs_url="/api/docs", redoc_url="/api/redoc",
                   openapi_url="/api/openapi.json", swagger_ui_parameters={"persistAuthorization": True})
     app.openapi = _openapi(app)
     app.add_middleware(
@@ -167,7 +168,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health")
     async def health():
-        return {"ok": True, "agents_connected": len(gateway.connections)}
+        return {"ok": True, "version": VERSION, "agents_connected": len(gateway.connections)}
 
     return app
 

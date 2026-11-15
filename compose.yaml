@@ -1,6 +1,7 @@
 # Castor stack. Works with `docker compose` and `podman compose` (podman-compose).
 #   cp .env.example .env   # then edit secrets
-#   docker compose up -d --build
+#   docker compose pull && docker compose up -d   # the published images (CASTOR_VERSION, default latest)
+#   docker compose up -d --build                  # or build them from this checkout
 # UI: http://localhost:8080  (API docs at /api/docs are proxied too)
 name: castor
 
@@ -22,8 +23,9 @@ services:
 
   server:
     build:
-      context: ./server
-    image: castor/server:latest
+      context: .
+      dockerfile: server/Dockerfile
+    image: docker.io/emilyastranova/castor:${CASTOR_VERSION:-latest}
     restart: unless-stopped
     depends_on:
       db:
@@ -59,7 +61,7 @@ services:
   web:
     build:
       context: ./web
-    image: castor/web:latest
+    image: docker.io/emilyastranova/castor-web:${CASTOR_VERSION:-latest}
     restart: unless-stopped
     depends_on:
       - server
@@ -84,7 +86,7 @@ services:
   agent:
     build:
       context: ./agent
-    image: castor/agent:latest
+    image: docker.io/emilyastranova/castor-agent:${CASTOR_VERSION:-latest}
     restart: unless-stopped
     depends_on:
       - server

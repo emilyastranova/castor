@@ -218,12 +218,16 @@ discovery** and **SSH version discovery**. Add your own [commands](https://githu
 
 ## Quick start
 
-With Docker or Podman Compose:
+With Docker or Podman Compose, using the published images
+([`emilyastranova/castor`](https://hub.docker.com/r/emilyastranova/castor), `castor-web` and `castor-agent`, for amd64 and arm64):
 
 ```bash
 cp .env.example .env     # edit the secrets
-docker compose up -d --build
+docker compose pull && docker compose up -d
 ```
+
+`CASTOR_VERSION=1.0.0` in `.env` pins a release (default `latest`; `edge` follows main). To build
+from this checkout instead: `docker compose up -d --build`.
 
 Open <http://localhost:8080> and sign in with the admin credentials from `.env`. Add
 `--profile agent` to also run an agent inside the stack; [Agents](https://github.com/emilyastranova/castor/wiki/Agents) shows how to connect one on

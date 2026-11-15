@@ -35,11 +35,12 @@ from .events import bus
 from .models import utcnow
 from .plugin_manifest import Manifest, version_key
 from .plugin_runtime import START_TIMEOUT, PluginProcess, PluginRuntimeError, check_graph, host
+from .version import VERSION
 
 log = logging.getLogger(__name__)
 
 APP: Any = None  # the ASGI app, set at startup (app.py): plugins call the API in-process
-CASTOR_VERSION = "0.1.0"
+CASTOR_VERSION = VERSION  # what plugin manifests' `castor:` versions are checked against
 LOG_KEEP = 2000
 STORAGE_VALUE_MAX = 1024**2
 # Calls to Castor's API per plugin per minute: enough for any import, not enough to swamp Castor.

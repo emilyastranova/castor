@@ -75,6 +75,13 @@ regenerate.
 README screenshots (`.github/assets/screenshots/*.png`) come from a seeded throwaway demo
 instance (`seed_demo.py`, `capture.py`); the steps are in that folder's README.
 
+Releases: `scripts/release.sh X.Y.Z` sets the version in `server/pyproject.toml`, `agent/pyproject.toml` and
+`web/package.json` (+ lock), commits and tags `vX.Y.Z`; pushing the tag runs `.github/workflows/ci.yml`: tests, then
+`emilyastranova/castor` (the server), `castor-web` and `castor-agent` on Docker Hub (X.Y.Z, X.Y, latest; amd64 and arm64) and a GitHub Release
+with generated notes. Pushes to main publish `edge`. It needs the secrets `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`.
+The server image builds from the repository root (`.dockerignore` lets in only `server/` and the built-in library,
+which it carries at `/app/library`); the server reports its version (package metadata) at `/api/health`.
+
 Full stack: `cp .env.example .env && docker compose up -d --build` (also works with
 `podman compose` if a compose provider is installed). The Postgres path has not been
 exercised on the original dev machine; SQLite is what the tests and dev loop use.
