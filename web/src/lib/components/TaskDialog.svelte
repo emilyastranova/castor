@@ -40,6 +40,7 @@
 	import MarkdownEditor from './MarkdownEditor.svelte';
 	import RichText from './RichText.svelte';
 	import { people } from '$lib/people.svelte';
+	import { appSettings } from '$lib/appSettings.svelte';
 	import { enter, leave, pop, glide } from '$lib/motion';
 	import CommandArgsForm from './CommandArgsForm.svelte';
 	import VarBindings from './VarBindings.svelte';
@@ -247,7 +248,7 @@
 		outputView = wantedView ?? (done && job.output_specs?.length ? 'results' : 'console');
 		wantedView = null;
 	});
-	let activeJob = $derived(task.latest_job && ['queued', 'dispatched', 'running', 'waiting'].includes(task.latest_job.status) ? task.latest_job : null);
+	let activeJob = $derived(task.latest_job && ['approval', 'queued', 'dispatched', 'running', 'waiting'].includes(task.latest_job.status) ? task.latest_job : null);
 
 	// ---- comments / attachments / history ----
 	let comments = $state<Comment[]>([]);
@@ -366,6 +367,26 @@
 			snackbar.error(err instanceof ApiError ? err.message : 'Could not start job');
 		}
 	}
+	// ---- a run waiting for approval ----
+	let rejectReason = $state('');
+	let deciding = $state(false);
+	/** Who started the waiting run, by name (from the project's people). */
+	let startedBy = $derived(activeJob?.created_by ? (people.list(task.project_id).find((u) => u.id === activeJob!.created_by)?.display_name ?? 'someone') : 'Castor');
+	let mineToApprove = $derived(!!activeJob && activeJob.created_by === myId);
+	async function decide(approve: boolean) {
+		if (!activeJob) return;
+		deciding = true;
+		try {
+			if (approve) await api().jobs.approve(activeJob.id);
+			else await api().jobs.reject(activeJob.id, rejectReason);
+			rejectReason = '';
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not decide');
+		} finally {
+			deciding = false;
+		}
+	}
+
 	async function cancel(job: Job) {
 		try {
 			await api().jobs.cancel(job.id);
@@ -777,6 +798,23 @@
 	<div class="grid min-h-full grid-cols-[minmax(0,1fr)] gap-6 pt-2 pb-6 lg:grid-cols-[minmax(0,1fr)_300px]" onpaste={onPaste}>
 		<!-- main column -->
 		<div class="flex min-h-0 min-w-0 flex-col gap-4">
+			{#if activeJob?.status === 'approval'}
+				<div class="flex flex-col gap-3 rounded-md bg-tertiary-container p-4 text-on-tertiary-container">
+					<p class="flex items-center gap-2 title-small"><Icon name="front_hand" size={20} />This run waits for approval</p>
+					<p class="body-medium">
+						{libraryDef?.spec.confirm ? `“${libraryDef.name}” asks before each run` : 'This card asks before each run'}: it can change things outside Castor.
+						Started by {startedBy} {relativeTime(activeJob.queued_at)}.
+					</p>
+					<code class="block max-h-32 overflow-auto rounded-sm bg-surface-container-highest p-2 font-mono text-[12.5px] break-all whitespace-pre-wrap text-on-surface">{task.command}</code>
+					{#if editable}
+						<div class="flex flex-wrap items-end gap-2">
+							<TextField label="Why not (if you reject it)" bind:value={rejectReason} class="min-w-48 flex-1" />
+							<Button variant="text" loading={deciding} onclick={() => decide(false)}>Reject</Button>
+							<Button icon="check" loading={deciding} onclick={() => decide(true)} title={mineToApprove && appSettings.value?.approval_by_someone_else ? 'Someone other than you has to approve it' : undefined} disabled={mineToApprove && !!appSettings.value?.approval_by_someone_else}>Approve and run</Button>
+						</div>
+					{/if}
+				</div>
+			{/if}
 			{#if stepRun && stepSpec && stepRun.step_status[stepSpec.id] === 'attention'}
 				<StepDecision run={stepRun} step={stepSpec} result={stepResult} onresolved={(r) => (stepRun = r)} />
 			{/if}
@@ -928,6 +966,9 @@
 					{/if}
 					<div class="flex flex-wrap items-center gap-4">
 						<Switch bind:checked={runOnMove} label="Run when moved to In Progress" onchange={(v) => save({ run_on_move: v })} />
+						<span title="A person approves each run before it starts (for runs that change things outside Castor)">
+							<Switch checked={!!task.confirm || !!libraryDef?.spec.confirm} disabled={!!libraryDef?.spec.confirm} label={libraryDef?.spec.confirm ? 'Ask before each run (its definition asks)' : 'Ask before each run'} onchange={(v) => save({ confirm: v })} />
+						</span>
 						{#if !isHttp && !isMcp && !isPluginAction}
 						<span title="A real terminal: you can type into it while it runs, full-screen programs (tmux, vim, htop) work, and a run that stops at a prompt tells people.">
 							<Switch checked={!!task.tty || libTty} disabled={libTty} label={libTty ? 'Interactive terminal (its command asks for one)' : 'Interactive terminal'} onchange={(v) => save({ tty: v })} />

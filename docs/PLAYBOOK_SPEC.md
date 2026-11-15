@@ -450,6 +450,10 @@ With `on_failure: ai`, the `ai` block says what the resolver may do alone (all o
       max_wait_s: 900          # HTTP actions: the longest it may choose to wait in one go
 ```
 
+**Approvals.** A step whose command or action says `confirm: true` waits (queued) until a person
+approves its run on the step's card; rejected, the step ends cancelled, and what needs it is
+blocked unless a condition handles that.
+
 **HTTP actions.** A step that runs an [HTTP action](../commands/README.md#http-actions-kind-http) is
 sent from the Castor server, whatever agent the run uses. When its requests still go wrong after
 the fixed retry rules (an API that keeps rate limiting, an outage, timeouts, a batch it rejects),

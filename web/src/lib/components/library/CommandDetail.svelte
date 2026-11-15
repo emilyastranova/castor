@@ -156,6 +156,10 @@
 				<dt class="label-large text-on-surface-variant">Rate limit</dt>
 				<dd><code class="font-mono text-[12.5px]">{c.spec.rate_limit}</code> <span class="text-on-surface-variant">for cards without their own</span></dd>
 			{/if}
+			{#if c.spec.confirm}
+				<dt class="label-large text-on-surface-variant">Approval</dt>
+				<dd>A person approves each run before it starts</dd>
+			{/if}
 			{#if c.spec.tty}
 				<dt class="label-large text-on-surface-variant">Terminal</dt>
 				<dd>Interactive: runs in a terminal people can take control of</dd>

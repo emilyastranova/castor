@@ -202,7 +202,11 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   Phase 4, plugin actions (`kind: plugin`): manifest `library_actions` become generated pack items
   (`plugin_library.action_items`, ids `<plugin>-<action>`); runner `_call_plugin` (forwards logs and
   progress via `plugins.job_runs`, `cancel` → `run.signal`), `plugins.actions_rate_limit`. Tests:
-  `tests/test_plugin_actions.py` (a real Deno plugin). `Trouble` (fixed rules
+  `tests/test_plugin_actions.py` (a real Deno plugin). Phase 5, approvals: `confirm: true` on a
+  definition or `tasks.confirm` → jobs start as `JobStatus.approval` (`services.ask_approval`,
+  `decide_approval`, `POST /api/jobs/{id}/approve|reject`, `app_settings.approval_by_someone_else`);
+  use `JobStatus.active()` for "unfinished" (it includes `approval` and `waiting`); a fan-out item
+  with no job is `unstarted`, not `waiting`. Tests: `tests/test_approvals.py`. `Trouble` (fixed rules
   ran out) on an `on_failure: ai` step goes to `_recover` → `ai.recover_http`, a fixed list of
   moves recorded in `progress.ai_moves`; batches count values (`progress.offset`). Web:
   `agentSelector.httpSenderOptions`/`describeSender`.

@@ -1,10 +1,11 @@
 # Actions beyond commands (plan)
 
-Status: **phases 1 to 4 are built**: HTTP actions the Castor server sends (with paging, batches,
+Status: **all five phases are built**: HTTP actions the Castor server sends (with paging, batches,
 rate limits, retries and waiting), sent through an agent's network when a card chooses one, AI
 recovery moves for playbook steps, MCP actions (tools on other MCP servers, over HTTP or as stdio
-programs agents run), and plugin actions (a plugin's library actions, on cards and as steps). The format is in [commands/README.md](../commands/README.md#http-actions-kind-http)
-and how it works in [ARCHITECTURE.md](ARCHITECTURE.md#http-actions). Phase 5 is still a plan.
+programs agents run), plugin actions (a plugin's library actions, on cards and as steps), and
+approvals (`confirm: true`). The format is in [commands/README.md](../commands/README.md#http-actions-kind-http)
+and how it works in [ARCHITECTURE.md](ARCHITECTURE.md#http-actions). What's left is listed under each phase.
 This is the design the work follows: change it here first when a decision changes, then build.
 The roadmap entry ("Actions beyond commands") points here.
 
@@ -410,7 +411,17 @@ that times out) and to plugin actions, which can return `{retry_after: 30}`.
    `run.job`/`run.signal` and `{message, output}` in the SDK, the runner bridge (`_call_plugin`, log
    and progress forwarded through `plugins.job_runs`), the plugin's rate limit, and the
    `shodan-enrich` example (a "Shodan host lookup" library action, in its 1.2.0, for Castor 1.4).
-5. **Approvals and polish:** `confirm: true`, MCP tools for managing connections and limits.
+5. **Approvals and polish** (built): `confirm: true` on a definition, or "Ask before each run" on any
+   card (`tasks.confirm`): its jobs start in status `approval`; the project is told (the bell,
+   Home's needs-attention, alert channels that take approvals) and an operator approves (queued,
+   `jobs.approved_by`) or rejects it (cancelled, with the reason) on the card, through
+   `POST /api/jobs/{id}/approve|reject` or MCP (`approve_job`, `reject_job`). A run on several
+   agents is decided together; a playbook step waits as queued, and a rejected one ends cancelled.
+   `app_settings.approval_by_someone_else` makes it a two-person rule. MCP tools for MCP servers
+   (`list_mcp_servers`, `add_mcp_server`, `check_mcp_server`, `draft_mcp_action`…); limits already
+   had theirs (`update_card`, `update_variable_set`). Still to do from earlier phases: **Try it** in
+   the Library, a step's own `rate_limit`, use of limits shown on variable sets, the older SSE
+   transport for MCP, and MCP servers in exports.
 
 Each phase ships on its own and keeps commands exactly as they are.
 

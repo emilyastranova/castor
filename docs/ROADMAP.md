@@ -135,11 +135,12 @@ kind of action that's part of Castor itself, of which a command is one sort:
   never rendered into what's stored, logs and results on the card, and the activity feed.
 - **Design:** [ACTIONS.md](ACTIONS.md) covers where each sort runs, how retries, cancel and
   `on_failure` apply to something that isn't a process, how the library and the playbook editor
-  show them, and the phases. Phases 1 to 4 are built: HTTP actions the server sends, with paging,
+  show them, and the phases. All five phases are built: HTTP actions the server sends, with paging,
   batches, rate limits, retries and waiting, sent through an agent's network when a card chooses
   one, AI recovery for playbook steps, MCP actions (Castor as an MCP client, over HTTP or with
   stdio servers agents run), and plugin actions (a plugin's library actions on cards and as
-  steps). Still to come: approvals and polish.
+  steps), and approvals (`confirm: true`, or a card that asks before each run). Left over: Try it
+  in the Library, a step's own rate limit, the older SSE transport for MCP, MCP servers in exports.
 
 ### Ansible playbooks
 Run Ansible playbooks from Castor, with their results on the card like any other run. (They're

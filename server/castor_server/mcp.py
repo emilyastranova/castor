@@ -221,6 +221,11 @@ TOOLS: list[Tool] = [
     Tool("get_job_results", "A job's parsed results (hosts, services, URLs…).", "GET", "/api/jobs/{job_id}/outputs",
          {"job_id": ID["job_id"]}, ("job_id",), untrusted=True),
     Tool("cancel_job", "Cancel a queued or running job.", "POST", "/api/jobs/{job_id}/cancel", {"job_id": ID["job_id"]}, ("job_id",)),
+    Tool("approve_job", "Let a run that waits for approval go (status approval: its definition says confirm: true, or its card "
+         "asks before each run). Approve only what a person asked you to: these runs change things outside Castor.",
+         "POST", "/api/jobs/{job_id}/approve", {"job_id": ID["job_id"]}, ("job_id",)),
+    Tool("reject_job", "Don't let a run that waits for approval go: it's cancelled, with the reason.",
+         "POST", "/api/jobs/{job_id}/reject", {"job_id": ID["job_id"], "reason": _s("Why, for the card")}, ("job_id",)),
     Tool("list_commands", "The command library: ids, arguments and what each command does.", "GET", "/api/commands"),
     Tool("get_command", "One library command with its arguments and outputs.", "GET", "/api/commands/{command_id}",
          {"command_id": _s("Command id")}, ("command_id",)),
@@ -338,6 +343,20 @@ _FILE = {"filename": _s("File name"), "content_base64": _s("The file's bytes, ba
 # approves what a plugin may do, in Settings → Plugins), and plugins' panels (pages for people to
 # look at; their handlers are the plugin's own and are reached through the panel).
 TOOLS += [
+    # MCP servers Castor calls tools on (Settings → MCP servers; changing them needs an admin)
+    _auto("list_mcp_servers", "GET", "/api/mcp-connections", "The MCP servers Castor calls tools on, with their tools (as last checked) "
+          "and the actions that call them."),
+    _auto("get_mcp_server", "GET", "/api/mcp-connections/{connection_id}", "One MCP server Castor calls tools on, with its tools."),
+    _auto("add_mcp_server", "POST", "/api/mcp-connections", "Add an MCP server for MCP actions: transport http (url, headers) or stdio "
+          "(command, tool or image, env, agent_selector, run by an agent). Secrets go in a variable set (variable_set_id) and are "
+          "named {{ field }} in headers or env."),
+    _auto("update_mcp_server", "PUT", "/api/mcp-connections/{connection_id}", "Change an MCP server (every field; the id stays)."),
+    _auto("remove_mcp_server", "DELETE", "/api/mcp-connections/{connection_id}", "Remove an MCP server; actions that call it fail "
+          "until it's back.", **_DESTRUCTIVE),
+    _auto("check_mcp_server", "POST", "/api/mcp-connections/{connection_id}/check", "Connect to an MCP server and read its name and "
+          "tools (a stdio one is started on an agent first)."),
+    _auto("draft_mcp_action", "GET", "/api/mcp-connections/{connection_id}/tools/{tool}/draft", "A kind: mcp definition for one of "
+          "an MCP server's tools, its input schema as typed arguments: YAML to check and save with create_command."),
     # Cards
     _auto("update_card", "PATCH", "/api/tasks/{task_id}",
           "Change a card (move it with move_card); only the fields given change: title, description, command (shell) or command_ref + "

@@ -502,9 +502,11 @@ FINAL = frozenset({*FINAL_STATUSES, "blocked"})
 def job_step_status(job_status: str | None) -> str | None:
     """Map a JobStatus value onto a step status."""
     return {
+        "approval": "queued",  # waiting for a person to let it run
         "queued": "queued",
         "dispatched": "queued",
         "running": "running",
+        "waiting": "running",  # an HTTP action parked for a rate limit: still running
         "succeeded": "succeeded",
         "failed": "failed",
         "lost": "failed",

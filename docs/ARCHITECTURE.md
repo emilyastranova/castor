@@ -48,7 +48,9 @@ User *──* Project (project_members; admins see every project)
   agent with them; see Dispatcher), normalised by `services.check_selector`.
 * **Job.status** flows `queued → dispatched → running → succeeded | failed | cancelled | lost`.
   `lost` means the agent disconnected mid-run. An HTTP action can also be `waiting` (for a rate
-  limit or the API's Retry-After, until `resume_at`) between `running` and its end.
+  limit or the API's Retry-After, until `resume_at`) between `running` and its end. A job that
+  needs approval starts as `approval` (before `queued`). `JobStatus.active()` is every unfinished
+  status: a card has at most one job in them.
 * **Job.kind** is `command` (an agent runs it) or `http` (the Castor server sends a request; see
   HTTP actions), `mcp` (a tool on another MCP server) or `plugin` (a plugin's library action). `Job.runner` is `server` for the jobs no agent ran; `Job.via_agent_id` is the agent
   an HTTP action's requests went out through, if any.
@@ -346,6 +348,15 @@ manual cards (`command_library.forget_definition`).
   `progress` for the job's id to its console; a cancelled job sends the plugin `cancel`
   (`run.signal`). The handler's `output` is the job's stdout. `plugins.actions_rate_limit` (admins)
   adds a `plugin:<id>` scope to the job's rate limits.
+* **Approvals.** A definition's `confirm: true` or a card's `tasks.confirm` makes `enqueue_job` create
+  its jobs as `approval` (`services.ask_approval`: activity, a `job.approval` notification with
+  subject `approval:<job id>`, `alerts.approval`); the dispatcher never picks them up. `decide_approval`
+  (`POST /api/jobs/{id}/approve|reject`, operators who can change the project) queues them
+  (`approved_by`, `approved_at`) or cancels them with the reason, a batch together, and clears the
+  notifications; `app_settings.approval_by_someone_else` refuses approval by whoever started it.
+  Home lists them under needs-attention (`kind: approval`). In playbooks `approval` maps to a queued
+  step (and `waiting` to a running one), so the engine doesn't start the step again; a fan-out's
+  items without a job are `unstarted`.
 * **AI recovery.** When the fixed rules run out (`Trouble`) on a playbook step with
   `on_failure: ai`, `server_runner._recover` asks the resolver chain (`ai.recover_http`, masked
   context: the request without its query, the status, rate-limit headers, the start of the body,

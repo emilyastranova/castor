@@ -101,6 +101,7 @@
 		queued: 'text-on-surface-variant',
 		dispatched: 'text-on-surface-variant',
 		waiting: 'text-on-surface-variant',
+		approval: 'text-tertiary',
 		cancelled: 'text-on-surface-variant'
 	};
 </script>

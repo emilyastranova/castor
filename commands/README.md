@@ -174,6 +174,16 @@ one target per argument); a text argument gets them comma-separated. Each entry 
 checked against the argument's `regex`. The nmap commands take an `exclude` list for
 exclusion lists.
 
+## Asking before each run (`confirm`)
+
+`confirm: true` on any definition (a command, an HTTP, MCP or plugin action) makes every run of it
+wait for a person to approve it first: for actions that change things outside Castor, like
+posting to a customer's channel or opening tickets in their tracker. Any card can ask too (**Ask
+before each run** on the card). The run shows **Needs approval** on its card and in Home's
+needs-attention, people on the project are notified (and alert channels that take approvals), and
+an operator approves or rejects it on the card; rejected, it's cancelled with the reason. In a
+playbook the step waits. Settings → General can require someone other than whoever started it.
+
 ## HTTP actions (`kind: http`)
 
 A definition can make an HTTP request instead of running a command: the **Castor server** sends

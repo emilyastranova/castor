@@ -51,7 +51,8 @@
 		running: { icon: 'progress_activity', text: 'text-primary', label: 'Running' },
 		queued: { icon: 'hourglass_empty', text: 'text-tertiary', label: 'Queued' },
 		dispatched: { icon: 'hourglass_empty', text: 'text-tertiary', label: 'Queued' },
-		waiting: { icon: 'hourglass_top', text: 'text-tertiary', label: 'Waiting' }
+		waiting: { icon: 'hourglass_top', text: 'text-tertiary', label: 'Waiting' },
+		approval: { icon: 'front_hand', text: 'text-tertiary', label: 'Needs approval' }
 	};
 
 	let meta = $derived(KIND[item.kind] ?? KIND.admin);

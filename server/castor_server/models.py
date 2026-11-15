@@ -82,6 +82,14 @@ class JobStatus(str, enum.Enum):
     # An HTTP action waiting for a rate limit or a Retry-After (Job.resume_at); it holds no
     # runner slot and carries on from Job.progress.
     waiting = "waiting"
+    # Waiting for a person to approve it (its definition says confirm: true, or its card asks):
+    # approved, it's queued; rejected, cancelled.
+    approval = "approval"
+
+    @classmethod
+    def active(cls) -> tuple[JobStatus, ...]:
+        """Not finished: a card has at most one job in these at a time."""
+        return (cls.approval, cls.queued, cls.dispatched, cls.running, cls.waiting)
 
     @property
     def is_terminal(self) -> bool:
@@ -360,6 +368,8 @@ class Task(Base, TimestampMixin):
     tty: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     # HTTP actions: this card's own limit on its requests ("60/minute"; rate_limits.py).
     rate_limit: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Ask before each run: a person approves every job of it (its definition can demand it too).
+    confirm: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
 
     project: Mapped[Project] = relationship(back_populates="tasks")
     column: Mapped[BoardColumn] = relationship(back_populates="tasks")
@@ -673,6 +683,9 @@ class Job(Base):
     # How far it got (pages and batches done), so a retry or a resume carries on from there.
     progress: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
     resume_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    # Who let it run (status approval → queued), and when.
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
     task: Mapped[Task] = relationship(back_populates="jobs")
     agent: Mapped[Agent | None] = relationship(back_populates="jobs", foreign_keys="Job.agent_id")

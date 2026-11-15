@@ -18,7 +18,8 @@
 		failed: { icon: 'error', label: 'Failed', cls: 'bg-error-container text-on-error-container' },
 		cancelled: { icon: 'cancel', label: 'Cancelled', cls: 'bg-surface-container-highest text-on-surface-variant' },
 		lost: { icon: 'signal_disconnected', label: 'Lost', cls: 'bg-error-container text-on-error-container' },
-		waiting: { icon: 'hourglass_top', label: 'Waiting', cls: 'bg-secondary-container text-on-secondary-container' }
+		waiting: { icon: 'hourglass_top', label: 'Waiting', cls: 'bg-secondary-container text-on-secondary-container' },
+		approval: { icon: 'front_hand', label: 'Needs approval', cls: 'bg-tertiary-container text-on-tertiary-container' }
 	};
 	let m = $derived(job ? meta[job.status] : null);
 	let b = $derived(batch ? meta[batch.status] : null);

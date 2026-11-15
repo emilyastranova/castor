@@ -21,7 +21,7 @@
 	let failed = $state<string | null>(null);
 	let base = $state<UUID | null>(null);
 	let show = $state<'all' | 'added' | 'removed' | 'changed'>('all');
-	let finished = $derived(!['queued', 'dispatched', 'running', 'waiting'].includes(job.status));
+	let finished = $derived(!['approval', 'queued', 'dispatched', 'running', 'waiting'].includes(job.status));
 
 	async function load(id: UUID, chosen: UUID | null) {
 		try {

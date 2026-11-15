@@ -99,5 +99,15 @@
 				onblur={() => saveList('http_allow_addresses', addresses)}
 			/>
 		</Card>
+
+		<Card variant="outlined" class="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:gap-6">
+			<div class="min-w-0 flex-1">
+				<h2 class="title-medium text-on-surface">Approvals</h2>
+				<p class="body-medium text-on-surface-variant">
+					Runs of actions that say <code class="font-mono">confirm: true</code>, and of cards that ask before each run, wait for a person to approve them. With this on, it has to be someone other than whoever started the run.
+				</p>
+			</div>
+			<Switch checked={!!settings.approval_by_someone_else} label="Someone else approves" onchange={(v) => change({ approval_by_someone_else: v })} />
+		</Card>
 	</div>
 </div>

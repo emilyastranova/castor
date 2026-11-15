@@ -293,9 +293,7 @@ async def active_job_for(db: AsyncSession, task_id: uuid.UUID) -> m.Job | None:
         await db.execute(
             select(m.Job).where(
                 m.Job.task_id == task_id,
-                m.Job.status.in_(
-                    [m.JobStatus.queued, m.JobStatus.dispatched, m.JobStatus.running]
-                ),
+                m.Job.status.in_(m.JobStatus.active()),
             )
         )
     ).scalars().first()
@@ -318,6 +316,8 @@ async def enqueue_job(
 
     spec = await load_spec(db, task.command_ref) if task.command_ref else None
     kind = spec.kind if spec else "command"
+    # A person lets each run go first: the definition demands it, or the card asks.
+    ask = bool(task.confirm or (spec and spec.confirm))
 
     def new_job(**extra: Any) -> m.Job:
         return m.Job(
@@ -332,6 +332,7 @@ async def enqueue_job(
             var_bindings=dict(task.var_bindings or {}),
             created_by=user.id if user else None,
             tty=tty,
+            status=m.JobStatus.approval if ask else m.JobStatus.queued,
             **extra,
         )
 
@@ -357,9 +358,65 @@ async def enqueue_job(
         payload={"job_id": str(jobs[0].id), **({"job_ids": [str(j.id) for j in jobs]} if len(jobs) > 1 else {})},
         **actor_of(user),
     )
+    if ask:
+        await ask_approval(db, task, jobs[0], user, len(jobs))
     for job in jobs:
         publish_job(job, task.project_id)
     return jobs[0]
+
+
+async def ask_approval(db: AsyncSession, task: m.Task, job: m.Job, user: m.User | None, count: int = 1) -> None:
+    """Tell the project a run waits for a person to let it go (the card, Home, the bell and alert
+    channels that take approvals)."""
+    from . import alerts
+    from .notifications import notify
+
+    who = user.display_name if user else "Castor"
+    what = f"{count} runs of “{task.title}”" if count > 1 else f"“{task.title}”"
+    link = f"/projects/{task.project_id}?task={task.id}"
+    await record_activity(db, type="job.approval_requested", message=f"{what} waits for approval to run (started by {who})",
+                          project_id=task.project_id, task_id=task.id, payload={"job_id": str(job.id)}, **actor_of(user))
+    await notify(db, kind="job.approval", title=f"{what} needs approval to run", body=f"Started by {who}: {task.command[:300]}",
+                 link=link, severity="warning", project_id=task.project_id, subject=f"approval:{job.id}",
+                 payload={"job_id": str(job.id), "task_id": str(task.id)})
+    await alerts.approval(db, task.project_id, f"{what} needs approval to run", f"Started by {who}", link)
+
+
+class ApprovalError(ValueError):
+    """The job can't be approved or rejected (not waiting, or the person can't)."""
+
+
+async def decide_approval(db: AsyncSession, job: m.Job, user: m.User, approve: bool, reason: str = "") -> list[m.Job]:
+    """Let a waiting job run (queued) or reject it (cancelled, with the reason); a run on several
+    agents at once is decided together. The caller commits and wakes the dispatcher."""
+    from . import app_settings
+    from .notifications import clear as clear_subject
+
+    if job.status != m.JobStatus.approval:
+        raise ApprovalError("it isn't waiting for approval")
+    settings = await app_settings.load(db)
+    if approve and settings.approval_by_someone_else and job.created_by == user.id:
+        raise ApprovalError("someone other than who started it has to approve it (Settings → General)")
+    jobs = [job]
+    if job.batch_id is not None:
+        jobs = list((await db.execute(select(m.Job).where(m.Job.batch_id == job.batch_id, m.Job.status == m.JobStatus.approval))).scalars())
+    task = await db.get(m.Task, job.task_id)
+    now = utcnow()
+    for j in jobs:
+        if approve:
+            j.status, j.approved_by, j.approved_at = m.JobStatus.queued, user.id, now
+        else:
+            j.status, j.finished_at = m.JobStatus.cancelled, now
+            j.error = f"Rejected by {user.display_name}" + (f": {reason.strip()[:500]}" if reason.strip() else "")
+    await record_activity(
+        db, type="job.approved" if approve else "job.rejected",
+        message=(f"Approved running “{task.title}”" if approve else f"Rejected running “{task.title}”") + (f": {reason.strip()[:300]}" if reason.strip() and not approve else ""),
+        project_id=task.project_id, task_id=task.id, payload={"job_id": str(job.id)}, **actor_of(user),
+    )
+    await clear_subject(db, f"approval:{job.id}")
+    for j in jobs:
+        publish_job(j, task.project_id)
+    return jobs
 
 
 class TagError(ValueError):
@@ -1135,12 +1192,12 @@ class FanOut:
 
     def __init__(self, items: list[m.Task], latest_jobs: dict[uuid.UUID, m.Job], parsing: set[uuid.UUID]):
         self.items = items
-        self.states: list[str] = []  # per item: waiting (no job yet) or a job status
+        self.states: list[str] = []  # per item: unstarted (no job yet) or a job status
         job_ids = []
         for t in items:
             job = latest_jobs.get(t.id)
             if job is None:
-                self.states.append("waiting")
+                self.states.append("unstarted")
                 continue
             job_ids.append(str(job.id))
             self.states.append("running" if job.id in parsing else job.status.value)
@@ -1150,7 +1207,7 @@ class FanOut:
 
     @property
     def active(self) -> int:
-        return sum(s in ("queued", "dispatched", "running") for s in self.states)
+        return sum(s in ("approval", "queued", "dispatched", "running", "waiting") for s in self.states)
 
     @property
     def failed(self) -> int:
@@ -1158,8 +1215,8 @@ class FanOut:
 
     @property
     def status(self) -> str:
-        if any(s in ("waiting", "queued", "dispatched", "running") for s in self.states):
-            started = any(s not in ("waiting", "queued") for s in self.states)
+        if any(s in ("unstarted", "approval", "queued", "dispatched", "running", "waiting") for s in self.states):
+            started = any(s not in ("unstarted", "approval", "queued") for s in self.states)
             return "running" if started else "queued"
         if all(s == "succeeded" for s in self.states):
             return "succeeded"
@@ -1456,7 +1513,7 @@ async def _advance(
             for t, state in zip(fan.items, fan.states, strict=True):
                 if room <= 0:
                     break
-                if state == "waiting" and await active_job_for(db, t.id) is None:
+                if state == "unstarted" and await active_job_for(db, t.id) is None:
                     await move(t, active_col)
                     job = await enqueue_job(db, t, user, reason=f"playbook item of {step.name}")
                     latest_jobs[t.id] = job

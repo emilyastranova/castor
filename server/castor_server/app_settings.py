@@ -41,6 +41,9 @@ class AppSettings(BaseModel):
     http_allow_addresses: list[str] = Field(default_factory=list, max_length=100)
     http_block_private: bool = False
     http_allowed_hosts: list[str] = Field(default_factory=list, max_length=500)
+    # Runs that ask for approval (confirm: true, or a card that asks) need someone other than
+    # the person who started them.
+    approval_by_someone_else: bool = False
 
     @field_validator("http_allow_addresses")
     @classmethod

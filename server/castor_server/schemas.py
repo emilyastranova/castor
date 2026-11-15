@@ -295,6 +295,8 @@ class TaskIn(BaseModel):
     tty: bool = False
     # HTTP actions: the most requests this card makes ("60/minute"); none: the definition's.
     rate_limit: str | None = None
+    # Ask before each run (a person approves every job).
+    confirm: bool = False
 
     @field_validator("rate_limit")
     @classmethod
@@ -329,6 +331,7 @@ class TaskPatch(BaseModel):
     alerts: AlertRules | None = None
     tty: bool | None = None
     rate_limit: str | None = None  # null or "" clears it
+    confirm: bool | None = None
 
     @field_validator("rate_limit")
     @classmethod
@@ -376,6 +379,9 @@ class JobOut(ORM):
     runner: str | None = None
     via_agent_id: uuid.UUID | None = None
     resume_at: datetime | None = None
+    approved_by: uuid.UUID | None = None
+    approved_at: datetime | None = None
+    created_by: uuid.UUID | None = None
     progress: dict[str, Any] | None = None
 
 
@@ -445,6 +451,7 @@ class TaskOut(ORM):
     alerts: dict[str, Any] | None = None
     tty: bool = False
     rate_limit: str | None = None
+    confirm: bool = False
     latest_job: JobOut | None = None
     batch: BatchSummary | None = None
     # Set on a playbook run's card: where the run is.

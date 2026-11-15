@@ -581,7 +581,7 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
             .join(m.Task, m.Task.id == m.Job.task_id)
             .where(
                 in_scope(m.Task.project_id),
-                m.Job.status.in_([m.JobStatus.queued, m.JobStatus.dispatched, m.JobStatus.running]),
+                m.Job.status.in_([m.JobStatus.queued, m.JobStatus.dispatched, m.JobStatus.running, m.JobStatus.waiting]),
             )
             .order_by(m.Job.queued_at)
             .limit(50)
@@ -657,6 +657,31 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
             "task_id": str(task.id),
             "link": f"/projects/{task.project_id}?task={task.id}",
             "for_you": assigned_to(task, user.id, my_groups) or job.created_by == user.id,
+        })
+
+    # Runs waiting for a person to approve them (confirm: true, or a card that asks).
+    asking = (
+        await db.execute(
+            select(m.Job, m.Task).join(m.Task, m.Task.id == m.Job.task_id)
+            .where(in_scope(m.Task.project_id), m.Job.status == m.JobStatus.approval)
+            .order_by(m.Job.queued_at).limit(20)
+        )
+    ).all()
+    seen_batches: set = set()
+    for job, task in asking:
+        if job.batch_id is not None and job.batch_id in seen_batches:
+            continue
+        seen_batches.add(job.batch_id)
+        attention.append({
+            "kind": "approval",
+            "title": f"“{task.title}” needs approval to run",
+            "detail": task.command[:300],
+            "since": job.queued_at,
+            "project": project_ref(task.project_id),
+            "task_id": str(task.id),
+            "job_id": str(job.id),
+            "link": f"/projects/{task.project_id}?task={task.id}",
+            "for_you": user.role != m.UserRole.viewer and job.created_by != user.id,
         })
 
     # Cards whose latest run failed in the last week and that aren't done yet.

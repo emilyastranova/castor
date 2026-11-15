@@ -265,6 +265,9 @@ class CommandSpec(BaseModel):
     retry: Retry | None = None
     # A suggested limit for the API (60/minute): a card that has none of its own uses it.
     rate_limit: str | None = None
+    # Ask before each run: a person approves every job of it (actions that change things outside
+    # Castor, like posting to a customer's channel). A card can ask too; it can't stop asking.
+    confirm: bool = False
     # kind: mcp.
     mcp: McpCall | None = None
     # kind: plugin.

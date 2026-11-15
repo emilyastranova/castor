@@ -98,7 +98,9 @@ export type JobStatus =
 	| 'cancelled'
 	| 'lost'
 	/** An HTTP action waiting for a rate limit or the API's Retry-After (until resume_at). */
-	| 'waiting';
+	| 'waiting'
+	/** Waiting for a person to approve it (its definition says confirm: true, or its card asks). */
+	| 'approval';
 
 export interface Job {
 	id: UUID;
@@ -136,6 +138,11 @@ export interface Job {
 	runner?: string | null;
 	/** An HTTP action sent through an agent: the agent whose network it went out from. */
 	via_agent_id?: UUID | null;
+	/** Who started it (null: Castor, a trigger or a playbook with no person). */
+	created_by?: UUID | null;
+	/** Who let a run that waited for approval go, and when. */
+	approved_by?: UUID | null;
+	approved_at?: string | null;
 	/** A waiting HTTP action carries on at this time. */
 	resume_at?: string | null;
 	/** Pages and batches done, so a retry carries on from there. */
@@ -1087,6 +1094,8 @@ export interface CommandSpec {
 	rate_limit?: string | null;
 	/** kind: mcp: a tool on an MCP server. */
 	mcp?: { server: string; tool: string; arguments?: Record<string, unknown> | null; timeout_s?: number } | null;
+	/** A person approves each run (actions that change things outside Castor). */
+	confirm?: boolean;
 	/** kind: plugin: an action a plugin defines (its manifest's library_actions). */
 	plugin?: { id: string; action: string; timeout_minutes?: number } | null;
 }
@@ -1125,6 +1134,8 @@ export interface Task {
 	tty?: boolean;
 	/** HTTP actions: the most requests this card makes ("60/minute"); none: the definition's. */
 	rate_limit?: string | null;
+	/** Ask before each run: a person approves every job (its definition can demand it too). */
+	confirm?: boolean;
 	/** Chat/webhook alerts for its runs (or, on a run card, the playbook run). */
 	alerts?: AlertRules | null;
 	id: UUID;
@@ -1666,6 +1677,9 @@ export function api(fetchFn: Fetch = fetch) {
 			list: (status?: JobStatus) => get<Job[]>(`/jobs${status ? `?status=${status}` : ''}`),
 			get: (id: UUID, afterSeq = -1) => get<JobDetail>(`/jobs/${id}?after_seq=${afterSeq}`),
 			cancel: (id: UUID) => post<Job>(`/jobs/${id}/cancel`),
+			/** A run that waits for approval: let it go, or reject it (cancelled, with the reason). */
+			approve: (id: UUID) => post<Job>(`/jobs/${id}/approve`),
+			reject: (id: UUID, reason = '') => post<Job>(`/jobs/${id}/reject`, { reason }),
 			summary: (id: UUID) => get<AiSummary | null>(`/jobs/${id}/summary`),
 			summarize: (id: UUID) => post<AiSummary>(`/jobs/${id}/summary`),
 			artifacts: (id: UUID) => get<Attachment[]>(`/jobs/${id}/artifacts`),
@@ -2185,6 +2199,8 @@ export interface AppSettings {
 	http_block_private?: boolean;
 	/** The hosts HTTP actions may call (empty: any; *.example.com for a domain's). */
 	http_allowed_hosts?: string[];
+	/** Runs that ask for approval need someone other than whoever started them. */
+	approval_by_someone_else?: boolean;
 }
 
 /** People put together: @slug mentions them all; a project shared with it is theirs to see. */

@@ -5,6 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from .. import artifacts
@@ -130,3 +131,39 @@ async def upload_artifact(
         return await artifacts.store(db, job, path or file.filename or "artifact", file.content_type, chunks())
     except artifacts.ArtifactRefused as exc:
         raise HTTPException(exc.status, str(exc)) from exc
+
+
+class Decision(BaseModel):
+    reason: str = Field("", max_length=1000)
+
+
+async def _decide(job_id: str, db, user, approve: bool, reason: str = "") -> m.Job:
+    from ..services import ApprovalError, advance_playbook_run, decide_approval, publish_task
+
+    if user.role == m.UserRole.viewer:
+        raise HTTPException(403, "Viewers can't approve or reject runs")
+    job = await job_or_404(db, user, parse_uuid(job_id), write=True)
+    try:
+        await decide_approval(db, job, user, approve, reason)
+    except ApprovalError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    await db.commit()
+    task = await db.get(m.Task, job.task_id)
+    if task is not None:
+        await publish_task(db, task)
+        if not approve and task.playbook_run_id is not None:
+            await advance_playbook_run(db, task.playbook_run_id)  # the step ends, cancelled
+    dispatcher.wake()
+    return job
+
+
+@router.post("/{job_id}/approve", response_model=JobOut)
+async def approve_job(job_id: str, db: DB, user: CurrentUser):
+    """Let a run that waits for approval go (its definition says confirm: true, or its card asks)."""
+    return await _decide(job_id, db, user, True)
+
+
+@router.post("/{job_id}/reject", response_model=JobOut)
+async def reject_job(job_id: str, body: Decision, db: DB, user: CurrentUser):
+    """Don't let it run: it's cancelled, with the reason."""
+    return await _decide(job_id, db, user, False, body.reason)

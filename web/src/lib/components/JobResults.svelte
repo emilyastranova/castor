@@ -22,7 +22,7 @@
 	let outputs = $state<JobOutput[]>([]);
 	let loading = $state(true);
 	let parsing = $state(false);
-	let finished = $derived(!['queued', 'dispatched', 'running', 'waiting'].includes(job.status));
+	let finished = $derived(!['approval', 'queued', 'dispatched', 'running', 'waiting'].includes(job.status));
 
 	$effect(() => {
 		const id: UUID = job.id;
