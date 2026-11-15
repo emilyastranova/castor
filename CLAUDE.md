@@ -255,7 +255,10 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   one user's events). Single sign-on: `sso.py` (OpenID Connect, PKCE, `id_token` verified against
   JWKS; `resolve_user`), `api/sso.py` (public `/api/auth/sso/*`, admin `/api/sso-providers`), web
   `routes/settings/sso`, login page buttons; `users.email` is admin-set (SSO links by it). Tests run a
-  fake provider (`tests/test_sso.py`). There's always an active admin (API guard + `accounts.ensure_active_admin`
+  fake provider (`tests/test_sso.py`). SAML: `saml.py` (`protocol = "saml"`, `sso_providers.saml`; the ACS
+  checks the signature with signxml and reads only its `signed_xml`, never verify XML signatures by hand;
+  a cross-site POST lacks the Lax cookie, so the result goes on vault-encrypted to `…/saml/done`, which
+  checks it against the cookie); tests sign real responses and try forgeries (`tests/test_saml.py`). There's always an active admin (API guard + `accounts.ensure_active_admin`
   at startup); `castor-admin` (`manage.py`) recovers accounts from the shell. Agents authenticate with their own token (`agent_tokens.py`:
   only the SHA-256 is stored; the first agent to use an unused token is bound to it) or,
   while `CASTOR_ALLOW_SHARED_AGENT_SECRET` is on, the shared `CASTOR_AGENT_SECRET`, which

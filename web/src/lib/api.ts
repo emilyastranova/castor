@@ -1338,7 +1338,9 @@ export function api(fetchFn: Fetch = fetch) {
 			create: (body: SsoProviderIn) => post<SsoProvider>('/sso-providers', body),
 			update: (id: string, body: SsoProviderIn) => request<SsoProvider>(fetchFn, 'PUT', `/sso-providers/${id}`, body),
 			remove: (id: string) => del(`/sso-providers/${id}`),
-			test: (issuer: string) => post<{ ok: boolean; error: string | null; issuer: string | null; authorization_endpoint: string | null }>('/sso-providers/test', { issuer })
+			test: (issuer: string) => post<{ ok: boolean; error: string | null; issuer: string | null; authorization_endpoint: string | null }>('/sso-providers/test', { issuer }),
+			/** Read a SAML identity provider's metadata, from its URL or pasted, to fill in a provider. */
+			readMetadata: (body: { url?: string; xml?: string; entity_id?: string }) => post<SamlMetadata>('/sso-providers/saml/metadata', body)
 		},
 		users: {
 			list: () => get<User[]>('/users'),
@@ -1976,9 +1978,53 @@ export interface GroupDetail extends Group {
 export type GroupIn = Pick<Group, 'slug' | 'name' | 'description' | 'sso_group'>;
 
 /** An OpenID Connect provider people can sign in with (Settings → Sign-on). */
+export type SsoProtocol = 'oidc' | 'saml';
+
+/** A SAML provider's settings (`sso_providers.saml`). */
+export interface SamlConfig {
+	/** The identity provider's single sign-on URL (HTTP-Redirect binding). */
+	sso_url: string;
+	/** PEM certificates; a response signed with any of them is accepted. */
+	certificates: string[];
+	metadata_url: string;
+	/** Castor's entity ID at the provider; blank: Castor's metadata URL. */
+	sp_entity_id: string;
+	name_id_format: string;
+	subject_attribute: string;
+	email_attribute: string;
+	name_attribute: string;
+	username_attribute: string;
+	trust_email: boolean;
+}
+
+export interface SamlCertificate {
+	subject: string;
+	not_after: string;
+	sha256: string;
+}
+
+export interface SamlOut extends SamlConfig {
+	described: SamlCertificate[];
+	/** Give these to the identity provider. */
+	acs_url: string;
+	entity_id: string;
+	metadata: string;
+}
+
+export interface SamlMetadata {
+	ok: boolean;
+	error: string | null;
+	entity_id: string;
+	sso_url: string;
+	certificates: string[];
+	described: SamlCertificate[];
+}
+
 export interface SsoProvider {
 	id: string;
 	name: string;
+	protocol: SsoProtocol;
+	/** OpenID Connect: the issuer URL. SAML: the identity provider's entity ID. */
 	issuer: string;
 	client_id: string;
 	has_secret: boolean;
@@ -1994,9 +2040,10 @@ export interface SsoProvider {
 	redirect_uri: string;
 	/** People who have signed in through it. */
 	users: number;
+	saml: SamlOut | null;
 }
 
-export type SsoProviderIn = Omit<SsoProvider, 'has_secret' | 'redirect_uri' | 'users'> & { client_secret?: string };
+export type SsoProviderIn = Omit<SsoProvider, 'has_secret' | 'redirect_uri' | 'users' | 'saml'> & { client_secret?: string; saml?: SamlConfig };
 
 export interface AiField {
 	name: string;

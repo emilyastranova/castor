@@ -24,11 +24,6 @@ library content. Still to come: hooks, and signed releases.
 
 ## People and access
 
-### SAML sign-on
-Single sign-on works with OpenID Connect (Settings → Sign-on). SAML would add identity
-providers that only speak it. A provider's groups should also be able to put people in
-[groups](#groups), not only set their role.
-
 ### More for groups
 Groups (Settings → Groups) can already be mentioned, share projects, take cards and follow a
 sign-on provider's groups. Still to come:

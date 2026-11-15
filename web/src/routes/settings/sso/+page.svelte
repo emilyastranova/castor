@@ -31,7 +31,7 @@
 
 <svelte:head><title>Sign-on · Settings · Castor</title></svelte:head>
 
-<TopAppBar title="Sign-on" subtitle="Single sign-on with OpenID Connect, and password sign-in">
+<TopAppBar title="Sign-on" subtitle="Single sign-on with OpenID Connect or SAML, and password sign-in">
 	{#snippet actions()}
 		<Button icon="add" onclick={() => { editing = null; dialogOpen = true; }}>Add provider</Button>
 	{/snippet}
@@ -47,14 +47,14 @@
 					<button type="button" class="min-w-0 flex-1 text-left" onclick={() => { editing = p; dialogOpen = true; }}>
 						<span class="block truncate title-small text-on-surface">{p.name}</span>
 						<span class="block truncate body-small text-on-surface-variant">
-							{p.issuer} · new accounts are {roleLabel(p.default_role)}{p.role_map.length ? `, roles from ${p.role_map.length} group${p.role_map.length === 1 ? '' : 's'}` : ''} · {p.users} signed in{p.enabled ? '' : ' · off'}
+							{p.protocol === 'saml' ? 'SAML · ' : ''}{p.issuer} · new accounts are {roleLabel(p.default_role)}{p.role_map.length ? `, roles from ${p.role_map.length} group${p.role_map.length === 1 ? '' : 's'}` : ''} · {p.users} signed in{p.enabled ? '' : ' · off'}
 						</span>
 					</button>
 					<IconButton icon="edit" label="Edit {p.name}" onclick={() => { editing = p; dialogOpen = true; }} />
 				</Card>
 			{:else}
 				<p class="body-medium text-on-surface-variant">
-					No providers yet. Add one to let people sign in with Okta, Entra ID, Google, Keycloak, Authentik, GitLab or any OpenID Connect provider.
+					No providers yet. Add one to let people sign in with Okta, Entra ID, Google, Keycloak, Authentik, GitLab, ADFS or any OpenID Connect or SAML 2.0 provider.
 				</p>
 			{/each}
 		</section>

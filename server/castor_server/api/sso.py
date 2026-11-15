@@ -1,18 +1,18 @@
-"""Single sign-on (sso.py): signing in through a provider (public), and the providers
-themselves (Settings → Sign-on, admins)."""
+"""Single sign-on (sso.py for OpenID Connect, saml.py for SAML): signing in through a provider
+(public), and the providers themselves (Settings → Sign-on, admins)."""
 
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
-from .. import app_settings, sso, vault
+from .. import app_settings, saml, sso, vault
 from .. import models as m
 from ..config import settings
 from ..deps import DB, Admin
@@ -68,7 +68,10 @@ async def start(provider_id: str, request: Request, db: DB, next: str | None = N
     if provider is None or not provider.enabled:
         return _back_to_login("That sign-in option isn't available")
     try:
-        url, cookie = await sso.start(provider, _base_url(request), next)
+        if provider.protocol == "saml":
+            url, cookie = saml.start(provider, _base_url(request), next)
+        else:
+            url, cookie = await sso.start(provider, _base_url(request), next)
     except sso.SsoError as exc:
         return _back_to_login(f"{provider.name} sign-in isn't working: {exc}")
     response = RedirectResponse(url, status_code=303)
@@ -97,11 +100,67 @@ async def callback(provider_id: str, request: Request, db: DB, code: str | None 
         await db.rollback()
         return _back_to_login(f"Couldn't sign in with {name}: {exc}")
     await db.commit()
+    return _signed_in(user, saved)
+
+
+def _signed_in(user: m.User, saved: dict[str, Any]) -> RedirectResponse:
     response = RedirectResponse(sso.safe_next(saved.get("next")), status_code=303)
     response.delete_cookie(sso.STATE_COOKIE, path="/api/auth/sso")
     response.set_cookie(settings.cookie_name, create_session_token(user.id), httponly=True, samesite="lax",
                         secure=settings.cookie_secure, max_age=settings.session_ttl_hours * 3600, path="/")
     return response
+
+
+async def _saml_provider(db: DB, provider_id: str) -> m.SsoProvider | None:
+    provider = await db.get(m.SsoProvider, provider_id)
+    return provider if provider is not None and provider.protocol == "saml" else None
+
+
+@router.get("/{provider_id}/saml/metadata")
+async def saml_metadata(provider_id: str, request: Request, db: DB):
+    """Castor's SAML metadata for this provider: give it to the identity provider."""
+    provider = await _saml_provider(db, provider_id)
+    if provider is None:
+        raise HTTPException(404, "No SAML provider with that id")
+    return Response(saml.sp_metadata(provider, _base_url(request)), media_type="application/samlmetadata+xml",
+                    headers={"Content-Disposition": f'inline; filename="castor-{provider.id}-metadata.xml"'})
+
+
+@router.post("/{provider_id}/saml/acs")
+async def saml_acs(provider_id: str, request: Request, db: DB, SAMLResponse: Annotated[str, Form()] = "",
+                   RelayState: Annotated[str, Form()] = ""):
+    """Where the identity provider POSTs its response. The browser's state cookie doesn't come
+    with a cross-site POST, so this checks the response and hands it on to …/saml/done."""
+    provider = await _saml_provider(db, provider_id)
+    if provider is None or not provider.enabled:
+        return _back_to_login("That sign-in option isn't available")
+    if not SAMLResponse:
+        return _back_to_login(f"{provider.name} sent no response back")
+    try:
+        result = saml.read_response(provider, _base_url(request), SAMLResponse)
+    except sso.SsoError as exc:
+        return _back_to_login(f"Couldn't sign in with {provider.name}: {exc}")
+    sealed = saml.seal(provider.id, result, RelayState)
+    return RedirectResponse(f"/api/auth/sso/{provider.id}/saml/done?r={quote(sealed)}", status_code=303)
+
+
+@router.get("/{provider_id}/saml/done")
+async def saml_done(provider_id: str, request: Request, db: DB, r: str | None = None):
+    """The second half of the ACS, with the cookie: is this the sign-in started here?"""
+    provider = await _saml_provider(db, provider_id)
+    if provider is None or not provider.enabled:
+        return _back_to_login("That sign-in option isn't available")
+    name = provider.name
+    try:
+        sealed = saml.unseal(provider.id, r)
+        saved = sso.read_state(request.cookies.get(sso.STATE_COOKIE), provider.id, sealed.get("s"))
+        claims = saml.finish(provider.id, sealed, saved)
+        user = await sso.resolve_user(db, provider, claims)
+    except sso.SsoError as exc:
+        await db.rollback()
+        return _back_to_login(f"Couldn't sign in with {name}: {exc}")
+    await db.commit()
+    return _signed_in(user, saved)
 
 
 # ---------- providers (admins) ----------
@@ -112,11 +171,17 @@ class RoleRule(BaseModel):
     role: str = Field(pattern="^(viewer|operator|admin)$")
 
 
+class SamlIn(saml.SamlConfig):
+    pass
+
+
 class ProviderIn(BaseModel):
     id: str
     name: str = Field(min_length=1, max_length=64)
+    protocol: Literal["oidc", "saml"] = "oidc"
+    # OpenID Connect: the issuer URL. SAML: the identity provider's entity ID.
     issuer: str = Field(min_length=1, max_length=500)
-    client_id: str = Field(min_length=1, max_length=255)
+    client_id: str = Field("", max_length=255)  # OpenID Connect only
     # Blank on an update keeps the stored one; empty on a new provider: a public client.
     client_secret: str | None = None
     scopes: str = Field("openid email profile", max_length=255)
@@ -127,11 +192,27 @@ class ProviderIn(BaseModel):
     groups_claim: str = Field("groups", max_length=64)
     role_map: list[RoleRule] = Field(default_factory=list)
     link_by_email: bool = False
+    saml: SamlIn | None = None  # SAML only
+
+
+class CertificateOut(BaseModel):
+    subject: str
+    not_after: str
+    sha256: str
+
+
+class SamlOut(saml.SamlConfig):
+    described: list[CertificateOut] = Field(default_factory=list)  # the certificates, readable
+    # Give these to the identity provider (or just the metadata URL).
+    acs_url: str = ""
+    entity_id: str = ""  # Castor's: sp_entity_id, or the metadata URL when that's blank
+    metadata: str = ""
 
 
 class ProviderOut(BaseModel):
     id: str
     name: str
+    protocol: str
     issuer: str
     client_id: str
     has_secret: bool
@@ -143,9 +224,10 @@ class ProviderOut(BaseModel):
     groups_claim: str
     role_map: list[RoleRule]
     link_by_email: bool
-    # Register this at the provider as the redirect (callback) URI.
+    # Register this at the provider as the redirect (callback) URI (SAML: the ACS URL).
     redirect_uri: str
     users: int  # people who have signed in through it
+    saml: SamlOut | None = None
 
 
 class TestOut(BaseModel):
@@ -157,31 +239,73 @@ class TestOut(BaseModel):
 
 async def _out(db: DB, row: m.SsoProvider, request: Request) -> ProviderOut:
     users = (await db.execute(select(func.count()).where(m.UserIdentity.provider_id == row.id))).scalar_one()
+    base = _base_url(request)
+    saml_out = None
+    if row.protocol == "saml":
+        cfg = saml.config(row)
+        described = []
+        for pem in cfg.certificates:
+            try:
+                described.append(CertificateOut(**saml.describe_certificate(pem)))
+            except sso.SsoError:
+                described.append(CertificateOut(subject="(unreadable)", not_after="", sha256=""))
+        saml_out = SamlOut(**cfg.model_dump(), described=described, acs_url=saml.acs_url(base, row.id),
+                           entity_id=saml.sp_entity_id(row, base), metadata=saml.metadata_url(base, row.id))
     return ProviderOut(
-        id=row.id, name=row.name, issuer=row.issuer, client_id=row.client_id, has_secret=bool(row.client_secret),
+        id=row.id, name=row.name, protocol=row.protocol, issuer=row.issuer, saml=saml_out, client_id=row.client_id, has_secret=bool(row.client_secret),
         scopes=row.scopes, enabled=row.enabled, default_role=row.default_role, allowed_domains=row.allowed_domains or [],
         allowed_groups=row.allowed_groups or [], groups_claim=row.groups_claim, role_map=[RoleRule(**r) for r in row.role_map or []],
-        link_by_email=row.link_by_email, redirect_uri=sso.redirect_uri(_base_url(request), row.id), users=users,
+        link_by_email=row.link_by_email, users=users,
+        redirect_uri=saml.acs_url(base, row.id) if row.protocol == "saml" else sso.redirect_uri(base, row.id),
     )
 
 
+def _apply_saml(row: m.SsoProvider, body: ProviderIn) -> None:
+    cfg = body.saml or SamlIn()
+    if not cfg.sso_url.strip().startswith(("https://", "http://")):
+        raise HTTPException(422, "saml.sso_url: the identity provider's single sign-on URL (HTTP-Redirect binding)")
+    try:
+        certs = list(dict.fromkeys(saml.to_pem(c) for c in cfg.certificates if c.strip()))
+    except sso.SsoError as exc:
+        raise HTTPException(422, f"saml.certificates: {exc}") from exc
+    if not certs:
+        raise HTTPException(422, "saml.certificates: at least one, the certificate the provider signs with")
+    clean = {k: v.strip() if isinstance(v, str) else v for k, v in cfg.model_dump().items()}
+    row.saml = {**clean, "certificates": certs}
+    row.issuer, row.client_id, row.scopes = body.issuer.strip(), "", ""
+
+
 def _apply(row: m.SsoProvider, body: ProviderIn) -> None:
+    if row.protocol and row.protocol != body.protocol:
+        raise HTTPException(422, "protocol: a provider's protocol can't change; add another provider")
+    row.protocol = body.protocol
+    if body.protocol == "saml":
+        _apply_saml(row, body)
+        _apply_common(row, body)
+        return
     issuer = body.issuer.strip().rstrip("/")
     if not issuer.startswith(("https://", "http://")):
         raise HTTPException(422, "issuer: a URL, like https://login.example.com/realms/main")
+    if not body.client_id.strip():
+        raise HTTPException(422, "client_id: the client ID the provider gave Castor")
     if "openid" not in body.scopes.split():
         raise HTTPException(422, "scopes: must include openid")
     if issuer != row.issuer:
         sso.forget(row.issuer or issuer)
-    row.name, row.issuer, row.client_id = body.name.strip(), issuer, body.client_id.strip()
-    row.scopes, row.enabled, row.default_role = " ".join(body.scopes.split()), body.enabled, body.default_role
+    row.issuer, row.client_id, row.scopes = issuer, body.client_id.strip(), " ".join(body.scopes.split())
+    if body.client_secret and body.client_secret.strip():
+        row.client_secret = vault.encrypt(body.client_secret.strip().encode())
+    _apply_common(row, body)
+
+
+def _apply_common(row: m.SsoProvider, body: ProviderIn) -> None:
+    row.name = body.name.strip()
+    row.enabled, row.default_role = body.enabled, body.default_role
     row.allowed_domains = sorted({d.strip().lower().lstrip("@") for d in body.allowed_domains if d.strip()})
     row.allowed_groups = sorted({g.strip() for g in body.allowed_groups if g.strip()})
     row.groups_claim = body.groups_claim.strip()
     row.role_map = [r.model_dump() for r in body.role_map]
     row.link_by_email = body.link_by_email
-    if body.client_secret and body.client_secret.strip():
-        row.client_secret = vault.encrypt(body.client_secret.strip().encode())
 
 
 @admin_router.get("", response_model=list[ProviderOut])
@@ -196,7 +320,7 @@ async def create_provider(body: ProviderIn, request: Request, db: DB, _: Admin):
         raise HTTPException(422, "id: lowercase letters, digits and dashes (it's part of the redirect URI)")
     if await db.get(m.SsoProvider, body.id) is not None:
         raise HTTPException(409, f"A provider with id {body.id} already exists")
-    row = m.SsoProvider(id=body.id, issuer="", client_secret="")
+    row = m.SsoProvider(id=body.id, issuer="", client_secret="", protocol="")
     _apply(row, body)
     db.add(row)
     await db.commit()
@@ -234,3 +358,29 @@ async def test_issuer(body: dict[str, str], _: Admin):
     except sso.SsoError as exc:
         return TestOut(ok=False, error=str(exc))
     return TestOut(ok=True, issuer=doc["issuer"], authorization_endpoint=doc["authorization_endpoint"])
+
+
+class MetadataIn(BaseModel):
+    url: str = Field("", max_length=1000)
+    xml: str = Field("", max_length=saml.MAX_METADATA)
+    entity_id: str = Field("", max_length=500)  # when the metadata describes several
+
+
+class MetadataOut(BaseModel):
+    ok: bool
+    error: str | None = None
+    entity_id: str = ""
+    sso_url: str = ""
+    certificates: list[str] = Field(default_factory=list)
+    described: list[CertificateOut] = Field(default_factory=list)
+
+
+@admin_router.post("/saml/metadata", response_model=MetadataOut)
+async def read_saml_metadata(body: MetadataIn, _: Admin):
+    """Read a SAML identity provider's metadata (from its URL, or pasted) to fill in a provider."""
+    try:
+        xml = body.xml.encode() if body.xml.strip() else await saml.fetch_metadata(body.url.strip())
+        found = saml.read_metadata(xml, body.entity_id.strip() or None)
+    except sso.SsoError as exc:
+        return MetadataOut(ok=False, error=str(exc))
+    return MetadataOut(ok=True, **found, described=[CertificateOut(**saml.describe_certificate(c)) for c in found["certificates"]])

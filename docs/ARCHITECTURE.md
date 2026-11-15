@@ -836,7 +836,7 @@ The client keeps page state in sync by applying these to its stores.
 accepted as `Authorization: Bearer`. The first admin is created from
 `CASTOR_ADMIN_USERNAME` / `CASTOR_ADMIN_PASSWORD` when the database has no users.
 
-**Single sign-on** (`sso.py`, `api/sso.py`): OpenID Connect providers in `sso_providers`,
+**Single sign-on** (`sso.py`, `saml.py`, `api/sso.py`): OpenID Connect and SAML providers in `sso_providers`,
 added by admins in Settings → Sign-on (client secret as a vault token). `GET /api/auth/sso`
 lists them for the sign-in page. `…/{id}/start` redirects to the provider with `state`, `nonce`
 and a PKCE challenge, kept in a signed `castor_sso` cookie (10 minutes, path `/api/auth/sso`).
@@ -852,6 +852,28 @@ Allowed email domains (verified emails only) and groups are checked first. With 
 `role_map`, the role follows the groups at every sign-in, but the last active admin is never
 demoted. On failure the person goes back to `/login?sso_error=…`; on success the usual session
 cookie is set and they go to a same-site `next`.
+
+**SAML 2.0** (`saml.py`): a provider with `protocol = "saml"`. Its `issuer` is the identity
+provider's entity ID and `sso_providers.saml` holds the rest (`SamlConfig`): sign-on URL, signing
+certificates (PEM, any may sign), optional metadata URL, Castor's entity ID (default: its metadata
+URL), NameID format, attribute names and `trust_email`. Admins fill it from the IdP's metadata
+(`POST /api/sso-providers/saml/metadata`, URL or pasted, read with defusedxml); Castor's own is at
+`GET /api/auth/sso/{id}/saml/metadata`. Only SP-initiated sign-in:
+1. `…/start` redirects with a deflated AuthnRequest (HTTP-Redirect, unsigned) and a RelayState,
+   both remembered with the request ID in the `castor_sso` cookie.
+2. The IdP POSTs to `…/{id}/saml/acs`. A cross-site POST doesn't carry the SameSite=Lax cookie,
+   so `read_response` checks what it can alone: no DTD (defusedxml first), success status,
+   `Destination`, exactly one assertion and no encrypted one, the XML signature (signxml, against
+   the stored certificates, assertion or whole response; only `signed_xml` is read afterwards),
+   issuer, `Conditions` times and audience, a bearer `SubjectConfirmation` for this ACS with
+   `InResponseTo`, and the assertion ID not seen before (in memory). A transient NameID is refused
+   unless a subject attribute is set.
+3. It redirects to `…/{id}/saml/done?r=…` with the result vault-encrypted (2 minutes). That
+   top-level GET carries the cookie: the RelayState and the request ID must match the ones started
+   in this browser. Then `resolve_user` as above; the groups attribute (`groups_claim`) sets roles
+   and Castor groups only when the assertion has it.
+
+Not supported: encrypted assertions, signed AuthnRequests, IdP-initiated sign-in, single logout.
 
 `users.email` is set by admins only, one account per address, so nobody can point their own
 account at someone else's sign-on. `AppSettings.password_login` turns password sign-in off,

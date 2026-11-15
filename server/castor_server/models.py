@@ -539,12 +539,15 @@ class SshHost(Base, TimestampMixin):
 
 
 class SsoProvider(Base, TimestampMixin):
-    """An OpenID Connect provider people can sign in with (Settings → Sign-on; sso.py)."""
+    """A provider people can sign in with (Settings → Sign-on): OpenID Connect (sso.py) or
+    SAML 2.0 (saml.py)."""
 
     __tablename__ = "sso_providers"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True)  # slug, in the callback URL
     name: Mapped[str] = mapped_column(String(64))  # on the sign-in button
+    protocol: Mapped[str] = mapped_column(String(8), default="oidc", server_default="oidc")  # oidc | saml
+    # OpenID Connect: the issuer URL. SAML: the identity provider's entity ID.
     issuer: Mapped[str] = mapped_column(String(500))
     client_id: Mapped[str] = mapped_column(String(255))
     client_secret: Mapped[str] = mapped_column(Text, default="")  # vault token; empty: public client (PKCE)
@@ -560,6 +563,8 @@ class SsoProvider(Base, TimestampMixin):
     role_map: Mapped[list[dict[str, str]]] = mapped_column(JSONType, default=list)
     # Link to an existing account with the same email, if the provider says it's verified.
     link_by_email: Mapped[bool] = mapped_column(Boolean, default=False)
+    # SAML only (saml.SamlConfig): sso_url, certificates, sp_entity_id, attributes, trust_email…
+    saml: Mapped[dict[str, Any] | None] = mapped_column(JSONType, default=dict, nullable=True)
 
 
 class UserIdentity(Base):
