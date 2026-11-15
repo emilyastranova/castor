@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { ArgErrors, CommandSpec } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
-	import { Select, Switch, TextField } from '$lib/m3';
+	import { Icon, Select, Switch, TextField } from '$lib/m3';
 	import ListArgInput from './ListArgInput.svelte';
 
 	interface Props {
@@ -28,8 +28,12 @@
 		onedit?.();
 	}
 
-	// Live preview of the rendered command line (debounced; server does the quoting).
+	// Live preview of the rendered command line (debounced; server does the quoting). Folded to
+	// its first line by default: library commands are usually long scripts.
 	let preview = $state<string | null>(null);
+	let previewOpen = $state(false);
+	let previewLines = $derived(preview ? preview.split('\n').length : 0);
+	let firstLine = $derived(preview ? preview.split('\n').find((l) => l.trim()) ?? '' : '');
 	let previewError = $state<string | null>(null);
 	$effect(() => {
 		const id = spec.id;
@@ -113,14 +117,31 @@
 		{/if}
 		</div>
 	{/each}
-	<div class="rounded-sm bg-surface-container-highest px-3 py-2">
-		<p class="label-small text-on-surface-variant">
-			Will run{spec.image ? ` in ${spec.image}` : ' in the agent shell'}{spec.container_flags?.length ? ` (flags: ${spec.container_flags.join(' ')})` : ''}
-		</p>
-		{#if preview}
-			<code class="block font-mono text-[12.5px] break-all whitespace-pre-wrap text-on-surface">{preview}</code>
-		{:else}
-			<p class="body-small text-on-surface-variant italic">{previewError ?? '…'}</p>
+	<div class="rounded-sm bg-surface-container-highest">
+		<button
+			type="button"
+			class="state-layer flex w-full items-start gap-2 rounded-sm px-3 py-2 text-left"
+			aria-expanded={previewOpen}
+			onclick={() => (previewOpen = !previewOpen)}
+			disabled={!preview}
+		>
+			<span class="min-w-0 flex-1">
+				<span class="block label-small text-on-surface-variant">
+					Will run{spec.image ? ` in ${spec.image}` : ' in the agent shell'}{spec.container_flags?.length ? ` (flags: ${spec.container_flags.join(' ')})` : ''}{preview && !previewOpen && previewLines > 1 ? ` · ${previewLines} lines` : ''}
+				</span>
+				{#if preview && !previewOpen}
+					<code class="mt-0.5 block truncate font-mono text-[12.5px] text-on-surface">{firstLine}</code>
+				{/if}
+			</span>
+			{#if preview}
+				<Icon name={previewOpen ? 'expand_less' : 'expand_more'} size={20} class="mt-0.5 shrink-0 text-on-surface-variant" />
+				<span class="sr-only">{previewOpen ? 'Hide the command' : 'Show the whole command'}</span>
+			{/if}
+		</button>
+		{#if preview && previewOpen}
+			<code class="block px-3 pb-2 font-mono text-[12.5px] break-all whitespace-pre-wrap text-on-surface">{preview}</code>
+		{:else if !preview}
+			<p class="px-3 pb-2 -mt-1 body-small text-on-surface-variant italic">{previewError ?? '…'}</p>
 		{/if}
 	</div>
 </div>
