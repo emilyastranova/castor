@@ -1288,6 +1288,9 @@ class Plugin(Base, TimestampMixin):
     installed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     # The newest release the plugin directory has, when it's newer than this one (update checks).
     latest_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # The most its library actions may run, from every card and playbook together ("10/minute";
+    # rate_limits.py). Admins set it on the plugin's page.
+    actions_rate_limit: Mapped[str | None] = mapped_column(String(64), nullable=True)
     checked_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 

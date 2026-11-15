@@ -50,7 +50,7 @@ User *──* Project (project_members; admins see every project)
   `lost` means the agent disconnected mid-run. An HTTP action can also be `waiting` (for a rate
   limit or the API's Retry-After, until `resume_at`) between `running` and its end.
 * **Job.kind** is `command` (an agent runs it) or `http` (the Castor server sends a request; see
-  HTTP actions), or `mcp` (a tool on another MCP server). `Job.runner` is `server` for the jobs no agent ran; `Job.via_agent_id` is the agent
+  HTTP actions), `mcp` (a tool on another MCP server) or `plugin` (a plugin's library action). `Job.runner` is `server` for the jobs no agent ran; `Job.via_agent_id` is the agent
   an HTTP action's requests went out through, if any.
 * Logs are stored as ordered `JobLogChunk` rows (`stdout`/`stderr`/`system`) so the UI can
   stream and replay them; `Job.stdout_bytes` / `stderr_bytes` are totals.
@@ -337,6 +337,15 @@ manual cards (`command_library.forget_definition`).
   (`http_render.mcp_arguments`). The result: `structuredContent` (else the text) as stdout,
   images/audio/resource blobs as artifacts, `isError` as a failure (a `Trouble`, so AI recovery can
   wait); log and progress notifications go to the console. A connection can be limited to projects.
+* **Plugin actions** (`kind: plugin`, a `plugin: {id, action, timeout_minutes}` block, written by
+  `plugin_library.action_items` from a manifest's `library_actions` as generated pack items, so
+  install, update, conflicts and retiring are the pack's). The runner's `_call_plugin` checks the
+  plugin is on and enabled in the project and that the person who started the card has their own
+  settings, then sends the plugin the usual `action` request with `args`, `vars` (bound variable
+  sets' values), `job` and that person's settings; `plugins.job_runs` sends the plugin's `log` and
+  `progress` for the job's id to its console; a cancelled job sends the plugin `cancel`
+  (`run.signal`). The handler's `output` is the job's stdout. `plugins.actions_rate_limit` (admins)
+  adds a `plugin:<id>` scope to the job's rate limits.
 * **AI recovery.** When the fixed rules run out (`Trouble`) on a playbook step with
   `on_failure: ai`, `server_runner._recover` asks the resolver chain (`ai.recover_http`, masked
   context: the request without its query, the status, rate-limit headers, the start of the body,

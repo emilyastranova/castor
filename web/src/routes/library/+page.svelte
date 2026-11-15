@@ -14,7 +14,7 @@
 	import CommandRow from '$lib/components/library/CommandRow.svelte';
 	import CommandDetail from '$lib/components/library/CommandDetail.svelte';
 	import ToolDetail from '$lib/components/library/ToolDetail.svelte';
-	import { filterFolders, filtering, folderKey, folders, HTTP_FOLDER, MCP_FOLDER, NO_FILTERS, provision, readiness, type Filters } from '$lib/library';
+	import { filterFolders, filtering, folderKey, folders, HTTP_FOLDER, MCP_FOLDER, NO_FILTERS, PLUGIN_FOLDER, provision, readiness, type Filters } from '$lib/library';
 
 	let { data } = $props();
 	// svelte-ignore state_referenced_locally
@@ -490,7 +490,7 @@ build:
 						>
 							<Icon name="chevron_right" size={20} class="transition-transform duration-150 {open ? 'rotate-90' : ''}" />
 						</button>
-						<Icon name={f.tool ? 'handyman' : f.id === HTTP_FOLDER ? 'api' : f.id === MCP_FOLDER ? 'hub' : 'deployed_code'} size={20} class="shrink-0 text-on-surface-variant" />
+						<Icon name={f.tool ? 'handyman' : f.id === HTTP_FOLDER ? 'api' : f.id === MCP_FOLDER ? 'hub' : f.id === PLUGIN_FOLDER ? 'extension' : 'deployed_code'} size={20} class="shrink-0 text-on-surface-variant" />
 						<span class="min-w-0 flex-1">
 							<span class="block truncate title-medium">{f.name}</span>
 							{#if f.tool}

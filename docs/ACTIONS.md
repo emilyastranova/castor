@@ -1,10 +1,10 @@
 # Actions beyond commands (plan)
 
-Status: **phases 1 to 3 are built**: HTTP actions the Castor server sends (with paging, batches,
+Status: **phases 1 to 4 are built**: HTTP actions the Castor server sends (with paging, batches,
 rate limits, retries and waiting), sent through an agent's network when a card chooses one, AI
-recovery moves for playbook steps, and MCP actions: tools on other MCP servers, over HTTP or as
-stdio programs agents run. The format is in [commands/README.md](../commands/README.md#http-actions-kind-http)
-and how it works in [ARCHITECTURE.md](ARCHITECTURE.md#http-actions). Phases 4 and 5 are still plans.
+recovery moves for playbook steps, MCP actions (tools on other MCP servers, over HTTP or as stdio
+programs agents run), and plugin actions (a plugin's library actions, on cards and as steps). The format is in [commands/README.md](../commands/README.md#http-actions-kind-http)
+and how it works in [ARCHITECTURE.md](ARCHITECTURE.md#http-actions). Phase 5 is still a plan.
 This is the design the work follows: change it here first when a decision changes, then build.
 The roadmap entry ("Actions beyond commands") points here.
 
@@ -229,24 +229,36 @@ This adds **typed actions** that work as library definitions:
 ```yaml
 # castor-plugin.yaml
 library_actions:
-  - id: hashcat-crack
-    name: Crack hashes with hashcat
-    args:
+  - id: crack
+    name: Crack hashes
+    args:                        # the command format's args, vars and outputs
       - {name: hashes, type: list, required: true}
-      - {name: mode, type: number, default: 1000}
-    outputs:
-      - {name: cracked, type: list<object>}
+      - {name: rounds, type: number, default: 3}
+    vars:
+      - {name: creds, kind: credential, required: false}
+    outputs:                     # read from what the handler returns, as a command's stdout
+      - {name: cracked, parser: json-records, options: {records: cracked}}
+    timeout_minutes: 30
+    rate_limit: 10/minute        # a suggestion; admins set the plugin's own limit
 ```
 
-- **Library entries:** each appears in the library as a definition with `origin: plugin:<id>` and
-  `kind: plugin`, read-only like other plugin content. It's usable on cards and as playbook steps
-  in projects where the plugin is enabled.
-- **Running it:** the runner calls the plugin through its SDK (`ctx.actions.on("hashcat-crack",
-  async (input, job) => …)`) with the arguments and resolved variables. `job.log()` streams lines,
-  and the return value is the outputs (already typed, so no parser is needed, though `parser` still
-  works on a returned string).
+- **Library entries:** each is written into the library as `<plugin id>-<action id>` with
+  `kind: plugin` and `origin: plugin:<id>`, read-only like other plugin content, when the plugin is
+  installed (as generated pack items, so updates, conflicts and removal work as for packs; a
+  removed plugin's cards become manual cards). It's usable on cards and as playbook steps in
+  projects where the plugin is enabled.
+- **Running it:** the server runner calls the plugin's handler, the same `ctx.actions.on(id, …)`
+  as a button action, with `run.args` (the card's values), `run.vars` (the bound variable sets'
+  values, `{slot: {field: value}}`: the plugin sees secrets, as a job does), `run.job` and the
+  settings of the person who started the card. `run.log` and `run.progress` go to the card's
+  console as they come; `run.signal` is aborted when the job is cancelled.
+- **Outputs (decided while building):** the handler returns `{message, output}`, and `output`
+  (text, or anything JSON) is the job's output, read by the definition's parsers like a command's
+  stdout, rather than typed values of its own: one model for results, and `json-records` or
+  `json-value` make it one line.
 - **Limits:** it runs with the plugin's own permissions and network, as its buttons do. A sandboxed
-  plugin's action is as contained as the plugin.
+  plugin's action is as contained as the plugin. Admins can cap how often a plugin's library actions
+  run (`plugins.actions_rate_limit`, on its page), on top of cards' limits.
 
 ## How the existing machinery treats them
 
@@ -394,8 +406,10 @@ that times out) and to plugin actions, which can return `{retry_after: 30}`.
    agents (`mcp_stdio` capability), Settings → MCP servers with Check and the tool list, `mcp`
    actions, "From an MCP tool" in the Library, result handling. Not yet: the older SSE transport,
    MCP connections in exports, and MCP tools (on Castor's own MCP server) to manage connections.
-4. **Plugin actions:** the manifest field, the SDK handler, the runner bridge, plugin rate
-   limits, castor-plugins examples.
+4. **Plugin actions** (built): `library_actions` in the manifest, `run.args`/`run.vars`/
+   `run.job`/`run.signal` and `{message, output}` in the SDK, the runner bridge (`_call_plugin`, log
+   and progress forwarded through `plugins.job_runs`), the plugin's rate limit, and the
+   `shodan-enrich` example (a "Shodan host lookup" library action, in its 1.2.0, for Castor 1.4).
 5. **Approvals and polish:** `confirm: true`, MCP tools for managing connections and limits.
 
 Each phase ships on its own and keeps commands exactly as they are.

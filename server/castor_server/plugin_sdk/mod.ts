@@ -116,6 +116,14 @@ export interface ActionRun {
   /** Shown on the run while it goes: "120 of 400 hosts". */
   progress(p: { done?: number; total?: number; text?: string }): void;
   log: Logger;
+  /** Library actions (manifest `library_actions`), run from a card or a playbook step: the card's
+   *  argument values, the variable sets bound to its slots ({slot: {field: value}}, secrets
+   *  included: don't log them), and the job. Empty for button actions. */
+  args: Record<string, unknown>;
+  vars: Record<string, Record<string, string>>;
+  job: { id: string } | null;
+  /** Aborted when someone cancels the card's job: stop early (pass it to fetch). */
+  signal: AbortSignal;
 }
 
 /** Something that happened in a project the plugin is enabled in (manifest `events:`). */
@@ -137,7 +145,10 @@ export interface AssetCreated {
 }
 
 /** What an action returns: a sentence for the person who ran it ("Imported 42 hosts"). */
-export type ActionResult = string | { message: string } | void;
+/** What an action hands back: a message for the run, and (library actions) its `output`, the
+ *  job's output that the definition's parsers read: text, or anything JSON (an array of records
+ *  for json-records, an object for json-value). */
+export type ActionResult = string | { message?: string; output?: unknown } | void;
 
 export interface Context {
   plugin: PluginInfo;
@@ -307,6 +318,7 @@ function pluginFile(runId: string, name: string, size: number): PluginFile {
 // ---------- the plugin ----------
 
 const handlers = new Map<string, (run: ActionRun) => ActionResult | Promise<ActionResult>>();
+const aborts = new Map<string, AbortController>();
 const uiHandlers = new Map<string, { handler: (call: UiCall) => unknown; readOnly: boolean }>();
 const eventHandlers = new Map<string, ((event: PluginEvent) => void | Promise<void>)[]>();
 let definition: PluginDefinition | null = null;
@@ -353,6 +365,8 @@ async function onRequest(method: string, params: Record<string, unknown>): Promi
     if (!handler) throw new CastorError(`This plugin has no handler for the action “${params.action}” (ctx.actions.on)`);
     const runId = String(params.run_id);
     const f = params.file as { name: string; size: number } | null;
+    const abort = new AbortController();
+    aborts.set(runId, abort);
     const run: ActionRun = {
       runId,
       action: String(params.action),
@@ -364,9 +378,22 @@ async function onRequest(method: string, params: Record<string, unknown>): Promi
       settings: (params.settings ?? {}) as Record<string, unknown>,
       progress: (p) => notify("progress", { run_id: runId, ...p }),
       log: logger(runId),
+      args: (params.args ?? {}) as Record<string, unknown>,
+      vars: (params.vars ?? {}) as Record<string, Record<string, string>>,
+      job: (params.job ?? null) as ActionRun["job"],
+      signal: abort.signal,
     };
-    const result = await handler(run);
-    return { message: typeof result === "string" ? result : (result?.message ?? "") };
+    try {
+      const result = await handler(run);
+      if (typeof result === "string") return { message: result, output: result };
+      return { message: result?.message ?? "", output: result?.output ?? null };
+    } finally {
+      aborts.delete(runId);
+    }
+  }
+  if (method === "cancel") {
+    aborts.get(String(params.run_id))?.abort();
+    return null;
   }
   if (method === "ui") {
     const entry = uiHandlers.get(String(params.name));

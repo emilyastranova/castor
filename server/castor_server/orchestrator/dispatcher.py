@@ -125,7 +125,7 @@ class Dispatcher:
             tools = await tools_by_id(db) if any(j.tool for j in queued) else {}
             for job in queued:
                 task = job.task
-                if job.kind in ("http", "mcp"):
+                if job.kind in ("http", "mcp", "plugin"):
                     await self._to_server(db, job, task)
                     continue
                 if job.status != m.JobStatus.queued:
@@ -205,7 +205,7 @@ class Dispatcher:
         if first:
             spec = await load_spec(db, task.command_ref) if task.command_ref else None
             if spec is None or spec.kind != job.kind:
-                await self._fail_unsent(db, job, task, f"its {'HTTP' if job.kind == 'http' else 'MCP'} action is no longer in the library")
+                await self._fail_unsent(db, job, task, f"its {({'http': 'HTTP', 'mcp': 'MCP'}).get(job.kind, 'plugin')} action is no longer in the library")
                 return
             try:
                 expanded = await variables.expand_list_refs(db, spec, task.command_args or {}, task.project_id)
@@ -215,7 +215,7 @@ class Dispatcher:
                 return
             job.request = {
                 "args": args,
-                "spec": spec.model_dump(mode="json", include={"args", "vars", "request", "paginate", "batch", "expect", "retry", "rate_limit", "mcp"}),
+                "spec": spec.model_dump(mode="json", include={"args", "vars", "request", "paginate", "batch", "expect", "retry", "rate_limit", "mcp", "plugin"}),
             }
             job.output_specs = output_specs_for(spec.outputs)
         else:

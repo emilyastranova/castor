@@ -133,7 +133,8 @@ class Limiter:
 limiter = Limiter()
 
 
-async def scopes_for(db: AsyncSession, task: m.Task, bindings: dict[str, Any], suggested: str | None) -> list[Scope]:
+async def scopes_for(db: AsyncSession, task: m.Task, bindings: dict[str, Any], suggested: str | None,
+                     plugin_id: str | None = None) -> list[Scope]:
     """The limits a card's requests come under: each bound variable set's, and the card's
     own (or else the definition's suggested one)."""
     out: list[Scope] = []
@@ -148,6 +149,11 @@ async def scopes_for(db: AsyncSession, task: m.Task, bindings: dict[str, Any], s
     rate = _rate(task.rate_limit) or _rate(suggested)
     if rate is not None:
         out.append(Scope(f"task:{task.id}", "this card's rate limit", rate))
+    if plugin_id:
+        row = await db.get(m.Plugin, plugin_id)
+        rate = _rate(row.actions_rate_limit) if row is not None else None
+        if rate is not None:
+            out.append(Scope(f"plugin:{plugin_id}", f"the {row.name} plugin's rate limit", rate))
     return out
 
 

@@ -53,6 +53,8 @@ async def _plugin_out(db: DB, p: m.Plugin) -> dict[str, Any]:
         "status": status, "status_message": p.status_message, "running": running,
         "granted": p.granted or {}, "permission_details": _scopes(list((p.granted or {}).get("permissions") or [])),
         "actions": [a.model_dump(mode="json") for a in man.actions],
+        "library_actions": [{"id": f"{p.id}-{a.id}", "name": a.name, "description": a.description} for a in man.library_actions],
+        "actions_rate_limit": p.actions_rate_limit,
         "asset_types": [{"name": t.name, "label": t.label, "plural": t.plural or t.label + "s", "icon": t.icon} for t in man.asset_types],
         "link_kinds": [{"name": k.name, "forward": k.forward, "reverse": k.reverse} for k in man.link_kinds if k.forward],
         "settings_spec": [s.model_dump(mode="json") for s in man.settings],
@@ -259,6 +261,8 @@ class PluginPatch(BaseModel):
     secrets: dict[str, str | None] | None = None
     # The settings each person sets for themselves; their shared values go.
     per_user: list[str] | None = None
+    # The most its library actions may run ("10/minute"); "" clears it.
+    actions_rate_limit: str | None = None
 
 
 @router.patch("/plugins/{plugin_id}")
@@ -277,6 +281,14 @@ async def update_plugin(plugin_id: str, body: PluginPatch, db: DB, user: Admin) 
             shared = {s.name for s in man.settings} - P.per_user_names(p, man)
             p.settings, p.secrets = P.check_settings(man, body.settings or {}, body.secrets, p.settings, p.secrets, shared)
             said.append("its settings")
+        if body.actions_rate_limit is not None:
+            from ..http_spec import check_rate
+
+            p.actions_rate_limit = check_rate(body.actions_rate_limit)
+            said.append("its rate limit")
+            from ..rate_limits import limiter
+
+            limiter.forget(f"plugin:{p.id}")
         if body.project_ids is not None or body.all_projects is not None:
             ids = body.project_ids if body.project_ids is not None else await P.project_ids(db, p.id)
             await P.set_projects(db, p, ids, p.all_projects if body.all_projects is None else body.all_projects)

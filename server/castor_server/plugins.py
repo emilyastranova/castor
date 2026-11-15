@@ -19,6 +19,7 @@ import secrets
 import time
 import uuid
 from collections import deque
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -589,6 +590,9 @@ async def handle_call(plugin_id: str, method: str, params: dict[str, Any], proc:
         await _progress(plugin_id, params)
         return None
     if method == "log":
+        to_job = job_runs.get(str(params.get("run_id")))
+        if to_job is not None:  # first: the action's result may be on its way already
+            await to_job(f"[{params.get('level') or 'info'}] {params.get('message') or ''}\n")
         await plugin_log(plugin_id, str(params.get("level") or "info"), str(params.get("message") or ""), params.get("run_id"))
         return None
     raise PluginError(f"Castor has no method {method}")
@@ -701,7 +705,20 @@ def _file_read(proc: PluginProcess, params: dict[str, Any]) -> dict[str, Any]:
     return {"data": base64.b64encode(data).decode(), "eof": offset + len(data) >= path.stat().st_size}
 
 
+# Library actions running as jobs (server_runner._call_plugin): run id (the job's id) → where
+# the plugin's log lines and progress go, the job's console.
+job_runs: dict[str, Callable[[str], Awaitable[None]]] = {}
+
+
 async def _progress(plugin_id: str, params: dict[str, Any]) -> None:
+    to_job = job_runs.get(str(params.get("run_id")))
+    if to_job is not None:
+        total = f" of {params['total']}" if params.get("total") is not None else ""
+        done = f"{params['done']}{total}" if params.get("done") is not None else ""
+        text = " ".join(x for x in (done, str(params.get("text") or "")) if x)
+        if text:
+            await to_job(f"progress {text}\n")
+        return
     try:
         rid = uuid.UUID(str(params.get("run_id")))
     except ValueError:

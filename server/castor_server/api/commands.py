@@ -142,7 +142,7 @@ async def render(command_id: str, body: RenderIn, db: DB, _: CurrentUser):
     except variables.VariableError as exc:
         name, _, message = str(exc).partition(": ")
         raise HTTPException(422, {"message": str(exc), "errors": {name: message}}) from exc
-    if spec.kind in ("http", "mcp"):
+    if spec.kind in ("http", "mcp", "plugin"):
         import json
 
         from ..command_render import resolve_args
@@ -152,6 +152,10 @@ async def render(command_id: str, body: RenderIn, db: DB, _: CurrentUser):
             resolved = resolve_args(spec, args)
         except ArgumentError as exc:
             raise HTTPException(422, {"message": str(exc), "errors": exc.errors}) from exc
+        if spec.kind == "plugin":
+            call = {"method": "PLUGIN", "url": f"{spec.plugin.id} · {spec.plugin.action}", "headers": {},
+                    "body": json.dumps({k: v for k, v in resolved.items() if v is not None}, ensure_ascii=False, indent=2)}
+            return RenderOut(command=preview_line(spec, resolved), image=None, kind="plugin", request=call)
         if spec.kind == "mcp":
             call = {"method": "MCP", "url": f"{spec.mcp.server} · {spec.mcp.tool}", "headers": {},
                     "body": json.dumps(mcp_arguments(spec, resolved, display_lookup, preview=True), ensure_ascii=False, indent=2)}

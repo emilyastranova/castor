@@ -44,6 +44,25 @@ class ActionSpec(BaseModel):
     timeout_minutes: int = Field(30, ge=1, le=720)
 
 
+class LibraryActionSpec(BaseModel):
+    """An action that works as a library definition (docs/ACTIONS.md phase 4): usable on cards and
+    as playbook steps, with typed arguments, variable sets and outputs read by parsers. Castor
+    writes it into the library as `<plugin id>-<id>` (kind: plugin) while the plugin is installed;
+    its handler is `ctx.actions.on(id, ...)`, like a button action's."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")
+    name: str = Field(min_length=1, max_length=200)
+    description: str = Field("", max_length=500)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    # The command format's (commands/README.md): args, vars (variable slots) and outputs.
+    args: list[dict[str, Any]] = Field(default_factory=list, max_length=40)
+    vars: list[dict[str, Any]] = Field(default_factory=list, max_length=10)
+    outputs: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
+    timeout_minutes: int = Field(30, ge=1, le=720)
+    rate_limit: str | None = None  # a suggestion, as an HTTP action's
+
+
 SLOTS = ("asset.panel", "card.tab", "project.page", "page.script")
 
 
@@ -174,6 +193,8 @@ class Manifest(BaseModel):
     network: list[str] = Field(default_factory=list)
     events: list[str] = Field(default_factory=list)
     actions: list[ActionSpec] = Field(default_factory=list)
+    # Actions that are library definitions (kind: plugin), for cards and playbook steps.
+    library_actions: list[LibraryActionSpec] = Field(default_factory=list, max_length=50)
     hooks: list[dict[str, Any]] = Field(default_factory=list)
     ui: list[UiSpec] = Field(default_factory=list)
     settings: list[SettingSpec] = Field(default_factory=list)
@@ -182,6 +203,16 @@ class Manifest(BaseModel):
     # Kinds of asset and of relationship it adds (they stay registered while it's installed).
     asset_types: list[AssetTypeSpec] = Field(default_factory=list, max_length=20)
     link_kinds: list[LinkKindSpec] = Field(default_factory=list, max_length=40)
+
+    @model_validator(mode="after")
+    def _library_actions(self) -> Manifest:
+        ids = [a.id for a in self.actions] + [a.id for a in self.library_actions]
+        if len(ids) != len(set(ids)):
+            raise ValueError("actions and library_actions share one set of ids (ctx.actions.on)")
+        for a in self.library_actions:
+            if len(f"{self.id}-{a.id}") > 63:
+                raise ValueError(f"library_actions.{a.id}: “{self.id}-{a.id}” (its library id) is over 63 characters")
+        return self
 
     @field_validator("main", "icon")
     @classmethod

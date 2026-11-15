@@ -198,7 +198,11 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   variable set into headers/env, agent choice, `check`, `draft_definition`), runner `_call_mcp`.
   `command_library.ACTION_KINDS`/`is_action` cover both kinds. Tests: `tests/test_mcp_actions.py`
   (a fake Streamable HTTP server; a fake agent for stdio), agent `tests/test_mcp_bridge.py`. Web:
-  `routes/settings/mcp`, `McpConnectionDialog`, the Library's MCP folder and "From an MCP tool". `Trouble` (fixed rules
+  `routes/settings/mcp`, `McpConnectionDialog`, the Library's MCP folder and "From an MCP tool".
+  Phase 4, plugin actions (`kind: plugin`): manifest `library_actions` become generated pack items
+  (`plugin_library.action_items`, ids `<plugin>-<action>`); runner `_call_plugin` (forwards logs and
+  progress via `plugins.job_runs`, `cancel` → `run.signal`), `plugins.actions_rate_limit`. Tests:
+  `tests/test_plugin_actions.py` (a real Deno plugin). `Trouble` (fixed rules
   ran out) on an `on_failure: ai` step goes to `_recover` → `ai.recover_http`, a fixed list of
   moves recorded in `progress.ai_moves`; batches count values (`progress.offset`). Web:
   `agentSelector.httpSenderOptions`/`describeSender`.

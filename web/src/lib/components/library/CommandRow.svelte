@@ -41,6 +41,7 @@
 	</div>
 	<span class="flex shrink-0 items-center gap-2 label-small {selected ? 'text-on-secondary-container/80' : 'text-on-surface-variant'}">
 		{#if c.spec.kind === 'http'}<span class="flex" title="An HTTP request the Castor server sends"><Icon name="api" size={16} /></span>{/if}
+		{#if c.spec.kind === 'plugin'}<span class="flex" title="An action of the plugin {c.spec.plugin?.id}"><Icon name="extension" size={16} /></span>{/if}
 		{#if c.spec.kind === 'mcp'}<span class="flex" title="A tool on the MCP server {c.spec.mcp?.server}"><Icon name="hub" size={16} /></span>{/if}
 		{#if c.spec.tty}<span class="flex" title="Interactive: runs in a terminal"><Icon name="terminal" size={16} /></span>{/if}
 		{#if needsCredentials(c)}<span class="flex" title="Uses credentials (variable sets)"><Icon name="key" size={16} /></span>{/if}

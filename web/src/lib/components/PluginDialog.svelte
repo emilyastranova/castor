@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Plugin, PluginLogEntry, PluginRun, ProjectSummary, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
-	import { Button, Dialog, IconButton, Tabs } from '$lib/m3';
+	import { Button, Dialog, IconButton, Tabs, TextField } from '$lib/m3';
 	import { absoluteTime, relativeTime } from '$lib/format';
 	import PluginProjects from './PluginProjects.svelte';
 	import PluginSettingsForm from './PluginSettingsForm.svelte';
@@ -21,6 +21,7 @@
 	let perUser = $state<string[]>([]);
 	let projectIds = $state<UUID[]>([]);
 	let allProjects = $state(false);
+	let rateLimit = $state('');
 	let saving = $state(false);
 	let error = $state<string | null>(null);
 	let runs = $state<PluginRun[]>([]);
@@ -38,6 +39,7 @@
 		perUser = [...plugin.per_user];
 		projectIds = [...plugin.project_ids];
 		allProjects = plugin.all_projects;
+		rateLimit = plugin.actions_rate_limit ?? '';
 		error = null;
 		void loadMore(plugin.id);
 	});
@@ -57,7 +59,8 @@
 				// Typed ones only: a value replaces the stored secret, cleared to nothing removes it.
 				secrets: Object.fromEntries(Object.entries(secrets).filter(([k]) => !own.has(k))),
 				project_ids: projectIds,
-				all_projects: allProjects
+				all_projects: allProjects,
+				...(plugin.library_actions?.length ? { actions_rate_limit: rateLimit.trim() } : {})
 			});
 			onchanged(p);
 			open = false;
@@ -94,6 +97,26 @@
 					</section>
 				{:else}
 					<p class="body-small text-on-surface-variant italic">It has no settings.</p>
+				{/if}
+				{#if plugin.library_actions?.length}
+					<section aria-label="Library actions" class="flex flex-col gap-2">
+						<h3 class="label-large text-on-surface-variant">Library actions</h3>
+						<ul class="flex flex-col gap-1">
+							{#each plugin.library_actions as a (a.id)}
+								<li class="body-small">
+									<a class="font-medium text-primary hover:underline" href="/library?c={encodeURIComponent(a.id)}">{a.name}</a>
+									{#if a.description}<span class="text-on-surface-variant"> · {a.description}</span>{/if}
+								</li>
+							{/each}
+						</ul>
+						<TextField
+							label="Rate limit (optional)"
+							bind:value={rateLimit}
+							mono
+							placeholder="10/minute"
+							supporting="The most its library actions run, from every card and playbook together"
+						/>
+					</section>
 				{/if}
 				<section aria-label="Projects">
 					<h3 class="mb-1.5 label-large text-on-surface-variant">In these projects</h3>

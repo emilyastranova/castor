@@ -147,6 +147,8 @@
 	let isHttp = $derived(libraryDef?.spec.kind === 'http');
 	/** An MCP action: a tool on an MCP server; where it runs is the server's connection's choice. */
 	let isMcp = $derived(libraryDef?.spec.kind === 'mcp');
+	/** A plugin's library action: its plugin runs it. */
+	let isPluginAction = $derived(libraryDef?.spec.kind === 'plugin');
 	let libArgs = $state<Record<string, unknown>>({});
 	let libErrors = $state<Record<string, string>>({});
 	let libDirty = $state(false);
@@ -781,7 +783,7 @@
 			<StepDecisions result={stepResult} />
 			{#if task.kind === 'command' && !formOpen}
 				<button type="button" class="state-layer flex w-full items-center gap-3 rounded-md bg-surface-container p-3 text-left" onclick={() => (formOpen = true)}>
-					<Icon name={isHttp ? 'api' : isMcp ? 'hub' : task.command_ref ? 'menu_book' : 'terminal'} size={20} class="shrink-0 text-primary" />
+					<Icon name={isHttp ? 'api' : isMcp ? 'hub' : isPluginAction ? 'extension' : task.command_ref ? 'menu_book' : 'terminal'} size={20} class="shrink-0 text-primary" />
 					<span class="min-w-0 flex-1">
 						<span class="block label-medium text-on-surface-variant">{task.command_ref ? (libraryDef?.name ?? task.command_ref) : 'Command'}</span>
 						<code class="block truncate font-mono text-[12.5px] text-on-surface">{task.command || '—'}</code>
@@ -805,11 +807,14 @@
 						{/if}
 					{/if}
 					<div>
-						<p class="mb-1 label-medium text-on-surface-variant">{isHttp ? 'Request' : isMcp ? 'Tool call' : 'Command'}</p>
+						<p class="mb-1 label-medium text-on-surface-variant">{isHttp ? 'Request' : isMcp ? 'Tool call' : isPluginAction ? 'Plugin call' : 'Command'}</p>
 						<pre class="overflow-auto rounded-sm bg-surface-container-highest p-3 font-mono text-[12.5px] whitespace-pre-wrap break-words text-on-surface">{task.command || '—'}</pre>
 					</div>
 					<dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 body-small text-on-surface-variant">
-						{#if isMcp}
+						{#if isPluginAction}
+							<dt>Runs in</dt><dd class="text-on-surface">the plugin {libraryDef?.spec.plugin?.id} (its action {libraryDef?.spec.plugin?.action})</dd>
+							<dt>Rate limit</dt><dd class="text-on-surface">{task.rate_limit ?? (libraryDef?.spec.rate_limit ? `${libraryDef.spec.rate_limit} (the action’s)` : 'none of its own')}</dd>
+						{:else if isMcp}
 							<dt>Calls</dt><dd class="text-on-surface">{libraryDef?.spec.mcp?.tool} on the MCP server {libraryDef?.spec.mcp?.server}</dd>
 							<dt>Rate limit</dt><dd class="text-on-surface">{task.rate_limit ?? (libraryDef?.spec.rate_limit ? `${libraryDef.spec.rate_limit} (the action’s)` : 'none of its own')}</dd>
 						{:else if isHttp}
@@ -851,9 +856,17 @@
 						{/if}
 					{/if}
 
-					{#if isHttp || isMcp}
+					{#if isHttp || isMcp || isPluginAction}
 						<div class="grid gap-3 sm:grid-cols-2">
-							{#if isMcp}
+							{#if isPluginAction}
+								<a href="/settings/plugins" class="flex h-14 items-center gap-2 rounded-xs border border-outline-variant px-4 hover:border-outline" title="The plugin runs it, in its sandbox">
+									<Icon name="extension" size={20} class="text-primary" />
+									<span class="min-w-0">
+										<span class="block label-small text-on-surface-variant">Plugin</span>
+										<span class="block truncate font-mono body-medium text-on-surface">{libraryDef?.spec.plugin?.id}</span>
+									</span>
+								</a>
+							{:else if isMcp}
 								<a href="/settings/mcp" class="flex h-14 items-center gap-2 rounded-xs border border-outline-variant px-4 hover:border-outline" title="The MCP server's settings decide where it runs">
 									<Icon name="hub" size={20} class="text-primary" />
 									<span class="min-w-0">
@@ -915,7 +928,7 @@
 					{/if}
 					<div class="flex flex-wrap items-center gap-4">
 						<Switch bind:checked={runOnMove} label="Run when moved to In Progress" onchange={(v) => save({ run_on_move: v })} />
-						{#if !isHttp && !isMcp}
+						{#if !isHttp && !isMcp && !isPluginAction}
 						<span title="A real terminal: you can type into it while it runs, full-screen programs (tmux, vim, htop) work, and a run that stops at a prompt tells people.">
 							<Switch checked={!!task.tty || libTty} disabled={libTty} label={libTty ? 'Interactive terminal (its command asks for one)' : 'Interactive terminal'} onchange={(v) => save({ tty: v })} />
 						</span>
@@ -974,7 +987,9 @@
 					{/if}
 					{#if selectedJob}
 						<p class="flex flex-wrap items-center gap-x-2 body-small text-on-surface-variant">
-							{#if selectedJob.kind === 'mcp'}
+							{#if selectedJob.kind === 'plugin'}
+								Plugin action run by the Castor server · queued {absoluteTime(selectedJob.queued_at)}
+							{:else if selectedJob.kind === 'mcp'}
 								MCP tool call from the Castor server · queued {absoluteTime(selectedJob.queued_at)}
 							{:else if selectedJob.kind === 'http'}
 								HTTP request from the Castor server{selectedJob.via_agent_id ? `, through ${agentName(selectedJob.via_agent_id)}` : ''} · queued {absoluteTime(selectedJob.queued_at)}{selectedJob.status === 'waiting' && selectedJob.resume_at ? ` · carries on at ${absoluteTime(selectedJob.resume_at)}` : ''}
@@ -1247,7 +1262,7 @@
 					<dt>Kind</dt><dd class="text-on-surface">{task.run ? 'playbook run' : task.playbook_step_id ? 'playbook step' : task.kind}</dd>
 					{#if task.latest_job}
 						<dt>Last run</dt><dd class="text-on-surface">{task.latest_job.status}{task.latest_job.started_at ? ` · ${duration(task.latest_job.started_at, task.latest_job.finished_at)}` : ''}</dd>
-						<dt>{task.latest_job.kind === 'http' || task.latest_job.kind === 'mcp' ? 'Sent by' : 'Agent'}</dt><dd class="text-on-surface">{task.latest_job.kind === 'http' || task.latest_job.kind === 'mcp' ? `Castor server${task.latest_job.via_agent_id ? ` via ${agentName(task.latest_job.via_agent_id)}` : ''}` : agentName(task.latest_job.agent_id)}</dd>
+						<dt>{task.latest_job.kind && task.latest_job.kind !== 'command' ? 'Sent by' : 'Agent'}</dt><dd class="text-on-surface">{task.latest_job.kind && task.latest_job.kind !== 'command' ? `Castor server${task.latest_job.via_agent_id ? ` via ${agentName(task.latest_job.via_agent_id)}` : ''}` : agentName(task.latest_job.agent_id)}</dd>
 					{/if}
 					<dt>ID</dt><dd class="truncate font-mono text-on-surface" title={task.id}>{task.id.slice(0, 8)}</dd>
 				</dl>

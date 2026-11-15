@@ -82,7 +82,7 @@
 
 <div class="flex flex-col gap-5">
 	<header class="flex flex-wrap items-start gap-x-4 gap-y-3">
-		<span class="flex size-12 shrink-0 items-center justify-center rounded-lg bg-primary-container text-on-primary-container"><Icon name={c?.spec.kind === 'http' ? 'api' : c?.spec.kind === 'mcp' ? 'hub' : 'terminal'} /></span>
+		<span class="flex size-12 shrink-0 items-center justify-center rounded-lg bg-primary-container text-on-primary-container"><Icon name={c?.spec.kind === 'http' ? 'api' : c?.spec.kind === 'mcp' ? 'hub' : c?.spec.kind === 'plugin' ? 'extension' : 'terminal'} /></span>
 		<div class="min-w-0 flex-1">
 			<h2 class="title-large text-on-surface">{c?.name ?? 'New command'}</h2>
 			{#if c}
@@ -124,9 +124,12 @@
 		{#if c.description}<p class="max-w-[70ch] body-medium text-on-surface">{c.description}</p>{/if}
 
 		<dl class="grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-6 gap-y-2 body-medium">
-			<dt class="label-large text-on-surface-variant">{c.spec.kind === 'http' ? 'Sent by' : c.spec.kind === 'mcp' ? 'Calls' : 'Runs with'}</dt>
+			<dt class="label-large text-on-surface-variant">{c.spec.kind === 'http' ? 'Sent by' : c.spec.kind === 'mcp' ? 'Calls' : c.spec.kind === 'plugin' ? 'Runs in' : 'Runs with'}</dt>
 			<dd class="min-w-0">
-				{#if c.spec.kind === 'mcp'}
+				{#if c.spec.kind === 'plugin'}
+					<span>the plugin</span> <a class="font-medium text-primary underline-offset-4 hover:underline" href="/settings/plugins">{c.spec.plugin?.id}</a>
+					<span class="text-on-surface-variant">(its action {c.spec.plugin?.action})</span>
+				{:else if c.spec.kind === 'mcp'}
 					<span>the tool <code class="font-mono text-[12.5px]">{c.spec.mcp?.tool}</code> on</span>
 					<a class="font-medium text-primary underline-offset-4 hover:underline" href="/settings/mcp">{c.spec.mcp?.server}</a>
 					<span class="text-on-surface-variant">(an MCP server)</span>
@@ -168,10 +171,12 @@
 		</dl>
 
 		<section class="flex flex-col gap-2">
-			<h3 class="title-small text-on-surface">{c.spec.kind === 'http' ? 'Request' : c.spec.kind === 'mcp' ? 'Tool call' : 'Command line'}</h3>
-			<pre class="overflow-x-auto rounded-md bg-surface-container-highest p-3 font-mono text-[12.5px] leading-5 whitespace-pre-wrap text-on-surface">{#each commandParts(c.spec.kind === 'http' || c.spec.kind === 'mcp' ? requestText(c) : c.spec.command) as part, i (i)}{#if part.arg}<span class="rounded-xs bg-primary-container px-0.5 text-on-primary-container">{part.text}</span>{:else}{part.text}{/if}{/each}</pre>
+			<h3 class="title-small text-on-surface">{c.spec.kind === 'http' ? 'Request' : c.spec.kind === 'mcp' ? 'Tool call' : c.spec.kind === 'plugin' ? 'Plugin call' : 'Command line'}</h3>
+			<pre class="overflow-x-auto rounded-md bg-surface-container-highest p-3 font-mono text-[12.5px] leading-5 whitespace-pre-wrap text-on-surface">{#each commandParts(c.spec.kind === 'http' || c.spec.kind === 'mcp' || c.spec.kind === 'plugin' ? requestText(c) : c.spec.command) as part, i (i)}{#if part.arg}<span class="rounded-xs bg-primary-container px-0.5 text-on-primary-container">{part.text}</span>{:else}{part.text}{/if}{/each}</pre>
 			<p class="body-small text-on-surface-variant">
-				{#if c.spec.kind === 'mcp'}
+				{#if c.spec.kind === 'plugin'}
+					The plugin's code gets these arguments and the variable sets' values, in its sandbox; what it returns is the run's output. It comes with the plugin and goes when the plugin is removed.
+				{:else if c.spec.kind === 'mcp'}
 					The tool gets these arguments as JSON values; a field that's only a placeholder keeps its type. Its result is the run's output, and images or files it returns are kept on the card.
 				{:else if c.spec.kind === 'http'}
 					Values are escaped for where they go: encoded in the address, JSON values in a JSON body. Variable values are filled in only as the request is sent, and never stored.

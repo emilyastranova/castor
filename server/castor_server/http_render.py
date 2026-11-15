@@ -219,6 +219,9 @@ def mcp_arguments(spec: CommandSpec, args: dict[str, Any], lookup: VarLookup, *,
 def preview_line(spec: CommandSpec, args: dict[str, Any]) -> str:
     """The card's one-line summary (its `command`): method and URL with arguments filled in
     and variables as written; for an MCP action, the server, the tool and its arguments."""
+    if spec.kind == "plugin" and spec.plugin is not None:
+        shown = ", ".join(f"{k}={json.dumps(v, ensure_ascii=False)}" for k, v in args.items() if v is not None)
+        return f"{spec.plugin.id} · {spec.plugin.action}({shown})"
     if spec.kind == "mcp" and spec.mcp is not None:
         try:
             values = mcp_arguments(spec, args, display_lookup, preview=True)

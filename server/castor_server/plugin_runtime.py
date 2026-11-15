@@ -168,6 +168,10 @@ class PluginProcess:
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
 
+    async def notify(self, method: str, params: dict[str, Any]) -> None:
+        """A message the plugin doesn't answer (a run being cancelled)."""
+        await self._send({"method": method, "params": params})
+
     async def _send(self, message: dict[str, Any]) -> None:
         if not self.alive or self.proc is None or self.proc.stdin is None:
             raise PluginRuntimeError("The plugin isn't running")

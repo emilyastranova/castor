@@ -99,12 +99,17 @@ def read_zip(data: bytes) -> Package:
         if manifest.icon not in files:
             raise PackageError(f"icon: {manifest.icon} isn't in the .zip")
         check_icon(manifest.icon, files[manifest.icon])
+    from .plugin_library import action_items
     from .plugin_library import read as read_library
 
     try:
         library = read_library(files, list(manifest.contents))
+        library += action_items(manifest, [i.spec for i in library if i.kind == "parsers"])
     except ValueError as exc:
         raise PackageError(str(exc)) from exc
+    ids = [i.id for i in library if i.kind == "commands"]
+    if len(ids) != len(set(ids)):
+        raise PackageError("a library action has the same id as one of the pack's commands")
     return Package(manifest, hashlib.sha256(data).hexdigest(), files, library)
 
 

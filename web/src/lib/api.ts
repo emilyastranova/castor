@@ -151,7 +151,7 @@ export interface Job {
 	} | null;
 }
 
-export type ActionKind = 'command' | 'http' | 'mcp';
+export type ActionKind = 'command' | 'http' | 'mcp' | 'plugin';
 
 /** An MCP server Castor calls tools on (Settings → MCP servers). Secrets come from its
  *  variable set, filled into `headers` (HTTP) or `env` (stdio) as {{ field }}. */
@@ -1087,6 +1087,8 @@ export interface CommandSpec {
 	rate_limit?: string | null;
 	/** kind: mcp: a tool on an MCP server. */
 	mcp?: { server: string; tool: string; arguments?: Record<string, unknown> | null; timeout_s?: number } | null;
+	/** kind: plugin: an action a plugin defines (its manifest's library_actions). */
+	plugin?: { id: string; action: string; timeout_minutes?: number } | null;
 }
 
 export interface CommandDefinition {
@@ -1886,7 +1888,7 @@ export function api(fetchFn: Fetch = fetch) {
 			setMode: (restricted: boolean) => request<PluginMode>(fetchFn, 'PUT', '/plugin-mode', { restricted }),
 			/** Unrestricted plugins' scripts for Castor's own page (manifest ui slot page.script). */
 			scripts: () => get<{ plugin: { id: string; name: string }; id: string; url: string }[]>('/plugin-scripts'),
-			update: (id: string, body: { enabled?: boolean; all_projects?: boolean; project_ids?: UUID[]; settings?: Record<string, unknown>; secrets?: Record<string, string | null>; per_user?: string[] }) =>
+			update: (id: string, body: { enabled?: boolean; all_projects?: boolean; project_ids?: UUID[]; settings?: Record<string, unknown>; secrets?: Record<string, string | null>; per_user?: string[]; actions_rate_limit?: string }) =>
 				patch<Plugin>(`/plugins/${id}`, body),
 			restart: (id: string) => post<Plugin>(`/plugins/${id}/restart`),
 			/** The plugin directory (docs/PLUGINS.md, phase E): browse it, a plugin's page, a publisher's. */
@@ -2416,6 +2418,10 @@ export interface Plugin {
 	/** The directory's newest release, when it's newer than this one (update checks). */
 	latest_version: string | null;
 	checked_at: string | null;
+	/** Its actions that are library definitions (kind: plugin), for cards and playbook steps. */
+	library_actions?: { id: string; name: string; description: string }[];
+	/** The most its library actions may run ("10/minute"). */
+	actions_rate_limit?: string | null;
 }
 
 export type PluginLibraryKind = 'variable_kinds' | 'tools' | 'parsers' | 'commands' | 'playbooks' | 'themes';

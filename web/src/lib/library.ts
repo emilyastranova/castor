@@ -13,6 +13,9 @@ export const isHttp = (c: CommandDefinition) => c.spec.kind === 'http';
 /** MCP actions (kind: mcp): a tool on an MCP server (Settings → MCP servers). */
 export const MCP_FOLDER = '#mcp';
 export const isMcp = (c: CommandDefinition) => c.spec.kind === 'mcp';
+/** Plugin actions (kind: plugin): run by the plugin that defines them. */
+export const PLUGIN_FOLDER = '#plugin';
+export const isPluginAction = (c: CommandDefinition) => c.spec.kind === 'plugin';
 
 export interface Folder {
 	/** The tool id, or NO_TOOL. */
@@ -31,18 +34,20 @@ export function folders(commands: CommandDefinition[], tools: ToolDefinition[]):
 	const out: Folder[] = tools.map((t) => ({ id: t.id, name: t.name, tool: t, commands: [] }));
 	const http: Folder = { id: HTTP_FOLDER, name: 'HTTP actions', tool: null, commands: [] };
 	const mcp: Folder = { id: MCP_FOLDER, name: 'MCP actions', tool: null, commands: [] };
+	const plugin: Folder = { id: PLUGIN_FOLDER, name: 'Plugin actions', tool: null, commands: [] };
 	const rest: Folder = { id: NO_TOOL, name: 'Images and shell', tool: null, commands: [] };
 	const index = new Map(out.map((f) => [f.id, f]));
 	for (const c of commands) {
 		const tool = c.spec.tool && toolIds.has(c.spec.tool) ? c.spec.tool : null;
-		(isHttp(c) ? http : isMcp(c) ? mcp : tool ? index.get(tool)! : rest).commands.push(c);
+		(isHttp(c) ? http : isMcp(c) ? mcp : isPluginAction(c) ? plugin : tool ? index.get(tool)! : rest).commands.push(c);
 	}
 	for (const f of out) f.commands.sort(byName);
 	http.commands.sort(byName);
 	mcp.commands.sort(byName);
+	plugin.commands.sort(byName);
 	rest.commands.sort(byName);
 	out.sort(byName);
-	return [...out, ...[http, mcp, rest].filter((f) => f.commands.length)];
+	return [...out, ...[http, mcp, plugin, rest].filter((f) => f.commands.length)];
 }
 
 /** A folder's key in the Library tree: `t:<tool>`, or `f:<id>` for the folders without a tool. */
@@ -166,6 +171,10 @@ export function commandParts(command: string): { text: string; arg: boolean }[] 
 /** An HTTP action's request template as text, for the Library's detail pane (placeholders as
  *  written, so commandParts can highlight them). */
 export function requestText(c: CommandDefinition): string {
+	if (c.spec.kind === 'plugin' && c.spec.plugin) {
+		const args = Object.fromEntries(c.spec.args.map((a) => [a.name, `{{ ${a.name} }}`]));
+		return `${c.spec.plugin.id} · ${c.spec.plugin.action}\n\n${JSON.stringify(args, null, 2)}`;
+	}
 	const call = c.spec.mcp;
 	if (c.spec.kind === 'mcp' && call) {
 		const args = call.arguments ?? Object.fromEntries(c.spec.args.map((a) => [a.name, `{{ ${a.name} }}`]));

@@ -19,6 +19,7 @@ it goes out from the agent's network; everything else stays here."""
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import email.utils
 import json
 import logging
@@ -208,7 +209,7 @@ class ServerRunner:
             run = _Run(
                 job_id=job.id, task_id=task.id, project_id=task.project_id, spec=spec,
                 args=(job.request or {}).get("args", {}), resolved=resolved,
-                scopes=await scopes_for(db, task, job.var_bindings or {}, spec.rate_limit),
+                scopes=await scopes_for(db, task, job.var_bindings or {}, spec.rate_limit, spec.plugin.id if spec.plugin else None),
                 rules=await outbound.policy(db),
                 deadline=(started.timestamp() + job.timeout_s) if job.timeout_s else started.timestamp() + MAX_WAIT_S,
                 progress=dict(job.progress or {}), seq=seq, via=job.via_agent_id,
@@ -274,8 +275,13 @@ class ServerRunner:
 
     async def _execute(self, run: _Run) -> tuple[int, str | None]:
         spec = run.spec
-        if spec.kind == "mcp":
-            return await self._call_mcp(run)
+        if spec.kind in ("mcp", "plugin"):
+            # One call; when the fixed rules run out, recovery (or failing) decides like a request's.
+            while True:
+                try:
+                    return await (self._call_mcp(run) if spec.kind == "mcp" else self._call_plugin(run))
+                except Trouble as trouble:
+                    await self._recover(run, trouble, None)  # returns to try again, or raises
         p = run.progress
         values = list(run.args.get(spec.batch.arg) or []) if spec.batch is not None else None
         if values is not None and "batch" in p and "offset" not in p:  # saved before batches counted values
@@ -709,6 +715,88 @@ class ServerRunner:
                 await artifacts.store(db, job, name, content_type, chunks())
             except artifacts.ArtifactRefused as exc:
                 raise Failed(f"couldn't keep {name}: {exc}") from exc
+
+    # ----- plugin actions -----
+
+    async def _call_plugin(self, run: _Run) -> tuple[int, str | None]:
+        """Run a plugin's library action (docs/ACTIONS.md phase 4): its handler gets the arguments,
+        the variable sets' values and the settings of the person who started the card; its log
+        lines and progress go to the console; what it returns as `output` is the job's output."""
+        from .. import plugins
+        from ..plugin_runtime import PluginRuntimeError
+
+        call = run.spec.plugin
+        async with SessionLocal() as db:
+            p = await db.get(m.Plugin, call.id)
+            job = await db.get(m.Job, run.job_id)
+            task = await db.get(m.Task, run.task_id)
+            project = await db.get(m.Project, run.project_id)
+            if p is None:
+                raise Failed(f"the plugin {call.id} isn't installed")
+            if not p.enabled:
+                raise Failed(f"{p.name} is turned off")
+            if not await plugins.enabled_in(db, p, run.project_id):
+                raise Failed(f"{p.name} isn't enabled in this project")
+            person = await db.get(m.User, job.created_by) if job and job.created_by else None
+            if person is not None and (missing := await plugins.missing_for(db, p, person.id)):
+                raise Failed(f"{p.name} needs {person.display_name}'s own {', '.join(missing)} first (Your plugin settings)")
+            params = {
+                "run_id": str(run.job_id), "action": call.action,
+                "user": {"id": str(person.id), "username": person.username, "display_name": person.display_name} if person else None,
+                "project": {"id": str(project.id), "codename": project.codename, "name": project.name} if project else None,
+                "task": {"id": str(task.id), "title": task.title} if task else None,
+                "asset": None, "file": None,
+                "settings": await plugins.settings_of(db, p, person.id if person else None),
+                "job": {"id": str(run.job_id)},
+                "args": run.args,
+                "vars": self._var_values(run),
+            }
+            name = p.name
+        await self._log(run, f"> {name}: {call.action}\n  {json.dumps(run.args, ensure_ascii=False)[:4000]}\n")
+        while True:
+            wait, full = await limiter.take(run.scopes)
+            if wait <= 0:
+                break
+            await self._wait(run, wait, f"{full.label}, {full.rate}")
+
+        async def to_job(text: str) -> None:
+            await self._log(run, text)
+
+        plugins.job_runs[str(run.job_id)] = to_job
+        started = time.monotonic()
+        proc = None
+        try:
+            proc = await plugins.ensure_running(call.id)
+            result = await proc.request("action", params, timeout=call.timeout_minutes * 60)
+        except asyncio.CancelledError:
+            if proc is not None:  # the card's job was cancelled: tell the handler (run.signal)
+                with contextlib.suppress(Exception):
+                    await asyncio.shield(proc.notify("cancel", {"run_id": str(run.job_id)}))
+            raise
+        except (plugins.PluginError, PluginRuntimeError) as exc:
+            raise Trouble(f"{name} · {call.action}: {exc}", Rendered("PLUGIN", f"plugin://{call.id}/{call.action}")) from exc
+        finally:
+            # Log lines the plugin sent just before its result are handled in tasks of their own:
+            # keep taking them for a moment.
+            asyncio.get_running_loop().call_later(3, plugins.job_runs.pop, str(run.job_id), None)
+            limiter.release(run.scopes)
+        result = result if isinstance(result, dict) else {}
+        message = str(result.get("message") or "")
+        output = result.get("output")
+        await self._log(run, f"< done ({int((time.monotonic() - started) * 1000)} ms)" + (f": {message}" if message else "") + "\n")
+        text = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False, indent=2) if output is not None else ""
+        if text:
+            await self._log(run, text if text.endswith("\n") else text + "\n", stream="stdout")
+        return 0, None
+
+    @staticmethod
+    def _var_values(run: _Run) -> dict[str, dict[str, str]]:
+        """{slot: {field: value}} from the bound variable sets (files aren't passed)."""
+        out: dict[str, dict[str, str]] = {}
+        for slot in run.spec.vars:
+            prefix = f"CASTOR_VAR_{slot.name.upper()}_"
+            out[slot.name] = {k[len(prefix):].lower(): v for k, v in run.resolved.env.items() if k.startswith(prefix)}
+        return out
 
     # ----- MCP actions -----
 

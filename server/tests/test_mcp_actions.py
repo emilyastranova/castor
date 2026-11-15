@@ -182,7 +182,7 @@ def test_an_http_mcp_server(client, auth, mcp_server):
     assert client.post("/api/commands", json={"yaml": yaml.safe_dump(spec2)}, headers=auth).status_code == 201
     card2 = client.post(f"/api/projects/{project['id']}/tasks", json={"title": "Boom", "kind": "command", "command_ref": spec2["id"]}, headers=auth).json()
     job = _wait(client, auth, client.post(f"/api/tasks/{card2['id']}/run", headers=auth).json()["id"])
-    assert job["status"] == "failed" and "the upstream API said no" in job["error"]
+    assert job["status"] == "failed" and job["error"] == "boom said it failed: the upstream API said no"
 
     # Limited to other projects: refused.
     client.put(f"/api/mcp-connections/{cid}", json={**body, "project_ids": [str(uuid.uuid4())]}, headers=auth)

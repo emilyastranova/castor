@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import yaml
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import models as m
@@ -185,6 +185,40 @@ async def warnings(db: AsyncSession, items: list[Item]) -> list[str]:
     return out
 
 
+def action_items(manifest: Any, parsers: list[Any] | None = None) -> list[Item]:
+    """The manifest's `library_actions` as command definitions (kind: plugin), to install with
+    the rest of the pack: `<plugin id>-<action id>`, read-only, gone with the plugin. Raises
+    ValueError when one isn't a valid definition (an argument type, an unknown parser...)."""
+    from .command_spec import CommandSpec
+    from .parser_library import overlay
+
+    items = []
+    with overlay(parsers or []):
+        for a in manifest.library_actions:
+            data = {
+                "id": f"{manifest.id}-{a.id}", "name": a.name, "description": a.description,
+                "tags": list(dict.fromkeys([*a.tags, "plugin"])), "kind": "plugin",
+                "args": a.args, "vars": a.vars, "outputs": a.outputs, "rate_limit": a.rate_limit,
+                "plugin": {"id": manifest.id, "action": a.id, "timeout_minutes": a.timeout_minutes},
+            }
+            try:
+                spec = CommandSpec.model_validate({k: v for k, v in data.items() if v is not None})
+            except Exception as exc:
+                raise ValueError(f"library_actions.{a.id}: {_first_error(exc)}") from exc
+            text = yaml.safe_dump(spec.model_dump(mode="json", exclude_defaults=True), sort_keys=False, allow_unicode=True)
+            items.append(Item("commands", spec.id, spec.name, spec, text, f"castor-plugin.yaml#library_actions.{a.id}"))
+    return items
+
+
+def _first_error(exc: Exception) -> str:
+    errors = getattr(exc, "errors", None)
+    if callable(errors):
+        err = errors()[0]
+        where = ".".join(str(p) for p in err["loc"])
+        return f"{where}: {err['msg'].removeprefix('Value error, ')}" if where else err["msg"]
+    return str(exc)
+
+
 def summary(items: list[Item]) -> list[dict[str, str]]:
     return [{"kind": i.kind, "id": i.id, "name": i.name} for i in items]
 
@@ -236,7 +270,9 @@ async def retire(db: AsyncSession, plugin_id: str, keep: set[tuple[str, str]] | 
             if (kind, row.id) in keep:
                 continue
             if kind == "commands":
-                await db.execute(update(m.Task).where(m.Task.command_ref == row.id).values(command_ref=None))
+                from .command_library import forget_definition
+
+                await forget_definition(db, row)  # a plugin action's cards become manual cards
             elif kind == "themes":
                 await theme_library.forget_theme(db, row.id)
             elif kind in ("tools", "parsers"):

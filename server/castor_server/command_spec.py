@@ -189,7 +189,25 @@ def template_strings(value: Any) -> list[str]:
     return []
 
 
-ActionKind = Literal["command", "http", "mcp"]
+ActionKind = Literal["command", "http", "mcp", "plugin"]
+
+
+class PluginCall(BaseModel):
+    """kind: plugin: an action a plugin defines (its manifest's `library_actions`). Castor writes
+    these definitions itself when the plugin is installed; they're read-only."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str  # the plugin's id
+    action: str
+    timeout_minutes: int = Field(30, ge=1, le=720)
+
+    @field_validator("id", "action")
+    @classmethod
+    def check_ids(cls, value: str) -> str:
+        if not ID_PATTERN.match(value):
+            raise ValueError("lowercase letters, digits and dashes")
+        return value
 
 
 class McpCall(BaseModel):
@@ -249,6 +267,8 @@ class CommandSpec(BaseModel):
     rate_limit: str | None = None
     # kind: mcp.
     mcp: McpCall | None = None
+    # kind: plugin.
+    plugin: PluginCall | None = None
 
     @field_validator("rate_limit")
     @classmethod
@@ -307,9 +327,20 @@ class CommandSpec(BaseModel):
                 raise ValueError(f"{(http_parts or ['retry'])[0]}: only for kind: http or mcp")
             if self.mcp is not None:
                 raise ValueError("mcp: only for kind: mcp")
+            if self.plugin is not None:
+                raise ValueError("plugin: only for kind: plugin")
             return self
         shell = [n for n, on in (("command", self.command.strip()), ("image", self.image), ("tool", self.tool),
                                  ("container_flags", self.container_flags), ("tty", self.tty)) if on]
+        if self.kind == "plugin":
+            if self.plugin is None:
+                raise ValueError("plugin: a plugin action names its plugin and action")
+            if shell or http_parts or self.mcp is not None:
+                what = (shell or http_parts or ["mcp"])[0]
+                raise ValueError(f"{what}: a plugin action runs in its plugin; it has no {what}")
+            return self
+        if self.plugin is not None:
+            raise ValueError("plugin: only for kind: plugin")
         if self.kind == "mcp":
             if self.mcp is None:
                 raise ValueError("mcp: an MCP action needs mcp: {server: <connection>, tool: <name>}")

@@ -78,6 +78,13 @@ actions:
     icon: upload_file
     on: [project, card]        # where the button shows
     file: { accept: [".nessus"], max_mb: 200 }
+library_actions:               # actions that are library definitions, for cards and playbook steps
+  - id: crack                  # → `<plugin id>-crack`, kind: plugin (docs/ACTIONS.md phase 4)
+    name: Crack hashes
+    args: [{ name: hashes, type: list, required: true }]
+    vars: [{ name: creds, kind: credential, required: false }]
+    outputs: [{ name: cracked, parser: json-records, options: { records: cracked } }]
+    timeout_minutes: 30
 hooks: []
 ui:                            # its pages, shown in Castor in sandboxed frames (phase C)
   - id: paths
@@ -576,6 +583,11 @@ network):
 ## Open questions
 
 - Resource limits per plugin: fixed defaults, or set per plugin by the admin.
-- Plugins on agents (new runtimes, not just tools) are out of scope for now. Plugins adding
+- Plugins on agents (new runtimes, not just tools) are out of scope for now.
+- **Library actions** (docs/ACTIONS.md phase 4, built): an action in `library_actions` is handled
+  by the same `ctx.actions.on(id, …)` as a button, and gets `run.args`, `run.vars` (variable sets'
+  values), `run.job` and `run.signal` (aborted on cancel); it returns `{message, output}`, the
+  output read by the definition's parsers. Castor writes each into the library as
+  `<plugin id>-<id>` while the plugin is installed; admins can cap them (`actions_rate_limit`). Plugins adding
   agent *types* (SaltStack, Puppet: machines reached through another system) are on the roadmap
   ("Agent types from plugins").

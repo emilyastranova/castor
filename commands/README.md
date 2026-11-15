@@ -330,3 +330,13 @@ outputs:
 - **Untrusted output:** what the tool returns comes from another system. It's shown and parsed
   like any job output, never followed as instructions.
 
+## Plugin actions (`kind: plugin`)
+
+A [plugin](../docs/PLUGINS.md) can add actions to the library: its manifest's `library_actions`
+use this format's `args`, `vars` and `outputs`, and Castor writes each into the library as
+`<plugin id>-<action id>` (read-only, in the Library's **Plugin actions** folder) while the plugin
+is installed. A card or playbook step uses one like any definition; the plugin's code runs it in
+its sandbox with the arguments and the bound variable sets' values, its log and progress show in
+the console, and what it returns as `output` is the run's output for the parsers. Admins can cap
+how often a plugin's actions run, on the plugin's page in Settings → Plugins.
+

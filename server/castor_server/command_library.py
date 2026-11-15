@@ -97,7 +97,7 @@ async def forget_definition(db: AsyncSession, row: m.CommandDefinition) -> None:
 
 
 # Definitions whose cards aren't a command line: the request or call comes from the definition.
-ACTION_KINDS = ("http", "mcp")
+ACTION_KINDS = ("http", "mcp", "plugin")
 
 
 def is_action(row: m.CommandDefinition | None) -> bool:

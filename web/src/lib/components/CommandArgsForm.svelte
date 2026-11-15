@@ -42,7 +42,7 @@
 			try {
 				const r = await api().commands.render(id, snapshot);
 				// An HTTP action: the request as it will be sent (variables as written).
-				preview = r.kind === 'mcp' && r.request
+				preview = (r.kind === 'mcp' || r.kind === 'plugin') && r.request
 					? [r.request.url, ...(r.request.body ? ['', r.request.body] : [])].join('\n')
 					: r.request
 					? [`${r.request.method} ${r.request.url}`, ...Object.entries(r.request.headers).map(([k, v]) => `${k}: ${v}`), ...(r.request.body ? ['', r.request.body] : [])].join('\n')
@@ -132,7 +132,9 @@
 		>
 			<span class="min-w-0 flex-1">
 				<span class="block label-small text-on-surface-variant">
-					{#if spec.kind === 'mcp'}
+					{#if spec.kind === 'plugin'}
+						Will run in the plugin {spec.plugin?.id}{preview && !previewOpen && previewLines > 1 ? ' · its arguments' : ''}
+					{:else if spec.kind === 'mcp'}
 						Will call {spec.mcp?.tool} on the MCP server {spec.mcp?.server}{preview && !previewOpen && previewLines > 1 ? ' · its arguments' : ''}
 					{:else if spec.kind === 'http'}
 						Will send from the Castor server{spec.paginate ? ', every page' : ''}{spec.batch ? `, ${spec.batch.size} ${spec.batch.arg} per request` : ''}{preview && !previewOpen && previewLines > 1 ? ' · headers and body' : ''}
