@@ -76,9 +76,9 @@ async def terminal_socket(ws: WebSocket, job_id: str) -> None:
                         await db.commit()
                         bus.publish("job.resize", task.project_id, {"job_id": str(job.id), **size})
                     await gateway.to_job(job, {"type": "job.resize", **size})
-                elif kind == "signal" and msg.get("name") in ("INT", "TERM", "QUIT"):
-                    if await gateway.to_job(job, {"type": "job.signal", "name": msg["name"]}) and not typed:
-                        typed = True
-                        await interactive.took_control(db, job, user)
+                elif (kind == "signal" and msg.get("name") in ("INT", "TERM", "QUIT")
+                      and await gateway.to_job(job, {"type": "job.signal", "name": msg["name"]}) and not typed):
+                    typed = True
+                    await interactive.took_control(db, job, user)
     except WebSocketDisconnect:
         pass
