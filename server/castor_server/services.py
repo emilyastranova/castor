@@ -1697,6 +1697,10 @@ async def _prepare_command_step(
         await apply_library(db, task, cmd_spec, resolve_step_args(step.args, inputs, outputs, item))
     except ArgumentError as exc:
         return str(exc)
+    if cmd_spec.kind == "http":
+        # The run's agent is where its commands run; an HTTP step is sent from the server,
+        # as an API outside the lab expects (docs/ACTIONS.md).
+        task.agent_selector = {}
     bindings = {}
     for slot, value in step.vars.items():
         ref = PLACEHOLDER_RE.match(value.strip())

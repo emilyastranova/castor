@@ -29,6 +29,8 @@ class AgentConfig:
     token: str = ""
     # Let tools with a host install run it on this machine (otherwise they must be there).
     allow_host_install: bool = False
+    # Make HTTP actions' requests from this machine's network when the server asks.
+    http: bool = True
 
     @classmethod
     def from_args(cls, argv: list[str] | None = None) -> AgentConfig:
@@ -52,6 +54,9 @@ class AgentConfig:
         p.add_argument("--allow-host-install", action="store_true",
                        default=env("CASTOR_AGENT_ALLOW_HOST_INSTALL", "false").lower() in ("1", "true", "yes"),
                        help="Let tools install themselves on this host when missing (CASTOR_AGENT_ALLOW_HOST_INSTALL)")
+        p.add_argument("--no-http", dest="http", action="store_false",
+                       default=env("CASTOR_AGENT_HTTP", "true").lower() in ("1", "true", "yes"),
+                       help="Refuse to send HTTP actions' requests for the server (CASTOR_AGENT_HTTP=false)")
         p.add_argument("--default-image", default=env("CASTOR_AGENT_DEFAULT_IMAGE", "docker.io/library/alpine:latest"),
                        help="Image used when a job asks for a container but names none")
         p.add_argument("--tags", default=env("CASTOR_AGENT_TAGS", ""),
@@ -73,6 +78,7 @@ class AgentConfig:
             secret=a.secret,
             token=a.token,
             allow_host_install=a.allow_host_install,
+            http=a.http,
             name=a.name,
             runtime=a.runtime,
             allow_host=a.allow_host,

@@ -225,18 +225,29 @@ class Dispatcher:
         except variables.VariableError as exc:
             await self._fail_unsent(db, job, task, f"variables: {exc}")
             return
+        # Sent through an agent (the card names one, or tags): one that's connected, may work for
+        # the project and sends HTTP requests. None now: it waits for one, like a command would.
+        selector = {k: v for k, v in (task.agent_selector or {}).items() if k in ("agent_id", "tags") and v}
+        via: AgentConnection | None = None
+        if selector:
+            able = [c for c in gateway.connections.values()
+                    if c.capabilities.get("http") and project_allowed(c, task.project_id) and selector_matches(c, selector)]
+            if not able:
+                return
+            via = min(able, key=lambda c: len(c.running))
         job.runner = "server"
         job.agent_id = None
+        job.via_agent_id = via.agent_id if via else None
         if first:
             job.status = m.JobStatus.dispatched
             job.dispatched_at = utcnow()
             await record_activity(
                 db,
                 type="job.dispatched",
-                message=f"Started “{task.title}” on the Castor server",
+                message=f"Started “{task.title}” on the Castor server" + (f", sending through {via.name}" if via else ""),
                 project_id=task.project_id,
                 task_id=task.id,
-                payload={"job_id": str(job.id), "runner": "server"},
+                payload={"job_id": str(job.id), "runner": "server", **({"agent_id": str(via.agent_id)} if via else {})},
             )
         else:
             job.status = m.JobStatus.running

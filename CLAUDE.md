@@ -185,6 +185,14 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `tests/test_http_actions.py` (a fake API on loopback, allowed by conftest's
   `CASTOR_HTTP_ALLOW_ADDRESSES`). Web: `CommandArgsForm` preview, `TaskDialog` `isHttp`, the
   Library's HTTP folder (`lib/library.ts` `HTTP_FOLDER`, `requestText`), Settings → General.
+  Phase 2: a card's `agent_selector` on an HTTP card means "sent through" (`jobs.via_agent_id`,
+  chosen in `_to_server` among agents with `capabilities.http`); the runner still decides
+  everything and the agent only proxies single requests (`gateway.http_request`, agent
+  `http_proxy.py`, `http.request`/`http.chunk`/`http.response`; losing the agent parks the job).
+  Step cards of HTTP actions get `{}` (`services._prepare_command_step`). `Trouble` (fixed rules
+  ran out) on an `on_failure: ai` step goes to `_recover` → `ai.recover_http`, a fixed list of
+  moves recorded in `progress.ai_moves`; batches count values (`progress.offset`). Web:
+  `agentSelector.httpSenderOptions`/`describeSender`.
 - Tools (Phase 3a): `tool_spec.py` (YAML → `ToolSpec`: `image`, `build` recipe, `host`;
   `way_for` picks one per agent; recipe tags hash the recipe), `tool_library.py` (built-ins
   from `CASTOR_TOOLS_DIR` = `tools/`), `api/tools.py`. Commands say `tool: <id>`; the

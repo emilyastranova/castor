@@ -445,9 +445,21 @@ With `on_failure: ai`, the `ai` block says what the resolver may do alone (all o
       edit_command: false      # default: a retry with a changed command waits for a person
       draft_parsers: true      # default: output its parser can't read may be read with a parser the AI drafts
       confidence: 0.7          # below this it asks a person
-      max_retries: 2           # AI retries of this step per run
+      max_retries: 2           # AI retries of this step per run (for an HTTP action: recovery moves)
       instructions: A timeout here usually means retry; "0 hosts up" is a fine result.
+      max_wait_s: 900          # HTTP actions: the longest it may choose to wait in one go
 ```
+
+**HTTP actions.** A step that runs an [HTTP action](../commands/README.md#http-actions-kind-http) is
+sent from the Castor server, whatever agent the run uses. When its requests still go wrong after
+the fixed retry rules (an API that keeps rate limiting, an outage, timeouts, a batch it rejects),
+`on_failure: ai` lets the AI pick one move, carried out inside the same job so it keeps its
+progress: **wait** (up to `max_wait_s`), **smaller** (fewer values per batch, or fewer records
+per page), **slower** (a lower rate limit on the step's card), **skip_batch** (leave out the
+batch that keeps failing; the values are recorded), **ask** or **fail**. Wait, smaller and slower
+count as `retry` in `allow`, skip_batch as `skip`; below `confidence` it asks. The AI can't change
+the URL, the method or the body, and each move goes in the log. If it stops the job (ask or fail),
+the step waits for a person.
 
 `edit_command` is off by default on purpose: the output the model reads can come from the
 systems under test, which could try to talk it into running something else. **Ask AI** on

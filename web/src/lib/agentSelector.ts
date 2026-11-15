@@ -81,3 +81,39 @@ export function selectorOptions(agents: Agent[], current?: AgentSelector | null,
 		});
 	return options;
 }
+
+/** Where an HTTP action's requests go out from: the Castor server (''), or through an agent
+ *  (one, or any one with a tag) that sends HTTP requests, from its network. SSH hosts and agents
+ *  started with --no-http (or older ones) can't. */
+export function httpSenderOptions(agents: Agent[], current?: AgentSelector | null): SelectOption[] {
+	const able = agents.filter((a) => a.capabilities?.http);
+	const options: SelectOption[] = [{ value: '', label: 'The Castor server', description: 'From the server’s own network' }];
+	for (const tag of [...new Set(able.flatMap((a) => a.tags))].sort()) {
+		const all = able.filter((a) => hasTags(a, [tag]));
+		options.push({
+			value: `tag:${tag}`,
+			label: `Any agent tagged ${tag}`,
+			description: `From its network: one of ${all.length} (${all.filter((a) => a.connected).length} connected)`,
+			group: 'Through an agent',
+			keywords: tag
+		});
+	}
+	for (const a of able)
+		options.push({
+			value: a.id,
+			label: `${a.name}${a.connected ? '' : ' (offline)'}`,
+			description: `From its network · ${[a.hostname, a.tags.join(', ')].filter(Boolean).join(' · ')}`,
+			group: 'Through an agent',
+			keywords: a.tags.join(' ')
+		});
+	const value = selectorValue(current);
+	if (value && !options.some((o) => o.value === value))
+		options.push({ value, label: describeSelector(current, agents).replace(/^./, (c) => c.toUpperCase()), description: 'Doesn’t send HTTP requests now', group: 'Through an agent' });
+	return options;
+}
+
+/** An HTTP action's sender, in words. */
+export function describeSender(s: AgentSelector | null | undefined, agents: Agent[]): string {
+	if (!s || (!s.agent_id && !s.tags?.length)) return 'the Castor server';
+	return `the Castor server, through ${describeSelector({ ...s, all: false }, agents)}`;
+}

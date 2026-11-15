@@ -104,6 +104,8 @@ class AiStepConfig(BaseModel):
     max_retries: int = Field(default=2, ge=0, le=10)
     # Extra guidance for this step, e.g. "a timeout here usually means retry with -T3".
     instructions: str = Field(default="", max_length=2000)
+    # HTTP actions: the longest it may choose to wait in one go (a rate limit, an outage).
+    max_wait_s: int = Field(default=900, ge=1, le=86400)
 
 
 class PlaybookStepSpec(BaseModel):

@@ -1,8 +1,9 @@
 # Actions beyond commands (plan)
 
-Status: **phase 1 is built** (HTTP actions the Castor server sends, with paging, batches, rate
-limits, retries and waiting; the format is in [commands/README.md](../commands/README.md#http-actions-kind-http)
-and how it works in [ARCHITECTURE.md](ARCHITECTURE.md#http-actions)). Phases 2 to 5 are still plans.
+Status: **phases 1 and 2 are built**: HTTP actions the Castor server sends (with paging, batches,
+rate limits, retries and waiting), sent through an agent's network when a card chooses one, and AI
+recovery moves for playbook steps. The format is in [commands/README.md](../commands/README.md#http-actions-kind-http)
+and how it works in [ARCHITECTURE.md](ARCHITECTURE.md#http-actions). Phases 3 to 5 are still plans.
 This is the design the work follows: change it here first when a decision changes, then build.
 The roadmap entry ("Actions beyond commands") points here.
 
@@ -117,10 +118,15 @@ What happens when it runs:
   - responses are capped (`CASTOR_HTTP_MAX_BYTES`).
 
   An agent-run request follows the agent's own network instead; that's the point of choosing one.
-- **On an agent:** `job.run` carries `kind: "http"` and the request spec (with variables as today:
-  values only in the message, never in a command line). The agent makes the request with stdlib
-  `urllib`, so it keeps its single dependency, and streams the same log lines back. Older agents
-  don't advertise `http` in their capabilities, so the dispatcher doesn't send them such jobs.
+- **Through an agent** (decided while building phase 2, replacing the first plan of the agent
+  running the whole job): the server still runs the job (paging, retries, rate limits, progress,
+  parking, AI recovery) and the agent only makes each request from its network, as a proxy:
+  `http.request` out, `http.chunk`s and `http.response` back. The agent stays small (stdlib
+  `urllib`, no redirects followed, its own proxy settings), rate limits need no permits because
+  they're counted where the requests are decided, and an agent that disconnects only parks the
+  job until another is connected. Agents that don't advertise `http` (older ones, `--no-http`, SSH
+  hosts) aren't used. The variable values go to the agent inside the request, as they do in a
+  command's `job.run`.
 
 #### Paging
 
@@ -276,9 +282,8 @@ that), filled in as the default when someone first binds a variable set to it.
   with a reset time, pauses everything under that credential until then, not only the request
   that hit it.
 - **One counter for the whole instance.** Limits are kept on the server (a token bucket per
-  scope, in `rate_buckets` so a restart doesn't reset them). An agent-run request (phase 2) will
-  ask the server for room before sending (`job.permit` → `job.permit_ok`), so a credential's limit
-  holds across every agent using it.
+  scope, in `rate_buckets` so a restart doesn't reset them). Requests sent through agents are
+  decided on the server too, so a credential's limit holds across every agent using it.
 - **Visible (later):** a variable set and a plugin show how much of their limit is in use and
   what's waiting. Today a waiting request says so in its card's log.
 
@@ -369,8 +374,11 @@ that times out) and to plugin actions, which can return `{retry_after: 30}`.
 
    Not in it yet: **Try it** in the Library, a step's own `rate_limit` in a playbook spec (set it on
    the step's card), and usage shown on variable sets.
-2. **HTTP on agents and AI recovery:** `job.run` for `http`, the agent capability and the agent
-   picker, `job.permit`; `on_failure: ai` with the recovery moves.
+2. **HTTP on agents and AI recovery** (built): agents as a proxy (`http.request`, the `http`
+   capability, `--no-http`), "Sent from" on the card (the server, an agent or a tag),
+   `jobs.via_agent_id`; `on_failure: ai` with the recovery moves (wait, smaller, slower,
+   skip_batch, ask, fail; `ai.max_wait_s`). Playbook steps are always sent from the server for now;
+   a step-level choice can come later.
 3. **MCP:** HTTP connections on the server, stdio connections hosted by agents, tool listing,
    `mcp` actions, "from an MCP tool", result handling.
 4. **Plugin actions:** the manifest field, the SDK handler, the runner bridge, plugin rate

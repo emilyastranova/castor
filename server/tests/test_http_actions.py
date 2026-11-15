@@ -350,7 +350,7 @@ def test_batches_and_retries(client, auth, api):
     assert [r["ip"] for r in json.loads(_log(client, auth, job_id, "stdout"))] == \
         ["1.1.1.1", "2.2.2.2", "3.3.3.3", "4.4.4.4", "5.5.5.5"]
     log = _log(client, auth, job_id)
-    assert "Batch 3 of 3: 1 values" in log and "answered 503" in log and "trying again (1 of 3)" in log
+    assert "Value 5 of 5" in log and "answered 503" in log and "trying again (1 of 3)" in log
     client.delete(f"/api/projects/{project['id']}", headers=auth)
 
 
@@ -441,3 +441,186 @@ def test_a_parked_job_carries_on_from_its_page(client, auth, api):
     assert [r["name"] for r in json.loads(_log(client, auth, job_id, "stdout"))] == ["h0", "h2"]
     assert "Carrying on from page 2" in _log(client, auth, job_id)
     client.delete(f"/api/projects/{project['id']}", headers=auth)
+
+
+# ---------- phase 2: through an agent, and AI recovery ----------
+
+
+def _http_agent(client, name, tags, http=True):
+    ws = client.websocket_connect("/ws/agent")
+    agent = ws.__enter__()
+    agent.send_text(json.dumps({
+        "type": "hello", "secret": "test-agent-secret", "name": name, "hostname": "h", "os": "Linux",
+        "username": "root", "version": "0.1.0", "capabilities": {"runtimes": [], "http": http}, "tags": tags,
+        "max_concurrency": 2,
+    }))
+    assert json.loads(agent.receive_text())["type"] == "hello.ok"
+    return ws, agent
+
+
+def _serve_one(agent):
+    """Answer the next http.request the way the real agent does (castor_agent.http_proxy)."""
+    from castor_agent import http_proxy
+
+    while True:
+        msg = json.loads(agent.receive_text())
+        if msg["type"] == "http.request":
+            break
+    head, body = http_proxy.fetch(msg)
+    for piece in http_proxy.chunks(body):
+        agent.send_text(json.dumps({"type": "http.chunk", "request_id": msg["request_id"], "data": piece}))
+    agent.send_text(json.dumps({"type": "http.response", "request_id": msg["request_id"], **head}))
+    return msg
+
+
+def test_a_request_through_an_agent(client, auth, api):
+    tag = f"net-{uuid.uuid4().hex[:5]}"
+    api.plan["/ping"] = [lambda q, _b: _json(200, {"pong": True, "q": q}, **{"X-From": "the lab"})]
+    ref = _definition(client, auth, SIMPLE)
+    project = _project(client, auth)
+    old_ws, _old = _http_agent(client, f"{tag}-old", [tag], http=False)  # an agent that won't
+    ws, agent = _http_agent(client, f"{tag}-new", [tag])
+    try:
+        card = _card(client, auth, project, ref, {}, _set(client, auth, api), agent_selector={"tags": [tag]})
+        job_id = _run(client, auth, card)
+        sent = _serve_one(agent)
+        assert sent["method"] == "GET" and sent["url"].endswith("/ping") and sent["job_id"] == job_id
+        job = _wait(client, auth, job_id)
+        assert job["status"] == "succeeded", _log(client, auth, job_id)
+        assert job["via_agent_id"] and job["agent_id"] is None and job["runner"] == "server"
+        assert json.loads(_log(client, auth, job_id, "stdout"))["pong"] is True
+        assert "x-from: the lab" in _log(client, auth, job_id).lower()
+
+        # The agent goes away mid-request: the job waits for one that's connected.
+        job_id = _run(client, auth, card)
+        while json.loads(agent.receive_text())["type"] != "http.request":
+            pass
+        ws.__exit__(None, None, None)
+        job = _wait(client, auth, job_id, statuses=("waiting",))
+        assert "disconnected" in _log(client, auth, job_id)
+        client.post(f"/api/jobs/{job_id}/cancel", headers=auth)
+    finally:
+        for w in (ws, old_ws):
+            try:
+                w.__exit__(None, None, None)
+            except Exception:  # noqa: BLE001 - already closed
+                pass
+        client.delete(f"/api/projects/{project['id']}", headers=auth)
+
+
+@pytest.fixture
+def fake_model():
+    """An OpenAI-compatible model answering scripted JSON."""
+    state = {"replies": [], "prompts": []}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+            state["prompts"].append(body["messages"][-1]["content"])
+            text = state["replies"].pop(0) if state["replies"] else '{"move": "ask", "reason": "out of script", "confidence": 1}'
+            raw = json.dumps({"choices": [{"message": {"content": text}}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    state["base"] = f"http://127.0.0.1:{server.server_address[1]}"
+    yield state
+    server.shutdown()
+
+
+def _resolver(client, auth, fake_model):
+    r = client.post("/api/ai/providers", json={"name": f"fake-{uuid.uuid4().hex[:4]}", "kind": "openai_compatible",
+                                               "fields": {"base_url": f"{fake_model['base']}/v1"}}, headers=auth)
+    assert r.status_code == 201, r.text
+    chains = client.get("/api/settings", headers=auth).json()["ai_chains"]
+    chains["resolver"] = [{"provider": r.json()["id"], "model": "fake"}]
+    assert client.patch("/api/settings", json={"ai_chains": chains}, headers=auth).status_code == 200
+
+
+def _step_job(client, auth, run_id, step_id, statuses=("succeeded", "failed")):
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        run = client.get(f"/api/playbook-runs/{run_id}", headers=auth).json()
+        task_id = (run.get("step_task_ids") or {}).get(step_id)
+        if task_id:
+            jobs = client.get(f"/api/tasks/{task_id}/jobs", headers=auth).json()
+            if jobs and jobs[-1]["status"] in statuses:
+                return run, jobs[-1]
+        time.sleep(0.1)
+    raise AssertionError(run)
+
+
+def test_the_ai_recovers_a_struggling_api(client, auth, api, fake_model):
+    _resolver(client, auth, fake_model)
+    seen = []
+
+    def lookup(_q, body):
+        ips = json.loads(body)["ips"]
+        seen.append(ips)
+        if len(ips) > 1:
+            return _json(413, {"error": "too many at once"})
+        if ips == ["9.9.9.9"]:
+            return _json(400, {"error": "9.9.9.9 is not allowed"})
+        return _json(200, [{"ip": ip, "ok": True} for ip in ips])
+
+    api.plan["/lookup"] = [lookup]
+    ref = _definition(client, auth, BATCHED)
+    creds = _set(client, auth, api)
+    pb_id = f"test-recover-{uuid.uuid4().hex[:6]}"
+    yaml_text = f"""
+id: {pb_id}
+name: Recover
+steps:
+  - id: look
+    name: Look up
+    command_ref: {ref}
+    args: {{ips: ["1.1.1.1", "9.9.9.9", "3.3.3.3"]}}
+    vars: {{api: "{creds['name']}"}}
+    on_failure: ai
+    ai: {{allow: [retry, skip], confidence: 0.5, max_retries: 3}}
+"""
+    assert client.post("/api/playbooks", json={"yaml": yaml_text}, headers=auth).status_code == 201
+    project = _project(client, auth)
+    fake_model["replies"] = [
+        '{"move": "smaller", "size": 1, "reason": "413: send one at a time", "confidence": 0.9}',
+        '{"move": "skip_batch", "reason": "the API refuses 9.9.9.9", "confidence": 0.9}',
+    ]
+    run = client.post(f"/api/playbooks/{pb_id}/run", json={"project_id": project["id"], "inputs": {}}, headers=auth).json()
+    _, job = _step_job(client, auth, run["id"], "look")
+    log = _log(client, auth, job["id"])
+    assert job["status"] == "succeeded", log
+    assert [r["ip"] for r in json.loads(_log(client, auth, job["id"], "stdout"))] == ["1.1.1.1", "3.3.3.3"]
+    assert "AI (" in log and "smaller" in log and "skip batch" in log and "Skipped values 2–2: 9.9.9.9" in log
+    assert job["progress"]["skipped"] == ["9.9.9.9"] and job["progress"]["batch_size"] == 1
+    assert len(job["progress"]["ai_moves"]) == 2
+    # What it was told is masked, and the API's text is data in it.
+    assert "tok-Sekrit" not in "".join(fake_model["prompts"]) and "too many at once" in fake_model["prompts"][0]
+
+    # It may not skip here, and below its confidence it leaves it to a person.
+    yaml_text = yaml_text.replace("allow: [retry, skip]", "allow: [retry]").replace(f"id: {pb_id}", f"id: {pb_id}-b")
+    assert client.post("/api/playbooks", json={"yaml": yaml_text}, headers=auth).status_code == 201
+    fake_model["replies"] = [
+        '{"move": "smaller", "size": 1, "reason": "one at a time", "confidence": 0.9}',
+        '{"move": "skip_batch", "reason": "skip it", "confidence": 0.9}',
+    ]
+    run = client.post(f"/api/playbooks/{pb_id}-b/run", json={"project_id": project["id"], "inputs": {}}, headers=auth).json()
+    _, job = _step_job(client, auth, run["id"], "look")
+    assert job["status"] == "failed" and "left it to a person" in job["error"] and "may not do on its own" in job["error"]
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        step = client.get(f"/api/playbook-runs/{run['id']}", headers=auth).json()["step_results"].get("look") or {}
+        if (step.get("ai") or {}).get("note"):
+            break
+        time.sleep(0.1)
+    assert "recovering its requests left it to a person" in step["ai"]["note"]
+    for pid in (pb_id, f"{pb_id}-b"):
+        client.delete(f"/api/playbooks/{pid}", headers=auth)
+    client.delete(f"/api/projects/{project['id']}", headers=auth)
+    client.patch("/api/settings", json={"ai_chains": {}}, headers=auth)

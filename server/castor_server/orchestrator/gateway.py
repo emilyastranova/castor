@@ -58,6 +58,20 @@ class RegisterError(Exception):
     """A valid credential that can't be used as this agent."""
 
 
+class AgentGone(Exception):
+    """The agent an HTTP request went through disconnected before it answered."""
+
+
+@dataclass
+class _HttpWait:
+    """An HTTP action's request an agent is making for the server (http.request)."""
+
+    agent_id: uuid.UUID
+    future: asyncio.Future
+    chunks: list[str] = field(default_factory=list)
+    size: int = 0
+
+
 class AgentGateway:
     def __init__(self) -> None:
         self.connections: dict[uuid.UUID, AgentConnection] = {}
@@ -67,6 +81,8 @@ class AgentGateway:
         self.on_change: list = []  # callbacks invoked when capacity may have changed
         # Last "prepare ahead" result per (agent, tool): preparing / ready / failed.
         self.tool_status: dict[tuple[uuid.UUID, str], dict[str, Any]] = {}
+        # HTTP requests agents are making for the server runner, by request id.
+        self._http: dict[str, _HttpWait] = {}
 
     # ----- registry -----
 
@@ -281,6 +297,10 @@ class AgentGateway:
         if self.connections.get(conn.agent_id) is not conn:
             return  # replaced by a newer connection
         del self.connections[conn.agent_id]
+        for request_id, wait in list(self._http.items()):
+            if wait.agent_id == conn.agent_id and not wait.future.done():
+                wait.future.set_exception(AgentGone(f"{conn.name} disconnected"))
+                self._http.pop(request_id, None)
         async with SessionLocal() as db:
             agent = await db.get(m.Agent, conn.agent_id)
             if agent is not None:
@@ -354,6 +374,20 @@ class AgentGateway:
             await self._on_tool_prepared(conn, msg)
         elif kind == "job.prompt":
             await self._on_job_prompt(conn, msg)
+        elif kind == "http.chunk":
+            wait = self._http.get(str(msg.get("request_id")))
+            if wait is not None and wait.agent_id == conn.agent_id:
+                data = str(msg.get("data") or "")
+                wait.chunks.append(data)
+                wait.size += len(data) * 3 // 4
+                if wait.size > settings.http_max_bytes + 4:
+                    self._http.pop(str(msg.get("request_id")), None)
+                    if not wait.future.done():
+                        wait.future.set_result({"error": "the response is too large", "error_kind": "too_big"})
+        elif kind == "http.response":
+            wait = self._http.pop(str(msg.get("request_id")), None)
+            if wait is not None and wait.agent_id == conn.agent_id and not wait.future.done():
+                wait.future.set_result({**msg, "body": "".join(wait.chunks)})
         else:
             log.warning("agent %s sent unknown message type %r", conn.name, kind)
 
@@ -659,6 +693,19 @@ class AgentGateway:
             return False
         await conn.send({**message, "job_id": job.id})
         return True
+
+    async def http_request(self, conn: AgentConnection, request: dict[str, Any], timeout: float) -> dict[str, Any]:
+        """Have an agent make one HTTP request (an HTTP action sent through it). Returns its
+        answer: {status, reason, headers, url, body (base64)} or {error, error_kind}. Raises
+        AgentGone if the agent disconnects, TimeoutError if it doesn't answer in time."""
+        request_id = uuid.uuid4().hex
+        wait = _HttpWait(agent_id=conn.agent_id, future=asyncio.get_running_loop().create_future())
+        self._http[request_id] = wait
+        try:
+            await conn.send({"type": "http.request", "request_id": request_id, **request})
+            return await asyncio.wait_for(wait.future, timeout)
+        finally:
+            self._http.pop(request_id, None)
 
     async def cancel_job(self, job: m.Job) -> bool:
         if job.runner == "server":

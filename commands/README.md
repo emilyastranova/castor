@@ -265,6 +265,16 @@ argument `hosts`, and joins the responses (JSON arrays) the same way.
 - A wait of more than 30 seconds parks the job (status **waiting**, with the time it carries on).
   It gives its slot back meanwhile, and Cancel ends it.
 
+**Sent from an agent's network.** A card's **Sent from** can name an agent, or any agent with a tag,
+instead of the Castor server: the server still makes every decision (paging, retries, limits), but
+each request goes out from that agent, for an API only reachable inside a lab or a client's
+network. Agents do this unless started with `--no-http`; SSH hosts don't. Playbook steps are
+sent from the server.
+
+**With AI.** In a playbook, a step with `on_failure: ai` lets the AI recover when the rules above
+run out: wait, use smaller batches or pages, slow down, or skip the batch that keeps failing (see
+[PLAYBOOK_SPEC.md](../docs/PLAYBOOK_SPEC.md)). It can't change the request itself.
+
 **Rate limits** keep Castor within what an API allows: `60/minute`, `5/second` or `1000/day`,
 optionally `, 2 at once`. They can be set on a variable set (every request made with its values,
 by any card or playbook: this is how APIs count, per key) and on a card (else the definition's

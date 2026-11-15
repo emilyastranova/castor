@@ -68,9 +68,10 @@ kind of action that's part of Castor itself, of which a command is one sort:
   never rendered into what's stored, logs and results on the card, and the activity feed.
 - **Design:** [ACTIONS.md](ACTIONS.md) covers where each sort runs, how retries, cancel and
   `on_failure` apply to something that isn't a process, how the library and the playbook editor
-  show them, and the phases. Phase 1 is built: HTTP actions the server sends, with paging,
-  batches, rate limits, retries and waiting. Still to come: HTTP on agents and AI recovery, MCP
-  (including stdio servers hosted by agents), plugin actions, approvals.
+  show them, and the phases. Phases 1 and 2 are built: HTTP actions the server sends, with paging,
+  batches, rate limits, retries and waiting, sent through an agent's network when a card chooses
+  one, and AI recovery for playbook steps. Still to come: MCP (including stdio servers hosted by
+  agents), plugin actions, approvals.
 
 ### Triggers beyond assets
 Today a trigger fires on new or changed [assets](https://github.com/emilyastranova/castor/wiki/Assets), and on new

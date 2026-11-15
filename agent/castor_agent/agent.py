@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 import websockets
 from websockets.asyncio.client import ClientConnection
 
-from . import artifacts
+from . import artifacts, http_proxy
 from .config import AgentConfig, host_info
 from .runtime import JobRunner, RunResult, detect_container_runtime
 from .tools import ToolPreparer
@@ -63,6 +63,8 @@ class Agent:
             "tools": self.tools.cached,
             # Interactive jobs run under a pty (POSIX only); older agents don't say this.
             "tty": sys.platform != "win32",
+            # Sends HTTP actions' requests from this network (http.request); older agents don't.
+            "http": self.config.http,
         }
 
     # ----- wire helpers -----
@@ -171,6 +173,14 @@ class Agent:
             task = asyncio.create_task(self._prepare_tool(msg.get("tool") or {}))
             self._background.add(task)  # keep a reference until it's done
             task.add_done_callback(self._background.discard)
+        elif kind == "http.request":
+            if not self.config.http:
+                await self.send({"type": "http.response", "request_id": msg.get("request_id"),
+                                 "error": "this agent doesn't send HTTP requests (--no-http)", "error_kind": "refused"})
+                return
+            task = asyncio.create_task(self._http(msg))
+            self._background.add(task)
+            task.add_done_callback(self._background.discard)
         elif kind == "auth.revoked":
             log.error("the server revoked this agent's credentials: %s", msg.get("reason", ""))
         elif kind == "job.cancel":
@@ -193,6 +203,14 @@ class Agent:
                 runner.send_signal(str(msg.get("name") or ""))
         else:
             log.debug("ignoring message %r", kind)
+
+    async def _http(self, msg: dict[str, Any]) -> None:
+        """One request of an HTTP action, made from here; the body goes back in chunks."""
+        request_id = msg.get("request_id")
+        head, body = await asyncio.to_thread(http_proxy.fetch, msg)
+        for piece in http_proxy.chunks(body):
+            await self.send({"type": "http.chunk", "request_id": request_id, "data": piece})
+        await self.send({"type": "http.response", "request_id": request_id, **head})
 
     def _job_dir(self, job_id: str) -> Path:
         base = Path(self.config.workdir) if self.config.workdir else Path(tempfile.gettempdir()) / "castor-agent"

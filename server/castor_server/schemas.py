@@ -374,6 +374,7 @@ class JobOut(ORM):
     # HTTP actions: run by the Castor server ("server"); waiting for a rate limit until resume_at.
     kind: str = "command"
     runner: str | None = None
+    via_agent_id: uuid.UUID | None = None
     resume_at: datetime | None = None
     progress: dict[str, Any] | None = None
 

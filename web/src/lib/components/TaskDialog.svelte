@@ -48,7 +48,7 @@
 	import { goto } from '$app/navigation';
 	import { canEdit as roleCanEdit } from '$lib/session';
 	import { isListRef, lists } from '$lib/lists.svelte';
-	import { agentsFor, describeSelector, selectorFrom, selectorOptions, selectorValue } from '$lib/agentSelector';
+	import { agentsFor, describeSelector, describeSender, httpSenderOptions, selectorFrom, selectorOptions, selectorValue } from '$lib/agentSelector';
 
 	interface Props {
 		task: Task;
@@ -651,6 +651,7 @@
 	let columnMenu = $state(false);
 	// A playbook step runs where its run does: one agent per run, never a batch.
 	let agentOptions = $derived(selectorOptions(agentsFor(agents, task.project_id), task.agent_selector, !task.playbook_step_id));
+	let senderOptions = $derived(httpSenderOptions(agentsFor(agents, task.project_id), task.agent_selector));
 	let agentName = (id: UUID | null) => agents.find((a) => a.id === id)?.name ?? '—';
 	let runFiles = $derived(attachments.filter((a) => a.job_id && a.job_id === selectedJob?.id));
 	let screenshots = $derived(attachments.filter((a) => a.content_type.startsWith('image/')));
@@ -807,7 +808,7 @@
 					</div>
 					<dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 body-small text-on-surface-variant">
 						{#if isHttp}
-							<dt>Sent by</dt><dd class="text-on-surface">the Castor server</dd>
+							<dt>Sent by</dt><dd class="text-on-surface">{describeSender(task.agent_selector, agents)}</dd>
 							<dt>Rate limit</dt><dd class="text-on-surface">{task.rate_limit ?? (libraryDef?.spec.rate_limit ? `${libraryDef.spec.rate_limit} (the action’s)` : 'none of its own')}</dd>
 						{:else}
 						<dt>Runs in</dt><dd class="truncate font-mono text-on-surface">{task.tool ? `the ${task.tool} tool` : task.image || 'the agent’s shell'}{task.container_flags?.length ? ` ${task.container_flags.join(' ')}` : ''}</dd>
@@ -847,13 +848,13 @@
 
 					{#if isHttp}
 						<div class="grid gap-3 sm:grid-cols-2">
-							<div class="flex h-14 items-center gap-2 rounded-xs border border-outline-variant px-4" title="HTTP actions are sent by the Castor server, not an agent">
-								<Icon name="dns" size={20} class="text-primary" />
-								<span class="min-w-0">
-									<span class="block label-small text-on-surface-variant">Sent by</span>
-									<span class="block truncate body-medium text-on-surface">the Castor server</span>
-								</span>
-							</div>
+							<Select
+								label="Sent from"
+								bind:value={agentId}
+								options={senderOptions}
+								supporting="The server makes it; an agent only sends it from its network"
+								onchange={(v) => save({ agent_selector: selectorFrom(v) })}
+							/>
 							<TextField
 								label="Rate limit (optional)"
 								bind:value={rateLimit}
@@ -959,7 +960,15 @@
 					{#if selectedJob}
 						<p class="flex flex-wrap items-center gap-x-2 body-small text-on-surface-variant">
 							{#if selectedJob.kind === 'http'}
-								HTTP request from the Castor server · queued {absoluteTime(selectedJob.queued_at)}{selectedJob.status === 'waiting' && selectedJob.resume_at ? ` · carries on at ${absoluteTime(selectedJob.resume_at)}` : ''}
+								HTTP request from the Castor server{selectedJob.via_agent_id ? `, through ${agentName(selectedJob.via_agent_id)}` : ''} · queued {absoluteTime(selectedJob.queued_at)}{selectedJob.status === 'waiting' && selectedJob.resume_at ? ` · carries on at ${absoluteTime(selectedJob.resume_at)}` : ''}
+								{#if selectedJob.progress?.ai_moves?.length}
+									<span class="inline-flex items-center gap-1 text-tertiary" title={selectedJob.progress.ai_moves.map((mv) => `${mv.move.replace('_', ' ')}: ${mv.reason}`).join('\n')}>
+										<Icon name="auto_awesome" size={14} />The AI stepped in {selectedJob.progress.ai_moves.length === 1 ? 'once' : `${selectedJob.progress.ai_moves.length} times`}
+									</span>
+								{/if}
+								{#if selectedJob.progress?.skipped?.length}
+									<span title={selectedJob.progress.skipped.map(String).join(', ')}>· {selectedJob.progress.skipped.length} value{selectedJob.progress.skipped.length === 1 ? '' : 's'} skipped</span>
+								{/if}
 							{:else}
 							Agent {agentName(selectedJob.agent_id)}{selectedJob.image ? ` · ${selectedJob.image}` : ' · host shell'} · queued {absoluteTime(selectedJob.queued_at)}
 							{/if}
@@ -1221,7 +1230,7 @@
 					<dt>Kind</dt><dd class="text-on-surface">{task.run ? 'playbook run' : task.playbook_step_id ? 'playbook step' : task.kind}</dd>
 					{#if task.latest_job}
 						<dt>Last run</dt><dd class="text-on-surface">{task.latest_job.status}{task.latest_job.started_at ? ` · ${duration(task.latest_job.started_at, task.latest_job.finished_at)}` : ''}</dd>
-						<dt>{task.latest_job.kind === 'http' ? 'Sent by' : 'Agent'}</dt><dd class="text-on-surface">{task.latest_job.kind === 'http' ? 'Castor server' : agentName(task.latest_job.agent_id)}</dd>
+						<dt>{task.latest_job.kind === 'http' ? 'Sent by' : 'Agent'}</dt><dd class="text-on-surface">{task.latest_job.kind === 'http' ? `Castor server${task.latest_job.via_agent_id ? ` via ${agentName(task.latest_job.via_agent_id)}` : ''}` : agentName(task.latest_job.agent_id)}</dd>
 					{/if}
 					<dt>ID</dt><dd class="truncate font-mono text-on-surface" title={task.id}>{task.id.slice(0, 8)}</dd>
 				</dl>

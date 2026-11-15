@@ -9,7 +9,12 @@ backoff on 5xx, timeouts and dropped connections; nothing for other 4xx) and pag
 results. Progress is saved after every page and batch (`Job.progress`, with the records so far
 in a file), so a retry or a resume carries on from there. A wait longer than `PARK_AFTER_S`
 parks the job (status `waiting`, `resume_at`): it gives its slot back and the dispatcher
-starts it again when the time comes."""
+starts it again when the time comes.
+
+When the fixed rules run out (`Trouble`) on a playbook step with `on_failure: ai`, the AI picks a
+recovery move (`_recover`): wait, smaller batches or pages, slower, skip the batch, or leave it to
+a person. A job with `via_agent_id` sends each request through that agent (`http.request`), so
+it goes out from the agent's network; everything else stays here."""
 
 from __future__ import annotations
 
@@ -69,6 +74,17 @@ class Failed(Exception):
     """The job fails with this message (exit 1)."""
 
 
+class Trouble(Exception):
+    """A request went wrong after the fixed retry rules: the AI may recover (`_recover`),
+    otherwise the job fails with the message."""
+
+    def __init__(self, message: str, request: Rendered, response: httpx.Response | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.request = request
+        self.response = response
+
+
 @dataclass
 class _Run:
     job_id: uuid.UUID
@@ -82,6 +98,10 @@ class _Run:
     deadline: float | None
     progress: dict[str, Any]
     seq: int = 0
+    # The agent its requests go out through (None: from here).
+    via: uuid.UUID | None = None
+    # A playbook step with on_failure: ai: {"config": AiStepConfig, "run_id", "step_id"}.
+    ai: dict[str, Any] | None = None
     records_path: Path | None = None
     texts: list[str] = field(default_factory=list)
 
@@ -187,7 +207,8 @@ class ServerRunner:
                 scopes=await scopes_for(db, task, job.var_bindings or {}, spec.rate_limit),
                 rules=await outbound.policy(db),
                 deadline=(started.timestamp() + job.timeout_s) if job.timeout_s else started.timestamp() + MAX_WAIT_S,
-                progress=dict(job.progress or {}), seq=seq,
+                progress=dict(job.progress or {}), seq=seq, via=job.via_agent_id,
+                ai=await _ai_settings(db, task),
             )
             await db.commit()
             publish_job(job, task.project_id)
@@ -207,8 +228,8 @@ class ServerRunner:
     def _where(run: _Run) -> str:
         p = run.progress
         parts = []
-        if p.get("batch"):
-            parts.append(f"batch {p['batch'] + 1}")
+        if p.get("offset"):
+            parts.append(f"value {p['offset'] + 1}")
         if p.get("pages"):
             parts.append(f"page {p['pages'] + 1}")
         return f" from {', '.join(parts)}" if parts else ""
@@ -249,40 +270,64 @@ class ServerRunner:
 
     async def _execute(self, run: _Run) -> tuple[int, str | None]:
         spec = run.spec
-        batches = self._batches(run)
-        paged = spec.paginate is not None or len(batches) > 1
+        p = run.progress
+        values = list(run.args.get(spec.batch.arg) or []) if spec.batch is not None else None
+        if values is not None and "batch" in p and "offset" not in p:  # saved before batches counted values
+            p["offset"] = p.pop("batch") * spec.batch.size
+        paged = spec.paginate is not None or (values is not None and len(values) > spec.batch.size)
         if paged:
             run.records_path = records_file(run.job_id)
             run.records_path.parent.mkdir(parents=True, exist_ok=True)
-            if not run.progress:
+            if not p:
                 run.records_path.unlink(missing_ok=True)
         async with outbound.client(run.rules, spec.request.timeout_s) as client:
-            for index in range(run.progress.get("batch", 0), len(batches)):
+            while True:
+                offset = p.get("offset", 0)
+                chunk: list[Any] | None = None
                 args = dict(run.args)
-                if spec.batch is not None:
-                    args[spec.batch.arg] = batches[index]
-                    if len(batches) > 1:
-                        await self._log(run, f"Batch {index + 1} of {len(batches)}: {len(batches[index])} values\n")
+                if values is not None:
+                    if p.get("done") or (values and offset >= len(values)):
+                        break
+                    size = p.get("batch_size") or spec.batch.size
+                    chunk = values[offset:offset + size]
+                    args[spec.batch.arg] = chunk
+                    if len(values) > len(chunk) and not p.get("pages"):
+                        which = f"Value {offset + 1}" if len(chunk) == 1 else f"Values {offset + 1}–{offset + len(chunk)}"
+                        await self._log(run, f"{which} of {len(values)}\n")
+                elif p.get("done"):
+                    break
                 try:
                     base = render_request(spec, args, self._lookup(run.resolved))
                 except RenderError as exc:
                     raise Failed(str(exc)) from exc
-                if spec.paginate is not None:
-                    await self._pages(run, client, base, spec.paginate)
-                else:
-                    response = await self._send(run, client, base)
-                    await self._take(run, response, paged)
-                run.progress = {"batch": index + 1}
+                try:
+                    if spec.paginate is not None:
+                        await self._pages(run, client, base, spec.paginate)
+                    else:
+                        response = await self._send(run, client, base)
+                        await self._take(run, response, paged)
+                except Trouble as trouble:
+                    if await self._recover(run, trouble, chunk) == "skip":
+                        p.setdefault("skipped", []).extend(chunk or [])
+                        await self._log(run, f"Skipped values {offset + 1}–{offset + len(chunk or [])}: "
+                                             f"{', '.join(map(str, (chunk or [])[:5]))}{' …' if len(chunk or []) > 5 else ''}\n")
+                        self._next_piece(run, values, offset, chunk)
+                        await self._save_progress(run)
+                    continue  # carry on: the same piece again, or the one after a skipped one
+                self._next_piece(run, values, offset, chunk)
                 await self._save_progress(run)
+        if p.get("skipped"):
+            await self._log(run, f"{len(p['skipped'])} values were skipped\n")
         return await self._output(run, paged)
 
-    def _batches(self, run: _Run) -> list[list[Any]]:
-        spec = run.spec
-        if spec.batch is None:
-            return [[]]
-        values = run.args.get(spec.batch.arg) or []
-        size = run.progress.get("batch_size") or spec.batch.size
-        return [values[i:i + size] for i in range(0, len(values), size)] or [[]]
+    @staticmethod
+    def _next_piece(run: _Run, values: list[Any] | None, offset: int, chunk: list[Any] | None) -> None:
+        p = run.progress
+        p.update({"pages": 0, "page_items": 0, "state": None})
+        if values is None or not values:
+            p["done"] = True
+        else:
+            p["offset"] = offset + len(chunk or [])
 
     @staticmethod
     def _lookup(resolved: variables.Resolved):
@@ -295,12 +340,13 @@ class ServerRunner:
 
     async def _pages(self, run: _Run, client: httpx.AsyncClient, base: Rendered, pg: Paginate) -> None:
         p = run.progress
-        pages, items = p.get("pages", 0), p.get("items", 0)
+        pages, items, here = p.get("pages", 0), p.get("items", 0), p.get("page_items", 0)
         state = p.get("state")
         if pages == 0:
-            state = None
+            state, here = None, 0
+        size = p.get("page_size") or pg.size
         while pages < pg.stop.max_pages and items < pg.stop.max_items:
-            request = self._page_request(base, pg, pages, state)
+            request = self._page_request(base, pg, pages, state, size)
             if request is None:
                 break
             started = time.monotonic()
@@ -315,38 +361,40 @@ class ServerRunner:
             self._append(run, records)
             pages += 1
             items += len(records)
+            here += len(records)
             await self._log(run, f"page {pages}: {len(records)} items ({int((time.monotonic() - started) * 1000)} ms)\n")
-            state = self._next_state(response, doc, pg, pages, len(records), request)
-            run.progress.update({"pages": pages, "items": items, "state": state})
+            state = self._next_state(response, doc, pg, pages, len(records), request, size, here)
+            run.progress.update({"pages": pages, "items": items, "page_items": here, "state": state})
             await self._save_progress(run)
             if state is None or not records:
                 break
         else:
             await self._log(run, f"Stopped after {pages} pages and {items} items (the action's limit)\n")
-        run.progress.update({"pages": 0, "items": items, "state": None})
+        run.progress.update({"pages": 0, "items": items, "page_items": 0, "state": None})
 
     @staticmethod
-    def _page_request(base: Rendered, pg: Paginate, pages: int, state: Any) -> Rendered | None:
+    def _page_request(base: Rendered, pg: Paginate, pages: int, state: Any, size: int | None) -> Rendered | None:
         if pages == 0:
             first: dict[str, Any] = {}
             if pg.style == "offset":
                 first = {pg.param: 0}
             elif pg.style == "page":
                 first = {pg.param: pg.start}
-            if pg.size_param and pg.size:
-                first[pg.size_param] = pg.size
+            if pg.size_param and size:
+                first[pg.size_param] = size
             return base.with_params(first) if first else base
         if state is None:
             return None
         if pg.style == "link":
             return Rendered(base.method, state, [], dict(base.headers), base.content, base.timeout_s)
         extra = {pg.cursor.param: state} if pg.style == "cursor" else {pg.param: state}
-        if pg.size_param and pg.size:
-            extra[pg.size_param] = pg.size
+        if pg.size_param and size:
+            extra[pg.size_param] = size
         return base.with_params(extra)
 
     @staticmethod
-    def _next_state(response: httpx.Response, doc: Any, pg: Paginate, pages: int, got: int, request: Rendered) -> Any:
+    def _next_state(response: httpx.Response, doc: Any, pg: Paginate, pages: int, got: int, request: Rendered,
+                    size: int | None = None, here: int = 0) -> Any:
         if pg.style == "cursor":
             cursor = _dig(doc, pg.cursor.from_)
             return None if cursor in (None, "", False) else cursor
@@ -358,10 +406,10 @@ class ServerRunner:
             if urlsplit(url).hostname != urlsplit(request.url).hostname:
                 raise Failed(f"the next page is on another host ({urlsplit(url).hostname}); Castor only follows them on the same one")
             return url
-        if pg.size and got < pg.size:
+        if size and got < size:
             return None  # a short page is the last
         if pg.style == "offset":
-            return pages * (pg.size or got)
+            return here  # the records read so far (so a smaller page size later still lines up)
         return pg.start + pages
 
     def _append(self, run: _Run, records: list[Any]) -> None:
@@ -391,7 +439,7 @@ class ServerRunner:
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 reason = "timed out" if isinstance(exc, httpx.TimeoutException) else (str(exc) or type(exc).__name__)
                 if attempt >= retry.attempts:
-                    raise Failed(f"{req.method} {_short(req.url)}: {reason}" + (f" (after {attempt + 1} tries)" if attempt else "")) from exc
+                    raise Trouble(f"{req.method} {_short(req.url)}: {reason}" + (f" (after {attempt + 1} tries)" if attempt else ""), req) from exc
                 attempt += 1
                 await self._log(run, f"{reason}; trying again ({attempt} of {retry.attempts})\n")
                 await self._wait(run, _backoff(retry, attempt), "backing off")
@@ -405,7 +453,9 @@ class ServerRunner:
             if pause:
                 await limiter.pause([s for s in run.scopes if s.credential] or run.scopes, pause)
             status = response.status_code
-            if status in (429, 503) and told_waits < 20:
+            if status in (429, 503) and told_waits >= 20:
+                raise Trouble(f"the API kept answering {status}", req, response)
+            if status in (429, 503):
                 told_waits += 1
                 after = _retry_after(response) or _backoff(retry, told_waits)
                 await limiter.pause([s for s in run.scopes if s.credential] or run.scopes, after)
@@ -418,8 +468,8 @@ class ServerRunner:
                 continue
             if not expect.ok(status):
                 wanted = ", ".join(map(str, expect.status)) if expect.status else "2xx"
-                snippet = response.text[:300].strip() if _is_text(response) else ""
-                raise Failed(f"status {status}, expected {wanted}" + (f": {snippet}" if snippet else ""))
+                snippet = run.resolved.redact(response.text[:300].strip()) if _is_text(response) else ""
+                raise Trouble(f"status {status}, expected {wanted}" + (f": {snippet}" if snippet else ""), req, response)
             return response
 
     async def _request(self, run: _Run, client: httpx.AsyncClient, req: Rendered) -> httpx.Response:
@@ -428,12 +478,16 @@ class ServerRunner:
         params: list[tuple[str, str]] | None = req.params
         for _ in range(6):
             run.rules.check_host(outbound.check_url(url))
-            built = client.build_request(method, url, params=params, headers=headers, content=content, timeout=req.timeout_s)
-            response = await client.send(built, stream=True)
-            try:
-                response._content = await self._read(response)
-            finally:
-                await response.aclose()
+            if run.via is not None:
+                full = httpx.URL(url).copy_merge_params(params) if params else httpx.URL(url)
+                response = await self._through_agent(run, method, str(full), headers, content, req.timeout_s)
+            else:
+                built = client.build_request(method, url, params=params, headers=headers, content=content, timeout=req.timeout_s)
+                response = await client.send(built, stream=True)
+                try:
+                    response._content = await self._read(response)
+                finally:
+                    await response.aclose()
             if response.status_code not in (301, 302, 303, 307, 308) or "location" not in response.headers:
                 return response
             target = urljoin(str(response.url), response.headers["location"])
@@ -444,6 +498,141 @@ class ServerRunner:
                 headers.pop("Content-Type", None)
             url, params = target, None
         raise Failed("too many redirects")
+
+    async def _through_agent(self, run: _Run, method: str, url: str, headers: dict[str, str], content: bytes | None,
+                             timeout: int) -> httpx.Response:
+        """One request made by the agent the job goes through (gateway.http_request). Its
+        network decides where the request can go, so the address checks don't apply; the
+        allowed hosts still do (checked by the caller)."""
+        import base64
+
+        from .gateway import AgentGone, gateway
+
+        conn = gateway.connections.get(run.via)
+        if conn is None:
+            raise Park(15, "the agent it sends through isn't connected")
+        payload = {"job_id": str(run.job_id), "method": method, "url": url, "headers": headers, "timeout_s": timeout,
+                   "body": base64.b64encode(content).decode() if content else None, "max_bytes": settings.http_max_bytes}
+        try:
+            answer = await gateway.http_request(conn, payload, timeout + 30)
+        except AgentGone as exc:
+            raise Park(15, f"{exc}; it carries on through an agent that's connected") from exc
+        except TimeoutError as exc:
+            raise httpx.ReadTimeout(f"{conn.name} didn't answer") from exc
+        if answer.get("error"):
+            kind, error = answer.get("error_kind"), f"{answer['error']} (from {conn.name})"
+            if kind == "timeout":
+                raise httpx.ReadTimeout(error)
+            if kind in ("too_big", "refused"):
+                raise Failed(error)
+            raise httpx.ConnectError(error)
+        body = base64.b64decode(answer.get("body") or "")
+        # The agent hands the body over as it came; httpx shouldn't decode or measure it again.
+        kept = [tuple(h) for h in answer.get("headers") or [] if str(h[0]).lower() not in ("content-encoding", "content-length", "transfer-encoding")]
+        return httpx.Response(int(answer.get("status") or 0), headers=kept,
+                              content=body, request=httpx.Request(method, answer.get("url") or url))
+
+    # ----- when the fixed rules run out -----
+
+    async def _recover(self, run: _Run, trouble: Trouble, chunk: list[Any] | None) -> str:
+        """Ask the AI for one move (a playbook step with on_failure: ai); returns "retry" or
+        "skip" for the caller, or raises Park (wait) or Failed (no AI, ask, fail, or out of moves)."""
+        from .. import ai
+        from ..http_spec import parse_rate
+
+        if run.ai is None:
+            raise Failed(trouble.message)
+        config = run.ai["config"]
+        p = run.progress
+        moves = p.setdefault("ai_moves", [])
+        if len(moves) >= config.max_retries:
+            raise Failed(f"{trouble.message} (the AI has already made {len(moves)} recovery move{'s' if len(moves) != 1 else ''})")
+        spec = run.spec
+        batch_size = p.get("batch_size") or (spec.batch.size if spec.batch else None)
+        page_size = p.get("page_size") or (spec.paginate.size if spec.paginate else None)
+        response = trouble.response
+        context = {
+            "what_went_wrong": trouble.message,
+            "request": {"method": trouble.request.method, "url": run.resolved.redact(_short(trouble.request.url))},
+            "response": None if response is None else {
+                "status": response.status_code,
+                "headers": {k: v for k, v in response.headers.items() if k.lower() in (
+                    "retry-after", "content-type", "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset",
+                    "ratelimit-limit", "ratelimit-remaining", "ratelimit-reset")},
+                "body_start": run.resolved.redact(response.text[:1000]) if _is_text(response) else "(not text)",
+            },
+            "progress": {"values_done": p.get("offset", 0), "values_in_all": len(run.args.get(spec.batch.arg) or []) if spec.batch else None,
+                         "pages_done_in_this_piece": p.get("pages", 0), "records_so_far": p.get("items", 0)},
+            "what_can_change": {
+                "batch_size": batch_size, "page_size": page_size if spec.paginate and spec.paginate.style != "page" and spec.paginate.size_param else None,
+                "rate_limit": str(run.scopes[-1].rate) if run.scopes else None, "longest_wait_s": config.max_wait_s,
+                "can_skip_a_batch": spec.batch is not None,
+            },
+            "earlier_moves": moves[-5:],
+            "operator_instructions": config.instructions,
+        }
+        try:
+            async with SessionLocal() as db:
+                said = await ai.recover_http(db, context)
+        except ai.AiError as exc:
+            raise Failed(f"{trouble.message} (the AI couldn't decide: {exc})") from exc
+        move, reason = said["move"], str(said.get("reason") or "")[:500]
+        allowed = {"wait": "retry", "smaller": "retry", "slower": "retry", "skip_batch": "skip"}
+        if move in allowed and allowed[move] not in config.allow:
+            move, reason = "ask", f"it chose {said['move']}, which it may not do on its own here. {reason}"
+        elif move not in ("ask", "fail") and said["confidence"] < config.confidence:
+            move, reason = "ask", f"it was only {round(said['confidence'] * 100)}% sure about {said['move']}. {reason}"
+        moves.append({"move": move, "reason": reason, "model": said["model"], "at": utcnow().isoformat()})
+        await self._log(run, f"AI ({said['model']}): {move.replace('_', ' ')}. {reason}\n")
+        if move == "wait":
+            seconds = max(1.0, min(float(said.get("seconds") or 60), float(config.max_wait_s)))
+            await self._save_progress(run)
+            await self._wait(run, seconds, "the AI's call")
+            return "retry"
+        if move == "smaller":
+            size = int(said.get("size") or 0)
+            if spec.batch is not None and batch_size and 1 <= size < batch_size:
+                p["batch_size"] = size
+            elif context["what_can_change"]["page_size"] and 1 <= size < page_size:
+                p["page_size"] = size
+            else:
+                move = "ask"
+        elif move == "slower":
+            try:
+                rate = parse_rate(str(said.get("rate") or ""))
+            except ValueError:
+                rate = None
+            if rate is None:
+                move = "ask"
+            else:
+                await self._slow_down(run, str(rate))
+        elif move == "skip_batch":
+            if chunk is None:
+                move = "ask"
+            else:
+                await self._save_progress(run)
+                return "skip"
+        if move in ("ask", "fail"):
+            p["ai_said"] = {"move": move, "reason": reason}
+            await self._save_progress(run)
+            raise Failed(f"{trouble.message}. The AI {'left it to a person' if move == 'ask' else 'stopped it'}: {reason}")
+        await self._save_progress(run)
+        return "retry"
+
+    async def _slow_down(self, run: _Run, rate: str) -> None:
+        """The AI's "slower": the card's own rate limit, for this run and after."""
+        from .. import rate_limits
+
+        async with SessionLocal() as db:
+            task = await db.get(m.Task, run.task_id)
+            job = await db.get(m.Job, run.job_id)
+            if task is None or job is None:
+                return
+            task.rate_limit = rate
+            rate_limits.limiter.forget(f"task:{task.id}")
+            run.scopes = await scopes_for(db, task, job.var_bindings or {}, run.spec.rate_limit)
+            await db.commit()
+            await publish_task(db, task)
 
     @staticmethod
     async def _read(response: httpx.Response) -> bytes:
@@ -524,6 +713,20 @@ class ServerRunner:
         if text:
             await self._log(run, text if text.endswith("\n") else text + "\n", stream="stdout")
         return 0, None
+
+
+async def _ai_settings(db: Any, task: m.Task) -> dict[str, Any] | None:
+    """The AI settings of the playbook step this card runs, if it says on_failure: ai."""
+    if task.playbook_run_id is None or not task.playbook_step_id:
+        return None
+    from ..playbook_spec import AiStepConfig
+    from ..services import _run_spec
+
+    run = await db.get(m.PlaybookRun, task.playbook_run_id)
+    step = next((st for st in _run_spec(run).steps if st.id == task.playbook_step_id), None) if run else None
+    if step is None or step.on_failure != "ai":
+        return None
+    return {"config": step.ai or AiStepConfig(), "run_id": run.id, "step_id": step.id}
 
 
 def _is_text(response: httpx.Response) -> bool:

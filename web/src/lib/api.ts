@@ -134,10 +134,21 @@ export interface Job {
 	kind?: ActionKind;
 	/** "server": the Castor server ran it, not an agent. */
 	runner?: string | null;
+	/** An HTTP action sent through an agent: the agent whose network it went out from. */
+	via_agent_id?: UUID | null;
 	/** A waiting HTTP action carries on at this time. */
 	resume_at?: string | null;
 	/** Pages and batches done, so a retry carries on from there. */
-	progress?: { pages?: number; items?: number; batch?: number } | null;
+	progress?: {
+		pages?: number;
+		items?: number;
+		offset?: number;
+		batch_size?: number;
+		page_size?: number;
+		skipped?: unknown[];
+		/** Moves the AI made to recover its requests (on_failure: ai). */
+		ai_moves?: { move: string; reason: string; model: string; at: string }[];
+	} | null;
 }
 
 export type ActionKind = 'command' | 'http';
@@ -1293,7 +1304,7 @@ export interface Agent {
 	os: string;
 	username: string;
 	version: string;
-	capabilities: { runtimes?: string[]; default_image?: string };
+	capabilities: { runtimes?: string[]; default_image?: string; /** Sends HTTP actions' requests from its network. */ http?: boolean };
 	tags: string[];
 	/** The projects whose jobs it may run; null: any project (an empty list: none). */
 	project_ids?: UUID[] | null;

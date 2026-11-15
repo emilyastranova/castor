@@ -50,7 +50,8 @@ User *──* Project (project_members; admins see every project)
   `lost` means the agent disconnected mid-run. An HTTP action can also be `waiting` (for a rate
   limit or the API's Retry-After, until `resume_at`) between `running` and its end.
 * **Job.kind** is `command` (an agent runs it) or `http` (the Castor server sends a request; see
-  HTTP actions). `Job.runner` is `server` for the jobs no agent ran.
+  HTTP actions). `Job.runner` is `server` for the jobs no agent ran; `Job.via_agent_id` is the agent
+  an HTTP action's requests went out through, if any.
 * Logs are stored as ordered `JobLogChunk` rows (`stdout`/`stderr`/`system`) so the UI can
   stream and replay them; `Job.stdout_bytes` / `stderr_bytes` are totals.
 * `custom_fields` on Task, `settings` on Project, `capabilities` on Agent are JSON.
@@ -81,13 +82,15 @@ Agent → server
 
 | type | fields |
 | --- | --- |
-| `hello` | `token` or `secret`, `name, hostname, os, username, version, capabilities{runtimes[], default_image, host_install, tools[], tty}, tags[], max_concurrency` |
+| `hello` | `token` or `secret`, `name, hostname, os, username, version, capabilities{runtimes[], default_image, host_install, tools[], tty, http}, tags[], max_concurrency` |
 | `heartbeat` | `running[]` (job ids), `tools[]` (cached tool image tags) |
 | `tool.prepared` | `tool_id, ref, ok, error?, tools[]` (answer to `tool.prepare`) |
 | `job.started` | `job_id, started_at` |
 | `job.log` | `job_id, seq, stream ("stdout"\|"stderr"\|"system"), data` |
 | `job.finished` | `job_id, exit_code, finished_at, error?` |
 | `job.prompt` | `job_id, text` (an interactive job is waiting at this prompt; `null`: no longer) |
+| `http.chunk` | `request_id, data` (base64, up to 512 KB of the response body; any number, in order) |
+| `http.response` | `request_id, status, reason, headers[[name, value]], url` or `request_id, error, error_kind ("timeout"\|"connect"\|"too_big"\|"refused")` |
 
 Server → agent
 
@@ -102,6 +105,7 @@ Server → agent
 | `job.resize` | `job_id, cols, rows` |
 | `job.signal` | `job_id, name ("INT"\|"TERM"\|"QUIT")` (INT is sent as Ctrl+C through the terminal) |
 | `tool.prepare` | `tool` (same shape as `job.tool`; build or pull it now) |
+| `http.request` | `request_id, job_id, method, url, headers{}, body? (base64), timeout_s, max_bytes` (one request of an HTTP action, sent from the agent's network; redirects not followed) |
 
 Agents send a `heartbeat` every `heartbeat_interval` seconds (`CASTOR_AGENT_HEARTBEAT_INTERVAL`,
 15). An agent the server hasn't heard from for `CASTOR_AGENT_OFFLINE_AFTER` seconds (45) is
@@ -305,6 +309,23 @@ manual cards (`command_library.forget_definition`).
   The log shows the request (headers like Authorization as `••••`, secrets masked) and the response
   status and headers; the body is the job's stdout, which parsers read (`json-records`,
   `json-value`). `save_as`, or a body that isn't text, is kept as an artifact instead.
+* **Through an agent.** A card whose `agent_selector` names an agent or tags (step cards: never,
+  they're sent from the server) gets `jobs.via_agent_id`: a connected agent with
+  `capabilities.http` that may work for the project, chosen when the job starts or resumes. The
+  server still runs it; each request goes out as `http.request` and comes back as `http.chunk`s and
+  an `http.response` (`gateway.http_request`). The address guard doesn't apply there (it's the
+  agent's network); the allowed hosts do. An agent that disconnects mid-request parks the job, and
+  it carries on through whichever agent is connected. Agents started with `--no-http` don't offer
+  it, nor do SSH hosts.
+* **AI recovery.** When the fixed rules run out (`Trouble`) on a playbook step with
+  `on_failure: ai`, `server_runner._recover` asks the resolver chain (`ai.recover_http`, masked
+  context: the request without its query, the status, rate-limit headers, the start of the body,
+  progress and what can change) for one move: `wait`, `smaller` (`progress.batch_size` or
+  `page_size`), `slower` (the card's `rate_limit`), `skip_batch` (`progress.skipped`), `ask`, `fail`.
+  Moves are counted in `progress.ai_moves` against `ai.max_retries`; `allow` and `confidence` apply
+  (wait/smaller/slower as `retry`, skip_batch as `skip`). Batches count values (`progress.offset`),
+  so a smaller batch carries on where the last one stopped. Ask or fail sets `progress.ai_said`
+  and fails the job; `ai.auto_resolve` then leaves the step to a person.
 * **Paging and batches.** `paginate` styles `cursor`, `link` (a dot path or the Link header; same
   host only), `offset` and `page`, with `items` (a dot path to each page's records) and `stop`
   limits; `batch: {arg, size}` sends one request per chunk of a list argument. Records are
