@@ -5,6 +5,7 @@
 	import { palette } from '$lib/palette.svelte';
 	import { realtime } from '$lib/realtime.svelte';
 	import NotificationBell from './NotificationBell.svelte';
+	import { version } from '$lib/version.svelte';
 
 	/** The phone's navigation (below md): a bottom bar with Home, Board, Search, Inbox and
 	 *  More, where More is a sheet with every other destination and the account. */
@@ -153,4 +154,5 @@
 			</button>
 		</li>
 	</ul>
+	<p class="px-3 pt-1 pb-2 body-small text-on-surface-variant">{version.label}</p>
 </dialog>

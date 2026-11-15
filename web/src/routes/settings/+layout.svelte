@@ -2,6 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import { page } from '$app/state';
 	import { Icon } from '$lib/m3';
+	import { version } from '$lib/version.svelte';
 
 	let { children }: { children: Snippet } = $props();
 
@@ -25,6 +26,15 @@
 				</span>
 			</a>
 		{/each}
+		<a
+			href={version.server ? `https://github.com/emilyastranova/castor/releases/tag/v${version.server}` : 'https://github.com/emilyastranova/castor/releases'}
+			target="_blank"
+			rel="noopener noreferrer"
+			class="mt-auto mb-4 flex items-center gap-2 rounded-full px-3 py-2 body-small text-on-surface-variant hover:text-primary"
+			title={version.mismatch ? 'The web app and the server are on different versions: one has been upgraded and the other not yet' : 'What’s new in this version'}
+		>
+			<Icon name={version.mismatch ? 'warning' : 'info'} size={18} />{version.label}
+		</a>
 	</nav>
 	<div class="flex min-h-0 min-w-0 flex-1 flex-col">
 		{#if page.url.pathname !== '/settings'}

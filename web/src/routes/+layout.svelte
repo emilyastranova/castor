@@ -22,6 +22,7 @@
 	import { currentProject } from '$lib/currentProject.svelte';
 	import AccountDialog from '$lib/components/AccountDialog.svelte';
 	import { notifications } from '$lib/notifications.svelte';
+	import { version } from '$lib/version.svelte';
 
 	let { data, children } = $props();
 	let dark = $state(false);
@@ -116,6 +117,10 @@
 		await invalidateAll();
 		await goto('/login');
 	}
+
+	$effect(() => {
+		if (data.user) version.load();
+	});
 </script>
 
 <svelte:head>
@@ -165,6 +170,7 @@
 						<MenuItem icon="key" onclick={() => goto('/tokens')}>API tokens</MenuItem>
 						<MenuItem icon="extension" onclick={() => goto('/plugins')}>Your plugin settings</MenuItem>
 						<MenuItem icon="logout" onclick={logout}>Sign out</MenuItem>
+						<p class="border-t border-outline-variant/60 px-3 pt-2 pb-1 body-small text-on-surface-variant" title={version.mismatch ? 'The web app and the server are on different versions: one has been upgraded and the other not yet' : undefined}>{version.label}</p>
 					</Menu>
 				</div>
 			{/snippet}
