@@ -72,26 +72,6 @@ Ansible inventory, a cloud's run-command service, a remote management tool's API
   recipes, host installs) map onto machines Castor doesn't prepare itself; and whether the
   official SaltStack and Puppet plugins live in castor-plugins.
 
-## Cards and the board
-
-### More for subtasks
-Cards with subtasks are built (one level deep, hidden from the board, a Subtasks tab, Run all, the
-activity following its subtasks, and Group cards into one, in the UI and over MCP). Still to come:
-- **Many at once:** one subtask per target from a target list or an asset query (one per LXC,
-  one per host in a scope group), all running the same command, like a playbook's `for_each`;
-  **Run all** with how many at once, or one after another.
-- **In the Subtasks tab:** a graph when subtasks depend on each other, reordering by dragging,
-  and ticking a manual subtask done in place.
-- **Moving work in:** drag a card onto an activity on the board to make it a subtask.
-- **Home and the feed:** subtasks' activity rolls up under the activity ("3 subtasks of Update
-  homelab LXCs finished"), Home counts the activity once, people's own subtasks still show in
-  "yours", and a failed subtask shows in Home's needs-attention.
-- **From and to playbooks:** save an activity's subtasks as a playbook to repeat it next month,
-  or start an activity from a playbook, so a playbook run and an activity are one idea on the
-  board.
-- **Open questions:** subtasks of subtasks; whether a subtask can sit in a column of its own on
-  the board when someone wants it there; and how search and the people pages show subtasks.
-
 ## Running work
 
 ### Ansible playbooks

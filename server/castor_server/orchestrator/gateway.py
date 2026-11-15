@@ -554,6 +554,8 @@ class AgentGateway:
             if task is not None:
                 publish_job(job, task.project_id)
                 await publish_task(db, task)
+                if task.parent_id is not None:
+                    await self.next_subtasks(task.parent_id)
             if agent is not None:
                 await self._publish_agent(agent)
             if task is not None and not job.output_specs and job.status != m.JobStatus.cancelled:
@@ -576,6 +578,24 @@ class AgentGateway:
                 if enqueued:
                     dispatcher.wake()
         self._notify()
+
+    async def next_subtasks(self, parent_id: uuid.UUID) -> None:
+        """A subtask's run ended: its activity's Run all starts the next ones waiting their turn."""
+        from ..subtasks import pump
+
+        async with SessionLocal() as db:
+            started = await pump(db, parent_id)
+            if not started:
+                return
+            await db.commit()
+            for kid in started:
+                await publish_task(db, kid)
+            parent = await db.get(m.Task, parent_id)
+            if parent is not None:
+                await publish_task(db, parent)
+        from .dispatcher import dispatcher
+
+        dispatcher.wake()
 
     async def _advance_batch(self, batch_id: uuid.UUID, task_id: uuid.UUID) -> None:
         """A batch on several agents moves its card on once every job of it has succeeded.
@@ -608,7 +628,8 @@ class AgentGateway:
         if review is None or task.column_id == review.id:
             return
         task.column_id = review.id
-        task.position = await next_position(db, review.id)
+        if task.parent_id is None:  # a subtask keeps its place among its activity's subtasks
+            task.position = await next_position(db, review.id)
         await record_activity(
             db,
             type="task.moved",

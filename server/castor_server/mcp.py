@@ -358,7 +358,19 @@ TOOLS += [
     _auto("release_subtask", "POST", "/api/tasks/{task_id}/release", "Make a subtask its own card on the board again."),
     _auto("order_subtasks", "POST", "/api/tasks/{task_id}/subtasks/order", "Put a card's subtasks in this order (task_ids)."),
     _auto("run_subtasks", "POST", "/api/tasks/{task_id}/subtasks/run", "Run every command subtask that isn't finished or running "
-          "(ones waiting on unfinished cards only with force)."),
+          "(ones waiting on unfinished cards only with force): all now, or at_once at a time (1: one after another), the rest "
+          "starting as others end."),
+    _auto("subtasks_as_playbook", "GET", "/api/tasks/{task_id}/subtasks/playbook",
+          "An activity's subtasks as a playbook draft (YAML; save it with create_playbook), and the subtasks left out."),
+    _auto("activity_from_playbook", "POST", "/api/playbooks/{playbook_id}/activity",
+          "A new activity card in a project whose subtasks are the playbook's command steps (inputs filled in, depends_on as waits_on), "
+          "to work through by hand. Nothing starts. Steps that need a run (transforms, for_each, another step's output) are left out."),
+    _auto("stop_subtasks", "POST", "/api/tasks/{task_id}/subtasks/stop", "Stop a Run all with at_once from starting more "
+          "(what's running carries on)."),
+    _auto("add_subtasks_for_targets", "POST", "/api/tasks/{task_id}/subtasks/many",
+          "One subtask per target, each running the library command command_ref with the target in target_arg (and the same args "
+          "otherwise): targets is a list, text (commas or lines), a saved list ({\"list\": id}) or the project's assets "
+          "({\"assets\": {type, where, field}}). title may use {{ target }}. Then run them with run_subtasks."),
     # MCP servers Castor calls tools on (Settings → MCP servers; changing them needs an admin)
     _auto("list_mcp_servers", "GET", "/api/mcp-connections", "The MCP servers Castor calls tools on, with their tools (as last checked) "
           "and the actions that call them."),

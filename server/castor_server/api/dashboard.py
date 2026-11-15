@@ -82,6 +82,10 @@ class FeedItem(BaseModel):
     # An AI summary of a run (summaries.py): {id, text, model}.
     summary: dict[str, Any] | None = None
     link: str | None = None  # where the thing it's about is (link_for)
+    # About a subtask: the activity card it's in.
+    activity: Ref | None = None
+    # Several entries in a row about subtasks of one activity, rolled into this one: the subtasks.
+    subtasks: list[Ref] | None = None
 
 
 class FeedOut(BaseModel):
@@ -299,6 +303,7 @@ async def _enrich(db: DB, events: list[m.ActivityEvent], *, full: bool = False) 
     comments = await by_id(m.Comment, comment_ids)
     # A comment's entries follow it to the card it's on now (comments can move).
     tasks = await by_id(m.Task, task_ids | {c.task_id for c in comments.values()})
+    parents = await by_id(m.Task, {t.parent_id for t in tasks.values() if t.parent_id is not None})
     users = await by_id(m.User, user_ids)
     jobs = await by_id(m.Job, job_ids)
     posts = await by_id(m.ProjectPost, {uuid.UUID(e.payload["post_id"]) for e in events if _is_uuid((e.payload or {}).get("post_id"))})
@@ -337,6 +342,8 @@ async def _enrich(db: DB, events: list[m.ActivityEvent], *, full: bool = False) 
             message=e.message,
             project={"id": str(project.id), "codename": project.codename, "name": project.name} if project else None,
             task=Ref(id=str(task.id), name=task.title) if task else None,
+            activity=Ref(id=str(parents[task.parent_id].id), name=parents[task.parent_id].title)
+            if task is not None and task.parent_id in parents else None,
             actor={
                 "type": e.actor_type,
                 "name": author.display_name if author else e.actor_name,
@@ -378,6 +385,56 @@ async def _enrich(db: DB, events: list[m.ActivityEvent], *, full: bool = False) 
                 continue  # written again since (that has its own entry) or gone
             item.summary = {"id": str(summary.id), "text": summary.text, "model": summary.model}
         out.append(item)
+    return _roll_up(out, events)
+
+
+# Entries about subtasks that roll up when several of one activity come in a row.
+ROLLED = {"job.succeeded": "succeeded", "job.failed": "failed", "job.lost": "were lost", "task.moved": "moved"}
+
+
+def _roll_up(items: list[FeedItem], events: list[m.ActivityEvent]) -> list[FeedItem]:
+    """Entries in a row of the same kind about subtasks of one activity become one ("3 subtasks
+    of “Update LXCs” succeeded"), so a Run all doesn't fill the timeline. Moves roll up only when
+    they went to the same column."""
+    to = {e.id: (e.payload or {}).get("to") for e in events if e.type == "task.moved"}
+    out: list[FeedItem] = []
+    group: list[FeedItem] = []
+
+    def key(item: FeedItem) -> tuple | None:
+        if item.activity is None or item.type not in ROLLED or item.task is None:
+            return None
+        return (item.type, item.activity.id, to.get(item.id) if item.type == "task.moved" else None)
+
+    def flush() -> None:
+        if len(group) < 2:
+            out.extend(group)
+        else:
+            first = group[0]
+            seen: dict[str, Ref] = {}
+            for g in group:
+                seen.setdefault(g.task.id, g.task)
+            word = ROLLED[first.type]
+            where = ""
+            if first.type == "task.moved":
+                tail = first.message.rsplit(" to ", 1)
+                where = f" to {tail[1]}" if len(tail) == 2 else ""
+            first.subtasks = list(seen.values())
+            first.message = f"{len(group)} subtask{'s' if len(group) != 1 else ''} of “{first.activity.name}” {word}{where}"
+            first.task = first.activity
+            first.job = None
+            first.link = f"/projects/{first.project['id']}?task={first.activity.id}" if first.project else None
+            out.append(first)
+        group.clear()
+
+    for item in items:
+        k = key(item)
+        if group and (k is None or k != key(group[0])):
+            flush()
+        if k is None:
+            out.append(item)
+        else:
+            group.append(item)
+    flush()
     return out
 
 
@@ -546,6 +603,7 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
             .where(
                 in_scope(m.Task.project_id),
                 m.Task.playbook_step_id.is_(None),  # a run counts once, as its card
+                m.Task.parent_id.is_(None),  # and an activity once, not each subtask
                 m.Task.archived_at.is_(None),
                 m.BoardColumn.role.is_(None) | m.BoardColumn.role.not_in(done_roles),
             )
@@ -647,10 +705,14 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
             .limit(10)
         )
     ).all()
+    from ..subtasks import activities_of, in_activity
+
+    # A subtask is named with its activity ("“Host 3” in “Update LXCs” failed").
+    activities = await activities_of(db, [t for _, t in prompting])
     for job, task in prompting:
         attention.append({
             "kind": "input",
-            "title": f"“{task.title}” is waiting for input",
+            "title": f"“{task.title}”{in_activity(task, activities)} is waiting for input",
             "detail": job.waiting_input,
             "since": job.started_at,
             "project": project_ref(task.project_id),
@@ -668,13 +730,14 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
         )
     ).all()
     seen_batches: set = set()
+    activities = await activities_of(db, [t for _, t in asking])
     for job, task in asking:
         if job.batch_id is not None and job.batch_id in seen_batches:
             continue
         seen_batches.add(job.batch_id)
         attention.append({
             "kind": "approval",
-            "title": f"“{task.title}” needs approval to run",
+            "title": f"“{task.title}”{in_activity(task, activities)} needs approval to run",
             "detail": task.command[:300],
             "since": job.queued_at,
             "project": project_ref(task.project_id),
@@ -712,12 +775,13 @@ async def summary(db: DB, user: CurrentUser, project_id: str | None = None):
             )
         ).all()
         newest = {tid: q for tid, q in latest_ids}
+    activities = await activities_of(db, [t for _, t in failed])
     for job, task in failed:
         if newest.get(task.id) != job.queued_at or any(a.get("task_id") == str(task.id) for a in attention):
             continue  # re-run since, or already listed
         attention.append({
             "kind": "failed",
-            "title": f"“{task.title}” failed",
+            "title": f"“{task.title}”{in_activity(task, activities)} failed",
             "detail": f"exit {job.exit_code}" if job.exit_code not in (None, 0) else (job.error or job.status.value),
             "since": job.finished_at,
             "project": project_ref(task.project_id),

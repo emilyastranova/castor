@@ -413,6 +413,8 @@ class SubtaskSummary(BaseModel):
     failed: int = 0  # latest run failed, not finished
     approvals: int = 0  # a run waiting for approval
     next_due: datetime | None = None  # the soonest due date of the unfinished ones
+    queued: int = 0  # waiting their turn in a Run all with a limit (subtasks.pump)
+    at_once: int | None = None  # that Run all's limit
 
 
 class RunSummary(BaseModel):

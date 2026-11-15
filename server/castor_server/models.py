@@ -372,6 +372,9 @@ class Task(Base, TimestampMixin):
     confirm: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     # Group ids (strings) whose members (and admins) approve its runs; empty: the project's approvers.
     approvers: Mapped[list[str] | None] = mapped_column(JSONType, default=list, nullable=True)
+    # An activity's Run all with a limit (subtasks.pump): {"queue": [subtask ids], "at_once": n,
+    # "force": bool, "by": user id}; None when nothing waits.
+    subtask_run: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
     # A subtask: the card it belongs to (an activity). Subtasks stay off the board and show in
     # their card's Subtasks tab; one level deep. Deleting the activity puts them back on the board.
     parent_id: Mapped[uuid.UUID | None] = mapped_column(

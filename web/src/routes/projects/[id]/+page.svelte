@@ -229,6 +229,21 @@
 		})();
 	});
 
+	/** A card dropped onto an activity card: it becomes a subtask (and leaves the board). */
+	async function dropIntoActivity(taskId: UUID, into: Task) {
+		const card = store.tasks.get(taskId);
+		store.tasks.delete(taskId);
+		try {
+			await api().tasks.addSubtasks(into.id, [taskId]);
+			snackbar.show(`“${card?.title ?? 'The card'}” is a subtask of “${into.title}”`, {
+				action: { label: 'Undo', run: () => void api().tasks.release(taskId).then((t) => store.upsertTask(t)) }
+			});
+		} catch (err) {
+			if (card) store.upsertTask(card);
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not add it');
+		}
+	}
+
 	async function move(taskId: UUID, columnId: UUID, position: number) {
 		const before = store.tasks.get(taskId);
 		store.moveLocal(taskId, columnId, position);
@@ -405,7 +420,7 @@
 		<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (Escape and Done also end arranging) -->
 		<div bind:this={columnsEl} onclick={tapBoard} class="flex min-h-0 flex-1 gap-3 overflow-x-auto px-4 pb-4 max-sm:scroll-px-4 {arrange.on ? 'max-sm:pb-20' : 'max-sm:snap-x max-sm:snap-mandatory'}">
 			{#each store.columns as column (column.id)}
-				<BoardColumn {column} tasks={filtered(column)} readonly={!editable} onopen={openTask} onadd={(c) => { newColumn = c; newOpen = true; }} onmove={move} onarchive={archiveColumn} />
+				<BoardColumn {column} tasks={filtered(column)} readonly={!editable} onopen={openTask} onadd={(c) => { newColumn = c; newOpen = true; }} onmove={move} onarchive={archiveColumn} ondropinto={dropIntoActivity} />
 			{/each}
 		</div>
 	{/if}

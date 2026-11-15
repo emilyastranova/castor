@@ -256,11 +256,15 @@ class Searcher:
             latest = select(m.Job.status).where(m.Job.task_id == t.id).order_by(m.Job.queued_at.desc()).limit(1).scalar_subquery()
             cond.append(cast(latest, String).ilike(q.status))
         rows = await self.rows(select(t).where(*cond).order_by(_closest_first([t.title], q.terms), t.updated_at.desc()))
+        from .subtasks import activities_of, in_activity
+
+        activities = await activities_of(self.db, [task for (task,) in rows])  # a subtask shows the card it's in
         out = []
         for (task,) in rows:
             text = next((v for v in (task.title, task.description, task.command, " ".join(task.tags)) if any(x in (v or "").lower() for x in q.terms)), task.description)
+            title = task.title + in_activity(task, activities)
             out.append({
-                "id": str(task.id), "title": f"{task.title} (archived)" if task.archived_at else task.title,
+                "id": str(task.id), "title": f"{title} (archived)" if task.archived_at else title,
                 "snippet": snippet(text, q.terms) if text != task.title else "",
                 "project": self.project_ref(task.project_id), "at": task.updated_at,
                 "icon": "inventory_2" if task.archived_at else "terminal" if task.kind == m.TaskKind.command else "person",

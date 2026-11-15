@@ -35,6 +35,7 @@
 
 	function initialSpec(): PlaybookSpec {
 		const pb = data.playbook;
+		if (!pb && data.draft) return toAuthoring(data.draft);
 		if (!pb) return { id: 'new-playbook', name: 'New playbook', schema_version: 1, description: '', tags: [], inputs: [], steps: [] };
 		const spec = toAuthoring(pb.spec);
 		// Built-ins are read-only, and ?from= makes a copy: either way this saves as a new one.

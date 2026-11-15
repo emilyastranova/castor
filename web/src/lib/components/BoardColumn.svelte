@@ -6,6 +6,7 @@
 	import ColumnGlyph from './ColumnGlyph.svelte';
 	import { enter, flying, glide, leave } from '$lib/motion';
 	import { arrange, holdToArrange } from '$lib/arrange.svelte';
+	import { dropInto } from '$lib/dropInto.svelte';
 
 	interface Props {
 		column: Column;
@@ -17,8 +18,10 @@
 		onarchive?: (column: Column) => void;
 		/** Viewers: no dragging, no adding. */
 		readonly?: boolean;
+		/** A card dropped onto an activity card: make it a subtask of it. */
+		ondropinto?: (taskId: UUID, into: Task) => void;
 	}
-	let { column, tasks, onopen, onadd, onmove, onarchive, readonly = false }: Props = $props();
+	let { column, tasks, onopen, onadd, onmove, onarchive, readonly = false, ondropinto }: Props = $props();
 
 	// Local copy so svelte-dnd-action can insert its placeholder while dragging.
 	let items = $state<Task[]>([]);
@@ -35,12 +38,15 @@
 	});
 
 	function consider(e: CustomEvent<DndEvent<Task>>) {
+		const held = tasks.find((t) => t.id === e.detail.info.id);
+		if (held && !dropInto.dragging) dropInto.dragging = held;
 		dragging = true;
 		live = false;
 		items = e.detail.items;
 	}
 
 	function finalize(e: CustomEvent<DndEvent<Task>>) {
+		dropInto.dragging = null;
 		live = false;
 		items = e.detail.items;
 		dragging = false;
@@ -91,7 +97,7 @@
 		{#each items as task (task.id)}
 			<!-- A card flying in from another column (fly) doesn't also grow in or shrink out. -->
 			<div data-card={task.id} use:holdToArrange animate:glide={{ duration: 150 }} in:enter={{ enabled: live && !flying.has(task.id) }} out:leave={{ enabled: live && !flying.has(task.id) }} class="touch-callout-none {(task as unknown as Record<string, unknown>)[SHADOW_ITEM_MARKER_PROPERTY_NAME] ? 'opacity-40' : ''} {arrange.on && !readonly ? 'wiggle' : ''}">
-				<TaskCard {task} {onopen} finished={column.role === 'done' || column.role === 'reported'} />
+				<TaskCard {task} {onopen} finished={column.role === 'done' || column.role === 'reported'} ondropinto={readonly ? undefined : ondropinto} />
 			</div>
 		{/each}
 	</div>

@@ -7,14 +7,27 @@
 	import PriorityGlyph, { priorityLabels } from './PriorityGlyph.svelte';
 	import { isRunning, kindIcon, runState as runStateOf, subtaskState } from '$lib/taskStatus';
 	import { DUE_TONE, dueInfo } from '$lib/due';
+	import { dndzone, type DndEvent } from 'svelte-dnd-action';
+	import { dropInto } from '$lib/dropInto.svelte';
 
 	interface Props {
 		task: Task;
 		onopen: (task: Task) => void;
 		/** In a Done or Reported column: its due date no longer needs attention. */
 		finished?: boolean;
+		/** An activity card on the board: a card dropped on it becomes its subtask. */
+		ondropinto?: (taskId: Task['id'], into: Task) => void;
 	}
-	let { task, onopen, finished = false }: Props = $props();
+	let { task, onopen, finished = false, ondropinto }: Props = $props();
+	// The drop strip's own zone (svelte-dnd-action puts the dragged card's placeholder in it).
+	let dropped = $state<Task[]>([]);
+	let offering = $derived(!!ondropinto && dropInto.accepts(task));
+	function droppedIn(e: CustomEvent<DndEvent<Task>>) {
+		const id = e.detail.info.id;
+		dropped = [];
+		dropInto.dragging = null;
+		if (e.detail.info.trigger === 'droppedIntoZone') ondropinto?.(id as Task['id'], task);
+	}
 	let due = $derived(task.due_at ? dueInfo(task.due_at, finished) : null);
 	let blockers = $derived(finished ? [] : (task.blocked_by ?? []));
 	let assignees = $derived(people.assigneesOf(task));
@@ -68,6 +81,19 @@
 				</span>
 				<span class="label-small text-on-surface-variant">Subtasks</span>
 			</span>
+		</div>
+	{/if}
+	{#if offering || dropped.length}
+		<div
+			class="flex min-h-10 items-center justify-center rounded-sm border border-dashed border-primary/60 bg-primary-container/40 px-2 label-medium text-on-primary-container"
+			use:dndzone={{ items: dropped, type: 'task', flipDurationMs: 0, dropTargetStyle: {}, dropTargetClasses: ['bg-primary-container'], morphDisabled: true }}
+			onconsider={(e) => (dropped = e.detail.items)}
+			onfinalize={droppedIn}
+			role="region"
+			aria-label="Drop here to make it a subtask of {task.title}"
+		>
+			{#if !dropped.length}<span class="pointer-events-none flex items-center gap-1"><Icon name="subdirectory_arrow_right" size={16} />Drop here to make it a subtask</span>{/if}
+			{#each dropped as d (d.id)}<span class="truncate">Make “{d.title}” a subtask</span>{/each}
 		</div>
 	{/if}
 	{#if task.kind === 'command' && task.command}

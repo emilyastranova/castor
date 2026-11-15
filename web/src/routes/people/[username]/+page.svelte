@@ -195,7 +195,7 @@
 										<span class="min-w-0 flex-1">
 											<span class="flex items-center gap-1.5 body-medium text-on-surface"><span class="truncate">{c.title}</span>{#if c.priority > 0}<PriorityGlyph level={c.priority} size={14} />{/if}</span>
 											<span class="block truncate body-small text-on-surface-variant">
-												{c.column}{c.status ? ' · ' : ''}{#if c.status}<span class={STATUS[c.status] ?? ''}>{c.status}</span>{/if}{c.project ? ` · ${c.project.codename}` : ''}
+												{#if c.activity}in {c.activity.title} · {/if}{c.column}{c.status ? ' · ' : ''}{#if c.status}<span class={STATUS[c.status] ?? ''}>{c.status}</span>{/if}{c.project ? ` · ${c.project.codename}` : ''}
 											</span>
 										</span>
 									</a>

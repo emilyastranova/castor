@@ -855,7 +855,8 @@ async def move_task(
         await blocked_check(db, task)
     previous_column_id = task.column_id
     task.column_id = column.id
-    task.position = position
+    if task.parent_id is None:  # a subtask's position is its place among its activity's subtasks
+        task.position = position
     await db.flush()
 
     job: m.Job | None = None
@@ -913,7 +914,8 @@ async def start_run(db: AsyncSession, task: m.Task, user: m.User | None) -> tupl
     if active is not None and task.column_id != active.id:
         previous_column_id = task.column_id
         task.column_id = active.id
-        task.position = await next_position(db, active.id)
+        if task.parent_id is None:  # a subtask keeps its place among its activity's subtasks
+            task.position = await next_position(db, active.id)
         await db.flush()
         await record_activity(
             db,
@@ -942,7 +944,7 @@ def board_payload(project: m.Project, columns: list[m.BoardColumn], tasks: list[
 
 
 # Columns a duplicate never copies: identity, place, provenance, and playbook membership.
-_NOT_COPIED = {"id", "column_id", "position", "created_by", "created_at", "updated_at", "archived_at", "archived_by", "due_reminded",
+_NOT_COPIED = {"id", "column_id", "position", "created_by", "created_at", "updated_at", "archived_at", "archived_by", "due_reminded", "subtask_run",
                "playbook_run_id", "playbook_step_id", "playbook_item", "depends_on"}
 _FINISHED = (m.JobStatus.succeeded, m.JobStatus.failed, m.JobStatus.cancelled, m.JobStatus.lost)
 

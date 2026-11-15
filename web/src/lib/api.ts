@@ -401,6 +401,10 @@ export interface FeedItem {
 	post?: { id: UUID; body: string; edited: boolean; mentions: string[]; tags: string[]; author_id: UUID | null } | null;
 	/** An AI summary of a run (type summary.written), as it is now. */
 	summary?: { id: UUID; text: string; model: string } | null;
+	/** About a subtask: the activity card it's in. */
+	activity?: { id: string; name: string } | null;
+	/** Several entries in a row about one activity's subtasks, rolled into this one. */
+	subtasks?: { id: string; name: string }[] | null;
 }
 
 /** What the AI wrote about a finished job or playbook run (server summaries.py). */
@@ -654,7 +658,7 @@ export interface Person extends PersonBrief {
 	created_at: string;
 	projects: ProjectRef[];
 	counts: { open_assigned: number; comments_30d: number; cards_30d: number; runs_30d: number; mentions_30d: number };
-	assigned: { id: UUID; title: string; kind: 'manual' | 'command'; priority: number; column: string; column_role: ColumnRole | null; status: string | null; project: ProjectRef | null; updated_at: string }[];
+	assigned: { id: UUID; title: string; kind: 'manual' | 'command'; priority: number; column: string; column_role: ColumnRole | null; status: string | null; project: ProjectRef | null; updated_at: string; activity?: { id: UUID; title: string } | null }[];
 	mentions: { id: UUID; body: string; created_at: string; author: { name: string; username: string | null; avatar_url: string | null }; task: { id: UUID; title: string }; project: ProjectRef | null; link: string }[];
 }
 
@@ -1204,6 +1208,9 @@ export interface SubtaskSummary {
 	failed: number;
 	approvals: number;
 	next_due: string | null;
+	/** Waiting their turn in a Run all with a limit, and that limit. */
+	queued?: number;
+	at_once?: number | null;
 }
 
 export interface Board {
@@ -1631,8 +1638,16 @@ export function api(fetchFn: Fetch = fetch) {
 			addSubtasks: (id: UUID, taskIds: UUID[]) => post<Task[]>(`/tasks/${id}/subtasks`, { task_ids: taskIds }),
 			orderSubtasks: (id: UUID, taskIds: UUID[]) => post<Task[]>(`/tasks/${id}/subtasks/order`, { task_ids: taskIds }),
 			/** Run every command subtask that isn't finished or running. */
-			runSubtasks: (id: UUID, force = false) =>
-				post<{ started: UUID[]; skipped: { id: UUID; title: string; reason: string }[] }>(`/tasks/${id}/subtasks/run`, { force }),
+			/** atOnce: how many run together, the rest starting as others end (1: one after another). */
+			runSubtasks: (id: UUID, force = false, atOnce: number | null = null) =>
+				post<{ started: UUID[]; skipped: { id: UUID; title: string; reason: string }[]; queued: number }>(`/tasks/${id}/subtasks/run`, { force, at_once: atOnce }),
+			/** Stop a Run all with a limit from starting more. */
+			stopSubtasks: (id: UUID) => post<{ not_started: number }>(`/tasks/${id}/subtasks/stop`),
+			/** One subtask per target, each running the library command with the target in targetArg. */
+			subtasksForTargets: (id: UUID, body: { command_ref: string; target_arg: string; targets: unknown; args?: Record<string, unknown>; title?: string; var_bindings?: Record<string, UUID> }) =>
+				post<Task[]>(`/tasks/${id}/subtasks/many`, body),
+			/** The subtasks as a playbook draft, and the ones a step can't be. */
+			subtasksPlaybook: (id: UUID) => get<{ yaml: string; left_out: string[] }>(`/tasks/${id}/subtasks/playbook`),
 			/** Make a subtask its own card on the board again. */
 			release: (id: UUID) => post<Task>(`/tasks/${id}/release`),
 			/** Back on the board, in the column it was in. */
@@ -1762,6 +1777,9 @@ export function api(fetchFn: Fetch = fetch) {
 			run: (id: string, projectId: UUID, inputs: Record<string, unknown> = {}, alerts: AlertRules | null = null, agentSelector: AgentSelector = {}) =>
 				post<PlaybookRun>(`/playbooks/${id}/run`, { project_id: projectId, inputs, agent_selector: agentSelector, ...(alerts ? { alerts } : {}) }),
 			validate: (yaml: string) => post<PlaybookCheck>('/playbooks/validate', { yaml }),
+			/** A new activity whose subtasks are the playbook's command steps; nothing starts. */
+			activity: (id: string, projectId: UUID, inputs: Record<string, unknown>) =>
+				post<{ task: Task; left_out: string[] }>(`/playbooks/${id}/activity`, { project_id: projectId, inputs }),
 			/** The editor's spec as YAML, validated (YAML is returned even when invalid). */
 			toYaml: (spec: PlaybookSpec) => post<PlaybookCheck & { yaml: string }>('/playbooks/to-yaml', { spec })
 		},

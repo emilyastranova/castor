@@ -92,7 +92,21 @@ async def cancel_job(job_id: str, db: DB, user: CurrentUser):
     job = await dispatcher.cancel(parse_uuid(job_id))
     if job is None:
         raise HTTPException(404, "Job not found")
+    await _next_subtasks(job.task_id)  # a queued one cancelled never reaches an agent's "finished"
     return job
+
+
+async def _next_subtasks(task_id) -> None:
+    """A subtask's run ended without an agent saying so: its activity's Run all moves on."""
+    from ..db import SessionLocal
+
+    async with SessionLocal() as db:
+        task = await db.get(m.Task, task_id)
+        parent_id = task.parent_id if task is not None else None
+    if parent_id is not None:
+        from ..orchestrator.gateway import gateway
+
+        await gateway.next_subtasks(parent_id)
 
 
 @router.get("/{job_id}/artifacts", response_model=list[AttachmentOut])
@@ -159,6 +173,8 @@ async def _decide(job_id: str, db, user, approve: bool, reason: str = "") -> m.J
         await publish_task(db, task)
         if not approve and task.playbook_run_id is not None:
             await advance_playbook_run(db, task.playbook_run_id)  # the step ends, cancelled
+        if not approve and task.parent_id is not None:
+            await _next_subtasks(task.id)
     dispatcher.wake()
     return job
 

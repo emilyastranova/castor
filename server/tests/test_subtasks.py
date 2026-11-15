@@ -3,7 +3,10 @@ board; consolidating cards into one (REST and MCP), adding, releasing and orderi
 activity following its subtasks, and archive, restore, delete, duplicate and import/export."""
 
 import json
+import time
 import uuid
+
+import yaml
 
 
 def _project(client, auth):
@@ -179,3 +182,96 @@ def test_export_import_keeps_subtasks(client, auth):
     copy = next(t for t in board["tasks"] if t["title"] == "Activity")
     assert copy["id"] != parent["id"] and copy["subtasks"]["total"] == 1
     assert [k["title"] for k in client.get(f"/api/tasks/{copy['id']}/subtasks", headers=auth).json()] == ["Inside"]
+
+
+def test_one_subtask_per_target_and_run_a_few_at_a_time(client, auth):
+    project = _project(client, auth)
+    parent = _card(client, auth, project, "Sweep the lab")
+    r = client.post(f"/api/tasks/{parent['id']}/subtasks/many", json={
+        "command_ref": "nmap-ping-sweep", "target_arg": "targets", "targets": "10.9.0.1, 10.9.0.2\n10.9.0.3", "title": "Sweep {{ target }}",
+    }, headers=auth)
+    assert r.status_code == 201, r.text
+    kids = r.json()
+    assert [k["title"] for k in kids] == ["Sweep 10.9.0.1", "Sweep 10.9.0.2", "Sweep 10.9.0.3"]
+    assert "10.9.0.2" in kids[1]["command"] and all(k["parent_id"] == parent["id"] for k in kids)
+    assert client.post(f"/api/tasks/{parent['id']}/subtasks/many", json={
+        "command_ref": "nmap-ping-sweep", "target_arg": "nope", "targets": ["x"]}, headers=auth).status_code == 422
+
+    # Two at a time: two start, one waits its turn; cancelling one starts the next.
+    out = client.post(f"/api/tasks/{parent['id']}/subtasks/run", json={"at_once": 2}, headers=auth).json()
+    assert len(out["started"]) == 2 and out["queued"] == 1
+    summary = client.get(f"/api/tasks/{parent['id']}", headers=auth).json()["subtasks"]
+    assert summary["queued"] == 1 and summary["at_once"] == 2
+    first = client.get(f"/api/tasks/{out['started'][0]}", headers=auth).json()["latest_job"]
+    client.post(f"/api/jobs/{first['id']}/cancel", headers=auth)
+    waiting = next(k for k in kids if k["id"] not in out["started"])
+    deadline = time.time() + 5
+    while time.time() < deadline and not client.get(f"/api/tasks/{waiting['id']}", headers=auth).json()["latest_job"]:
+        time.sleep(0.1)
+    assert client.get(f"/api/tasks/{waiting['id']}", headers=auth).json()["latest_job"]
+    assert client.get(f"/api/tasks/{parent['id']}", headers=auth).json()["subtasks"]["queued"] == 0
+    for k in kids:
+        job = client.get(f"/api/tasks/{k['id']}", headers=auth).json()["latest_job"]
+        if job:
+            client.post(f"/api/jobs/{job['id']}/cancel", headers=auth)
+    client.delete(f"/api/projects/{project['id']}", headers=auth)
+
+
+def test_to_and_from_playbooks(client, auth):
+    project = _project(client, auth)
+    parent = _card(client, auth, project, "Monthly checks")
+    a = _card(client, auth, project, "Sweep", kind="command", command_ref="nmap-ping-sweep", command_args={"targets": "10.8.0.0/24"},
+              parent_id=parent["id"])
+    _card(client, auth, project, "Then scan", kind="command", command_ref="nmap-ping-sweep", command_args={"targets": "10.8.1.0/24"},
+          parent_id=parent["id"], waits_on=[a["id"]])
+    _card(client, auth, project, "Write it up", parent_id=parent["id"])
+    draft = client.get(f"/api/tasks/{parent['id']}/subtasks/playbook", headers=auth).json()
+    assert draft["left_out"] == ["Write it up"]
+    spec = yaml.safe_load(draft["yaml"])
+    assert [s["id"] for s in spec["steps"]] == ["sweep", "then-scan"] and spec["steps"][1]["depends_on"] == ["sweep"]
+    pb_id = f"monthly-{uuid.uuid4().hex[:6]}"
+    r = client.post("/api/playbooks", json={"yaml": draft["yaml"].replace(f"id: {spec['id']}", f"id: {pb_id}", 1)}, headers=auth)
+    assert r.status_code == 201, r.text
+
+    other = _project(client, auth)
+    r = client.post(f"/api/playbooks/{pb_id}/activity", json={"project_id": other["id"]}, headers=auth)
+    assert r.status_code == 201, r.text
+    made = r.json()["task"]
+    assert made["title"] == "Monthly checks" and made["subtasks"]["total"] == 2 and r.json()["left_out"] == []
+    kids = client.get(f"/api/tasks/{made['id']}/subtasks", headers=auth).json()
+    assert kids[1]["waits_on"] == [kids[0]["id"]] and not kids[0]["latest_job"]  # nothing started
+    client.delete(f"/api/playbooks/{pb_id}", headers=auth)
+    for p in (project, other):
+        client.delete(f"/api/projects/{p['id']}", headers=auth)
+
+
+def test_home_and_search_show_the_activity(client, auth):
+    project = _project(client, auth)
+    # The activity doesn't follow here, so its own moves don't come between the subtasks'.
+    client.patch(f"/api/projects/{project['id']}", json={"settings": {"subtasks_move_card": False}}, headers=auth)
+    parent = _card(client, auth, project, "Patch round zeta")
+    cols = _columns(client, auth, project)
+    kids = [_card(client, auth, project, f"Zeta host {n}", parent_id=parent["id"]) for n in (1, 2, 3)]
+    summary = client.get("/api/dashboard/summary", params={"project_id": project["id"]}, headers=auth).json()
+    assert summary["counts"]["open_cards"] == 1  # the activity, once
+    for k in kids:
+        client.post(f"/api/tasks/{k['id']}/move", json={"column_id": cols["review"]}, headers=auth)
+    feed = client.get("/api/dashboard/feed", params={"project_id": project["id"], "kinds": "move"}, headers=auth).json()["items"]
+    rolled = next(i for i in feed if i.get("subtasks"))
+    assert rolled["message"].startswith("3 subtasks of “Patch round zeta”") and len(rolled["subtasks"]) == 3
+    hits = client.get("/api/search", params={"q": "Zeta host 2"}, headers=auth).json()
+    titles = [h["title"] for g in hits["groups"] for h in g["hits"]]
+    assert any(t == "Zeta host 2 in “Patch round zeta”" for t in titles), hits
+    client.delete(f"/api/projects/{project['id']}", headers=auth)
+
+
+def test_moving_a_subtask_keeps_its_place(client, auth):
+    project = _project(client, auth)
+    cols = _columns(client, auth, project)
+    parent = _card(client, auth, project, "Order")
+    kids = [_card(client, auth, project, f"Step {n}", parent_id=parent["id"]) for n in (1, 2, 3)]
+    client.post(f"/api/tasks/{kids[2]['id']}/move", json={"column_id": cols["done"], "position": 0}, headers=auth)
+    client.post(f"/api/tasks/{kids[0]['id']}/move", json={"column_id": cols["active"]}, headers=auth)
+    order = [k["title"] for k in client.get(f"/api/tasks/{parent['id']}/subtasks", headers=auth).json()]
+    assert order == ["Step 1", "Step 2", "Step 3"]
+    client.delete(f"/api/projects/{project['id']}", headers=auth)

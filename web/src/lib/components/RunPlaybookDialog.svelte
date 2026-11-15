@@ -4,6 +4,7 @@
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, Select, Switch, TextField } from '$lib/m3';
 	import { snackbar } from '$lib/snackbar.svelte';
+	import { goto } from '$app/navigation';
 	import VariableSetDialog from './VariableSetDialog.svelte';
 	import ListArgInput from './ListArgInput.svelte';
 	import AlertRulesForm from './AlertRulesForm.svelte';
@@ -131,6 +132,28 @@
 			running = false;
 		}
 	}
+
+	/** Its command steps as subtasks of a new card, to work through by hand: nothing starts. */
+	let starting = $state(false);
+	async function startActivity() {
+		if (!spec || !selectedProjectId) return;
+		starting = true;
+		error = null;
+		try {
+			const r = await api().playbooks.activity(spec.id, selectedProjectId, inputValues);
+			snackbar.show(
+				r.left_out.length
+					? `Made “${r.task.title}”; ${r.left_out.length} step${r.left_out.length === 1 ? '' : 's'} need a playbook run and were left out`
+					: `Made “${r.task.title}” with ${r.task.subtasks?.total ?? 0} subtasks`
+			);
+			open = false;
+			void goto(`/projects/${selectedProjectId}?task=${r.task.id}`);
+		} catch (err) {
+			error = err instanceof ApiError ? err.message : 'Could not make the card';
+		} finally {
+			starting = false;
+		}
+	}
 </script>
 
 <Dialog
@@ -247,6 +270,9 @@
 	{/if}
 
 	{#snippet actions()}
+		<Button variant="text" class="mr-auto" icon="checklist" loading={starting} disabled={running || !selectedProjectId} onclick={startActivity} title="Its command steps as subtasks of a new card, to work through by hand (nothing starts)">
+			Start as a card with subtasks
+		</Button>
 		<Button variant="text" onclick={() => (open = false)} disabled={running}>
 			Cancel
 		</Button>

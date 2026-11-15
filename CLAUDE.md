@@ -339,8 +339,10 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `due.py` reminds a card's people (`services.card_people`) once soon and once overdue (`tasks.due_reminded`).
   Subtasks: `subtasks.py` (`tasks.parent_id`, one level deep; `summaries` → `TaskOut.subtasks`; `follow` moves the
   activity with them; `consolidate`), `api/subtasks.py`; subtasks are off the board like step cards (server `get_board`,
-  client `BoardStore`), open on top via `?step=`; web `SubtaskPanel`, `GroupCardsDialog`. A new "cards on the board" query
-  must also add `parent_id.is_(None)`.
+  client `BoardStore`), open on top via `?step=`; web `SubtaskPanel`, `GroupCardsDialog`, `ManySubtasksDialog`. A new "cards on
+  the board" query must also add `parent_id.is_(None)`. One level deep, never on the board by themselves (decided). A subtask's
+  `position` is its place among its siblings: column moves must not change it. Run all with `at_once` queues in
+  `tasks.subtask_run` (`subtasks.pump` on each run's end). To/from playbooks: `as_playbook`, `from_playbook`.
   Archived cards: `tasks.archived_at` (`services.archive_task`/`restore_task`, `api/archive.py`); every query of
   "cards on the board" or "open cards" must add `archived_at.is_(None)` (board, dashboard counts, people's plates);
   web `BoardStore.upsertTask` drops archived ones, `ArchivedCardsDialog`.

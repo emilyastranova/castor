@@ -147,9 +147,11 @@ RULES: list[tuple[str, str, str]] = [
     ("POST", "/api/tasks/*/summary", "ai:use"),
     ("POST", "/api/tasks/*/run", "jobs:write"),
     ("POST", "/api/tasks/*/subtasks/run", "jobs:write"),
+    ("POST", "/api/tasks/*/subtasks/stop", "jobs:write"),
     ("GET", "/api/tasks/*/jobs", "jobs:read"),
     ("*", "/api/jobs/**", "jobs:rw"),
     ("POST", "/api/playbooks/*/run", "playbooks:run"),
+    ("POST", "/api/playbooks/*/activity", "projects:write"),  # makes cards in a project; nothing runs
     ("GET", "/api/playbook-runs/**", "projects:read"),
     ("*", "/api/playbook-runs/**", "playbooks:run"),
     # Library (checking and rendering change nothing)

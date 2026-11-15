@@ -839,10 +839,31 @@ activity); import inserts activities before their subtasks.
   holding the cards, in `column_id` or the column most of them are in (the active one rather than Done when
   some aren't finished).
 
+- `POST /api/tasks/{id}/subtasks/many {command_ref, target_arg, targets, args?, title?, var_bindings?}` makes one subtask per
+  target (`subtasks.targets_of`: a list, text, a saved list or an asset query; at most 500), each running the command with
+  the target in `target_arg`.
+- Run all with `at_once`: the rest wait in `tasks.subtask_run` (`{queue, at_once, force, by}`); `subtasks.pump` starts the
+  next ones when a subtask's run ends (the gateway's job-finished handler, a cancel, a rejected approval);
+  `POST /api/tasks/{id}/subtasks/stop` empties the queue. `SubtaskSummary.queued`/`at_once` show it.
+- `GET /api/tasks/{id}/subtasks/playbook` drafts a playbook from the library-command subtasks (`waits_on` → `depends_on`,
+  variable sets by name; manual ones and hand-typed commands are listed as left out); `POST /api/playbooks/{id}/activity`
+  makes an activity from a playbook's command steps (inputs filled in, `depends_on` → `waits_on`; transforms, `for_each`
+  and steps fed by another step's output are left out and named in its description). Nothing starts.
+
+A subtask keeps its `position` (its place among its activity's subtasks) when it moves between columns. Home counts
+an activity once (open cards), names a subtask's activity in needs-attention, search ("… in “Activity”") and on person
+pages (`subtasks.activities_of`), and the feed marks entries about a subtask with `activity` and rolls up runs of
+entries of one kind about one activity's subtasks into one (`dashboard._roll_up`: job.succeeded/failed/lost, moves to
+the same column; `FeedItem.subtasks`).
+
 Activities: `task.subtasks_added`, `task.subtask_released`. MCP: `consolidate_cards`, `add_subtasks`,
-`list_subtasks`, `release_subtask`, `order_subtasks`, `run_subtasks`, and `create_card` takes `parent_id`.
-Web: `SubtaskPanel.svelte` (TaskDialog's Subtasks tab; subtasks open on top via `?step=`, and the board page
-redirects `?task=<subtask>` there), `GroupCardsDialog.svelte` (the project menu's "Group cards into one…" and
+`list_subtasks`, `release_subtask`, `order_subtasks`, `run_subtasks` (`at_once`), `stop_subtasks`,
+`add_subtasks_for_targets`, `subtasks_as_playbook`, `activity_from_playbook`, and `create_card` takes `parent_id`.
+Web: `SubtaskPanel.svelte` (TaskDialog's Subtasks tab: drag to reorder, tick manual ones done, Run all or a few at
+a time, a graph through `PlaybookVisualizer` when they wait on each other, Save as a playbook through the editor's
+`?draft=1`; subtasks open on top via `?step=`, and the board page redirects `?task=<subtask>` there),
+`ManySubtasksDialog.svelte`, a drop strip on activity cards while a card is dragged (`lib/dropInto.svelte.ts`,
+TaskCard), "Start as a card with subtasks" in `RunPlaybookDialog`, `GroupCardsDialog.svelte` (the project menu's "Group cards into one…" and
 "Add cards from the board"), the progress on `TaskCard`/`BoardList` (`taskStatus.subtaskState`), and a
 "subtask of" banner on a subtask's card.
 

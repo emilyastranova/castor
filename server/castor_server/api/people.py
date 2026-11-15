@@ -149,11 +149,16 @@ async def person(username: str, db: DB, user: CurrentUser):
             )
         ).all()
         latest = {tid: status.value for tid, status, _ in jobs}  # the last one wins
+    from ..subtasks import activities_of
+
+    activities = await activities_of(db, [t for t, _ in assigned_rows])
     assigned = [
         {
             "id": str(t.id), "title": t.title, "kind": t.kind.value, "priority": t.priority, "column": c.name,
             "column_role": c.role.value if c.role else None, "status": latest.get(t.id), "project": ref(t.project_id),
             "updated_at": t.updated_at,
+            # A subtask: the activity it's in (its link opens on top of that card).
+            "activity": activities.get(t.id),
         }
         for t, c in assigned_rows
     ]
