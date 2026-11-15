@@ -219,15 +219,20 @@ discovery** and **SSH version discovery**. Add your own [commands](https://githu
 ## Quick start
 
 With Docker or Podman Compose, using the published images
-([`emilyastranova/castor`](https://hub.docker.com/r/emilyastranova/castor), `castor-web` and `castor-agent`, for amd64 and arm64):
+([`emilyastranova/castor`](https://hub.docker.com/r/emilyastranova/castor), `castor-web` and `castor-agent`, for amd64 and arm64).
+All it needs is the compose file and a `.env`, no clone:
 
 ```bash
-cp .env.example .env     # edit the secrets
-docker compose pull && docker compose up -d
+mkdir castor && cd castor
+curl -fsSLO https://github.com/emilyastranova/castor/releases/latest/download/compose.yaml
+curl -fsSL https://github.com/emilyastranova/castor/releases/latest/download/env.example -o .env
+# edit the secrets in .env, then:
+docker compose up -d
 ```
 
 `CASTOR_VERSION=1.0.0` in `.env` pins a release (default `latest`; `edge` follows main). To build
-from this checkout instead: `docker compose up -d --build`.
+from a checkout instead, add [`compose.dev.yaml`](compose.dev.yaml):
+`docker compose -f compose.yaml -f compose.dev.yaml up -d --build`.
 
 Open <http://localhost:8080> and sign in with the admin credentials from `.env`. Add
 `--profile agent` to also run an agent inside the stack; [Agents](https://github.com/emilyastranova/castor/wiki/Agents) shows how to connect one on
@@ -266,7 +271,6 @@ protocol.
 | [`commands/`](commands/) | Built-in command definitions (YAML). Format in [`commands/README.md`](commands/README.md) |
 | [`playbooks/`](playbooks/) | Built-in playbooks (YAML). Format in [`docs/PLAYBOOK_SPEC.md`](docs/PLAYBOOK_SPEC.md) |
 | [`docs/`](docs/) | [Architecture](docs/ARCHITECTURE.md) and the agent protocol, [playbook spec](docs/PLAYBOOK_SPEC.md), [roadmap](docs/ROADMAP.md) |
-| [`deploy/`](deploy/) | Caddy reverse-proxy configuration for `compose.yaml` |
 | [`.github/assets/`](.github/assets/) | README images, made by `build_assets.py` from the AstraLabs brand files |
 
 ## License

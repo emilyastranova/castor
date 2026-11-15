@@ -80,10 +80,12 @@ Releases: `scripts/release.sh X.Y.Z` sets the version in `server/pyproject.toml`
 `emilyastranova/castor` (the server), `castor-web` and `castor-agent` on Docker Hub (X.Y.Z, X.Y, latest; amd64 and arm64) and a GitHub Release
 with generated notes. Pushes to main publish `edge`. It needs the secrets `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`.
 The server image builds from the repository root (`.dockerignore` lets in only `server/` and the built-in library,
-which it carries at `/app/library`); the server reports its version (package metadata) at `/api/health`.
+which it carries at `/app/library`; `compose.dev.yaml` mounts the checkout's over it); the server reports its version (package metadata) at `/api/health`.
 
-Full stack: `cp .env.example .env && docker compose up -d --build` (also works with
-`podman compose` if a compose provider is installed). The Postgres path has not been
+Full stack from this checkout: `cp .env.example .env && docker compose -f compose.yaml -f compose.dev.yaml up -d --build`
+(or `COMPOSE_FILE=compose.yaml:compose.dev.yaml` in `.env`). `compose.yaml` alone runs the published images and needs no
+other file (the proxy's Caddyfile is inline; releases attach it with `env.example`). Also works with
+`podman compose` if a compose provider is installed. The Postgres path has not been
 exercised on the original dev machine; SQLite is what the tests and dev loop use.
 
 ## Architecture

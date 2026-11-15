@@ -1,8 +1,11 @@
-# Castor stack. Works with `docker compose` and `podman compose` (podman-compose).
-#   cp .env.example .env   # then edit secrets
-#   docker compose pull && docker compose up -d   # the published images (CASTOR_VERSION, default latest)
-#   docker compose up -d --build                  # or build them from this checkout
-# UI: http://localhost:8080  (API docs at /api/docs are proxied too)
+# Castor from the published images on Docker Hub. This file and a .env are all it needs:
+#   curl -fsSLO https://github.com/emilyastranova/castor/releases/latest/download/compose.yaml
+#   curl -fsSL https://github.com/emilyastranova/castor/releases/latest/download/env.example -o .env
+#   # edit the secrets in .env, then:
+#   docker compose up -d
+# UI: http://localhost:8080 (API docs at /api/docs). Add `--profile agent` for an agent in the stack.
+# CASTOR_VERSION in .env picks the images: latest (default), a release such as 1.0.0, or edge (main).
+# Works with `docker compose` and `podman compose`. To build from a checkout instead, see compose.dev.yaml.
 name: castor
 
 services:
@@ -21,10 +24,8 @@ services:
       timeout: 3s
       retries: 20
 
+  # The API, with the built-in library of commands, tools, playbooks and themes inside the image.
   server:
-    build:
-      context: .
-      dockerfile: server/Dockerfile
     image: docker.io/emilyastranova/castor:${CASTOR_VERSION:-latest}
     restart: unless-stopped
     depends_on:
@@ -36,12 +37,8 @@ services:
       CASTOR_AGENT_SECRET: ${CASTOR_AGENT_SECRET:?set CASTOR_AGENT_SECRET in .env}
       CASTOR_ADMIN_USERNAME: ${CASTOR_ADMIN_USERNAME:-admin}
       CASTOR_ADMIN_PASSWORD: ${CASTOR_ADMIN_PASSWORD:-castor}
-      CASTOR_CORS_ORIGINS: '["http://localhost:8080"]'
+      CASTOR_CORS_ORIGINS: '["${CASTOR_PUBLIC_URL:-http://localhost:8080}"]'
       CASTOR_DATA_DIR: /data
-      CASTOR_COMMANDS_DIR: /commands
-      CASTOR_PLAYBOOKS_DIR: /playbooks
-      CASTOR_TOOLS_DIR: /tools
-      CASTOR_THEMES_DIR: /themes
       CASTOR_ALLOW_SHARED_AGENT_SECRET: ${CASTOR_ALLOW_SHARED_AGENT_SECRET:-true}
       CASTOR_VAULT_KEY: ${CASTOR_VAULT_KEY:-}
       CASTOR_NOTIFY_WEBHOOKS: ${CASTOR_NOTIFY_WEBHOOKS:-}
@@ -53,14 +50,8 @@ services:
       CASTOR_GITHUB_TOKEN: ${CASTOR_GITHUB_TOKEN:-}
     volumes:
       - serverdata:/data
-      - ./commands:/commands:ro
-      - ./playbooks:/playbooks:ro
-      - ./tools:/tools:ro
-      - ./themes:/themes:ro
 
   web:
-    build:
-      context: ./web
     image: docker.io/emilyastranova/castor-web:${CASTOR_VERSION:-latest}
     restart: unless-stopped
     depends_on:
@@ -69,6 +60,8 @@ services:
       API_INTERNAL_URL: http://server:8000
       PORT: "3000"
 
+  # One address for everything: /api and /ws to the server, the rest to the web UI. Its
+  # Caddyfile is written from CADDYFILE at start, so this compose file needs no other files.
   proxy:
     image: docker.io/library/caddy:2-alpine
     restart: unless-stopped
@@ -77,15 +70,24 @@ services:
       - server
     ports:
       - "${CASTOR_HTTP_PORT:-8080}:80"
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+    environment:
+      CADDYFILE: |
+        :80 {
+            encode gzip
+            @api path /api/* /ws/*
+            handle @api {
+                reverse_proxy server:8000
+            }
+            handle {
+                reverse_proxy web:3000
+            }
+        }
+    entrypoint: ["/bin/sh", "-c", "printf '%s\\n' \"$$CADDYFILE\" > /etc/caddy/Caddyfile && exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile"]
 
   # A sample agent running inside the stack. It runs jobs in sibling containers through
   # the host's container socket. Production workflows usually run agents on dedicated boxes:
   #   castor-agent --server wss://<castor-host>/ws/agent --token <token from Agents → Enroll agent>
   agent:
-    build:
-      context: ./agent
     image: docker.io/emilyastranova/castor-agent:${CASTOR_VERSION:-latest}
     restart: unless-stopped
     depends_on:

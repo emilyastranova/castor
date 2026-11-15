@@ -164,6 +164,16 @@ jobs:
           docker pull ${IMAGE_PREFIX}-agent:${version}
           \`\`\`
 
-          With the repository's compose.yaml: \`CASTOR_VERSION=${version} docker compose pull && docker compose up -d\`.
+          To run it, download \`compose.yaml\` and \`env.example\` from this release into an empty folder:
+
+          \`\`\`
+          curl -fsSLO https://github.com/emilyastranova/castor/releases/download/${GITHUB_REF_NAME}/compose.yaml
+          curl -fsSL https://github.com/emilyastranova/castor/releases/download/${GITHUB_REF_NAME}/env.example -o .env
+          \`\`\`
+
+          Change the secrets in \`.env\`, set \`CASTOR_VERSION=${version}\` there to stay on this release, then \`docker compose up -d\`.
           NOTES
-          gh release create "$GITHUB_REF_NAME" --verify-tag --title "Castor $version" --notes-file notes.md --generate-notes $pre
+          # The files people need to run it, as assets (a name starting with a dot doesn't survive the upload).
+          cp .env.example env.example
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "Castor $version" --notes-file notes.md --generate-notes $pre \
+            compose.yaml env.example

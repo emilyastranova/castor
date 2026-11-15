@@ -1,0 +1,32 @@
+# Development: the same stack as compose.yaml, built from this checkout, with the checkout's
+# built-in library (commands/, playbooks/, tools/, themes/) mounted over the image's so edits
+# show at the next server restart. Use it on top of compose.yaml:
+#   docker compose -f compose.yaml -f compose.dev.yaml up -d --build
+# or put COMPOSE_FILE=compose.yaml:compose.dev.yaml in .env and use plain `docker compose`.
+# Images are tagged castor/<part>:dev so they never stand in for the published ones.
+services:
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    image: castor/server:dev
+    environment:
+      CASTOR_COMMANDS_DIR: /commands
+      CASTOR_PLAYBOOKS_DIR: /playbooks
+      CASTOR_TOOLS_DIR: /tools
+      CASTOR_THEMES_DIR: /themes
+    volumes:
+      - ./commands:/commands:ro
+      - ./playbooks:/playbooks:ro
+      - ./tools:/tools:ro
+      - ./themes:/themes:ro
+
+  web:
+    build:
+      context: ./web
+    image: castor/web:dev
+
+  agent:
+    build:
+      context: ./agent
+    image: castor/agent:dev

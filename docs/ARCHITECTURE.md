@@ -17,7 +17,8 @@ the output back into the card.
 | Libraries | `commands/`, `tools/`, `playbooks/` | YAML | Built-in commands (typed arguments), tool environments and playbooks, synced into the database at startup |
 | Reverse proxy | `compose.yaml` (Caddy) | | Single origin: `/api` and `/ws` go to the server, everything else to the web app |
 
-All services run under `podman compose` / `docker compose` from `compose.yaml`.
+All services run under `podman compose` / `docker compose` from `compose.yaml` (published images; `compose.dev.yaml`
+adds builds from the checkout).
 Agents can also run outside compose on any host that can reach the server.
 
 ## Data model (core)
