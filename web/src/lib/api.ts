@@ -539,6 +539,31 @@ export interface AssetChange {
 	at: string;
 	changes: AssetFieldChange[];
 	source: AssetChangeSource;
+	/** A change of look: the screenshots [before, after] (attachment ids; before may be unknown). */
+	pictures?: [UUID | null, UUID];
+}
+
+/** What a run captured of an asset beyond text: a screenshot (with its look), a TLS certificate,
+ *  a response's headers, a file. */
+export interface AssetEvidence {
+	id: UUID;
+	kind: 'screenshot' | 'certificate' | 'headers' | 'file';
+	at: string;
+	/** A screenshot's perceptual hash, and whether it looked different from the one before. */
+	look: string | null;
+	look_changed: boolean;
+	data: Record<string, unknown>;
+	parser: string | null;
+	attachment: { id: UUID; filename: string; content_type: string; size: number } | null;
+	source: AssetChangeSource | null;
+}
+
+/** Assets with a screenshot, grouped by what they look like (biggest group first). */
+export interface AssetGallery {
+	groups: { size: number; items: (Asset & { screenshot: { attachment_id: UUID; at: string } })[] }[];
+	/** URLs (of what's filtered) with no screenshot yet. */
+	without_screenshot: number;
+	total: number;
 }
 
 /** A project's scope: named groups of what's in it, and exclusions that win over every group. */
@@ -648,11 +673,12 @@ export interface AssetDetail extends Omit<Asset, 'links'> {
 		source: AssetSource & { command: string | null; agent: string | null; agent_id: UUID | null };
 	}[];
 	triggers: { id: UUID; trigger: string; status: string; reason: string; at: string; task_id: UUID | null; run_id: UUID | null }[];
+	evidence: AssetEvidence[];
 }
 
 export interface AssetCondition {
 	field: string;
-	op: 'equals' | 'not_equals' | 'contains' | 'exists' | 'missing' | 'gt' | 'lt' | 'gte' | 'lte';
+	op: 'equals' | 'not_equals' | 'contains' | 'exists' | 'missing' | 'gt' | 'lt' | 'gte' | 'lte' | 'changed';
 	value?: unknown;
 }
 
@@ -2074,6 +2100,11 @@ export function api(fetchFn: Fetch = fetch) {
 				if (params.status) q.set('status', params.status);
 				if (params.scope) q.set('scope', params.scope);
 				return get<{ items: Asset[]; total: number; counts: Record<string, number>; suggested: number }>(`/projects/${projectId}/assets?${q}`);
+			},
+			gallery: (projectId: UUID, params: { type?: string; where?: string; scope?: string; seen?: 'missing' | 'present' } = {}) => {
+				const q = new URLSearchParams();
+				for (const [k, v] of Object.entries(params)) if (v) q.set(k, v);
+				return get<AssetGallery>(`/projects/${projectId}/assets/gallery?${q}`);
 			},
 			/** What changed in the project's assets between two times, from what its runs saw. */
 			changes: (

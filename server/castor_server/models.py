@@ -868,6 +868,31 @@ class AssetObservation(Base):
     ref: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
 
 
+class AssetEvidence(Base):
+    """What a run captured about an asset beyond text (evidence.py): a page's screenshot, its TLS
+    certificate, a response's headers, a file. A picture or file is an attachment (kept when its card
+    goes); a screenshot carries its `look` (a perceptual hash) and whether it looked different from
+    the one before."""
+
+    __tablename__ = "asset_evidence"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))  # screenshot | certificate | headers | file
+    attachment_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("attachments.id", ondelete="CASCADE"), nullable=True, index=True)
+    job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True)
+    task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    parser: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # A screenshot's perceptual hash (evidence.look_of: 80 hex digits), and whether it differs from the previous one's.
+    look: Mapped[str | None] = mapped_column(String(96), nullable=True)
+    look_changed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # A certificate's details or a response's headers.
+    data: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    observed_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+
+
 class AssetLink(Base):
     """A relationship between two assets (assets.LINK_KINDS): a service *on* a host, a credential that
     *works on* a host, a user who is *admin on* one, a file *downloaded from* a share. Read from parsed

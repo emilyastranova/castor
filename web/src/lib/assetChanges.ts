@@ -13,6 +13,7 @@ export const CHANGE_KIND: Record<AssetChangeKind, { label: string; icon: string;
 
 /** "version 1.24 → 1.26", "title: Login" (first reported). */
 export function describeChange(c: AssetFieldChange): string {
+	if (c.field === 'look') return c.before === null || c.before === undefined ? 'screenshot taken' : 'looks different';
 	return c.before === null || c.before === undefined ? `${c.field}: ${show(c.after)}` : `${c.field} ${show(c.before)} → ${show(c.after)}`;
 }
 

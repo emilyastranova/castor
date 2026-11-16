@@ -1,0 +1,6 @@
+id: gowitness
+name: gowitness
+description: Screenshots web pages with headless Chrome and records status, title, technologies, TLS certificate and headers (SensePost)
+tags: [web, discovery, screenshots]
+homepage: https://github.com/sensepost/gowitness
+image: docker.io/leonjza/gowitness

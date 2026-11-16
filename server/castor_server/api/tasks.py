@@ -281,6 +281,9 @@ async def delete_task(task_id: str, db: DB, user: CurrentUser):
         **actor_of(user),
     )
     parent_id = task.parent_id
+    from ..evidence import keep_on_delete
+
+    await keep_on_delete(db, task.id)  # an asset's screenshots and files stay
     await db.delete(task)
     await db.commit()
     bus.publish("task.deleted", project_id, {"id": parse_uuid(task_id)})

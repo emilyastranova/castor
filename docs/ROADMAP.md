@@ -230,19 +230,6 @@ the same card or playbook, and assets collect what parsers recognise. These item
 add up across runs, cards, scopes and vantage points, so the project shows what's true now and
 how it got there.
 
-### Richer assets
-Assets are mostly fields of text today. Scans like GoWitness, httpx or a TLS check produce more:
-- **Pictures and files on an asset:** a web page's screenshot, a certificate, a response's
-  headers and body, kept as the asset's evidence (with the job that captured it) rather than only
-  as a job artifact. A parser output can say which file belongs to which asset.
-- **Visual changes:** screenshots of the same URL compared over time (shown side by side, and a
-  perceptual hash so "the page looks different" can be a change and a trigger), along with the
-  title, status code, technologies and favicon hash.
-- **A gallery:** web assets shown as a grid of screenshots, grouped by what they look like (the
-  same login page on 40 hosts is one group), filterable like the Files page.
-- **Built-in support** for GoWitness (a command, a tool and a parser that maps its results and
-  screenshots onto URL assets), next to httpx.
-
 ### Comparing from different vantage points
 Where something is reachable from matters as much as whether it's up: the same scan from five
 agents in five network segments should answer "which VLANs can reach this, and what does each

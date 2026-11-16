@@ -9,6 +9,7 @@
 	import TriggerDialog from '$lib/components/TriggerDialog.svelte';
 	import AssetRelationships from '$lib/components/AssetRelationships.svelte';
 	import AssetChanges from '$lib/components/AssetChanges.svelte';
+	import AssetGallery from '$lib/components/AssetGallery.svelte';
 	import PluginActions from '$lib/components/PluginActions.svelte';
 	import PluginRunsBar from '$lib/components/PluginRunsBar.svelte';
 	import PluginFrame from '$lib/components/PluginFrame.svelte';
@@ -26,7 +27,7 @@
 	let project = $derived(data.project);
 	$effect(() => void assetTypes.load());
 
-	const TABS = ['inventory', 'changes', 'suggested', 'relationships', 'triggers'] as const;
+	const TABS = ['inventory', 'gallery', 'changes', 'suggested', 'relationships', 'triggers'] as const;
 	const asked = page.url.searchParams.get('tab');
 	// Built-in tabs, or a plugin's page (`plugin:<plugin id>:<panel id>`, manifest `ui` slot project.page).
 	let tab = $state<(typeof TABS)[number] | `plugin:${string}`>(TABS.find((t) => t === asked) ?? (asked?.startsWith('plugin:') ? (asked as `plugin:${string}`) : 'inventory'));
@@ -239,7 +240,7 @@
 	});
 	const summary = (a: Asset) =>
 		Object.entries(a.fields)
-			.filter(([k]) => !['ip', 'hostname', 'name', 'url', 'host', 'port', 'username'].includes(k))
+			.filter(([k]) => !['ip', 'hostname', 'name', 'url', 'host', 'port', 'username', 'look'].includes(k))
 			.slice(0, 4)
 			.map(([k, v]) => `${k}: ${show(v)}`)
 			.join(' · ');
@@ -250,7 +251,7 @@
 			t.on_event === 'missing'
 				? `When a ${noun} isn’t seen by a scan that covered it`
 				: `${t.on_event === 'updated' ? 'When a' : 'When a new'} ${noun} ${t.on_event === 'updated' ? 'changes' : t.on_event === 'any' ? 'is found or changes' : 'is found'}`;
-		const ifs = t.conditions.map((c) => `${c.field} ${({ equals: 'is', not_equals: 'is not', contains: 'contains', exists: 'is set', missing: 'is empty', gt: '>', lt: '<', gte: '≥', lte: '≤' })[c.op]}${c.value != null && c.value !== '' ? ` ${c.value}` : ''}`);
+		const ifs = t.conditions.map((c) => `${c.field} ${({ equals: 'is', not_equals: 'is not', contains: 'contains', exists: 'is set', missing: 'is empty', gt: '>', lt: '<', gte: '≥', lte: '≤', changed: 'changed' })[c.op]}${c.value != null && c.value !== '' ? ` ${c.value}` : ''}`);
 		return `${when}${ifs.length ? `, if ${ifs.join(' and ')}` : ''}`;
 	};
 	// ---- suggested: confirm or dismiss ----
@@ -368,6 +369,7 @@
 		<Tabs
 			tabs={[
 				{ id: 'inventory', label: 'Inventory', icon: 'radar', badge: status === 'confirmed' ? Object.values(counts).reduce((a, b) => a + b, 0) : undefined },
+				{ id: 'gallery', label: 'Gallery', icon: 'photo_library' },
 				{ id: 'changes', label: 'Changes', icon: 'difference' },
 				{ id: 'suggested', label: 'Suggested', icon: 'lightbulb', badge: suggestedCount || undefined },
 				{ id: 'relationships', label: 'Relationships', icon: 'hub' },
@@ -599,6 +601,8 @@
 				</div>
 				{#if total > items.length}<p class="body-small text-on-surface-variant">Showing {items.length} of {total}; filter to narrow it down.</p>{/if}
 			{/if}
+		{:else if tab === 'gallery'}
+			<AssetGallery projectId={project.id} {scope} onopenasset={openAsset} />
 		{:else if tab === 'changes'}
 			<AssetChanges projectId={project.id} {scope} onopenasset={openAsset} />
 		{:else if tab === 'relationships'}

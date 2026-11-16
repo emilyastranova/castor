@@ -214,6 +214,12 @@
 										<span class="body-small text-on-surface-variant">{typeLabel(i.asset.type)}</span>
 										{#each i.asset.scope_groups as g (g)}<span class="rounded-xs bg-primary-container px-1.5 py-px label-small text-on-primary-container">{g}</span>{/each}
 									</p>
+									{#if i.pictures}
+										<span class="mt-1 mb-0.5 flex items-center gap-1.5">
+											{#if i.pictures[0]}<img src={api().attachments.thumbnail(i.pictures[0], 160)} alt="Before" title="Before" class="h-14 w-24 rounded-xs border border-outline-variant/60 object-cover object-top" loading="lazy" /><Icon name="arrow_forward" size={14} class="text-on-surface-variant" />{/if}
+											<img src={api().attachments.thumbnail(i.pictures[1], 160)} alt="After" title="After" class="h-14 w-24 rounded-xs border border-outline-variant/60 object-cover object-top" loading="lazy" />
+										</span>
+									{/if}
 									<p class="body-small {i.kind === 'changed' || i.kind === 'back' ? 'font-mono text-[12px] text-on-surface' : `font-medium ${k.tone}`}">
 										{#if i.kind === 'back' && i.changes.some((c) => c.before !== null)}Seen again · {i.changes.filter((c) => c.before !== null).map(describeChange).join(' · ')}{:else}{what(i)}{/if}
 									</p>

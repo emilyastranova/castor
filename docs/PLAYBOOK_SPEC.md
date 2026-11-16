@@ -563,7 +563,8 @@ built-ins as of this writing:
 | `nmap-top-ports` | container | `targets`*, `top`=1000, `exclude` | `services` list<service> (nmap.services) |
 | `nmap-udp-scan` | container | `targets`*, `top`=25, `exclude` | `services` list<service> (nmap.services) |
 | `tls-cert-expiry` | container | `targets`*, `ports`=443,465,636,993,995,3389,8443 | `certificates` list<string> (lines: "host:port expires DATE (subject)") |
-| `httpx-probe` | container | `targets`* (hosts, host:port, URLs), `ports` (`-ports`) | `urls` list<url> (httpx.results; also `title`, `content_type`, `tech`) |
+| `httpx-probe` | container | `targets`* (hosts, host:port, URLs), `ports` (`-ports`) | `urls` list<url> (httpx.results; also `title`, `content_type`, `tech`, `favicon`) |
+| `gowitness-screenshots` | container | `targets`* (URLs, hosts, host:port), `threads`=6, `timeout`=30 | `pages` list<url> (gowitness.results; screenshots, certificates and headers become the URLs' evidence) |
 | `nuclei-scan` | container | `targets`*, `severity`=medium,high,critical, `tags`, `rate_limit`=50 | `findings` list<string> (lines); full JSON in artifacts |
 | `tls-scan` | container | `target`* (host:port), `severity`=MEDIUM | `issues` list<string> (regex: testssl finding IDs); JSON in artifacts |
 | `ssh-audit` | container | `target`*, `port`=22 | `problems` list<string> (lines: every [fail]/[warn]) |

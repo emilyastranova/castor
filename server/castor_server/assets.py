@@ -38,7 +38,7 @@ from urllib.parse import urlsplit
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import alerts, notifications, vault
+from . import alerts, evidence, notifications, vault
 from . import models as m
 from .events import bus
 from .models import utcnow
@@ -88,6 +88,10 @@ CORE_TYPES: dict[str, TypeDef] = {
         TypeDef("url", "URL", "URLs", "link", (
             F("url", "URL"), F("status", "Status", "number"), F("title", "Title"), F("length", "Length", "number"),
             F("content_type", "Content type"), F("webserver", "Web server"), F("tech", "Technologies", "list"),
+            F("final_url", "Final URL"), F("favicon", "Favicon hash"),
+            # Its screenshot's perceptual hash: changes only when the page looks different (evidence.py).
+            F("look", "Look"),
+            F("cert_subject", "Certificate subject"), F("cert_issuer", "Certificate issuer"), F("cert_expires", "Certificate expires"),
         ), ("url",)),
         TypeDef("domain", "Domain", "Domains", "language", (
             F("name", "Name"), F("ips", "Addresses", "list"), F("netbios_name", "NetBIOS name"),
@@ -465,6 +469,7 @@ class Batch:
     missing: dict[uuid.UUID, m.Asset] = field(default_factory=dict)
     # Seen again after going missing.
     back: dict[uuid.UUID, m.Asset] = field(default_factory=dict)
+    cache: dict[Any, Any] = field(default_factory=dict)  # per ingest: a job's artifacts by name (evidence.py)
 
     def note(self, asset: m.Asset, created: bool, changed: list[str]) -> None:
         prev = self.changes.get(asset.id)
@@ -610,6 +615,7 @@ async def merge(db: AsyncSession, drop: m.Asset, *, into: m.Asset) -> m.Asset:
         into.status = "confirmed"
     into.secret = into.secret or drop.secret
     await db.execute(update(m.AssetObservation).where(m.AssetObservation.asset_id == drop.id).values(asset_id=into.id))
+    await db.execute(update(m.AssetEvidence).where(m.AssetEvidence.asset_id == drop.id).values(asset_id=into.id))
     await db.execute(update(m.AssetTriggerFire).where(m.AssetTriggerFire.asset_id == drop.id).values(asset_id=into.id))
     await db.execute(update(m.AssetTriggerFire).where(m.AssetTriggerFire.other_id == drop.id).values(other_id=into.id))
     for row in (await db.execute(select(m.AssetLink).where(or_(m.AssetLink.from_id == drop.id, m.AssetLink.to_id == drop.id)))).scalars().all():
@@ -703,6 +709,19 @@ async def _find_host(db: AsyncSession, project_id: uuid.UUID, name: str) -> m.As
     return None
 
 
+URL_FIELDS = ("url", "status", "length", "title", "content_type", "webserver", "tech", "final_url", "favicon",
+              "cert_subject", "cert_issuer", "cert_expires")
+
+
+async def existing(db: AsyncSession, project_id: uuid.UUID, type_name: str, fields: dict[str, Any]) -> m.Asset | None:
+    """The asset these fields would be recorded on, if there is one yet."""
+    try:
+        key, _, clean = identity(type_name, fields)
+    except AssetError:
+        return None
+    return await _find(db, project_id, type_of(type_name).name, key, clean)
+
+
 async def _map(db: AsyncSession, parser: str, rows: Any, project_id: uuid.UUID, batch: Batch, **src: Any) -> None:
     if not isinstance(rows, list):
         return
@@ -732,9 +751,13 @@ async def _map(db: AsyncSession, parser: str, rows: Any, project_id: uuid.UUID, 
                 }, **obs)
                 svc = await observe(db, project_id, "service", {"host": row.get("host"), "port": row.get("port") or 445, "proto": "tcp", "name": "microsoft-ds", "state": "open"}, **obs)
                 await link(db, project_id, svc, host, "on", **_link_src(obs))
-            elif parser in ("ffuf.results", "httpx.results"):
-                url = await observe(db, project_id, "url", {k: row.get(k) for k in ("url", "status", "length", "title", "content_type",
-                                                                                       "webserver", "tech")}, **obs)
+            elif parser in ("ffuf.results", "httpx.results", "gowitness.results"):
+                fields = {k: row.get(k) for k in URL_FIELDS}
+                ev = await evidence.prepare(db, project_id, "url", row, current=await existing(db, project_id, "url", fields),
+                                            job_id=src.get("job_id"), cache=batch.cache)
+                url = await observe(db, project_id, "url", {**fields, **ev.fields}, **obs)
+                await evidence.save(db, url, ev, job_id=src.get("job_id"), task_id=src.get("task_id"), agent_id=src.get("agent_id"),
+                                    parser=parser)
                 hostname = urlsplit(str(row.get("url") or "")).hostname
                 host = await _find_host(db, project_id, hostname) if hostname else None
                 if host is not None:
@@ -904,7 +927,7 @@ def _target_of(value: str) -> str:
     return (parts.netloc or value) if parts else value
 
 
-MAPPED_PARSERS = {"nmap.hosts", "nmap.services", "netexec.smb", "ffuf.results", "httpx.results"}
+MAPPED_PARSERS = {"nmap.hosts", "nmap.services", "netexec.smb", "ffuf.results", "httpx.results", "gowitness.results"}
 # A parser from the library (written by a person or the AI) produces the same shapes as the
 # built-ins, so its results become assets by their type.
 MAPPED_TYPES = {"list<host>": "nmap.hosts", "list<service>": "nmap.services", "list<smb_host>": "netexec.smb", "list<url>": "httpx.results"}
@@ -936,6 +959,8 @@ async def ingest_outputs(db: AsyncSession, job: m.Job, task: m.Task, outputs: li
     if batch.changes or batch.suggested or batch.missing or batch.back:
         person = await db.get(m.User, job.created_by) if job.created_by else None
         await settle(db, batch, task_id=task.id, person=person)
+    else:
+        await db.commit()  # nothing new to tell, but its observations and evidence are kept
     return batch
 
 
@@ -1096,11 +1121,15 @@ def _as(value: Any, like: Any) -> Any:
     return str(value).lower()
 
 
-def conditions_met(conds: list[dict[str, Any]], fields: dict[str, Any]) -> bool:
+def conditions_met(conds: list[dict[str, Any]], fields: dict[str, Any], changed: list[str] | None = None) -> bool:
+    """Every condition holds. `changed` (the fields this report changed) is what `changed` checks:
+    {"field": "look", "op": "changed"} is "the page looks different"."""
     for c in conds or []:
         name, op, want = c.get("field"), c.get("op", "equals"), c.get("value")
         have = fields.get(name)
-        if op == "exists":
+        if op == "changed":
+            ok = name in (changed or [])
+        elif op == "exists":
             ok = have not in (None, "", [])
         elif op == "missing":
             ok = have in (None, "", [])
@@ -1325,7 +1354,8 @@ async def fire_triggers(db: AsyncSession, batch: Batch) -> None:
             matches = [(c.asset, None, None) for c in batch.changes.values() if trig.on_event in ("any", c.event)
                        and c.asset.type == trig.asset_type]
         for asset, other, lk in matches:
-            if not conditions_met(trig.conditions, asset.fields or {}):
+            change = batch.changes.get(asset.id)
+            if not conditions_met(trig.conditions, asset.fields or {}, change.fields if change is not None and change.event == "updated" else []):
                 continue
             if trig.once_per_asset:
                 done = (

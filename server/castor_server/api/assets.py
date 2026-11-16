@@ -252,8 +252,54 @@ async def get_asset(asset_id: str, db: DB, user: CurrentUser) -> dict[str, Any]:
         "links": sorted(links, key=lambda x: (x["label"], x["asset"]["label"])),
         "attachment": await _attachment_of(db, a),
         "history": await _history(db, list(reversed(obs)), source),
+        "evidence": await _evidence(db, a),
         "triggers": [{"id": str(f.id), "trigger": name, "status": f.status, "reason": f.reason, "at": f.created_at,
                       "task_id": str(f.task_id) if f.task_id else None, "run_id": str(f.run_id) if f.run_id else None} for f, name in fires],
+    }
+
+
+async def _evidence(db: DB, a: m.Asset) -> list[dict[str, Any]]:
+    """What runs captured of it, newest first: screenshots, certificates, headers, files."""
+    from ..asset_history import source_out, sources
+    from ..evidence import out
+
+    rows = list((await db.execute(select(m.AssetEvidence).where(m.AssetEvidence.asset_id == a.id)
+                                  .order_by(m.AssetEvidence.observed_at.desc()).limit(200))).scalars())
+    atts = {x.id: x for x in (await db.execute(select(m.Attachment).where(
+        m.Attachment.id.in_([r.attachment_id for r in rows if r.attachment_id])))).scalars()} if rows else {}
+    src = await sources(db, rows)
+    return [out(r, atts.get(r.attachment_id) if r.attachment_id else None, source_out(r, src)) for r in rows]
+
+
+@router.get("/projects/{project_id}/assets/gallery")
+async def asset_gallery(project_id: str, db: DB, user: CurrentUser, type: str | None = None, where: str = "",
+                        scope: str | None = None, seen: Literal["missing", "present"] | None = None) -> dict[str, Any]:
+    """Assets with a screenshot (URLs, mostly), grouped by what they look like: the same login page
+    on 40 hosts is one group, biggest first. `where`, `scope` and `seen` filter as in the list.
+    Assets of the type with no screenshot yet are only counted."""
+    from ..evidence import group_by_look, latest_screenshots
+
+    project = await project_or_404(db, user, parse_uuid(project_id))
+    try:
+        rows = await A.query(db, project.id, type, where)
+    except A.AssetError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    sc = A.scope_of(project)
+    if scope:
+        rows = [a for a in rows if _in_group(A.scope_groups(project, a, sc), scope.lower())]
+    if seen:
+        rows = [a for a in rows if (a.missing_since is not None) == (seen == "missing")]
+    shots = await latest_screenshots(db, [a.id for a in rows])
+    pictured = [a for a in rows if a.id in shots]
+    pictured.sort(key=lambda a: a.label)
+    groups = group_by_look([((a.fields or {}).get("look") or shots[a.id].look or "", a) for a in pictured])
+    return {
+        "groups": [{"size": len(g), "items": [{
+            **_brief(a, project, scope=sc).model_dump(mode="json"),
+            "screenshot": {"attachment_id": str(shots[a.id].attachment_id), "at": shots[a.id].observed_at.isoformat()},
+        } for a in g]} for g in groups],
+        "without_screenshot": sum(1 for a in rows if a.id not in shots and a.type == "url"),
+        "total": len(pictured),
     }
 
 
@@ -806,7 +852,7 @@ async def set_scope(project_id: str, body: ScopeIn, db: DB, user: CurrentUser) -
 
 class Condition(BaseModel):
     field: str
-    op: Literal["equals", "not_equals", "contains", "exists", "missing", "gt", "lt", "gte", "lte"] = "equals"
+    op: Literal["equals", "not_equals", "contains", "exists", "missing", "gt", "lt", "gte", "lte", "changed"] = "equals"
     value: Any = None
 
 

@@ -1,0 +1,33 @@
+id: gowitness-screenshots
+name: gowitness screenshots
+schema_version: 1
+description: Screenshot web pages and record their status, title, technologies, certificate and headers (URLs become assets with their screenshots; the Gallery groups pages that look alike)
+tags: [web, discovery, screenshots, gowitness]
+tool: gowitness
+container_flags:
+  # Chrome needs more shared memory than a container gets by default.
+  - --shm-size=1g
+args:
+  - name: targets
+    type: list
+    description: URLs, hosts or host:port pairs (bare hosts are tried over http and https on 80 and 443)
+    required: true
+    example: app.example.com,https://10.0.0.5:8443
+    regex: '^[0-9a-zA-Z./:_\[\]-]+$'
+  - name: threads
+    type: number
+    description: Pages to load at once
+    default: 6
+  - name: timeout
+    type: number
+    description: Seconds to wait for each page
+    default: 30
+command: |
+  printf '%s\n' {{ targets }} | tr ',' '\n' | sed '/^$/d' > {{ work }}/targets.txt
+  mkdir -p {{ work }}/artifacts/screenshots
+  gowitness scan file -f {{ work }}/targets.txt -s {{ work }}/artifacts/screenshots --screenshot-format jpeg -t {{ threads }} -T {{ timeout }} --skip-html --write-jsonl --write-jsonl-file {{ work }}/gowitness.jsonl
+outputs:
+  - name: pages
+    type: list<url>
+    parser: gowitness.results
+    source: "{{ work }}/gowitness.jsonl"

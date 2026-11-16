@@ -292,7 +292,7 @@ def timeline(observations: list[m.AssetObservation]) -> list[dict[str, Any]]:
     return out
 
 
-async def sources(db: AsyncSession, observations: list[m.AssetObservation]) -> dict[str, dict]:
+async def sources(db: AsyncSession, observations: list[Any]) -> dict[str, dict]:
     """The cards, commands and agents behind observations, by kind: {"tasks": {id: task}, "agents": {id: name}, "jobs": {id: job}}."""
     task_ids = {o.task_id for o in observations if o.task_id}
     job_ids = {o.job_id for o in observations if o.job_id}
@@ -303,12 +303,12 @@ async def sources(db: AsyncSession, observations: list[m.AssetObservation]) -> d
     return {"tasks": tasks, "jobs": jobs, "agents": agents}
 
 
-def source_out(o: m.AssetObservation, src: dict[str, dict]) -> dict[str, Any]:
+def source_out(o: Any, src: dict[str, dict]) -> dict[str, Any]:
     t = src["tasks"].get(o.task_id) if o.task_id else None
     j = src["jobs"].get(o.job_id) if o.job_id else None
     agent_id = o.agent_id or (j.agent_id if j else None)
     return {
-        "kind": o.source, "parser": o.parser, "job_id": str(o.job_id) if o.job_id else None,
+        "kind": getattr(o, "source", "parser"), "parser": o.parser, "job_id": str(o.job_id) if o.job_id else None,
         "task": {"id": str(t.id), "title": t.title, "link": f"/projects/{t.project_id}?task={t.id}"} if t else None,
         "command": t.command_ref if t else None,
         "agent": src["agents"].get(agent_id) if agent_id else None,
@@ -321,6 +321,27 @@ def source_out(o: m.AssetObservation, src: dict[str, dict]) -> dict[str, Any]:
 MAX_ASSETS = 3000
 MAX_EVENTS = 2000
 KINDS = ("new", "changed", "gone", "back")
+
+
+async def _pictures(db: AsyncSession, items: list[dict[str, Any]]) -> None:
+    """A change of look gets the screenshots before and after (`pictures`: [before, after] attachment ids)."""
+    wanted = [x for x in items if any(c["field"] == "look" for c in x["changes"])]
+    if not wanted:
+        return
+    ids = list({uuid.UUID(x["asset"]["id"]) for x in wanted})
+    rows = (await db.execute(select(m.AssetEvidence).where(m.AssetEvidence.asset_id.in_(ids), m.AssetEvidence.kind == "screenshot",
+                                                           m.AssetEvidence.attachment_id.is_not(None))
+                             .order_by(m.AssetEvidence.observed_at))).scalars().all()
+    from .evidence import similar
+
+    for x in wanted:
+        mine = [e for e in rows if str(e.asset_id) == x["asset"]["id"]]
+        after = next((e for e in mine if x["source"]["job_id"] and str(e.job_id) == x["source"]["job_id"]), None)
+        if after is None:
+            continue
+        earlier = [e for e in mine if _aware(e.observed_at) < _aware(after.observed_at)]
+        before = next((e for e in reversed(earlier) if not similar(e.look, after.look)), None)
+        x["pictures"] = [str(before.attachment_id) if before else None, str(after.attachment_id)]
 
 
 def _aware(when: datetime | None) -> datetime | None:
@@ -382,6 +403,7 @@ async def project_changes(
         a = e["asset"]
         items.append({"asset": {"id": str(a.id), "type": a.type, "label": a.label, "scope_groups": scope_groups(project, a, sc)},
                       "kind": e["kind"], "at": e["obs"].observed_at, "changes": e["changes"], "source": s})
+    await _pictures(db, items)
     items.sort(key=lambda x: _aware(x["at"]), reverse=True)
     counts = dict.fromkeys(KINDS, 0)
     for x in items:

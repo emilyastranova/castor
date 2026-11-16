@@ -81,7 +81,7 @@ playbook takes the branch that handles it.
   with triggers that act on new ones and lists you feed back into commands. ([Assets](https://github.com/emilyastranova/castor/wiki/Assets))
 
 **The command library**
-- **Ready-made commands** for nmap, NetExec, httpx, Nuclei, ffuf, testssl.sh, ssh-audit,
+- **Ready-made commands** for nmap, NetExec, httpx, gowitness, Nuclei, ffuf, testssl.sh, ssh-audit,
   subfinder, dnsx, Trivy and curl, plus five built-in playbooks. Each command is a YAML file that
   wraps a command line with typed arguments, the tool it runs in, and the outputs to parse. ([Commands](https://github.com/emilyastranova/castor/wiki/Commands))
 - **Quoted arguments, vaulted secrets.** Argument values are shell-quoted into the command line; credentials live in an encrypted vault and
@@ -206,7 +206,7 @@ needed, so agents stay bare.
 | Area | Commands (tool) |
 | --- | --- |
 | Network discovery | Ping sweep, top TCP ports, UDP scan, service/version scan, SMB port 445 (nmap) |
-| Web | Web probe with titles and technologies (httpx), vulnerability scan (Nuclei), directory brute force with SecLists (ffuf), security headers (curl) |
+| Web | Web probe with titles and technologies (httpx), screenshots grouped by look (gowitness), vulnerability scan (Nuclei), directory brute force with SecLists (ffuf), security headers (curl) |
 | TLS and SSH | TLS configuration scan (testssl.sh), certificate expiry (nmap), SSH configuration audit (ssh-audit) |
 | DNS and recon | Passive subdomain discovery (subfinder), name resolution (dnsx) |
 | Windows / SMB | SMB signing and host info, authenticated checks over any protocol, share listing (NetExec) |

@@ -17,6 +17,8 @@
 	import PluginIcon from './PluginIcon.svelte';
 	import { pluginPanels } from '$lib/plugins.svelte';
 	import { CHANGE_KIND, describeChange } from '$lib/assetChanges';
+	import ScreenshotCompare from './ScreenshotCompare.svelte';
+	import { lightbox } from '$lib/lightbox.svelte';
 
 	/** One asset: every field with where its value came from (and other values tools
 	 *  reported), what it's linked to, triggered runs and its history. */
@@ -56,9 +58,22 @@
 		const core = type?.fields ?? [];
 		const names = [...core.map((f) => f.name), ...Object.keys(asset.fields).filter((k) => !core.some((f) => f.name === k))];
 		return names
-			.filter((n) => asset!.fields[n] !== undefined || n === 'fingerprint')
+			.filter((n) => (asset!.fields[n] !== undefined || n === 'fingerprint') && n !== 'look') // a look is a hash: its screenshots show it
 			.map((n) => ({ name: n, label: core.find((f) => f.name === n)?.label ?? n, value: asset!.fields[n], seen: asset!.provenance[n] ?? [] }));
 	});
+	// ---- evidence: screenshots (compared side by side), the certificate, headers, files ----
+	let shots = $derived((asset?.evidence ?? []).filter((e) => e.kind === 'screenshot' && e.attachment));
+	let cert = $derived((asset?.evidence ?? []).find((e) => e.kind === 'certificate'));
+	let headers = $derived((asset?.evidence ?? []).find((e) => e.kind === 'headers'));
+	let evidenceFiles = $derived((asset?.evidence ?? []).filter((e) => e.kind === 'file' && e.attachment));
+	let comparing = $state(false);
+	let compareFocus = $state<string | null>(null);
+	function compare(id: string) {
+		compareFocus = id;
+		comparing = true;
+	}
+	const CERT_LABELS: Record<string, string> = { subject: 'Subject', issuer: 'Issuer', sans: 'Names', valid_from: 'Valid from', valid_to: 'Valid until', protocol: 'Protocol', cipher: 'Cipher', fingerprint: 'Fingerprint' };
+
 	let linkGroups = $derived.by(() => {
 		const out: Record<string, AssetDetail['links']> = {};
 		for (const l of asset?.links ?? []) (out[l.label] ??= []).push(l);
@@ -426,6 +441,64 @@
 				{/if}
 			</section>
 
+			{#if shots.length || cert || headers || evidenceFiles.length}
+				<section aria-label="Evidence" class="flex flex-col gap-3">
+					<div class="flex items-center gap-2">
+						<h3 class="flex-1 label-large text-on-surface-variant">Evidence</h3>
+						{#if shots.length > 1}<Button variant="text" icon="compare" onclick={() => compare(shots[0].id)}>Compare</Button>{/if}
+					</div>
+					{#if shots.length}
+						<!-- Newest first; the look changes are marked, and any two can be compared side by side. -->
+						<div class="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-3 max-sm:grid-cols-1">
+							<button type="button" class="focus-ring overflow-hidden rounded-md border border-outline-variant bg-surface-container-low" title="Open full size"
+								onclick={() => lightbox.open(shots.map((sh) => ({ src: api().attachments.url(sh.attachment!.id, true), name: sh.attachment!.filename })), 0)}>
+								<img src={api().attachments.thumbnail(shots[0].attachment!.id, 720)} alt="Latest screenshot of {asset.label}" class="block h-auto w-full" />
+							</button>
+							<ol class="flex max-h-72 flex-col gap-1 overflow-y-auto">
+								{#each shots as sh (sh.id)}
+									<li>
+										<button type="button" class="state-layer flex w-full items-center gap-2 rounded-sm px-1.5 py-1 text-left" onclick={() => compare(sh.id)} title="Compare with the one before">
+											<img src={api().attachments.thumbnail(sh.attachment!.id, 160)} alt="" class="h-9 w-14 shrink-0 rounded-xs border border-outline-variant/60 object-cover object-top" loading="lazy" />
+											<span class="min-w-0 flex-1 body-small">
+												<span class="block text-on-surface" title={absoluteTime(sh.at)}>{relativeTime(sh.at)}</span>
+												{#if sh.look_changed}<span class="font-medium text-tertiary">looks different</span>{:else if sh.source?.agent}<span class="text-on-surface-variant">{sh.source.agent}</span>{/if}
+											</span>
+										</button>
+									</li>
+								{/each}
+							</ol>
+						</div>
+					{/if}
+					{#if cert}
+						<div class="rounded-md bg-surface-container px-3 py-2">
+							<p class="mb-1 flex items-center gap-1.5 label-large text-on-surface-variant"><Icon name="verified_user" size={16} />Certificate <span class="body-small font-normal">· {relativeTime(cert.at)}</span></p>
+							<dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 body-small">
+								{#each Object.entries(cert.data) as [k, v] (k)}
+									<dt class="text-on-surface-variant">{CERT_LABELS[k] ?? k}</dt>
+									<dd class="font-mono text-[12px] break-words text-on-surface">{show(v)}</dd>
+								{/each}
+							</dl>
+						</div>
+					{/if}
+					{#if headers}
+						<details class="rounded-md bg-surface-container px-3 py-2">
+							<summary class="cursor-pointer label-large text-on-surface-variant">Response headers ({Object.keys(headers.data).length}) <span class="body-small font-normal">· {relativeTime(headers.at)}</span></summary>
+							<dl class="mt-1.5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 font-mono text-[12px]">
+								{#each Object.entries(headers.data) as [k, v] (k)}
+									<dt class="text-on-surface-variant">{k}</dt>
+									<dd class="break-words text-on-surface">{show(v)}</dd>
+								{/each}
+							</dl>
+						</details>
+					{/if}
+					{#each evidenceFiles as f (f.id)}
+						<a href={api().attachments.url(f.attachment!.id)} class="state-layer flex w-fit items-center gap-2 rounded-md border border-outline-variant px-3 py-2 body-medium text-on-surface">
+							<Icon name="draft" size={18} class="text-primary" />{f.attachment!.filename}<span class="body-small text-on-surface-variant">· {relativeTime(f.at)}</span>
+						</a>
+					{/each}
+				</section>
+			{/if}
+
 			{#if asset.attachment}
 				<a href={api().attachments.url(asset.attachment.id)} class="state-layer flex w-fit items-center gap-2 rounded-md border border-outline-variant px-3 py-2 body-medium text-on-surface">
 					<Icon name="download" size={18} class="text-primary" />Downloaded copy: {asset.attachment.filename}
@@ -571,6 +644,8 @@
 		<Button variant="text" onclick={() => (open = false)}>Close</Button>
 	{/snippet}
 </Dialog>
+
+<ScreenshotCompare bind:open={comparing} {shots} label={asset?.label ?? ''} focus={compareFocus} />
 
 <Dialog bind:open={mergeOpen} title="The same {type?.label.toLowerCase() ?? 'asset'} as…" icon="merge" size="sm">
 	<div class="flex flex-col gap-3 pt-1 pb-2">

@@ -158,7 +158,7 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `check_against_library` validates against the command library on save and in
   `POST /api/playbooks/validate`.
   Built-in library: `tools/`, `commands/`, `playbooks/` ship real tooling (nmap, NetExec,
-  ffuf, httpx, nuclei, subfinder, dnsx, testssl.sh, ssh-audit, trivy, curl). A built-in whose
+  ffuf, httpx, gowitness, nuclei, subfinder, dnsx, testssl.sh, ssh-audit, trivy, curl). A built-in whose
   file is removed is retired at the next start (`_retire_builtins`; cards keep their command
   line). The no-network demo commands and playbooks (`pipeline-demo`, `branching-demo`,
   `ai-resolver-demo`, `demo-*`) are test fixtures in `server/tests/fixtures/`: conftest builds
@@ -260,6 +260,11 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   nmap's `<scaninfo>` ports for services; only parsers in `ABSENCE` speak for absence; `timeline` and `project_changes`
   are new/changed/gone/back). Web `AssetChanges.svelte` (the Assets page's Changes tab), `lib/assetChanges.ts`, the
   History list in `AssetDialog`. A new parser that can say what it didn't find goes in `ABSENCE` with a `covers` rule.
+  Evidence: `evidence.py` (`asset_evidence`; a `list<url>` row's `screenshot`/`certificate`/`headers`/`files`; a screenshot's
+  `look` is a perceptual hash and the asset's `look` field only changes past `LOOK_DISTANCE`, so "looks different" is a field
+  change; trigger condition op `changed`; `keep_on_delete` keeps the pictures when a card goes; `group_by_look` for the
+  gallery). GoWitness: `gowitness.results` parser, `tools/gowitness.yaml`, `commands/gowitness-screenshots.yaml`. Web
+  `AssetGallery.svelte` (Gallery tab), `ScreenshotCompare.svelte`, the Evidence section of `AssetDialog`.
   Detection: an output's `asset:` hint maps `list<string>` lines (`_map_hint`: host, domain, url, service, share,
   NetExec login, vulnerability; target from `default_target`). `assets.status` is confirmed|suggested|dismissed and
   `confidence` the best of its observations (`CONFIDENCE`; `SUGGESTING` sources only suggest, never fire triggers,

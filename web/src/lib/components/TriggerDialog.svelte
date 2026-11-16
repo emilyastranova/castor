@@ -103,7 +103,8 @@
 		{ value: 'exists', label: 'is set' },
 		{ value: 'missing', label: 'is empty' },
 		{ value: 'gt', label: '>' },
-		{ value: 'lt', label: '<' }
+		{ value: 'lt', label: '<' },
+		{ value: 'changed', label: 'changed', description: 'This report changed it (a URL’s Look: the page looks different)' }
 	];
 
 	async function save() {
@@ -183,7 +184,7 @@
 				<div class="mb-2 flex items-start gap-2">
 					<Select class="w-44" label="Field" value={c.field} onchange={(v) => (c.field = v)} options={fieldOptions} />
 					<Select class="w-32" label="Test" value={c.op} onchange={(v) => (c.op = v as AssetCondition['op'])} options={OPS} />
-					{#if !['exists', 'missing'].includes(c.op)}
+					{#if !['exists', 'missing', 'changed'].includes(c.op)}
 						<TextField label="Value" value={String(c.value ?? '')} class="flex-1" oninput={(e) => (c.value = (e.currentTarget as HTMLInputElement).value)} />
 					{/if}
 					<IconButton icon="close" label="Remove condition" class="mt-3" onclick={() => (conditions = conditions.filter((_, j) => j !== i))} />

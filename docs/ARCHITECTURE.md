@@ -205,7 +205,7 @@ Output types are a fixed set so playbook steps can be type-checked: `string`, `n
 `smb_host`/`list<smb_host>` (`{host, port, name, domain, os, signing, smbv1}`), and
 `object`/`list<object>`: whatever fields the parser gives (a table of log entries, users…),
 shown as a table with a column per field. Built-in
-parsers: `nmap.hosts`, `nmap.services`, `ffuf.results`, `httpx.results`, `netexec.smb`,
+parsers: `nmap.hosts`, `nmap.services`, `ffuf.results`, `httpx.results`, `gowitness.results`, `netexec.smb`,
 `lines`, `regex`, `text`. XML goes through `defusedxml`, since tool output can carry external
 untrusted content.
 
@@ -588,7 +588,7 @@ A project's inventory of what it found (`assets.py`, `api/assets.py`): hosts, se
 domains, users, credentials, shares, files and vulnerabilities, one record per identity key with
 merged `fields`, `asset_observations` for provenance (each with a `confidence` and, for a
 mention, a `ref` to where it was) and `asset_links` between them. Parsed outputs from
-`nmap.hosts`, `nmap.services`, `netexec.smb`, `ffuf.results` and `httpx.results`, and
+`nmap.hosts`, `nmap.services`, `netexec.smb`, `ffuf.results`, `httpx.results` and `gowitness.results`, and
 `list<string>` outputs with an `asset:` hint, are recorded after each job (`ingest_outputs`).
 `assets.status` is confirmed, suggested (only mentioned: in comments, posts, card descriptions,
 notes, unparsed output or a picture the AI read; `assets_text.py`) or dismissed, and
@@ -632,6 +632,18 @@ seeing it again clears it. Activity `assets.missing`; triggers take `on_event: m
 seen / gone / still gone / back (`GET /api/assets/{id}` `history`); `GET /api/projects/{id}/assets/changes`
 (`since`, `until`, `type`, `scope`, `command`, `agent`, `kind`) does the same across the project's
 assets. `GET /api/projects/{id}/assets?seen=missing|present`.
+
+Evidence (`evidence.py`, table `asset_evidence`: kind screenshot | certificate | headers | file, an
+attachment for pictures and files, the job, card and agent, `look`/`look_changed` for screenshots,
+`data` for a certificate or headers). A `list<url>` row's `screenshot`, `certificate`, `headers` and
+`files` keys are kept on the URL (`evidence.prepare` before `observe`, `evidence.save` after); a
+picture is matched to the job's artifacts by path or file name. `look` is a 256-bit difference hash plus a 4×4 brightness grid (`look_of`);
+the asset's `look` field keeps its value while new screenshots are within `LOOK_DISTANCE` bits, so a
+real change is an ordinary field change (history, Changes with `pictures` before/after, and a trigger
+condition `{field: look, op: changed}`, `conditions_met(..., changed)`). Certificates and headers
+are kept when they differ from the latest. Deleting a card keeps its evidence attachments (no card).
+`GET /api/assets/{id}` `evidence`; `GET /api/projects/{id}/assets/gallery` (`type`, `where`,
+`scope`, `seen`) groups assets with a screenshot by look (`evidence.group_by_look`).
 
 ## Plugins
 

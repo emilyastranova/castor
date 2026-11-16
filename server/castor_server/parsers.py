@@ -344,6 +344,88 @@ def httpx_results(data: bytes, options: HttpxOptions | None = None) -> list[dict
             "url": r["url"], "status": r.get("status_code"), "length": r.get("content_length"),
             "words": r.get("words"), "lines": r.get("lines"), "title": r.get("title") or "",
             "content_type": r.get("content_type") or "", "tech": r.get("tech") or [], "webserver": r.get("webserver") or "",
+            "final_url": r.get("final_url") or "", "favicon": str(r.get("favicon") or ""),
+        })
+    return out
+
+
+# ---------- gowitness ----------
+
+
+def _default_port(url: str) -> str:
+    """gowitness writes every port ("https://app.example.com:443"); httpx doesn't. One URL, one asset."""
+    from urllib.parse import urlsplit, urlunsplit
+
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return url
+    if (parts.scheme, port) in (("http", 80), ("https", 443)):
+        host = parts.hostname or ""
+        host = f"[{host}]" if ":" in host else host
+        netloc = (f"{parts.username}@" if parts.username else "") + host
+        return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+    return url
+
+
+def _gw_time(value: Any) -> str:
+    text = str(value or "")
+    return "" if not text or text.startswith("0001-01-01") else text
+
+
+class GowitnessOptions(Options):
+    status: list[int] = Field(default_factory=list, description="Only keep these status codes (empty: all)")
+    with_screenshot: bool = Field(False, description="Only keep pages it took a screenshot of")
+
+
+@parser(
+    "gowitness.results",
+    "list<url>",
+    "Web pages from gowitness JSON lines (--write-jsonl): status, title, technologies, TLS certificate, headers and the screenshot",
+    GowitnessOptions,
+    sample="gowitness.jsonl",
+)
+def gowitness_results(data: bytes, options: GowitnessOptions | None = None) -> list[dict[str, Any]]:
+    """One row per page, with `screenshot` (the file gowitness saved, matched to the job's artifacts),
+    `headers` and `certificate`, which Castor keeps on the URL asset as evidence."""
+    options = options or GowitnessOptions()
+    out = []
+    for n, line in enumerate(data.decode("utf-8", "replace").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            r = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ParseError(f"line {n} isn't gowitness JSON: {exc}") from exc
+        if not isinstance(r, dict) or not r.get("url"):
+            continue
+        status = r.get("response_code") or None
+        if options.status and status not in options.status:
+            continue
+        if options.with_screenshot and not r.get("file_name"):
+            continue
+        headers = {str(h.get("key")): str(h.get("value") or "") for h in r.get("headers") or [] if isinstance(h, dict) and h.get("key")}
+        lower = {k.lower(): v for k, v in headers.items()}
+        tls = r.get("tls") if isinstance(r.get("tls"), dict) else {}
+        cert = {}
+        if tls.get("subject_name"):
+            cert = {"subject": tls.get("subject_name"), "issuer": tls.get("issuer") or "",
+                    "sans": [s.get("value") for s in tls.get("san_list") or [] if isinstance(s, dict) and s.get("value")],
+                    "valid_from": _gw_time(tls.get("valid_from")), "valid_to": _gw_time(tls.get("valid_to")),
+                    "protocol": tls.get("protocol") or "", "cipher": tls.get("cipher") or ""}
+        final = _default_port(str(r.get("final_url") or ""))
+        if final.rstrip("/") == _default_port(str(r["url"])).rstrip("/"):
+            final = ""
+        out.append({
+            "url": _default_port(str(r["url"])), "status": status, "title": r.get("title") or "",
+            "length": r.get("content_length") or None,
+            "final_url": final,
+            "tech": [t.get("value") for t in r.get("technologies") or [] if isinstance(t, dict) and t.get("value")],
+            "webserver": lower.get("server", ""), "content_type": lower.get("content-type", "").split(";")[0].strip(),
+            "cert_subject": cert.get("subject", ""), "cert_issuer": cert.get("issuer", ""), "cert_expires": cert.get("valid_to", ""),
+            "screenshot": r.get("file_name") or "", "headers": headers, "certificate": cert,
+            "failed": bool(r.get("failed")), "failed_reason": r.get("failed_reason") or "",
         })
     return out
 

@@ -53,6 +53,8 @@ the card. A parse failure is shown there too and doesn't fail the job. An output
 | `nmap.hosts` | `list<host>` `{ip, hostnames, status}` | nmap `-oX` XML | `include_down` (default true) |
 | `nmap.services` | `list<service>` `{host, port, proto, state, name, product, version}` | nmap `-oX` XML | `include_closed` (default false: open ports only) |
 | `ffuf.results` | `list<url>` `{url, status, length, words, lines}` | ffuf `-of json` | `status`: list of codes to keep |
+| `httpx.results` | `list<url>` `{url, status, length, title, content_type, tech, webserver, final_url, favicon}` | httpx `-json` (`-favicon` for the mmh3 favicon hash) | `status` |
+| `gowitness.results` | `list<url>` `{url, status, title, length, final_url, tech, webserver, content_type, cert_subject, cert_issuer, cert_expires, screenshot, headers, certificate, failed, failed_reason}` | gowitness `--write-jsonl` | `status`, `with_screenshot` |
 | `lines` | `list<string>` | any text, one value per non-empty line | `match` (regex filter), `ignore_case`, `unique` |
 | `regex` | `list<string>` | any text | `pattern` (required), `group` (number or name, default 0), `ignore_case`, `unique` (default true) |
 | `text` | `string` | any text | |
@@ -386,3 +388,21 @@ its sandbox with the arguments and the bound variable sets' values, its log and 
 the console, and what it returns as `output` is the run's output for the parsers. Admins can cap
 how often a plugin's actions run, on the plugin's page in Settings → Plugins.
 
+
+## Evidence on URL assets (screenshots, certificates, headers)
+
+A `list<url>` row (from `httpx.results`, `ffuf.results`, `gowitness.results`, or a library parser
+of that type) can carry evidence next to its fields, which Castor keeps on the URL asset with the
+job, card and agent that captured it:
+
+| Key | What |
+| --- | --- |
+| `screenshot` | the name of one of the job's artifacts (a picture; its path, or just its file name). Write screenshots under `{{ work }}/artifacts/` so they're collected. |
+| `certificate` | `{subject, issuer, sans, valid_from, valid_to, …}` |
+| `headers` | `{name: value}` |
+| `files` | names of other artifacts that belong to the URL |
+
+A screenshot gives the URL a **look** (a perceptual hash). It changes only when a new screenshot
+looks different, so "the page looks different" shows in the asset's history and the Changes tab,
+and a trigger can run on it (when a URL changes, only if `look` *changed*). The Assets page's
+Gallery groups pages that look alike.
