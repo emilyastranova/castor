@@ -230,22 +230,6 @@ the same card or playbook, and assets collect what parsers recognise. These item
 add up across runs, cards, scopes and vantage points, so the project shows what's true now and
 how it got there.
 
-### One picture from many scans
-Two Nmap scans of overlapping scopes, a GoWitness run per subnet, a rescan a week later: the
-results should combine into one view of the environment, wherever and however they were run.
-Assets already fold results by identity (a host seen by name and by address is one asset) and keep
-a dated observation per source (`asset_observations`: the job, card, parser and time). Still to come:
-- **History on the asset:** what each run saw, shown as changes over time (`port 443 open` from
-  scan A on the 3rd, `closed` from scan B on the 10th), with the agent each came from; today only
-  the latest values show.
-- **Seen and not seen:** a run whose scope covered an asset but didn't find it records that as
-  well ("not seen by the 10th's scan"), which is different from never having been scanned.
-  Scope comes from the job's targets, so a scan of 10.0.1.0/24 says nothing about 10.0.2.5.
-- **Project-wide changes:** a Changes view for the whole project over a date range, not only per
-  card: new hosts, ports that opened or closed, pages whose title, status or screenshot changed,
-  services that went away. It filters by asset type, scope group and source, and can feed a
-  trigger ("a new port opened in scope") and reports.
-
 ### Richer assets
 Assets are mostly fields of text today. Scans like GoWitness, httpx or a TLS check produce more:
 - **Pictures and files on an asset:** a web page's screenshot, a certificate, a response's

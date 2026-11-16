@@ -459,6 +459,12 @@ class Batch:
     # Relationships recorded for the first time: (link, from asset, to asset).
     links: list[tuple[m.AssetLink, m.Asset, m.Asset]] = field(default_factory=list)
     read: bool = False  # some output was one Castor reads as assets (parsed or hinted)
+    # Every asset observed (changed or not), so a run's "not seen" leaves out what it did see.
+    seen: set[uuid.UUID] = field(default_factory=set)
+    # Gone missing: a run covered them and didn't find them (asset_history.record_absent).
+    missing: dict[uuid.UUID, m.Asset] = field(default_factory=dict)
+    # Seen again after going missing.
+    back: dict[uuid.UUID, m.Asset] = field(default_factory=dict)
 
     def note(self, asset: m.Asset, created: bool, changed: list[str]) -> None:
         prev = self.changes.get(asset.id)
@@ -493,6 +499,7 @@ async def observe(
     job_id: uuid.UUID | None = None,
     task_id: uuid.UUID | None = None,
     actor_id: uuid.UUID | None = None,
+    agent_id: uuid.UUID | None = None,
     secret: str | None = None,
     confidence: int | None = None,
     ref: dict[str, Any] | None = None,
@@ -531,14 +538,18 @@ async def observe(
             asset.key = new_key
     asset.label = label if len(label) >= len(asset.label or "") else asset.label  # keep the richest label
     asset.last_seen = utcnow()
+    if asset.missing_since is not None and not suggesting:
+        asset.missing_since = None
+        batch.back[asset.id] = asset
     asset.confidence = max(asset.confidence or 0, conf)
     if secret:
         asset.secret = vault.encrypt(secret.encode())
     await db.flush()
     db.add(m.AssetObservation(asset_id=asset.id, source=source, parser=parser, job_id=job_id, task_id=task_id,
-                              actor_id=actor_id, fields=clean, confidence=conf, ref=ref))
+                              actor_id=actor_id, agent_id=agent_id, fields=clean, confidence=conf, ref=ref))
     if t.name == "host" and clean.get("ip") and clean.get("hostname"):
         asset = await _fold_host(db, asset)
+    batch.seen.add(asset.id)
     if asset.status == "suggested":
         batch.suggest(asset, created)
     else:
@@ -908,12 +919,21 @@ def mapping_for(parser: str, type_: str) -> str | None:
     return None if parser in PARSERS else MAPPED_TYPES.get(type_)
 
 
-async def ingest_outputs(db: AsyncSession, job: m.Job, task: m.Task, outputs: list[m.JobOutput]) -> Batch:
-    """Turn a job's parsed outputs into assets in its project, then tell browsers, write one
-    feed entry and fire triggers. Commits."""
+async def ingest_outputs(db: AsyncSession, job: m.Job, task: m.Task, outputs: list[m.JobOutput], *,
+                         partial: bool = False) -> Batch:
+    """Turn a job's parsed outputs into assets in its project (and, once it has finished, note what
+    it covered and didn't see: asset_history.record_absent), then tell browsers, write one feed
+    entry and fire triggers. Commits."""
     batch = Batch(task.project_id)
     batch.read = await _ingest(db, job, task, outputs, batch)
-    if batch.changes or batch.suggested:
+    if not partial:
+        from .asset_history import record_absent
+
+        try:
+            await record_absent(db, job, task, outputs, batch)
+        except Exception:  # never lose what was found over what wasn't
+            log.exception("recording what job %s didn't see failed", job.id)
+    if batch.changes or batch.suggested or batch.missing or batch.back:
         person = await db.get(m.User, job.created_by) if job.created_by else None
         await settle(db, batch, task_id=task.id, person=person)
     return batch
@@ -930,10 +950,11 @@ async def _ingest(db: AsyncSession, job: m.Job, task: m.Task, outputs: list[m.Jo
         kind = mapping_for(out.parser, out.type)
         if kind is not None:
             read = True
-            await _map(db, kind, out.value, task.project_id, batch, job_id=job.id, task_id=task.id)
+            await _map(db, kind, out.value, task.project_id, batch, job_id=job.id, task_id=task.id, agent_id=job.agent_id)
         elif hints.get(out.name):
             read = True
-            await _map_hint(db, hints[out.name], out.value, task.project_id, batch, target=target, tool=tool, job_id=job.id, task_id=task.id)
+            await _map_hint(db, hints[out.name], out.value, task.project_id, batch, target=target, tool=tool, job_id=job.id, task_id=task.id,
+                            agent_id=job.agent_id)
     return read
 
 
@@ -1024,6 +1045,12 @@ async def settle(db: AsyncSession, batch: Batch, *, task_id: uuid.UUID | None = 
         emit(db, "asset.created", batch.project_id, asset_data(a, project), by=actor or person)
     for lk, src, dst in batch.new_links():
         emit(db, "asset.linked", batch.project_id, link_data(lk, src, dst), by=actor or person)
+    missing = _counts(batch.missing.values())
+    if missing:
+        await record_activity(
+            db, type="assets.missing", message=f"Didn't see {describe(missing)} it covered, seen before",
+            project_id=batch.project_id, task_id=task_id, payload={"counts": missing}, **actor_of(actor),
+        )
     if suggested:
         await record_activity(
             db, type="assets.suggested", message=f"Spotted {describe(suggested)} to confirm{f' in {where}' if where else ''}",
@@ -1031,7 +1058,7 @@ async def settle(db: AsyncSession, batch: Batch, *, task_id: uuid.UUID | None = 
         )
     await db.commit()
     bus.publish("assets.changed", batch.project_id, {"project_id": str(batch.project_id), "created": created, "suggested": suggested,
-                                                     "linked": sum(linked.values()),
+                                                     "linked": sum(linked.values()), "missing": missing,
                                                      "updated": sum(1 for c in batch.changes.values() if c.event == "updated")})
     try:
         await fire_triggers(db, batch)
@@ -1291,6 +1318,9 @@ async def fire_triggers(db: AsyncSession, batch: Batch) -> None:
             # A new relationship of its kind from an asset of its type ("a credential works on a new host").
             matches = [(src, dst, lk) for lk, src, dst in batch.new_links()
                        if lk.kind == trig.link_kind and src.type == trig.asset_type and (not trig.other_type or dst.type == trig.other_type)]
+        elif trig.on_event == "missing":
+            # Not seen by a run that covered it ("a service went away").
+            matches = [(a, None, None) for a in batch.missing.values() if a.type == trig.asset_type]
         else:
             matches = [(c.asset, None, None) for c in batch.changes.values() if trig.on_event in ("any", c.event)
                        and c.asset.type == trig.asset_type]

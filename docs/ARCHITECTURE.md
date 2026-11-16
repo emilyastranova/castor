@@ -619,6 +619,20 @@ and to triggers with `on_event: linked` (`link_kind`, optional `other_type`; onc
 `asset_trigger_fires.other_id`; scope is checked on the other end; templates take `{{ other.x }}`
 and `{{ link.x }}`). The `file` type is a path (`\\host\share\path`, or `host:/path`).
 
+History across runs (`asset_history.py`). Each observation keeps the agent its run went through
+(`asset_observations.agent_id`). A finished, succeeded run read by a built-in parser in
+`asset_history.ABSENCE` (`nmap.hosts` without `--open`, `nmap.services`, `httpx.results`) also
+records what it covered and didn't see: confirmed assets of those types, first seen before the run
+started, that the card's targets (`target`/`targets`/`hosts`… arguments with target lists and asset
+references expanded, minus `exclude`) take in, and for a service whose port the scan tried (nmap's
+`<scaninfo>`, else the card's `ports`); httpx only speaks for a host's root URL, and only when the
+host didn't answer at all. Each gets an `absent` observation (once per run) and `assets.missing_since`;
+seeing it again clears it. Activity `assets.missing`; triggers take `on_event: missing`.
+`asset_history.timeline` reads an asset's observations as new / changed (field, before, after) /
+seen / gone / still gone / back (`GET /api/assets/{id}` `history`); `GET /api/projects/{id}/assets/changes`
+(`since`, `until`, `type`, `scope`, `command`, `agent`, `kind`) does the same across the project's
+assets. `GET /api/projects/{id}/assets?seen=missing|present`.
+
 ## Plugins
 
 Design and status: [PLUGINS.md](PLUGINS.md). `plugin_manifest.py` (`castor-plugin.yaml`; `not_yet`

@@ -251,6 +251,8 @@ def link_for(e: m.ActivityEvent, payload: dict, *, task: m.Task | None, has_comm
         return _library_link(e.type, payload)
     if e.type == "assets.suggested" and pid:  # to confirm or dismiss, whatever card they came from
         return f"/projects/{pid}/assets?tab=suggested"
+    if e.type == "assets.missing" and pid:  # what went unseen, on the project's Changes
+        return f"/projects/{pid}/assets?tab=changes"
     if head == "summary" and task is not None:  # the card it's on (a job's: its output)
         card = f"/projects/{task.project_id}?task={task.id}"
         return f"{card}&tab=output&job={payload['job_id']}" if _is_uuid(payload.get("job_id")) else card

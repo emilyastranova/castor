@@ -180,7 +180,7 @@ async def parse_job(db: AsyncSession, job: m.Job, *, partial: bool = False) -> l
         try:
             from .assets import ingest_outputs
 
-            batch = await ingest_outputs(db, job, task, results)
+            batch = await ingest_outputs(db, job, task, results, partial=partial)
             if not batch.read and not partial:
                 from .assets_text import after_job_output
 

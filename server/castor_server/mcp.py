@@ -471,6 +471,10 @@ TOOLS += [
     # Assets
     _auto("list_asset_types", "GET", "/api/assets/types", "Kinds of asset (host, service, url…, and those plugins add) and their fields."),
     _auto("get_asset", "GET", "/api/assets/{asset_id}", "One asset with where it was seen.", **_UNTRUSTED),
+    _auto("asset_changes", "GET", "/api/projects/{project_id}/assets/changes",
+          "What changed in a project's assets over a date range, from what its runs saw: new assets, changed values, "
+          "assets a run covered and didn't see (gone) and ones back again. Filter by type, scope group, command, agent, kind.",
+          **_UNTRUSTED),
     _auto("add_asset", "POST", "/api/projects/{project_id}/assets", "Record an asset by hand."),
     _auto("update_asset", "PATCH", "/api/assets/{asset_id}", "Set an asset's fields (not its identity) and/or its description (markdown)."),
     _auto("delete_asset", "DELETE", "/api/assets/{asset_id}", "Delete an asset.", **_DESTRUCTIVE),

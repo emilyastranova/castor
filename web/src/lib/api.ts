@@ -507,8 +507,38 @@ export interface Asset {
 	status: 'confirmed' | 'suggested' | 'dismissed';
 	/** How sure Castor is (0–100): a person 100, a tool's results 85, a mention 40–50. */
 	confidence: number;
+	/** A run that covered it (its targets, and for a service its ports) didn't see it, since then. */
+	missing_since: string | null;
 	/** Suggested ones: where they were mentioned, newest first. */
 	mentions: AssetMention[];
+}
+
+/** What one observation changed: new, changed, seen again, gone (a run covered it and didn't see it),
+ *  still gone, back. `before` null: the value was first reported then. */
+export type AssetChangeKind = 'new' | 'changed' | 'seen' | 'gone' | 'still_gone' | 'back';
+export interface AssetFieldChange {
+	field: string;
+	before: unknown;
+	after: unknown;
+}
+
+/** Where a change came from: the card, the command and the agent it ran on. */
+export interface AssetChangeSource {
+	kind: string;
+	parser: string | null;
+	job_id: UUID | null;
+	task: { id: UUID; title: string; link: string } | null;
+	command: string | null;
+	agent: string | null;
+	agent_id: UUID | null;
+}
+
+export interface AssetChange {
+	asset: { id: UUID; type: string; label: string; scope_groups: string[] };
+	kind: Exclude<AssetChangeKind, 'seen' | 'still_gone'>;
+	at: string;
+	changes: AssetFieldChange[];
+	source: AssetChangeSource;
 }
 
 /** A project's scope: named groups of what's in it, and exclusions that win over every group. */
@@ -609,7 +639,14 @@ export interface AssetDetail extends Omit<Asset, 'links'> {
 	links: AssetRelation[];
 	/** A file's downloaded copy (a job artifact). */
 	attachment: { id: UUID; filename: string; size: number; content_type: string } | null;
-	history: { fields: Record<string, unknown>; source: AssetSource }[];
+	/** What each report changed, newest first. */
+	history: {
+		kind: AssetChangeKind;
+		changes: AssetFieldChange[];
+		fields: Record<string, unknown>;
+		absent: boolean;
+		source: AssetSource & { command: string | null; agent: string | null; agent_id: UUID | null };
+	}[];
 	triggers: { id: UUID; trigger: string; status: string; reason: string; at: string; task_id: UUID | null; run_id: UUID | null }[];
 }
 
@@ -625,7 +662,7 @@ export interface AssetTrigger {
 	name: string;
 	enabled: boolean;
 	asset_type: string;
-	on_event: 'created' | 'updated' | 'any' | 'linked';
+	on_event: 'created' | 'updated' | 'any' | 'linked' | 'missing';
 	/** on_event "linked": a new relationship of this kind from the asset… */
 	link_kind?: string | null;
 	/** …to an asset of this type (any if unset). */
@@ -2028,14 +2065,24 @@ export function api(fetchFn: Fetch = fetch) {
 		},
 		assets: {
 			types: () => get<AssetType[]>('/assets/types'),
-			list: (projectId: UUID, params: { type?: string; where?: string; limit?: number; status?: Asset['status']; scope?: string } = {}) => {
+			list: (projectId: UUID, params: { type?: string; where?: string; limit?: number; status?: Asset['status']; scope?: string; seen?: 'missing' | 'present' } = {}) => {
 				const q = new URLSearchParams();
+				if (params.seen) q.set('seen', params.seen);
 				if (params.type) q.set('type', params.type);
 				if (params.where) q.set('where', params.where);
 				if (params.limit !== undefined) q.set('limit', String(params.limit));
 				if (params.status) q.set('status', params.status);
 				if (params.scope) q.set('scope', params.scope);
 				return get<{ items: Asset[]; total: number; counts: Record<string, number>; suggested: number }>(`/projects/${projectId}/assets?${q}`);
+			},
+			/** What changed in the project's assets between two times, from what its runs saw. */
+			changes: (
+				projectId: UUID,
+				params: { since: string; until?: string; type?: string; scope?: string; command?: string; agent?: string; kind?: string }
+			) => {
+				const q = new URLSearchParams();
+				for (const [k, v] of Object.entries(params)) if (v) q.set(k, v);
+				return get<{ items: AssetChange[]; counts: Record<AssetChange['kind'], number>; truncated: boolean }>(`/projects/${projectId}/assets/changes?${q}`);
 			},
 			confirm: (id: UUID) => post<Asset>(`/assets/${id}/confirm`),
 			dismiss: (id: UUID) => post<Asset>(`/assets/${id}/dismiss`),

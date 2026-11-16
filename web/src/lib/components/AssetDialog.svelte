@@ -16,6 +16,7 @@
 	import PluginFrame from './PluginFrame.svelte';
 	import PluginIcon from './PluginIcon.svelte';
 	import { pluginPanels } from '$lib/plugins.svelte';
+	import { CHANGE_KIND, describeChange } from '$lib/assetChanges';
 
 	/** One asset: every field with where its value came from (and other values tools
 	 *  reported), what it's linked to, triggered runs and its history. */
@@ -309,6 +310,17 @@
 				<span title={absoluteTime(asset.last_seen)}>last seen {relativeTime(asset.last_seen)}</span>
 			</div>
 
+			{#if asset.missing_since}
+				{@const gone = asset.history.find((h) => h.kind === 'gone')}
+				<div class="flex items-start gap-2 rounded-md bg-error-container/40 px-3 py-2.5 body-medium text-on-surface">
+					<Icon name="visibility_off" size={18} class="mt-0.5 shrink-0 text-error" />
+					<p class="min-w-0 flex-1">
+						Not seen since <span title={absoluteTime(asset.missing_since)}>{relativeTime(asset.missing_since)}</span>: a run that covered it didn’t find it{#if gone?.source.task}{' '}(<a href={gone.source.task.link} class="text-primary hover:underline"><Spoilers text={gone.source.task.title} /></a>{#if gone.source.agent}{' '}from {gone.source.agent}{/if}){/if}.
+						It stays in the inventory; the next run that sees it clears this.
+					</p>
+				</div>
+			{/if}
+
 			{#if scopeOpen && !asset.in_scope}
 				<section class="flex flex-col gap-3 rounded-md border border-outline-variant bg-surface-container px-3 py-3" aria-label="Add to the scope">
 					<fieldset class="flex flex-col gap-1">
@@ -516,16 +528,31 @@
 				</section>
 			{/if}
 
-			<details class="group">
+			<details class="group" open={asset.history.length <= 8}>
 				<summary class="cursor-pointer label-large text-on-surface-variant">History ({asset.history.length})</summary>
-				<ol class="mt-2 flex flex-col gap-2">
+				<!-- What each report changed, newest first: a run's view of it over time. -->
+				<ol class="mt-2 flex flex-col">
 					{#each asset.history as h, i (i)}
-						<li class="rounded-md bg-surface-container px-3 py-2 body-small">
-							<p class="text-on-surface-variant">
-								{#if h.source.link && !['parser', 'manual', 'import'].includes(h.source.kind)}<a href={h.source.link} class="text-primary hover:underline">{sourceText(h.source)}</a>{:else}{sourceText(h.source)}{/if}{#if h.source.task}{' '}on <a href={h.source.task.link} class="text-primary hover:underline"><Spoilers text={h.source.task.title} /></a>{/if} · {relativeTime(h.source.at)}
-							</p>
-							{#if h.source.excerpt}<p class="mb-0.5 text-on-surface-variant italic">“{h.source.excerpt}”</p>{/if}
-							<p class="font-mono text-[12px] break-words text-on-surface">{Object.entries(h.fields).map(([k, v]) => `${k}=${show(v)}`).join('  ')}</p>
+						{@const k = CHANGE_KIND[h.kind]}
+						<li class="relative flex gap-3 pb-3 pl-1 last:pb-0">
+							{#if i < asset.history.length - 1}<span class="absolute top-6 bottom-0 left-[13px] w-px bg-outline-variant" aria-hidden="true"></span>{/if}
+							<Icon name={k.icon} size={18} class="relative mt-0.5 shrink-0 rounded-full bg-surface-container-high {k.tone}" />
+							<div class="min-w-0 flex-1 body-small">
+								<p class="text-on-surface-variant">
+									<span class="font-medium {k.tone}">{k.label}</span>
+									·
+									{#if h.source.link && !['parser', 'manual', 'import'].includes(h.source.kind)}<a href={h.source.link} class="text-primary hover:underline">{sourceText(h.source)}</a>{:else}{sourceText(h.source)}{/if}{#if h.source.task}{' '}on <a href={h.source.task.link} class="text-primary hover:underline"><Spoilers text={h.source.task.title} /></a>{/if}{#if h.source.agent}{' '}<span class="inline-flex items-center gap-0.5 align-bottom" title="The agent it ran on"><Icon name="dns" size={12} />{h.source.agent}</span>{/if}
+									· <span title={absoluteTime(h.source.at)}>{relativeTime(h.source.at)}</span>
+								</p>
+								{#if h.source.excerpt}<p class="mt-0.5 text-on-surface-variant italic">“{h.source.excerpt}”</p>{/if}
+								{#if h.kind === 'new'}
+									<p class="mt-0.5 font-mono text-[12px] break-words text-on-surface">{Object.entries(h.fields).map(([f, v]) => `${f}=${show(v)}`).join('  ')}</p>
+								{:else if h.changes.length}
+									<ul class="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[12px] text-on-surface">
+										{#each h.changes as c (c.field)}<li class="break-words">{describeChange(c)}</li>{/each}
+									</ul>
+								{/if}
+							</div>
 						</li>
 					{/each}
 				</ol>

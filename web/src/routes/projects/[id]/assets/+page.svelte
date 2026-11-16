@@ -8,6 +8,7 @@
 	import AssetDialog from '$lib/components/AssetDialog.svelte';
 	import TriggerDialog from '$lib/components/TriggerDialog.svelte';
 	import AssetRelationships from '$lib/components/AssetRelationships.svelte';
+	import AssetChanges from '$lib/components/AssetChanges.svelte';
 	import PluginActions from '$lib/components/PluginActions.svelte';
 	import PluginRunsBar from '$lib/components/PluginRunsBar.svelte';
 	import PluginFrame from '$lib/components/PluginFrame.svelte';
@@ -25,7 +26,7 @@
 	let project = $derived(data.project);
 	$effect(() => void assetTypes.load());
 
-	const TABS = ['inventory', 'suggested', 'relationships', 'triggers'] as const;
+	const TABS = ['inventory', 'changes', 'suggested', 'relationships', 'triggers'] as const;
 	const asked = page.url.searchParams.get('tab');
 	// Built-in tabs, or a plugin's page (`plugin:<plugin id>:<panel id>`, manifest `ui` slot project.page).
 	let tab = $state<(typeof TABS)[number] | `plugin:${string}`>(TABS.find((t) => t === asked) ?? (asked?.startsWith('plugin:') ? (asked as `plugin:${string}`) : 'inventory'));
@@ -60,7 +61,14 @@
 	async function load(liveChange = false) {
 		const mine = ++seq;
 		try {
-			const res = await api().assets.list(project.id, { type: type || undefined, where, limit: 500, status, scope: status === 'confirmed' ? scopeFilter || undefined : undefined });
+			const res = await api().assets.list(project.id, {
+				type: type || undefined,
+				where,
+				limit: 500,
+				status,
+				scope: status === 'confirmed' ? scopeFilter || undefined : undefined,
+				seen: status === 'confirmed' && notSeen ? 'missing' : undefined
+			});
 			if (mine !== seq) return;
 			live = liveChange;
 			items = res.items;
@@ -72,12 +80,15 @@
 			if (mine === seq) snackbar.error(err instanceof ApiError ? err.message : 'Could not load the assets');
 		}
 	}
+	/** Inventory: only what the latest run that covered it didn't see. */
+	let notSeen = $state(false);
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	$effect(() => {
 		void type;
 		void where;
 		void status;
 		void scopeFilter;
+		void notSeen;
 		clearTimeout(timer);
 		timer = setTimeout(() => void load(), 200);
 	});
@@ -234,7 +245,11 @@
 			.join(' · ');
 	const describeTrigger = (t: AssetTrigger) => {
 		const tt = assetTypes.get(t.asset_type);
-		const when = `${t.on_event === 'updated' ? 'When a' : 'When a new'} ${(tt?.label ?? t.asset_type).toLowerCase()} ${t.on_event === 'updated' ? 'changes' : t.on_event === 'any' ? 'is found or changes' : 'is found'}`;
+		const noun = (tt?.label ?? t.asset_type).toLowerCase();
+		const when =
+			t.on_event === 'missing'
+				? `When a ${noun} isn’t seen by a scan that covered it`
+				: `${t.on_event === 'updated' ? 'When a' : 'When a new'} ${noun} ${t.on_event === 'updated' ? 'changes' : t.on_event === 'any' ? 'is found or changes' : 'is found'}`;
 		const ifs = t.conditions.map((c) => `${c.field} ${({ equals: 'is', not_equals: 'is not', contains: 'contains', exists: 'is set', missing: 'is empty', gt: '>', lt: '<', gte: '≥', lte: '≤' })[c.op]}${c.value != null && c.value !== '' ? ` ${c.value}` : ''}`);
 		return `${when}${ifs.length ? `, if ${ifs.join(' and ')}` : ''}`;
 	};
@@ -353,6 +368,7 @@
 		<Tabs
 			tabs={[
 				{ id: 'inventory', label: 'Inventory', icon: 'radar', badge: status === 'confirmed' ? Object.values(counts).reduce((a, b) => a + b, 0) : undefined },
+				{ id: 'changes', label: 'Changes', icon: 'difference' },
 				{ id: 'suggested', label: 'Suggested', icon: 'lightbulb', badge: suggestedCount || undefined },
 				{ id: 'relationships', label: 'Relationships', icon: 'hub' },
 				{ id: 'triggers', label: 'Triggers', icon: 'bolt', badge: waiting.length || undefined },
@@ -413,6 +429,17 @@
 						<Icon name={t.icon} size={16} />{t.plural}<span class="label-small opacity-80">{counts[t.name] ?? 0}</span>
 					</button>
 				{/each}
+				{#if tab === 'inventory'}
+					<button
+						type="button"
+						class="flex items-center gap-1.5 rounded-full border px-3 py-1 label-large {notSeen ? 'border-transparent bg-error-container text-on-error-container' : 'border-outline-variant text-on-surface-variant'}"
+						aria-pressed={notSeen}
+						title="Only what the latest run that covered it didn't find"
+						onclick={() => (notSeen = !notSeen)}
+					>
+						<Icon name="visibility_off" size={16} />Not seen
+					</button>
+				{/if}
 				<span class="flex-1"></span>
 				{#if canEdit() && tab === 'suggested' && !showDismissed && items.length && aiStatus.enabled}
 					<Button variant={sortOpen ? 'tonal' : 'text'} icon="auto_awesome" onclick={() => (sortOpen = !sortOpen)}>Sort with AI</Button>
@@ -553,6 +580,7 @@
 											{#each a.scope_groups as g (g)}<span class="rounded-xs bg-primary-container px-1.5 py-px font-sans label-small text-on-primary-container" title="In the {g} scope">{g}</span>{/each}
 											{#if a.has_secret}<Icon name="key" size={14} class="text-tertiary" />{/if}
 											{#if a.description}<span title={a.description.slice(0, 200)}><Icon name="notes" size={14} class="text-on-surface-variant" /></span>{/if}
+											{#if a.missing_since}<span class="inline-flex items-center gap-1 rounded-xs bg-error-container px-1.5 py-px font-sans label-small text-on-error-container" title="Not seen by a run that covered it, since {absoluteTime(a.missing_since)}"><Icon name="visibility_off" size={12} />not seen {relativeTime(a.missing_since)}</span>{/if}
 										</span>
 									</td>
 									{#if current}
@@ -571,6 +599,8 @@
 				</div>
 				{#if total > items.length}<p class="body-small text-on-surface-variant">Showing {items.length} of {total}; filter to narrow it down.</p>{/if}
 			{/if}
+		{:else if tab === 'changes'}
+			<AssetChanges projectId={project.id} {scope} onopenasset={openAsset} />
 		{:else if tab === 'relationships'}
 			<AssetRelationships projectId={project.id} bind:view={relView} focus={relFocus} onopenasset={openAsset} class={filling ? 'min-h-0 flex-1' : ''} />
 		{:else if openPanel}

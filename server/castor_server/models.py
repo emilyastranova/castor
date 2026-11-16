@@ -840,6 +840,8 @@ class Asset(Base, TimestampMixin):
     confidence: Mapped[int] = mapped_column(Integer, default=80, server_default="80")
     # What people know about it (markdown): what it is, who owns it, why it matters.
     description: Mapped[str] = mapped_column(Text, default="", server_default="")
+    # A run whose targets covered it didn't see it (asset_history.record_absent); cleared when one does.
+    missing_since: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
 
 class AssetObservation(Base):
@@ -856,8 +858,12 @@ class AssetObservation(Base):
     task_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
     actor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     fields: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
-    observed_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    observed_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
     confidence: Mapped[int] = mapped_column(Integer, default=80, server_default="80")
+    # A run that covered it (its targets, and for a service its ports) and didn't find it: "not seen".
+    absent: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # The agent the run went through (its vantage point); a plain id so forgetting an agent keeps it.
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     # Where a mention was: {"kind": comment|post|card|note|attachment, "id": …, "excerpt": the text around it}.
     ref: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
 

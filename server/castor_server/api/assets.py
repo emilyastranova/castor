@@ -38,6 +38,8 @@ class AssetBrief(BaseModel):
     links: int = 0
     status: str = "confirmed"  # confirmed | suggested | dismissed
     confidence: int = 80
+    # A run that covered it (its targets and ports) didn't see it, since then (asset_history).
+    missing_since: datetime | None = None
     # Suggested ones: where they were mentioned, newest first (kind, excerpt, link, at).
     mentions: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -56,7 +58,8 @@ def _brief(a: m.Asset, project: m.Project, links: int = 0, mentions: list[dict[s
     return AssetBrief(id=a.id, type=a.type, key=a.key, label=a.label, fields=a.fields or {}, has_secret=bool(a.secret),
                       description=a.description or "",
                       in_scope=bool(groups), scope_groups=groups, first_seen=a.first_seen, last_seen=a.last_seen, links=links,
-                      status=a.status or "confirmed", confidence=a.confidence or 0, mentions=mentions or [])
+                      status=a.status or "confirmed", confidence=a.confidence or 0, missing_since=a.missing_since,
+                      mentions=mentions or [])
 
 
 SOURCE_WORDS = {"comment": "a comment", "post": "a timeline post", "card": "a card's description", "note": "a pinned note",
@@ -181,10 +184,11 @@ def _in_group(groups: list[str], want: str) -> bool:
 @router.get("/projects/{project_id}/assets", response_model=AssetList)
 async def list_assets(project_id: str, db: DB, user: CurrentUser, type: str | None = None, where: str = "",
                       limit: int = 200, offset: int = 0, status: Literal["confirmed", "suggested", "dismissed"] = "confirmed",
-                      scope: str | None = None):
+                      scope: str | None = None, seen: Literal["missing", "present"] | None = None):
     """`where` takes `field:value`, `field!=value`, `port>1000` and free words. `status`: the
     confirmed assets (the default), the suggested ones (only mentioned) or the dismissed ones.
-    `scope`: only those in that scope group, `*` in any, `-` in none."""
+    `scope`: only those in that scope group, `*` in any, `-` in none. `seen`: only the ones the
+    latest run that covered them didn't see (`missing`), or only the rest (`present`)."""
     project = await project_or_404(db, user, parse_uuid(project_id))
     try:
         rows = await A.query(db, project.id, type, where, status=status)
@@ -193,6 +197,8 @@ async def list_assets(project_id: str, db: DB, user: CurrentUser, type: str | No
     sc = A.scope_of(project)
     if scope:
         rows = [a for a in rows if _in_group(A.scope_groups(project, a, sc), scope.lower())]
+    if seen:
+        rows = [a for a in rows if (a.missing_since is not None) == (seen == "missing")]
     counts_rows = await db.execute(select(m.Asset.type, func.count()).where(m.Asset.project_id == project.id, m.Asset.status == status)
                                    .group_by(m.Asset.type))
     suggested = (await db.execute(select(func.count()).select_from(m.Asset).where(m.Asset.project_id == project.id,
@@ -215,7 +221,8 @@ async def get_asset(asset_id: str, db: DB, user: CurrentUser) -> dict[str, Any]:
     """The asset with where each value came from (and conflicting values), its links and history."""
     a = await _asset_or_404(db, user, asset_id)
     project = await db.get(m.Project, a.project_id)
-    obs = (await db.execute(select(m.AssetObservation).where(m.AssetObservation.asset_id == a.id).order_by(m.AssetObservation.observed_at.desc()).limit(200))).scalars().all()
+    obs = (await db.execute(select(m.AssetObservation).where(m.AssetObservation.asset_id == a.id)
+                            .order_by(m.AssetObservation.observed_at.desc(), m.AssetObservation.id.desc()).limit(500))).scalars().all()
     tasks = {t.id: t for t in (await db.execute(select(m.Task).where(m.Task.id.in_({o.task_id for o in obs if o.task_id})))).scalars()}
     users = {u.id: u for u in (await db.execute(select(m.User).where(m.User.id.in_({o.actor_id for o in obs if o.actor_id})))).scalars()}
 
@@ -229,6 +236,8 @@ async def get_asset(asset_id: str, db: DB, user: CurrentUser) -> dict[str, Any]:
 
     provenance: dict[str, list[dict[str, Any]]] = {}
     for o in obs:  # newest first: the first value seen per field is the current one
+        if o.absent:
+            continue
         for k, v in (o.fields or {}).items():
             seen = provenance.setdefault(k, [])
             if not any(x["value"] == v for x in seen):
@@ -242,10 +251,47 @@ async def get_asset(asset_id: str, db: DB, user: CurrentUser) -> dict[str, Any]:
         "provenance": provenance,
         "links": sorted(links, key=lambda x: (x["label"], x["asset"]["label"])),
         "attachment": await _attachment_of(db, a),
-        "history": [{"fields": o.fields, "source": source(o)} for o in obs[:50]],
+        "history": await _history(db, list(reversed(obs)), source),
         "triggers": [{"id": str(f.id), "trigger": name, "status": f.status, "reason": f.reason, "at": f.created_at,
                       "task_id": str(f.task_id) if f.task_id else None, "run_id": str(f.run_id) if f.run_id else None} for f, name in fires],
     }
+
+
+async def _history(db: DB, obs: list[m.AssetObservation], source: Any) -> list[dict[str, Any]]:
+    """What each run saw, newest first: new, changed (field, before, after), seen again, not seen,
+    back; with the card, the command and the agent it came through."""
+    from ..asset_history import source_out, sources, timeline
+
+    src = await sources(db, obs)
+    out = []
+    for e in reversed(timeline(obs)):
+        o = e["obs"]
+        out.append({"kind": e["kind"], "changes": e["changes"], "fields": o.fields or {}, "absent": o.absent,
+                    "source": {**source(o), **{k: v for k, v in source_out(o, src).items() if k in ("command", "agent", "agent_id")}}})
+    return out[:200]
+
+
+@router.get("/projects/{project_id}/assets/changes")
+async def asset_changes(project_id: str, db: DB, user: CurrentUser, since: datetime, until: datetime | None = None,
+                        type: str | None = None, scope: str | None = None, command: str | None = None, agent: str | None = None,
+                        kind: str = "") -> dict[str, Any]:
+    """What changed in the project's assets between `since` and `until` (now), from what its runs
+    saw: `new` assets, `changed` values (field, before, after), `gone` (a run that covered it didn't
+    see it) and `back`. Filters: asset `type`, `scope` group (`*` any, `-` none), the `command`
+    that saw it, the `agent` it ran on, `kind` (comma-separated). Newest first, at most 2000."""
+    from ..asset_history import KINDS, project_changes
+
+    project = await project_or_404(db, user, parse_uuid(project_id))
+    if type:
+        try:
+            type = A.type_of(type).name
+        except A.AssetError as exc:
+            raise HTTPException(422, str(exc)) from exc
+    kinds = {k.strip() for k in kind.split(",") if k.strip()}
+    if kinds - set(KINDS):
+        raise HTTPException(422, f"kind is one of {', '.join(KINDS)}")
+    return await project_changes(db, project, since=since, until=until, type_name=type, scope=scope, command=command,
+                                 agent=agent, kinds=kinds or None)
 
 
 async def _attachment_of(db: DB, a: m.Asset) -> dict[str, Any] | None:
@@ -768,7 +814,7 @@ class TriggerIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     enabled: bool = True
     asset_type: str
-    on_event: Literal["created", "updated", "any", "linked"] = "created"
+    on_event: Literal["created", "updated", "any", "linked", "missing"] = "created"
     # on_event "linked": a new relationship of this kind from the asset, to an asset of other_type (any if unset).
     link_kind: str | None = Field(None, max_length=24)
     other_type: str | None = Field(None, max_length=16)

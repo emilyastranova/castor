@@ -255,6 +255,11 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `run_fire`), `api/assets.py`; ingest is called from `outputs.parse_job`. Credential secrets go
   through `vault`, never into `fields`. Web: `routes/projects/[id]/assets`, `AssetDialog`,
   `TriggerDialog`, `AssetRefDialog` (assets as list arguments via `ListArgInput`).
+  History across runs: `asset_history.py` (`record_absent` after a finished run: what its coverage took in and it didn't
+  see becomes an `absent` observation and `assets.missing_since`; coverage is the card's targets minus `exclude`, plus
+  nmap's `<scaninfo>` ports for services; only parsers in `ABSENCE` speak for absence; `timeline` and `project_changes`
+  are new/changed/gone/back). Web `AssetChanges.svelte` (the Assets page's Changes tab), `lib/assetChanges.ts`, the
+  History list in `AssetDialog`. A new parser that can say what it didn't find goes in `ABSENCE` with a `covers` rule.
   Detection: an output's `asset:` hint maps `list<string>` lines (`_map_hint`: host, domain, url, service, share,
   NetExec login, vulnerability; target from `default_target`). `assets.status` is confirmed|suggested|dismissed and
   `confidence` the best of its observations (`CONFIDENCE`; `SUGGESTING` sources only suggest, never fire triggers,

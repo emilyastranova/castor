@@ -153,7 +153,8 @@
 						{ value: 'created', label: 'is found (new)' },
 						{ value: 'updated', label: 'changes' },
 						{ value: 'any', label: 'is found or changes' },
-						{ value: 'linked', label: 'gets a new relationship', description: 'A credential works on a new host, a user is admin somewhere…' }
+						{ value: 'linked', label: 'gets a new relationship', description: 'A credential works on a new host, a user is admin somewhere…' },
+						{ value: 'missing', label: 'isn’t seen any more', description: 'A scan that covered it didn’t find it: a port that closed, a host gone quiet' }
 					]}
 				/>
 			</div>
