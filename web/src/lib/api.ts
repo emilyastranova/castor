@@ -515,7 +515,7 @@ export interface Asset {
 
 /** What one observation changed: new, changed, seen again, gone (a run covered it and didn't see it),
  *  still gone, back. `before` null: the value was first reported then. */
-export type AssetChangeKind = 'new' | 'changed' | 'seen' | 'gone' | 'still_gone' | 'back';
+export type AssetChangeKind = 'new' | 'changed' | 'seen' | 'gone' | 'still_gone' | 'back' | 'reached' | 'unreached';
 export interface AssetFieldChange {
 	field: string;
 	before: unknown;
@@ -531,6 +531,8 @@ export interface AssetChangeSource {
 	command: string | null;
 	agent: string | null;
 	agent_id: UUID | null;
+	/** The agent's network segment when it ran. */
+	segment?: string | null;
 }
 
 export interface AssetChange {
@@ -556,6 +558,44 @@ export interface AssetEvidence {
 	parser: string | null;
 	attachment: { id: UUID; filename: string; content_type: string; size: number } | null;
 	source: AssetChangeSource | null;
+}
+
+/** A segmentation rule: a network segment must not reach these assets (a run that does records a finding). */
+export interface SegmentRule {
+	id?: string;
+	name: string;
+	from: string;
+	type?: string | null;
+	where?: string;
+	scope?: string | null;
+	severity: 'info' | 'low' | 'medium' | 'high' | 'critical';
+}
+
+/** One segment's latest word on an asset. */
+export interface ReachCell {
+	state: 'seen' | 'not_seen';
+	at: string;
+	fields: Record<string, unknown>;
+	agent: string | null;
+	task: { id: UUID; title: string; link: string } | null;
+	job_id: UUID | null;
+}
+
+export interface Reachability {
+	/** Segments runs were seen from (the columns). */
+	segments: string[];
+	/** Every agent's segment, for rules. */
+	agent_segments: string[];
+	rows: {
+		asset: { id: UUID; type: string; label: string; scope_groups: string[] };
+		cells: Record<string, ReachCell>;
+		/** What the segments disagree on: "reach", or field names. */
+		differs: string[];
+		/** Segmentation rules it breaks. */
+		rules: string[];
+	}[];
+	truncated: boolean;
+	rules: SegmentRule[];
 }
 
 /** Assets with a screenshot, grouped by what they look like (biggest group first). */
@@ -670,7 +710,7 @@ export interface AssetDetail extends Omit<Asset, 'links'> {
 		changes: AssetFieldChange[];
 		fields: Record<string, unknown>;
 		absent: boolean;
-		source: AssetSource & { command: string | null; agent: string | null; agent_id: UUID | null };
+		source: AssetSource & { command: string | null; agent: string | null; agent_id: UUID | null; segment?: string | null };
 	}[];
 	triggers: { id: UUID; trigger: string; status: string; reason: string; at: string; task_id: UUID | null; run_id: UUID | null }[];
 	evidence: AssetEvidence[];
@@ -1472,6 +1512,8 @@ export interface Agent {
 	tags: string[];
 	/** The projects whose jobs it may run; null: any project (an empty list: none). */
 	project_ids?: UUID[] | null;
+	/** Its network segment ("VLAN 20 / user LAN"): where its runs look from. */
+	segment?: string;
 	max_concurrency: number;
 	status: AgentStatus;
 	last_seen_at: string | null;
@@ -1958,7 +2000,7 @@ export function api(fetchFn: Fetch = fetch) {
 		agents: {
 			list: () => get<Agent[]>('/agents'),
 			/** project_ids: null lifts the limit; leave it out to keep it. */
-			update: (id: UUID, body: { tags?: string[]; max_concurrency?: number; project_ids?: UUID[] | null }) =>
+			update: (id: UUID, body: { tags?: string[]; max_concurrency?: number; project_ids?: UUID[] | null; segment?: string }) =>
 				patch<Agent>(`/agents/${id}`, body),
 			remove: (id: UUID) => del(`/agents/${id}`)
 		},
@@ -2101,6 +2143,14 @@ export function api(fetchFn: Fetch = fetch) {
 				if (params.scope) q.set('scope', params.scope);
 				return get<{ items: Asset[]; total: number; counts: Record<string, number>; suggested: number }>(`/projects/${projectId}/assets?${q}`);
 			},
+			reachability: (projectId: UUID, params: { type?: string; where?: string; scope?: string; batch?: string; asset?: UUID; differs?: boolean } = {}) => {
+				const q = new URLSearchParams();
+				for (const [k, v] of Object.entries(params)) if (v) q.set(k, String(v));
+				return get<Reachability>(`/projects/${projectId}/assets/reachability?${q}`);
+			},
+			segmentation: (projectId: UUID) => get<{ rules: SegmentRule[] }>(`/projects/${projectId}/segmentation`),
+			setSegmentation: (projectId: UUID, rules: SegmentRule[]) => request<{ rules: SegmentRule[] }>(fetchFn, 'PUT', `/projects/${projectId}/segmentation`, { rules }),
+			checkSegmentation: (projectId: UUID) => post<{ reached: number; new: number }>(`/projects/${projectId}/segmentation/check`),
 			gallery: (projectId: UUID, params: { type?: string; where?: string; scope?: string; seen?: 'missing' | 'present' } = {}) => {
 				const q = new URLSearchParams();
 				for (const [k, v] of Object.entries(params)) if (v) q.set(k, v);

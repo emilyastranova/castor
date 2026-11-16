@@ -185,6 +185,9 @@
 	);
 
 	let editing = $state<Agent | null>(null);
+	/** Its network segment: where its runs look from. */
+	let segment = $state('');
+
 	let tags = $state<string[]>([]);
 	let tagSuggestions = $state<TagSuggestion[]>([]);
 	let concurrency = $state('1');
@@ -213,6 +216,7 @@
 		limitTo = a.project_ids == null ? null : [...a.project_ids];
 		void loadTags('agents').then((t) => (tagSuggestions = t));
 		concurrency = String(a.max_concurrency);
+		segment = a.segment ?? '';
 	}
 	async function saveAgent() {
 		if (!editing) return;
@@ -220,7 +224,8 @@
 			const a = await api().agents.update(editing.id, {
 				tags,
 				max_concurrency: Number(concurrency) || 1,
-				project_ids: limitTo
+				project_ids: limitTo,
+				segment
 			});
 			agents = agents.map((x) => (x.id === a.id ? a : x));
 			editing = null;
@@ -301,6 +306,7 @@
 						<dt>OS</dt><dd class="truncate text-on-surface" title={a.os}>{a.os || '—'}</dd>
 						<dt>Runtimes</dt><dd class="text-on-surface">{(a.capabilities.runtimes ?? []).join(', ') || '—'}</dd>
 						<dt>Slots</dt><dd class="text-on-surface">{a.running_jobs}/{a.max_concurrency}</dd>
+						{#if a.segment}<dt>Segment</dt><dd class="truncate text-on-surface" title="Its network segment: where its runs look from">{a.segment}</dd>{/if}
 						<dt>Projects</dt><dd class="truncate {a.project_ids && !a.project_ids.length ? 'text-error' : 'text-on-surface'}" title={projectsOf(a)}>{projectsOf(a)}</dd>
 						{#if (sshOf(a)?.route.length ?? 0) > 1}
 							{@const hops = sshOf(a)!.route.slice(0, -1)}
@@ -432,6 +438,8 @@
 	<div class="flex flex-col gap-5 pt-2 pb-2">
 		<TagInput label="Tags" bind:value={tags} suggestions={tagSuggestions} noun="agents" placeholder="Add a tag" supporting="Cards and playbooks can target agents by tag." />
 		<TextField label="Max concurrent jobs" bind:value={concurrency} type="number" />
+		<TextField label="Network segment" bind:value={segment} placeholder="e.g. VLAN 20 / user LAN"
+			supporting="Where it sits on the network. Its runs record it, so the Assets page's Reachability shows what each segment reaches; empty: not said." />
 		<AgentProjectsPicker bind:value={limitTo} supporting="Limit it to some projects to keep their work (and their targets' traffic) on this machine and other projects' work off it." />
 	</div>
 	{#snippet actions()}

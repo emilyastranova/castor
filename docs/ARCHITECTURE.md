@@ -645,6 +645,19 @@ are kept when they differ from the latest. Deleting a card keeps its evidence at
 `GET /api/assets/{id}` `evidence`; `GET /api/projects/{id}/assets/gallery` (`type`, `where`,
 `scope`, `seen`) groups assets with a screenshot by look (`evidence.group_by_look`).
 
+Vantage points (`segmentation.py`). `agents.segment` (admins, `PATCH /api/agents/{id}`) is where an
+agent's runs look from; every observation records it (`asset_observations.segment`, `assets.segment_of`).
+Timelines are per segment: an absence from a segment that never saw the asset is `unreached` (and
+doesn't set `missing_since`), a first sighting from another segment `reached`. `GET
+/api/projects/{id}/assets/reachability` (`type`, `where`, `scope`, `batch` for one fan-out, `asset`,
+`differs`) is the matrix: per asset, each segment's latest observation (seen, with the `COMPARE`
+fields, or not seen) and what the segments disagree on (`reach`, field names; looks compared with
+`evidence.similar`). Segmentation rules (`projects.settings.segmentation`, `GET|PUT
+/api/projects/{id}/segmentation`: `{id, name, from, type, where, scope, severity}`): a finished run
+from a rule's segment that reaches a matching asset (`after_ingest`) records a vulnerability
+(`SEGMENTATION-<rule>-<hash>`, tool `segmentation`) that affects it; `POST
+…/segmentation/check` applies them to what's known. Activity `project.segmentation`.
+
 ## Plugins
 
 Design and status: [PLUGINS.md](PLUGINS.md). `plugin_manifest.py` (`castor-plugin.yaml`; `not_yet`

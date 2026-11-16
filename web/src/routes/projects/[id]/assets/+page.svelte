@@ -10,6 +10,7 @@
 	import AssetRelationships from '$lib/components/AssetRelationships.svelte';
 	import AssetChanges from '$lib/components/AssetChanges.svelte';
 	import AssetGallery from '$lib/components/AssetGallery.svelte';
+	import AssetReachability from '$lib/components/AssetReachability.svelte';
 	import PluginActions from '$lib/components/PluginActions.svelte';
 	import PluginRunsBar from '$lib/components/PluginRunsBar.svelte';
 	import PluginFrame from '$lib/components/PluginFrame.svelte';
@@ -27,7 +28,9 @@
 	let project = $derived(data.project);
 	$effect(() => void assetTypes.load());
 
-	const TABS = ['inventory', 'gallery', 'changes', 'suggested', 'relationships', 'triggers'] as const;
+	const TABS = ['inventory', 'gallery', 'changes', 'reachability', 'suggested', 'relationships', 'triggers'] as const;
+	/** Reachability: one fan-out run's results (?batch=, from a card's Output). */
+	let reachBatch = $state<string | null>(page.url.searchParams.get('batch'));
 	const asked = page.url.searchParams.get('tab');
 	// Built-in tabs, or a plugin's page (`plugin:<plugin id>:<panel id>`, manifest `ui` slot project.page).
 	let tab = $state<(typeof TABS)[number] | `plugin:${string}`>(TABS.find((t) => t === asked) ?? (asked?.startsWith('plugin:') ? (asked as `plugin:${string}`) : 'inventory'));
@@ -371,6 +374,7 @@
 				{ id: 'inventory', label: 'Inventory', icon: 'radar', badge: status === 'confirmed' ? Object.values(counts).reduce((a, b) => a + b, 0) : undefined },
 				{ id: 'gallery', label: 'Gallery', icon: 'photo_library' },
 				{ id: 'changes', label: 'Changes', icon: 'difference' },
+				{ id: 'reachability', label: 'Reachability', icon: 'lan' },
 				{ id: 'suggested', label: 'Suggested', icon: 'lightbulb', badge: suggestedCount || undefined },
 				{ id: 'relationships', label: 'Relationships', icon: 'hub' },
 				{ id: 'triggers', label: 'Triggers', icon: 'bolt', badge: waiting.length || undefined },
@@ -603,6 +607,8 @@
 			{/if}
 		{:else if tab === 'gallery'}
 			<AssetGallery projectId={project.id} {scope} onopenasset={openAsset} />
+		{:else if tab === 'reachability'}
+			<AssetReachability projectId={project.id} {scope} onopenasset={openAsset} batch={reachBatch} onclearbatch={() => (reachBatch = null)} />
 		{:else if tab === 'changes'}
 			<AssetChanges projectId={project.id} {scope} onopenasset={openAsset} />
 		{:else if tab === 'relationships'}

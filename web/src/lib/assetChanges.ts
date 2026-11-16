@@ -8,7 +8,9 @@ export const CHANGE_KIND: Record<AssetChangeKind, { label: string; icon: string;
 	seen: { label: 'Seen', icon: 'visibility', tone: 'text-on-surface-variant' },
 	gone: { label: 'Not seen', icon: 'visibility_off', tone: 'text-error' },
 	still_gone: { label: 'Still not seen', icon: 'visibility_off', tone: 'text-on-surface-variant' },
-	back: { label: 'Back', icon: 'history', tone: 'text-primary' }
+	back: { label: 'Back', icon: 'history', tone: 'text-primary' },
+	reached: { label: 'Reached from another segment', icon: 'alt_route', tone: 'text-primary' },
+	unreached: { label: 'Not reached from this segment', icon: 'block', tone: 'text-on-surface-variant' }
 };
 
 /** "version 1.24 → 1.26", "title: Login" (first reported). */

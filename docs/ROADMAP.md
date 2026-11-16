@@ -223,30 +223,6 @@ or use up a shared key:
   rate-limit headers as well; prices per model kept by admins or shipped as defaults; and whether
   a person can be allowed to go past a budget once ("use it anyway") or only an admin.
 
-## Results and assets
-
-Today each run's results stay with their card, Changes compares one run with an earlier run of
-the same card or playbook, and assets collect what parsers recognise. These items make results
-add up across runs, cards, scopes and vantage points, so the project shows what's true now and
-how it got there.
-
-### Comparing from different vantage points
-Where something is reachable from matters as much as whether it's up: the same scan from five
-agents in five network segments should answer "which VLANs can reach this, and what does each
-see?"
-- **Run it from everywhere:** a card or playbook already fans out to every agent with some tags
-  (`{tags, all: true}`). Each result stays labelled with its agent and that agent's network
-  segment (an agent setting, e.g. "VLAN 20 / user LAN"), and the batch's results can be compared
-  side by side.
-- **A reachability matrix:** for each host, service or URL, which segments reached it and what
-  each saw: open from the server VLAN and filtered from the user LAN, or a login prompt from the
-  guest network but none from the management network, or different certificates or pages.
-- **Vantage point on every observation:** assets record where each observation came from, so the
-  matrix builds up from ordinary runs too, not only from fan-out runs made for the purpose.
-- **Differences as findings:** a difference between segments that shouldn't be there (a
-  management interface reachable from the guest network) can be flagged, fire a trigger, and go
-  into a report as a segmentation finding.
-
 ## Reporting and the interface
 
 ### Reporting workflows

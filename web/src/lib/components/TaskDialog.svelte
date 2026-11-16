@@ -1142,12 +1142,17 @@
 			{:else if tab === 'output'}
 				<div class="flex min-h-[320px] flex-1 flex-col gap-2">
 					{#if jobs.length > 1}
-						<div class="flex flex-wrap gap-1">
+						<div class="flex flex-wrap items-center gap-1">
 							{#each jobs as j (j.id)}
 								<span class="inline-flex" in:pop={{ enabled: liveSide }} animate:glide={{ enabled: liveSide }}><Chip variant="filter" selected={selectedJobId === j.id} onclick={() => (selectedJobId = j.id)}>
 									{j.batch_id ? `${agentName(j.target_agent_id ?? j.agent_id)} · ` : ''}{relativeTime(j.queued_at)} · {j.status}{j.started_at ? ` · ${duration(j.started_at, j.finished_at)}` : ''}
 								</Chip></span>
 							{/each}
+							{#if selectedJob?.batch_id}
+								<a href="/projects/{task.project_id}/assets?tab=reachability&batch={selectedJob.batch_id}" class="ml-1 inline-flex items-center gap-1 rounded-full px-2 py-1 label-large text-primary hover:underline" title="This fan-out's results side by side, by each agent's network segment">
+									<Icon name="lan" size={16} />Compare by segment
+								</a>
+							{/if}
 						</div>
 					{/if}
 					{#if selectedJob}

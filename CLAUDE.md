@@ -265,6 +265,10 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   change; trigger condition op `changed`; `keep_on_delete` keeps the pictures when a card goes; `group_by_look` for the
   gallery). GoWitness: `gowitness.results` parser, `tools/gowitness.yaml`, `commands/gowitness-screenshots.yaml`. Web
   `AssetGallery.svelte` (Gallery tab), `ScreenshotCompare.svelte`, the Evidence section of `AssetDialog`.
+  Vantage points: `agents.segment` (admins) → `asset_observations.segment` on every observation; `segmentation.py` (`matrix`
+  for the Reachability tab, rules in `projects.settings.segmentation`, `after_ingest` records findings as vulnerabilities,
+  `check`); `asset_history.timeline` is per segment (`reached`/`unreached`; an unreached absence doesn't set `missing_since`).
+  Web `AssetReachability.svelte`, "Compare by segment" on a fan-out card's Output, Seen from in `AssetDialog`.
   Detection: an output's `asset:` hint maps `list<string>` lines (`_map_hint`: host, domain, url, service, share,
   NetExec login, vulnerability; target from `default_target`). `assets.status` is confirmed|suggested|dismissed and
   `confidence` the best of its observations (`CONFIDENCE`; `SUGGESTING` sources only suggest, never fire triggers,

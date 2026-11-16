@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Spoilers from '$lib/components/Spoilers.svelte';
-	import type { Asset, AssetDetail, AssetRelation, AssetSource, UUID } from '$lib/api';
+	import type { Asset, AssetDetail, AssetRelation, AssetSource, ReachCell, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, Icon, IconButton, Select, TextField } from '$lib/m3';
 	import { assetTypes, linkDetails as details, show } from '$lib/assetTypes.svelte';
@@ -37,7 +37,21 @@
 	$effect(() => void pluginPanels.load(projectId));
 	let panels = $derived(asset && asset.status === 'confirmed' ? pluginPanels.for(projectId, 'asset.panel', asset.type) : []);
 	let secret = $state<string | null>(null);
+	/** Each network segment's latest word on it (when runs came from more than one). */
+	let reach = $state<{ segment: string; cell: ReachCell }[]>([]);
+	async function loadReach(id: UUID) {
+		reach = [];
+		try {
+			const r = await api().assets.reachability(projectId, { asset: id });
+			const row = r.rows[0];
+			const cells = row ? Object.entries(row.cells).map(([segment, cell]) => ({ segment, cell })) : [];
+			if (cells.length > 1 && assetId === id) reach = cells;
+		} catch {
+			reach = [];
+		}
+	}
 	async function load(id: UUID) {
+		void loadReach(id);
 		try {
 			asset = await api().assets.get(id);
 		} catch (err) {
@@ -441,6 +455,20 @@
 				{/if}
 			</section>
 
+			{#if reach.length}
+				<section aria-label="Seen from">
+					<h3 class="mb-1.5 label-large text-on-surface-variant">Seen from</h3>
+					<ul class="flex flex-wrap gap-2">
+						{#each reach as r (r.segment)}
+							<li class="flex items-center gap-1.5 rounded-sm px-2 py-1 body-small {r.cell.state === 'seen' ? 'bg-primary-container/40 text-on-surface' : 'border border-dashed border-outline-variant text-on-surface-variant'}" title={absoluteTime(r.cell.at)}>
+								<Icon name={r.cell.state === 'seen' ? 'check_circle' : 'block'} size={14} class={r.cell.state === 'seen' ? 'text-primary' : ''} />
+								<span class="font-medium">{r.segment}</span>{r.cell.state === 'seen' ? 'reached' : 'not reached'} · {relativeTime(r.cell.at)}
+							</li>
+						{/each}
+					</ul>
+				</section>
+			{/if}
+
 			{#if shots.length || cert || headers || evidenceFiles.length}
 				<section aria-label="Evidence" class="flex flex-col gap-3">
 					<div class="flex items-center gap-2">
@@ -614,7 +642,7 @@
 								<p class="text-on-surface-variant">
 									<span class="font-medium {k.tone}">{k.label}</span>
 									·
-									{#if h.source.link && !['parser', 'manual', 'import'].includes(h.source.kind)}<a href={h.source.link} class="text-primary hover:underline">{sourceText(h.source)}</a>{:else}{sourceText(h.source)}{/if}{#if h.source.task}{' '}on <a href={h.source.task.link} class="text-primary hover:underline"><Spoilers text={h.source.task.title} /></a>{/if}{#if h.source.agent}{' '}<span class="inline-flex items-center gap-0.5 align-bottom" title="The agent it ran on"><Icon name="dns" size={12} />{h.source.agent}</span>{/if}
+									{#if h.source.link && !['parser', 'manual', 'import'].includes(h.source.kind)}<a href={h.source.link} class="text-primary hover:underline">{sourceText(h.source)}</a>{:else}{sourceText(h.source)}{/if}{#if h.source.task}{' '}on <a href={h.source.task.link} class="text-primary hover:underline"><Spoilers text={h.source.task.title} /></a>{/if}{#if h.source.agent}{' '}<span class="inline-flex items-center gap-0.5 align-bottom" title="The agent it ran on"><Icon name="dns" size={12} />{h.source.agent}</span>{/if}{#if h.source.segment}{' '}<span class="inline-flex items-center gap-0.5 align-bottom" title="The agent's network segment"><Icon name="lan" size={12} />{h.source.segment}</span>{/if}
 									· <span title={absoluteTime(h.source.at)}>{relativeTime(h.source.at)}</span>
 								</p>
 								{#if h.source.excerpt}<p class="mt-0.5 text-on-surface-variant italic">“{h.source.excerpt}”</p>{/if}

@@ -313,8 +313,84 @@ async def _history(db: DB, obs: list[m.AssetObservation], source: Any) -> list[d
     for e in reversed(timeline(obs)):
         o = e["obs"]
         out.append({"kind": e["kind"], "changes": e["changes"], "fields": o.fields or {}, "absent": o.absent,
-                    "source": {**source(o), **{k: v for k, v in source_out(o, src).items() if k in ("command", "agent", "agent_id")}}})
+                    "source": {**source(o), **{k: v for k, v in source_out(o, src).items() if k in ("command", "agent", "agent_id", "segment")}}})
     return out[:200]
+
+
+@router.get("/projects/{project_id}/assets/reachability")
+async def reachability(project_id: str, db: DB, user: CurrentUser, type: str | None = None, where: str = "", scope: str | None = None,
+                       batch: str | None = None, asset: str | None = None, differs: bool = False) -> dict[str, Any]:
+    """The reachability matrix: per asset, each network segment's latest word on it (seen, with what
+    it saw, or not seen), from runs on agents that have a segment. `batch`: only one fan-out's runs
+    (a card run on every agent with some tags); `asset`: one asset; `differs`: only where segments
+    disagree. Rows breaking a segmentation rule come first."""
+    from ..segmentation import matrix
+
+    project = await project_or_404(db, user, parse_uuid(project_id))
+    if type:
+        try:
+            type = A.type_of(type).name
+        except A.AssetError as exc:
+            raise HTTPException(422, str(exc)) from exc
+    try:
+        return await matrix(db, project, type_name=type, where=where, scope=scope, batch_id=parse_uuid(batch) if batch else None,
+                            asset_id=parse_uuid(asset) if asset else None, differs=differs)
+    except A.AssetError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+class SegmentRuleIn(BaseModel):
+    id: str | None = Field(None, max_length=16)
+    name: str = Field(..., max_length=120)
+    # The segment that must not reach it (an agent's segment).
+    from_: str = Field(..., alias="from", max_length=80)
+    type: str | None = None
+    where: str = Field("", max_length=500)
+    scope: str | None = Field(None, max_length=80)
+    severity: str = "medium"
+
+
+class SegmentationIn(BaseModel):
+    rules: list[SegmentRuleIn] = Field(default_factory=list, max_length=100)
+
+
+@router.get("/projects/{project_id}/segmentation")
+async def get_segmentation(project_id: str, db: DB, user: CurrentUser) -> dict[str, Any]:
+    """The project's segmentation rules: what a network segment must not reach."""
+    from ..segmentation import rules_of
+
+    project = await project_or_404(db, user, parse_uuid(project_id))
+    return {"rules": rules_of(project)}
+
+
+@router.put("/projects/{project_id}/segmentation")
+async def set_segmentation(project_id: str, body: SegmentationIn, db: DB, user: CurrentUser) -> dict[str, Any]:
+    """Replace the rules. Each says a segment (`from`) must not reach assets of a `type`, matching
+    `where`, in a `scope` group (`*`: any); a run from there that does records a finding."""
+    from ..segmentation import RuleError, clean_rules
+
+    project = await project_or_404(db, user, parse_uuid(project_id), write=True)
+    try:
+        rules = clean_rules([r.model_dump(by_alias=True) for r in body.rules])
+    except (RuleError, A.AssetError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    project.settings = {**(project.settings or {}), "segmentation": rules}
+    said = "; ".join(f"{r['from']} must not reach {r['name']}" for r in rules[:3]) + (" …" if len(rules) > 3 else "")
+    await record_activity(db, type="project.segmentation", message=f"Set the segmentation rules: {said or 'none'}",
+                          project_id=project.id, **actor_of(user))
+    await db.commit()
+    bus.publish("assets.changed", project.id, {"project_id": str(project.id)})
+    return {"rules": rules}
+
+
+@router.post("/projects/{project_id}/segmentation/check")
+async def check_segmentation(project_id: str, db: DB, user: CurrentUser) -> dict[str, int]:
+    """Apply the rules to what runs already saw: a finding for each asset a segment reaches that it
+    must not (`reached`), `new` of them not found before."""
+    from ..segmentation import check
+
+    project = await project_or_404(db, user, parse_uuid(project_id), write=True)
+    return await check(db, project)
 
 
 @router.get("/projects/{project_id}/assets/changes")

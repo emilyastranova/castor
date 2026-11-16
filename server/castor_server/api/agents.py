@@ -43,6 +43,9 @@ async def update_agent(agent_id: str, body: AgentPatch, db: DB, user: Admin):
         if conn:
             conn.max_concurrency = agent.max_concurrency
     message = f"Changed the agent {agent.name}"
+    if body.segment is not None and body.segment.strip() != (agent.segment or ""):
+        agent.segment = body.segment.strip()
+        message = f"Put the agent {agent.name} in the segment “{agent.segment}”" if agent.segment else f"Took the agent {agent.name} out of its segment"
     if "project_ids" in body.model_fields_set:  # null is a value here: any project
         agent.project_ids = await existing_projects(db, body.project_ids)
         if conn := gateway.get(agent.id):

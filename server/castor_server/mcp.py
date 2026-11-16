@@ -471,6 +471,15 @@ TOOLS += [
     # Assets
     _auto("list_asset_types", "GET", "/api/assets/types", "Kinds of asset (host, service, url…, and those plugins add) and their fields."),
     _auto("get_asset", "GET", "/api/assets/{asset_id}", "One asset with where it was seen.", **_UNTRUSTED),
+    _auto("reachability", "GET", "/api/projects/{project_id}/assets/reachability",
+          "Which network segments reach each asset and what each saw (from runs on agents with a segment); differs: only "
+          "where segments disagree; batch: one fan-out run. Rows breaking a segmentation rule come first.", **_UNTRUSTED),
+    _auto("get_segmentation", "GET", "/api/projects/{project_id}/segmentation", "A project's segmentation rules: what a segment must not reach."),
+    _auto("set_segmentation", "PUT", "/api/projects/{project_id}/segmentation",
+          "Replace a project's segmentation rules ({name, from: segment, type, where, scope, severity}); a run from that "
+          "segment reaching a matching asset records a vulnerability finding."),
+    _auto("check_segmentation", "POST", "/api/projects/{project_id}/segmentation/check",
+          "Apply the segmentation rules to what runs already saw, recording findings."),
     _auto("asset_changes", "GET", "/api/projects/{project_id}/assets/changes",
           "What changed in a project's assets over a date range, from what its runs saw: new assets, changed values, "
           "assets a run covered and didn't see (gone) and ones back again. Filter by type, scope group, command, agent, kind.",

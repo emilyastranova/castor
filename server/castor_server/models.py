@@ -540,6 +540,9 @@ class Agent(Base, TimestampMixin):
     # The projects whose jobs it may run (ids as strings); None: any project. Set by admins (or
     # its enrollment token), never by the agent itself. An empty list runs nothing.
     project_ids: Mapped[list[str] | None] = mapped_column(JSONType, nullable=True, default=None)
+    # Where it sits on the network ("VLAN 20 / user LAN"): its vantage point. Set by admins; every
+    # observation from its runs records it (segmentation.py).
+    segment: Mapped[str] = mapped_column(String(80), default="", server_default="")
     max_concurrency: Mapped[int] = mapped_column(Integer, default=1)
     status: Mapped[AgentStatus] = mapped_column(
         Enum(AgentStatus, name="agent_status", native_enum=False, length=16),
@@ -864,6 +867,8 @@ class AssetObservation(Base):
     absent: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     # The agent the run went through (its vantage point); a plain id so forgetting an agent keeps it.
     agent_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    # That agent's network segment when it ran (Agent.segment), so where it was seen from survives a change.
+    segment: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     # Where a mention was: {"kind": comment|post|card|note|attachment, "id": …, "excerpt": the text around it}.
     ref: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
 

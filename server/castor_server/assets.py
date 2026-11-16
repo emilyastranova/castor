@@ -505,6 +505,7 @@ async def observe(
     task_id: uuid.UUID | None = None,
     actor_id: uuid.UUID | None = None,
     agent_id: uuid.UUID | None = None,
+    segment: str | None = None,
     secret: str | None = None,
     confidence: int | None = None,
     ref: dict[str, Any] | None = None,
@@ -551,7 +552,8 @@ async def observe(
         asset.secret = vault.encrypt(secret.encode())
     await db.flush()
     db.add(m.AssetObservation(asset_id=asset.id, source=source, parser=parser, job_id=job_id, task_id=task_id,
-                              actor_id=actor_id, agent_id=agent_id, fields=clean, confidence=conf, ref=ref))
+                              actor_id=actor_id, agent_id=agent_id, segment=segment or None, fields=clean, confidence=conf,
+                              ref=ref))
     if t.name == "host" and clean.get("ip") and clean.get("hostname"):
         asset = await _fold_host(db, asset)
     batch.seen.add(asset.id)
@@ -956,6 +958,12 @@ async def ingest_outputs(db: AsyncSession, job: m.Job, task: m.Task, outputs: li
             await record_absent(db, job, task, outputs, batch)
         except Exception:  # never lose what was found over what wasn't
             log.exception("recording what job %s didn't see failed", job.id)
+        from .segmentation import after_ingest
+
+        try:
+            await after_ingest(db, job, task, batch)
+        except Exception:
+            log.exception("segmentation rules for job %s failed", job.id)
     if batch.changes or batch.suggested or batch.missing or batch.back:
         person = await db.get(m.User, job.created_by) if job.created_by else None
         await settle(db, batch, task_id=task.id, person=person)
@@ -964,10 +972,19 @@ async def ingest_outputs(db: AsyncSession, job: m.Job, task: m.Task, outputs: li
     return batch
 
 
+async def segment_of(db: AsyncSession, job: m.Job) -> str | None:
+    """The network segment of the agent a job ran on (its vantage point), if it has one."""
+    if job.agent_id is None:
+        return None
+    agent = await db.get(m.Agent, job.agent_id)
+    return (agent.segment or None) if agent is not None else None
+
+
 async def _ingest(db: AsyncSession, job: m.Job, task: m.Task, outputs: list[m.JobOutput], batch: Batch) -> bool:
     """Record what a job's outputs found; whether any output was one Castor reads as assets."""
     hints = {o.get("name"): o.get("asset") for o in (job.output_specs or []) if isinstance(o, dict) and o.get("asset")}
     target, tool = default_target(task), task.command_ref or ""
+    segment = await segment_of(db, job)
     read = False
     for out in outputs:
         if out.error:
@@ -975,11 +992,12 @@ async def _ingest(db: AsyncSession, job: m.Job, task: m.Task, outputs: list[m.Jo
         kind = mapping_for(out.parser, out.type)
         if kind is not None:
             read = True
-            await _map(db, kind, out.value, task.project_id, batch, job_id=job.id, task_id=task.id, agent_id=job.agent_id)
+            await _map(db, kind, out.value, task.project_id, batch, job_id=job.id, task_id=task.id, agent_id=job.agent_id,
+                       segment=segment)
         elif hints.get(out.name):
             read = True
             await _map_hint(db, hints[out.name], out.value, task.project_id, batch, target=target, tool=tool, job_id=job.id, task_id=task.id,
-                            agent_id=job.agent_id)
+                            agent_id=job.agent_id, segment=segment)
     return read
 
 

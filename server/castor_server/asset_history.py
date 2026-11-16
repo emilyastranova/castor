@@ -240,7 +240,10 @@ async def record_absent(db: AsyncSession, job: m.Job, task: m.Task, outputs: lis
     see gets a "not seen" observation (once per run, however often it's parsed again)."""
     if job.status != m.JobStatus.succeeded:
         return  # a scan that failed or was cancelled says nothing about what it didn't reach
+    from .assets import segment_of
+
     started = job.started_at or job.queued_at
+    segment = await segment_of(db, job)
     already = set((await db.execute(select(m.AssetObservation.asset_id).where(
         m.AssetObservation.job_id == job.id, m.AssetObservation.absent.is_(True)))).scalars())
     now = utcnow()
@@ -256,11 +259,20 @@ async def record_absent(db: AsyncSession, job: m.Job, task: m.Task, outputs: lis
                 continue
             already.add(asset.id)
             db.add(m.AssetObservation(asset_id=asset.id, source="parser", parser=out.parser, job_id=job.id, task_id=task.id,
-                                      agent_id=job.agent_id, fields={}, absent=True, confidence=85, observed_at=now))
+                                      agent_id=job.agent_id, segment=segment, fields={}, absent=True, confidence=85, observed_at=now))
+            if segment and not await _seen_from(db, asset.id, segment):
+                continue  # never reached from here: a difference in reach (segmentation.py), not something gone
             if asset.missing_since is None:
                 asset.missing_since = now
                 batch.missing[asset.id] = asset
     await db.flush()
+
+
+async def _seen_from(db: AsyncSession, asset_id: uuid.UUID, segment: str) -> bool:
+    """Whether a run from this segment has seen the asset (or no run said where it ran from)."""
+    rows = (await db.execute(select(m.AssetObservation.segment).where(
+        m.AssetObservation.asset_id == asset_id, m.AssetObservation.absent.is_(False), m.AssetObservation.source == "parser").distinct())).scalars().all()
+    return segment in rows or not any(rows)
 
 
 # ---------- timelines ----------
@@ -272,21 +284,46 @@ def _same(a: Any, b: Any) -> bool:
     return a == b
 
 
-def timeline(observations: list[m.AssetObservation]) -> list[dict[str, Any]]:
-    """What each observation (oldest first) changed: `kind` new | changed | seen | gone | back,
-    `changes` [{field, before, after}] (before None: first reported then). Newest last."""
+def timeline(observations: list[Any]) -> list[dict[str, Any]]:
+    """What each observation (oldest first) changed: `kind` new | changed | seen | gone | still_gone |
+    back, and with network segments (an observation's `segment`, its run's vantage point) also
+    reached (first seen from another segment) | unreached (not seen from a segment that never saw it,
+    while others do: a difference in reach, not something gone). `changes` [{field, before, after}]
+    (before None: first reported then). Newest last."""
     state: dict[str, Any] = {}
-    present: bool | None = None
+    present: bool | None = None  # anywhere
+    seen_in: dict[str, bool] = {}  # by segment
     out: list[dict[str, Any]] = []
     for o in observations:
+        seg = getattr(o, "segment", None) or ""
         if o.absent:
-            out.append({"obs": o, "kind": "gone" if present is not False else "still_gone", "changes": []})
-            present = False
+            if seg and seen_in.get(seg) is None and present is not None:
+                kind = "unreached"
+            elif seg:
+                kind = "gone" if seen_in.get(seg) else "still_gone"
+            else:
+                kind = "gone" if present else "still_gone"
+            if seg:
+                seen_in[seg] = False
+            else:
+                seen_in = dict.fromkeys(seen_in, False)
+            present = any(seen_in.values()) if seen_in and seg else False
+            out.append({"obs": o, "kind": kind, "changes": []})
             continue
         changes = [{"field": k, "before": state.get(k), "after": v} for k, v in (o.fields or {}).items()
                    if v is not None and not _same(state.get(k), v)]
-        kind = "new" if present is None else "back" if present is False else "changed" if any(c["before"] is not None for c in changes) else "seen"
+        before = seen_in.get(seg) if seg else present
+        if present is None:
+            kind = "new"
+        elif seg and before is None and seen_in:
+            kind = "reached"
+        elif before is False or (not seg and present is False):
+            kind = "back"
+        else:
+            kind = "changed" if any(c["before"] is not None for c in changes) else "seen"
         state.update({k: v for k, v in (o.fields or {}).items() if v is not None})
+        if seg:
+            seen_in[seg] = True
         present = True
         out.append({"obs": o, "kind": kind, "changes": changes})
     return out
@@ -313,6 +350,7 @@ def source_out(o: Any, src: dict[str, dict]) -> dict[str, Any]:
         "command": t.command_ref if t else None,
         "agent": src["agents"].get(agent_id) if agent_id else None,
         "agent_id": str(agent_id) if agent_id else None,
+        "segment": getattr(o, "segment", None),
     }
 
 

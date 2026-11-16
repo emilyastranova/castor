@@ -627,6 +627,8 @@ class AgentOut(ORM):
     tags: list[str]
     # The projects whose jobs it may run; null: any project.
     project_ids: list[uuid.UUID] | None = None
+    # Its network segment ("VLAN 20 / user LAN"), its vantage point; empty: not said.
+    segment: str = ""
     max_concurrency: int
     status: AgentStatus
     last_seen_at: datetime | None
@@ -639,6 +641,7 @@ class AgentOut(ORM):
 
 class AgentPatch(BaseModel):
     tags: list[str] | None = None
+    segment: str | None = Field(None, max_length=80)
     max_concurrency: int | None = None
     # Limit it to these projects' jobs; null lifts the limit (any project). Left out: unchanged.
     project_ids: list[uuid.UUID] | None = None
