@@ -2575,6 +2575,8 @@ export interface PluginPreview {
 		network: string[];
 		events: string[];
 		actions: PluginActionSpec[];
+		/** Tools it adds to Castor's MCP server for AI assistants (as `<plugin>__<name>`). */
+		mcp_tools?: { name: string; description: string; read_only: boolean; destructive: boolean }[];
 		/** Its pages shown in Castor (sandboxed frames). */
 		ui: Pick<PluginPanel, 'id' | 'slot' | 'title' | 'icon' | 'asset_types'>[];
 		asset_types?: { name: string; label: string; plural: string; icon: string; description: string; fields: { name: string; label: string }[] }[];

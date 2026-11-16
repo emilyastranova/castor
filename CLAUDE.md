@@ -392,7 +392,9 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   there; `RESOURCES` the same for `castor://` URIs), `api/mcp.py` (`POST /api/mcp`, bearer only).
   Its calls mark activity `payload.via = "mcp"` (`api_tokens.via`, set in `deps.current_user` from
   a startup key). `castor-mcp` (agent `mcp_stdio.py`, stdlib only) bridges stdio clients. Web:
-  `McpConnect.svelte`.
+  `McpConnect.svelte`. Plugins add tools (manifest `mcp_tools`, SDK `ctx.mcp.on`): `api/plugin_tools.py` lists and calls
+  them (approved in `granted.mcp_tools`, the plugin's projects, read-only or write access), `mcp.plugin_tools` and
+  `_call_plugin_tool` put them on the server as `<plugin>__<tool>`; keep Castor's own tool names free of `__`.
   Prefer `_auto(...)` for new tools (inputs come from the endpoint's OpenAPI). A UI action
   should have its tool, apart from the deliberate gaps listed above `TOOLS +=`.
 - SSH hosts: `orchestrator/ssh.py` (a `HostLink` per host keeps an asyncssh connection and

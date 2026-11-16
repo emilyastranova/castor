@@ -40,6 +40,7 @@ allows more.
 | **Actions** | Buttons on a card, an asset, a run or a project, and entries in Ctrl+K, that call the plugin; an action can take a file | "Import .nessus file", "Create Jira issue", "Crack with hashcat" |
 | **Event handlers** | The plugin is told when something happens (`job.finished`, `assets.changed`, `task.moved`, `run.finished`, `comment.created`…) | Enrich new hosts from Shodan; post findings to a SIEM |
 | **Hooks** | Synchronous decisions Castor asks the plugin for: map parsed results to assets and relationships, a playbook transform op, a trigger condition, a search provider | A parser for a tool Castor doesn't know, with its asset mapping |
+| **MCP tools** | Tools AI assistants call through Castor's MCP server, answered by the plugin | "Look this host up in Shodan", "Open a Jira issue for this finding" |
 | **UI slots** | A panel in a sandboxed iframe: a card tab, an asset dialog panel, a project Home tile, a settings page, a Relationships graph overlay | A BloodHound attack-path tab; a Jira tab on a card |
 | **Settings** | Fields the admin fills in at install (per instance, optionally per project); secret ones go to the vault | An API key, a base URL, a default severity |
 | **Storage** | A key-value space per plugin, and per plugin and project | Last sync time, an id map between Castor and Jira |
@@ -85,6 +86,12 @@ library_actions:               # actions that are library definitions, for cards
     vars: [{ name: creds, kind: credential, required: false }]
     outputs: [{ name: cracked, parser: json-records, options: { records: cracked } }]
     timeout_minutes: 30
+mcp_tools:                     # tools for AI assistants on Castor's MCP server, as `<plugin id>__<name>`
+  - name: shodan_host
+    description: What Shodan knows about an address.
+    read_only: true              # viewers and read-only tokens may call it; otherwise it needs write access
+    input_schema: { type: object, properties: { ip: { type: string } }, required: [ip] }
+    timeout_seconds: 60
 hooks: []
 ui:                            # its pages, shown in Castor in sandboxed frames (phase C)
   - id: paths
@@ -104,7 +111,7 @@ link_kinds:                    # kinds of relationship it adds, or more pairs fo
   - { name: affects, pairs: [[vulnerability, source_file]] }
 ```
 
-`network`, `events`, `actions`, `hooks`, `ui`, `settings`, `asset_types` and `link_kinds` are all optional. Castor rejects a
+`network`, `events`, `actions`, `mcp_tools`, `hooks`, `ui`, `settings`, `asset_types` and `link_kinds` are all optional. Castor rejects a
 manifest with unknown fields, a permission it doesn't know, or an `id` that's taken by another
 publisher.
 
@@ -276,6 +283,26 @@ action gets `run`: `runId`, `user`, `project`, `task`, `asset`, `file` (`name`, 
 castor-plugins' `scripts/pack.py <folder>` packs a release (leaving out tests, samples and
 `deno.json`; the same files always give the same .zip). Types
 generated from the OpenAPI and a scaffolding CLI come later.
+
+### MCP tools
+
+A manifest's `mcp_tools` add tools to Castor's own MCP server (docs/ARCHITECTURE.md, MCP server), so an AI
+assistant connected to Castor can use what the plugin does as a tool of its own. Each has a `name`
+(lowercase, `_`), a `description` for the assistant, an `input_schema` (a JSON Schema object; `project_id`
+is Castor's), `read_only`, `destructive` and `timeout_seconds` (60 by default, at most 600). The plugin
+answers with `ctx.mcp.on(name, async (call) => …)`: `call.args` (as sent: check them), `call.user` (who
+the assistant acts for), `call.project` and `call.settings`; what it returns (text or JSON) is the
+answer, and a thrown `CastorError` is a failed call.
+
+- **Approved like permissions.** The install review lists them, and an update that adds one asks again
+  (`granted.mcp_tools`); a tool that isn't approved, or a plugin that's off, offers nothing.
+- **Named and placed.** Assistants see `<plugin id>__<name>`, described as the plugin's, with a required
+  `project_id` added: one of the plugin's projects that the caller can see.
+- **The caller's rights.** Calls go through `POST /api/plugin-tools/{plugin}/{tool}` as the caller: a
+  read-only tool needs read access to the project, any other write access (an operator, and a token with
+  `projects:write`). The plugin's actions rate limit counts them too; calls that aren't read-only are in
+  the project's feed (`plugin.tool.called`). `GET /api/plugin-tools` lists what the caller may use.
+- **Untrusted answers.** The MCP server marks a plugin's answer as data, not instructions.
 
 ### UI slots (phase C)
 

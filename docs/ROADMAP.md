@@ -103,6 +103,56 @@ of those.)
   running Ansible directly; and how this meets "Agent types from plugins" (Ansible inventory as
   agents).
 
+### Network routes (proxies and jump hosts)
+Getting a tool's traffic to its targets often means going through something: a jumpbox, a SOCKS
+proxy on a beachhead, an HTTP proxy, several of those in a row, and each tool takes it differently.
+Some honour `ALL_PROXY` or have a `--proxy` flag, some only work under an `LD_PRELOAD` hook such as
+proxychains, static Go binaries ignore `LD_PRELOAD` and need something like graftcp, UDP and ICMP
+don't go through a SOCKS proxy at all, DNS leaks unless it's resolved remotely, and Docker containers
+misbehave with all of it. Castor should own this, so a card says where its traffic goes and Castor
+gets it there.
+- **Routes as named things:** a route is a chain of hops, each one an SSH jump (key or password from
+  the vault, host keys pinned like SSH hosts), a SOCKS4/5 or HTTP CONNECT proxy (with credentials from
+  the vault), or later a tunnel such as Chisel, ligolo-ng or WireGuard. Routes are kept per project
+  (and shareable across projects), with tags, like variable sets, and can be built from an existing
+  SSH host or the shared SSH config (ProxyJump chains become hops).
+- **Where it's chosen:** on a card, a playbook step, a playbook run or a project (a default), and on
+  an agent or SSH host (everything it runs goes that way). HTTP and MCP actions can use one too,
+  next to "Sent from".
+- **How it's applied, per tool:** a tool definition says how it accepts a proxy, and Castor picks the
+  best way it has:
+  - **native**: a flag or setting the tool understands (`--proxy socks5h://…`, `-x`, `proxy:` in a
+    config file), filled in from the route's local end;
+  - **environment**: `ALL_PROXY`, `HTTPS_PROXY`, `NO_PROXY`;
+  - **hooked**: proxychains-ng (`LD_PRELOAD`, with `proxy_dns`) for dynamically linked tools, or
+    graftcp (ptrace) for static binaries and Go tools;
+  - **transparent**: the job's own network namespace (or the container's) routed through a
+    tun2socks or redsocks sidecar, so every TCP connection and DNS lookup goes through the route
+    whatever the tool does. This is the answer for Docker: the job's container joins the sidecar's
+    network rather than being told about a proxy.
+  The agent sets up the chain (SSH dynamic forwards or `-J` jumps, chained proxies), checks it, keeps
+  it up while jobs use it, and tears it down when idle; nothing about a route is written into the
+  card's command line, and its secrets stay in the vault like variable values.
+- **DNS and what can't go through:** DNS resolved at the far end by default (no leaks), with a
+  per-route choice; UDP, ICMP and raw-socket scans (nmap's SYN scan, ping sweeps) can't go through a
+  SOCKS chain, so a card says which ways a tool can be routed and Castor refuses (or suggests a
+  connect scan) rather than silently leaking from the agent's own network.
+- **Checked before it's trusted:** "Test route" connects hop by hop and reports where it breaks (an
+  SSH key refused at hop 2, a proxy timing out), with each hop's latency; jobs on a broken route wait
+  or fail with that reason instead of running unrouted. A route can require that nothing leaves except
+  through it (a kill switch for the job's network namespace).
+- **Seeing it:** a route editor that draws the chain (agent → jumpbox → SOCKS on the beachhead →
+  targets), with each hop's protocol, address, credentials and status, live while jobs use it; a
+  card shows which route its run took, and a run's log says how it was applied (native, hooked,
+  transparent). Several routes side by side for a project with more than one way in.
+- **The same rules:** scope checks still apply to the targets, routes are in exports without their
+  secrets (like variable sets), every route change is in the activity feed, and a route used against
+  a target outside the project's scope asks first.
+- **Open questions:** whether chains run on the agent only or can start on the Castor server (for
+  HTTP actions); bundling proxychains-ng, graftcp and tun2socks as tools from the tool library (not in
+  the agent image); per-target routes within one job (a route map by subnet, like a routing table);
+  and how this meets "Comparing from different vantage points" (a route is a vantage point too).
+
 ### Triggers beyond assets
 Today a trigger fires on new or changed [assets](https://github.com/emilyastranova/castor/wiki/Assets), and on new
 relationships between them (a credential that works on a new host).

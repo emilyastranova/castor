@@ -167,6 +167,25 @@ export interface Context {
   /** Answer `Castor.call(name, args)` from the plugin's panels; what it returns (JSON) goes back
    *  to the panel. Register these in `activate`: Castor learns them when it returns. */
   ui: { on<A = unknown>(name: string, handler: (call: UiCall<A>) => unknown, options?: UiOptions): void };
+  /** Answer one of the manifest's `mcp_tools` when an AI assistant calls it through Castor's MCP
+   *  server (as `<plugin id>__<name>`). What it returns (text, or JSON) is the tool's answer; throw a
+   *  `CastorError` to say it failed. Register these in `activate`: Castor learns them when it returns. */
+  mcp: { on<A = Record<string, unknown>>(name: string, handler: (call: McpCall<A>) => unknown): void };
+}
+
+/** A call of one of the plugin's MCP tools (manifest `mcp_tools`), by an assistant acting for a person. */
+export interface McpCall<A = Record<string, unknown>> {
+  /** The tool's name in the manifest. */
+  name: string;
+  /** Its arguments, as the assistant sent them (check them: Castor only checks they're an object). */
+  args: A;
+  /** Who the assistant acts for. `can_write` is false for a read-only tool. */
+  user: { id: string; username: string; display_name: string; can_write: boolean };
+  /** The project it's called in (one the plugin is on in). */
+  project: { id: string; codename: string; name: string };
+  /** The shared settings plus the person's own. */
+  settings: Record<string, unknown>;
+  log: Logger;
 }
 
 /** A request from one of the plugin's panels (manifest `ui:`), made by the person looking at it. */
@@ -320,6 +339,7 @@ function pluginFile(runId: string, name: string, size: number): PluginFile {
 const handlers = new Map<string, (run: ActionRun) => ActionResult | Promise<ActionResult>>();
 const aborts = new Map<string, AbortController>();
 const uiHandlers = new Map<string, { handler: (call: UiCall) => unknown; readOnly: boolean }>();
+const mcpHandlers = new Map<string, (call: McpCall) => unknown>();
 const eventHandlers = new Map<string, ((event: PluginEvent) => void | Promise<void>)[]>();
 let definition: PluginDefinition | null = null;
 
@@ -340,6 +360,12 @@ async function onRequest(method: string, params: Record<string, unknown>): Promi
           uiHandlers.set(name, { handler: handler as (call: UiCall) => unknown, readOnly: !!options?.readOnly });
         },
       },
+      mcp: {
+        on: (name, handler) => {
+          if (!/^[a-z][a-z0-9_]{0,39}$/.test(name)) throw new CastorError(`ctx.mcp.on: “${name}” isn't a tool name (manifest mcp_tools)`);
+          mcpHandlers.set(name, handler as (call: McpCall) => unknown);
+        },
+      },
       events: {
         on: (name, handler) => {
           const list = eventHandlers.get(name) ?? [];
@@ -353,6 +379,7 @@ async function onRequest(method: string, params: Record<string, unknown>): Promi
       actions: [...handlers.keys()],
       events: [...eventHandlers.keys()],
       ui: [...uiHandlers].map(([name, h]) => ({ name, read_only: h.readOnly })),
+      mcp: [...mcpHandlers.keys()],
     };
   }
   if (method === "event") {
@@ -400,6 +427,12 @@ async function onRequest(method: string, params: Record<string, unknown>): Promi
     if (!entry) throw new CastorError(`This plugin has no handler “${params.name}” (ctx.ui.on)`);
     const call = { ...(params as unknown as UiCall), log: rootLog };
     const result = await entry.handler(call);
+    return result === undefined ? null : result;
+  }
+  if (method === "mcp") {
+    const handler = mcpHandlers.get(String(params.name));
+    if (!handler) throw new CastorError(`This plugin has no handler for the tool “${params.name}” (ctx.mcp.on)`);
+    const result = await handler({ ...(params as unknown as McpCall), log: rootLog });
     return result === undefined ? null : result;
   }
   if (method === "deactivate") {

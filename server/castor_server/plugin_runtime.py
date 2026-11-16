@@ -142,6 +142,7 @@ class PluginProcess:
         self.files: dict[str, Path] = {}  # run id → the file the action was given
         self.ui_handlers: set[str] = set()  # ctx.ui.on names, from activate
         self.ui_read_only: set[str] = set()
+        self.mcp_handlers: set[str] = set()  # ctx.mcp.on names, from activate
 
     @property
     def alive(self) -> bool:

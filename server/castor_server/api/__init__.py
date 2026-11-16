@@ -29,6 +29,7 @@ from . import (
     playbooks,
     plugin_directory,
     plugin_panels,
+    plugin_tools,
     plugins,
     posts,
     projects,
@@ -48,7 +49,7 @@ from . import (
 )
 
 api_router = APIRouter(prefix="/api")
-for module in (auth, clients, projects, tasks, jobs, changes, archive, agents, attachments, files, activity, commands, parsers, playbooks, variables, notifications, agent_tokens, users, dashboard, exports, summaries, themes, plugin_directory, plugin_panels, plugins, tools, notes, posts, moves, search, people, assets, transfer, app_settings, alerts, ai, tokens, mcp, mcp_connections, ssh_hosts, tags, sso, groups, subtasks):
+for module in (auth, clients, projects, tasks, jobs, changes, archive, agents, attachments, files, activity, commands, parsers, playbooks, variables, notifications, agent_tokens, users, dashboard, exports, summaries, themes, plugin_directory, plugin_panels, plugins, tools, notes, posts, moves, search, people, assets, transfer, app_settings, alerts, ai, tokens, mcp, mcp_connections, ssh_hosts, tags, sso, groups, subtasks, plugin_tools):
     api_router.include_router(module.router)
 # AI drafts for job outputs live under /jobs and /parser-proposals (next to parsers.router).
 api_router.include_router(parsers.proposals)

@@ -868,6 +868,20 @@ TaskCard), "Start as a card with subtasks" in `RunPlaybookDialog`, `GroupCardsDi
 "Add cards from the board"), the progress on `TaskCard`/`BoardList` (`taskStatus.subtaskState`), and a
 "subtask of" banner on a subtask's card.
 
+## MCP tools from plugins
+
+A plugin's manifest `mcp_tools` (`plugin_manifest.McpToolSpec`, named `<plugin>__<name>` by
+`mcp_tool_name`) are added to Castor's MCP server for the caller (`mcp.plugin_tools` on `tools/list`, from
+`GET /api/plugin-tools`; `tools/call` of a name with `__` goes to `_call_plugin_tool` →
+`POST /api/plugin-tools/{plugin}/{tool}` in `api/plugin_tools.py`). Offered only when approved
+(`plugins.grants` has `mcp_tools`, so an update adding one asks again), the plugin is on, and in its
+projects; each gets a required `project_id`. The call checks read access (read-only tools) or write access
+plus a token's `projects:write`, takes room under the plugin's `actions_rate_limit`, sends `mcp` to the
+plugin (`ctx.mcp.on`, names from `activate` in `PluginProcess.mcp_handlers`) with `timeout_seconds`, and
+records `plugin.tool.called` for tools that aren't read-only. Answers come back marked untrusted
+(`mcp.FROM_PLUGIN`). Web: the install review lists them (`PluginInstallDialog`). Tests:
+`tests/test_plugin_mcp_tools.py` (a real Deno plugin).
+
 ## Spoilers
 
 `||text||` (Discord's format) hides text until someone clicks it, in titles, descriptions, comments, posts, notes and

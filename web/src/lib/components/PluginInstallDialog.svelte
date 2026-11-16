@@ -83,10 +83,11 @@
 	let newPerms = $derived(new Set(preview?.new_permissions.permissions ?? []));
 	let newHosts = $derived(new Set(preview?.new_permissions.network ?? []));
 	let newEvents = $derived(new Set(preview?.new_permissions.events ?? []));
+	let newTools = $derived(new Set(preview?.new_permissions.mcp_tools ?? []));
 	let unrestricted = $derived(preview?.manifest.runtime === 'unrestricted');
 	let newlyUnrestricted = $derived(!!preview?.new_permissions.runtime?.length);
 	let confirmed = $derived(!unrestricted || confirmId.trim() === preview?.manifest.id);
-	let anythingNew = $derived(newPerms.size + newHosts.size + newEvents.size > 0 || newlyUnrestricted);
+	let anythingNew = $derived(newPerms.size + newHosts.size + newEvents.size + newTools.size > 0 || newlyUnrestricted);
 	/** Settings each person sets for themselves (the admin's choice, and those the plugin insists on). */
 	let own = $derived(new Set([...perUser, ...(preview?.manifest.settings ?? []).filter((s) => s.per_user === 'required').map((s) => s.name)]));
 	/** A pack (no code) has nothing to turn on in projects: its library content is everyone's. */
@@ -274,6 +275,29 @@
 							</li>
 						{/each}
 					</ul>
+				</section>
+			{/if}
+
+			{#if m.mcp_tools?.length}
+				<section aria-label="Tools for AI assistants">
+					<h3 class="mb-1.5 label-large text-on-surface-variant">It adds tools for AI assistants</h3>
+					<ul class="flex flex-col gap-1.5 body-medium text-on-surface">
+						{#each m.mcp_tools as t (t.name)}
+							<li class="flex items-start gap-2">
+								<Icon name={t.read_only ? 'visibility' : t.destructive ? 'delete' : 'edit'} size={18} class="mt-0.5 shrink-0 text-on-surface-variant" />
+								<span class="min-w-0">
+									<code class="font-mono body-small">{m.id}__{t.name}</code>
+									<span class="body-small text-on-surface-variant"> · {t.read_only ? 'only reads' : t.destructive ? 'can remove things' : 'can change things'}</span>
+									{#if newTools.has(t.name)}<span class="ml-1 rounded-xs bg-tertiary-container px-1.5 label-small text-on-tertiary-container">New</span>{/if}
+									<span class="block body-small text-on-surface-variant">{t.description}</span>
+								</span>
+							</li>
+						{/each}
+					</ul>
+					<p class="mt-1 body-small text-on-surface-variant">
+						Assistants connected to Castor's MCP server can call these in the projects the plugin is on in, as the person they act for:
+						read-only ones with read access, the others only for people (and tokens) that can change the project. The plugin answers them.
+					</p>
 				</section>
 			{/if}
 

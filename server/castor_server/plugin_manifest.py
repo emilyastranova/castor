@@ -66,6 +66,42 @@ class LibraryActionSpec(BaseModel):
 SLOTS = ("asset.panel", "card.tab", "project.page", "page.script")
 
 
+def mcp_tool_name(plugin_id: str, name: str) -> str:
+    """What assistants call a plugin's MCP tool: `<plugin id>__<name>` (two underscores: Castor's own
+    tool names have one at most, so the two never meet)."""
+    return f"{plugin_id}__{name}"
+
+
+class McpToolSpec(BaseModel):
+    """A tool the plugin adds to Castor's MCP server, answered by `ctx.mcp.on(name, handler)`.
+    Assistants see it as `<plugin id>__<name>`, in the plugin's projects (a `project_id` input is
+    added to its schema), once an admin approved it."""
+
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")
+    description: str = Field(min_length=1, max_length=1000)
+    # JSON Schema of its arguments (an object); `project_id` is Castor's and added for it.
+    input_schema: dict[str, Any] = Field(default_factory=lambda: {"type": "object", "properties": {}})
+    # Changes nothing: viewers and read-only API tokens may call it.
+    read_only: bool = False
+    # Removes or overwrites something (told to the assistant's client, which may ask first).
+    destructive: bool = False
+    timeout_seconds: int = Field(60, ge=1, le=600)
+
+    @field_validator("input_schema")
+    @classmethod
+    def object_schema(cls, value: dict[str, Any]) -> dict[str, Any]:
+        import json
+
+        if value.get("type", "object") != "object" or not isinstance(value.get("properties", {}), dict):
+            raise ValueError("input_schema: a JSON Schema of type object with properties")
+        if "project_id" in (value.get("properties") or {}):
+            raise ValueError("input_schema: project_id is Castor's (it's added for the tool)")
+        if len(json.dumps(value)) > 20_000:
+            raise ValueError("input_schema: too large")
+        return value
+
+
 class UiSpec(BaseModel):
     """A panel the plugin shows in Castor: an HTML page in the plugin, in a sandboxed iframe. Or,
     for unrestricted plugins only, `page.script`: a script that runs in Castor's own page."""
@@ -195,6 +231,7 @@ class Manifest(BaseModel):
     actions: list[ActionSpec] = Field(default_factory=list)
     # Actions that are library definitions (kind: plugin), for cards and playbook steps.
     library_actions: list[LibraryActionSpec] = Field(default_factory=list, max_length=50)
+    mcp_tools: list[McpToolSpec] = Field(default_factory=list, max_length=40)
     hooks: list[dict[str, Any]] = Field(default_factory=list)
     ui: list[UiSpec] = Field(default_factory=list)
     settings: list[SettingSpec] = Field(default_factory=list)
@@ -212,6 +249,12 @@ class Manifest(BaseModel):
         for a in self.library_actions:
             if len(f"{self.id}-{a.id}") > 63:
                 raise ValueError(f"library_actions.{a.id}: “{self.id}-{a.id}” (its library id) is over 63 characters")
+        names = [t.name for t in self.mcp_tools]
+        if len(names) != len(set(names)):
+            raise ValueError("mcp_tools: each name once")
+        for t in self.mcp_tools:
+            if len(mcp_tool_name(self.id, t.name)) > 64:
+                raise ValueError(f"mcp_tools.{t.name}: “{mcp_tool_name(self.id, t.name)}” (its tool name) is over 64 characters")
         return self
 
     @field_validator("main", "icon")
@@ -314,6 +357,9 @@ class Manifest(BaseModel):
 
     def action(self, action_id: str) -> ActionSpec | None:
         return next((a for a in self.actions if a.id == action_id), None)
+
+    def mcp_tool(self, name: str) -> McpToolSpec | None:
+        return next((t for t in self.mcp_tools if t.name == name), None)
 
     def panel(self, ui_id: str) -> UiSpec | None:
         return next((u for u in self.ui if u.id == ui_id), None)

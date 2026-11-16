@@ -72,7 +72,9 @@ def folder_of(p: m.Plugin) -> Path:
 def grants(man: Manifest) -> dict[str, Any]:
     # "runtime" lists "unrestricted" when it is, so an update that becomes unrestricted asks again.
     return {"permissions": sorted(man.permissions), "network": sorted(man.network), "events": sorted(man.events),
-            "runtime": ["unrestricted"] if man.runtime == "unrestricted" else []}
+            "runtime": ["unrestricted"] if man.runtime == "unrestricted" else [],
+            # MCP tools for assistants: a new one in an update is asked for again, like a permission.
+            "mcp_tools": sorted(t.name for t in man.mcp_tools)}
 
 
 # ---------- restricted and safe mode ----------
@@ -497,6 +499,9 @@ async def ensure_running(plugin_id: str, *, force: bool = False) -> PluginProces
                     proc.ui_handlers.add(h["name"])
                     if h.get("read_only"):
                         proc.ui_read_only.add(h["name"])
+            for name in (answer.get("mcp") if isinstance(answer, dict) else None) or []:
+                if isinstance(name, str):
+                    proc.mcp_handlers.add(name)
         except (PluginRuntimeError, OSError) as exc:
             await host.stop(plugin_id)
             await _status(plugin_id, "error", str(exc))

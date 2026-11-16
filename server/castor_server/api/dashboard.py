@@ -52,7 +52,7 @@ def kind_of(event_type: str) -> str:
     if head == "library":
         return "library"  # commands, tools, parsers, playbooks, variable kinds
     if head == "plugin":
-        return "plugin" if event_type.startswith("plugin.action") else "admin"  # runs of actions; installs are admin
+        return "plugin" if event_type.startswith(("plugin.action", "plugin.tool")) else "admin"  # actions and tool calls; installs are admin
     if head == "column" or event_type == "project.updated":
         return "board"
     return "admin"  # users, projects, variables
