@@ -155,3 +155,66 @@ def test_work_directory_reference_reaches_the_job(tmp_path):
 
     assert asyncio.run(_runner({"id": "w2", "command": command}, tmp_path).run(sink)).exit_code == 0
     assert (tmp_path / "out.txt").read_text() == "hi\n"
+
+
+def test_services_run_with_an_init_in_containers(tmp_path):
+    argv, _ = _runner({"id": "s1", "command": "socat TCP-LISTEN:9000 -", "image": "alpine",
+                       "service": {"stop_signal": "INT", "stop_timeout": 5}}, tmp_path).build_argv()
+    assert "--init" in argv and argv.index("--init") < argv.index("alpine")
+    argv, _ = _runner({"id": "s2", "command": "id", "image": "alpine"}, tmp_path).build_argv()
+    assert "--init" not in argv  # ordinary jobs: as before
+
+
+def test_a_service_stops_the_way_it_is_built_to(tmp_path):
+    """Its stop signal reaches it, it gets to clean up (here: write a file and exit 0), and no kill is needed."""
+    import asyncio
+    import time
+
+    script = ("trap 'echo cleaned > stopped.txt; exit 0' INT; echo listening; "
+              "while true; do sleep 0.1; done")
+    runner = JobRunner({"id": "svc", "command": script, "service": {"stop_signal": "INT", "stop_timeout": 5}},
+                       container_runtime=None, allow_host=True, default_image="alpine", job_dir=str(tmp_path),
+                       network="host", extra_run_args=[])
+    out = []
+
+    async def sink(stream, data):
+        out.append(data)
+
+    async def go():
+        task = asyncio.create_task(runner.run(sink))
+        while "listening" not in "".join(out):
+            await asyncio.sleep(0.05)
+        started = time.monotonic()
+        await runner.stop("INT", 5)
+        result = await asyncio.wait_for(task, 5)
+        return result, time.monotonic() - started
+
+    result, took = asyncio.run(go())
+    assert (tmp_path / "stopped.txt").read_text().strip() == "cleaned"
+    assert result.exit_code == 0 and took < 3  # it exited on its signal, before any kill
+
+
+def test_a_service_that_ignores_its_signal_is_killed_after_the_wait(tmp_path):
+    import asyncio
+    import time
+
+    runner = JobRunner({"id": "svc2", "command": "trap '' TERM; echo up; while true; do sleep 0.1; done",
+                        "service": {"stop_signal": "TERM", "stop_timeout": 1}},
+                       container_runtime=None, allow_host=True, default_image="alpine", job_dir=str(tmp_path),
+                       network="host", extra_run_args=[])
+    out = []
+
+    async def sink(stream, data):
+        out.append(data)
+
+    async def go():
+        task = asyncio.create_task(runner.run(sink))
+        while "up" not in "".join(out):
+            await asyncio.sleep(0.05)
+        started = time.monotonic()
+        await runner.stop("TERM", 1)
+        result = await asyncio.wait_for(task, 5)
+        return result, time.monotonic() - started
+
+    result, took = asyncio.run(go())
+    assert result.exit_code != 0 and 0.9 < took < 4  # waited its timeout, then killed

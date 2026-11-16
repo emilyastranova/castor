@@ -370,6 +370,9 @@ class Task(Base, TimestampMixin):
     rate_limit: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # Ask before each run: a person approves every job of it (its definition can demand it too).
     confirm: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # Runs until stopped (command_spec.ServiceSpec as JSON), for a typed command; a library
+    # command's own `service:` wins.
+    service: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
     # Group ids (strings) whose members (and admins) approve its runs; empty: the project's approvers.
     approvers: Mapped[list[str] | None] = mapped_column(JSONType, default=list, nullable=True)
     # An activity's Run all with a limit (subtasks.pump): {"queue": [subtask ids], "at_once": n,
@@ -667,6 +670,8 @@ class Job(Base):
     output_specs: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONType, nullable=True)
     # Interactive terminal (pty): its output is raw terminal output, and people can type.
     tty: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # A service (runs until stopped): its ServiceSpec at dispatch time. None: an ordinary job.
+    service: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
     # The terminal's size as the person in control last set it: {"cols": n, "rows": n}.
     tty_size: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
     # The prompt it's waiting at (an automated run nobody has typed into yet), if any.

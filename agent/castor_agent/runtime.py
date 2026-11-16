@@ -85,6 +85,7 @@ class JobRunner:
         self.process: asyncio.subprocess.Process | None = None
         self.container_name = f"castor-{self.job_id[:8]}-{uuid.uuid4().hex[:6]}"
         self._cancelled = False
+        self._stopping = False  # a service being stopped (job.stop), not cancelled
         self.tty = bool(job.get("tty")) and sys.platform != "win32"
         self._master: int | None = None  # the pty's controlling side, while it runs
 
@@ -142,6 +143,10 @@ class JobRunner:
                 "--name",
                 self.container_name,
             ]
+            if self.job.get("service"):
+                # An init as PID 1 passes the stop signal on to the program (a shell as PID 1
+                # would ignore SIGTERM), so a service stops the way it's built to and frees its ports.
+                argv += ["--init"]
             if self.tty:
                 # A terminal inside the container too; the runtime passes keys and window
                 # size through from the pty this command runs under.
@@ -376,32 +381,54 @@ class JobRunner:
         return self._cancelled
 
     async def cancel(self) -> None:
+        """Cancel: SIGTERM, a few seconds to exit cleanly (close sockets, write files), then a kill."""
         self._cancelled = True
-        if self.container_runtime and self._wants_container():
-            # Kill the container; `run --rm` cleans it up.
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    self.container_runtime, "kill", self.container_name,
-                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
-                )
-                await proc.wait()
-            except FileNotFoundError:
-                pass
+        await self._end("TERM", 5)
+
+    async def stop(self, signal_name: str = "TERM", timeout: float = 10) -> None:
+        """Stop a service the way it's built to stop: its signal, up to `timeout` seconds to exit and
+        free its ports, then a kill. Not a cancel: the server counts it as done."""
+        self._stopping = True
+        await self._end(signal_name, timeout)
+
+    async def _end(self, signal_name: str, timeout: float) -> None:
+        sig = getattr(signal, f"SIG{signal_name.upper().removeprefix('SIG')}", signal.SIGTERM)
+        in_container = bool(self.container_runtime and self._wants_container())
+        if in_container:
+            # `kill --signal` reaches the program through the container's init; `run --rm` cleans up.
+            await self._runtime("kill", "--signal", sig.name.removeprefix("SIG"), self.container_name)
         if self.process and self.process.returncode is None:
-            try:
-                os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
-            except (ProcessLookupError, PermissionError, AttributeError):
+            if not in_container:
                 try:
-                    self.process.terminate()
+                    os.killpg(os.getpgid(self.process.pid), sig)
+                except (ProcessLookupError, PermissionError, AttributeError):
+                    try:
+                        self.process.send_signal(sig)
+                    except ProcessLookupError:
+                        pass
+            try:
+                await asyncio.wait_for(self.process.wait(), timeout=timeout)
+                return
+            except asyncio.TimeoutError:
+                pass
+            if in_container:
+                await self._runtime("kill", self.container_name)  # SIGKILL
+            try:
+                os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
+            except Exception:  # noqa: BLE001 - best effort, then hard kill
+                try:
+                    self.process.kill()
                 except ProcessLookupError:
                     pass
-            try:
-                await asyncio.wait_for(self.process.wait(), timeout=5)
-            except asyncio.TimeoutError:
-                try:
-                    os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
-                except Exception:  # noqa: BLE001 - best effort, then hard kill
-                    self.process.kill()
+
+    async def _runtime(self, *args: str) -> None:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                self.container_runtime, *args, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            )
+            await proc.wait()
+        except FileNotFoundError:
+            pass
 
 
 class PromptWatch:

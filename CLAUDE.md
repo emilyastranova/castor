@@ -126,6 +126,11 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
 - Artifacts: the dispatcher issues a one-off upload token per job (`artifacts.py`, only the
   SHA-256 is stored) and sends it with the paths to collect in `job.run`; the agent uploads
   to `POST /api/jobs/{id}/artifacts`, which creates `kind = artifact` attachments.
+- Services (jobs that run until stopped: listeners, relays, captures, log tails): `service:` on a definition
+  (`command_spec.ServiceSpec`) or `tasks.service`, snapshotted in `jobs.service`; their own agent slots
+  (`max_services`, capability `services`); `service_jobs.py` (graceful `stop`/restart via `job.stop`, `ready` and
+  `watch` from output, `parse_running` re-parses while they run with `parse_job(partial=True)`). A stopped service
+  ends as succeeded. Web `ServicePanel.svelte`.
 - Parsed outputs (Phase 2b): `parsers.py` is the registry (`@parser(name, type, ...)`, pure
   `(bytes, options)` → JSON functions, raise `ParseError`; parse XML only through
   `defusedxml`; run user regexes through `regex` with a timeout). Each parser declares an
@@ -430,7 +435,8 @@ otherwise `/bin/sh -c cmd` on the host in the job dir (if `--allow-host`). Comma
 a host, set by the agent or SSH host); never hard-code `/work` in a command. After the job,
 `artifacts.py` collects declared outputs and `/work/artifacts/**` (skipping symlinks and
 anything outside the job dir) and uploads them with stdlib `urllib` before `job.finished`. Processes start in their own
-session so cancel can `killpg`. Interactive jobs (`job.tty`, 3j) run under a stdlib `pty`
+session so cancel can `killpg`; cancel and a service's `job.stop` both go through `JobRunner._end` (the signal,
+a wait, then a kill; containers via `<runtime> kill --signal`, services started with `--init`). Interactive jobs (`job.tty`, 3j) run under a stdlib `pty`
 (`JobRunner._run_tty`; containers add `-t -i`) with `job.stdin`/`job.resize`/`job.signal` in and
 `job.prompt` out (`PromptWatch`); other jobs get stdin from `/dev/null`. Only `websockets` is a
 dependency; keep it that way so the agent stays trivially installable on target boxes.

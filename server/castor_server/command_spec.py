@@ -237,6 +237,65 @@ class McpCall(BaseModel):
         return value
 
 
+STOP_SIGNALS = ("TERM", "INT", "HUP", "QUIT", "USR1", "USR2")
+
+
+class WatchSpec(BaseModel):
+    """A line in a service's output worth telling people about."""
+
+    model_config = ConfigDict(extra="forbid")
+    match: str = Field(min_length=1, max_length=500)  # a regex, checked against each new line
+    say: str = Field("", max_length=200)  # what the notification says (else the line itself)
+
+    @field_validator("match")
+    @classmethod
+    def compiles(cls, value: str) -> str:
+        import regex
+
+        try:
+            regex.compile(value)
+        except regex.error as exc:
+            raise ValueError(f"match: {exc}") from exc
+        return value
+
+
+class ServiceSpec(BaseModel):
+    """A command that keeps running until someone stops it (a listener, a relay, a capture, a
+    log tail): no timeout, its own slots on an agent, its outputs parsed while it runs, and a
+    graceful stop: `stop_signal`, then `stop_timeout` seconds, then a hard kill. Stopped that way it
+    counts as done, not failed."""
+
+    model_config = ConfigDict(extra="forbid")
+    stop_signal: str = "TERM"
+    stop_timeout: int = Field(10, ge=1, le=300)
+    # Output that means it's up and listening (a regex); the card says "ready" from then on.
+    ready: str | None = Field(None, max_length=500)
+    # Lines to tell the card's people about as they come (a regex each).
+    watch: list[WatchSpec] = Field(default_factory=list, max_length=20)
+    # How often its outputs are parsed while it runs (seconds; when there's new output).
+    parse_every: int = Field(15, ge=5, le=3600)
+
+    @field_validator("stop_signal")
+    @classmethod
+    def known_signal(cls, value: str) -> str:
+        value = value.upper().removeprefix("SIG")
+        if value not in STOP_SIGNALS:
+            raise ValueError(f"stop_signal: one of {', '.join(STOP_SIGNALS)}")
+        return value
+
+    @field_validator("ready")
+    @classmethod
+    def ready_compiles(cls, value: str | None) -> str | None:
+        if value:
+            import regex
+
+            try:
+                regex.compile(value)
+            except regex.error as exc:
+                raise ValueError(f"ready: {exc}") from exc
+        return value or None
+
+
 class CommandSpec(BaseModel):
     id: str
     name: str
@@ -253,6 +312,8 @@ class CommandSpec(BaseModel):
     # Run in an interactive terminal (a pty): people can type into it, full-screen tools
     # (tmux, vim, htop) work, and an automated run that stops at a prompt alerts people.
     tty: bool = False
+    # Runs until stopped (ServiceSpec): a listener, relay, capture or log tail.
+    service: ServiceSpec | None = None
     args: list[ArgSpec] = Field(default_factory=list)
     vars: list[VarSlot] = Field(default_factory=list)
     command: str = ""
@@ -334,7 +395,7 @@ class CommandSpec(BaseModel):
                 raise ValueError("plugin: only for kind: plugin")
             return self
         shell = [n for n, on in (("command", self.command.strip()), ("image", self.image), ("tool", self.tool),
-                                 ("container_flags", self.container_flags), ("tty", self.tty)) if on]
+                                 ("container_flags", self.container_flags), ("tty", self.tty), ("service", self.service)) if on]
         if self.kind == "plugin":
             if self.plugin is None:
                 raise ValueError("plugin: a plugin action names its plugin and action")

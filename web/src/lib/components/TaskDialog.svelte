@@ -29,6 +29,7 @@
 	import MoveWritingDialog from './MoveWritingDialog.svelte';
 	import RunPanel from './RunPanel.svelte';
 	import SubtaskPanel from './SubtaskPanel.svelte';
+	import ServicePanel from './ServicePanel.svelte';
 	import GroupPicker from './GroupPicker.svelte';
 	import { kindIcon } from '$lib/taskStatus';
 	import AiSummary from './AiSummary.svelte';
@@ -150,6 +151,10 @@
 	let libraryDef = $state<CommandDefinition | null>(null);
 	/** The card's library command always runs in a terminal. */
 	let libTty = $derived(!!libraryDef?.spec.tty);
+	/** Runs until stopped: its library command's `service:`, or the card's own (typed commands). */
+	let libService = $derived(libraryDef?.spec.service ?? null);
+	let service = $derived(libService ?? task.service ?? null);
+	const SIGNALS = ['TERM', 'INT', 'HUP', 'QUIT', 'USR1', 'USR2'] as const;
 	/** An HTTP action (docs/ACTIONS.md): the Castor server sends its request; the card only
 	 *  fills in arguments, variables and a rate limit. */
 	let isHttp = $derived(libraryDef?.spec.kind === 'http');
@@ -827,7 +832,10 @@
 			{#if task.kind === 'command' && editable}
 				<!-- On phones Run is in a bar at the bottom instead. -->
 				<span class="hidden sm:contents">
-					{#if activeJob}
+					{#if activeJob?.service && activeJob.status !== 'approval'}
+						<!-- A service: Stop asks it to quit gracefully (the panel below has Restart and Force quit). -->
+						<Button variant="tonal" icon="stop_circle" disabled={!!activeJob.progress?.stopping || activeJob.status === 'queued'} onclick={() => api().jobs.stop(activeJob!.id).catch((err) => snackbar.error(err instanceof ApiError ? err.message : 'Could not stop it'))}>Stop</Button>
+					{:else if activeJob}
 						<Button variant="tonal" icon="stop_circle" onclick={() => cancel(activeJob!)}>Cancel</Button>
 					{:else}
 						<Button icon="play_arrow" onclick={run} disabled={!command.trim() || libDirty}>{task.latest_job?.status === 'failed' ? 'Re-run' : 'Run'}</Button>
@@ -896,6 +904,9 @@
 	<div class="grid min-h-full grid-cols-[minmax(0,1fr)] gap-6 pt-2 pb-6 lg:grid-cols-[minmax(0,1fr)_300px]" onpaste={onPaste}>
 		<!-- main column -->
 		<div class="flex min-h-0 min-w-0 flex-col gap-4">
+			{#if activeJob?.service && activeJob.status !== 'approval'}
+				<ServicePanel job={activeJob} {editable} />
+			{/if}
 			{#if activeJob?.status === 'approval'}
 				<div class="flex flex-col gap-3 rounded-md bg-tertiary-container p-4 text-on-tertiary-container">
 					<p class="flex items-center gap-2 title-small"><Icon name="front_hand" size={20} />This run waits for approval</p>
@@ -1072,9 +1083,21 @@
 						<span title="A real terminal: you can type into it while it runs, full-screen programs (tmux, vim, htop) work, and a run that stops at a prompt tells people.">
 							<Switch checked={!!task.tty || libTty} disabled={libTty} label={libTty ? 'Interactive terminal (its command asks for one)' : 'Interactive terminal'} onchange={(v) => save({ tty: v })} />
 						</span>
+						<span title="A listener, relay, capture or log tail: no timeout, its own slots on the agent, and Stop asks it to quit the way it's built to (its signal, then a wait for it to free its ports).">
+							<Switch checked={!!service} disabled={!!libService} label={libService ? 'Runs until stopped (its command is a service)' : 'Runs until stopped'} onchange={(v) => save({ service: v ? { stop_signal: 'TERM', stop_timeout: 10 } : null })} />
+						</span>
 						{/if}
+						{#if !service}
 						<TextField label="Timeout (s)" bind:value={timeout} type="number" class="w-40 [&_div]:h-10" oninput={() => edited('timeout')} onblur={() => (timeout ? Number(timeout) : null) !== task.timeout_s && commit('timeout', { timeout_s: timeout ? Number(timeout) : null })} />
+						{/if}
 					</div>
+					{#if service && !libService && task.service}
+						{@const own = task.service}
+						<div class="flex flex-wrap items-center gap-3">
+							<Select label="Stop signal" value={own.stop_signal} class="w-40" options={SIGNALS.map((s) => ({ value: s, label: `SIG${s}` }))} onchange={(v) => save({ service: { ...own, stop_signal: v as typeof own.stop_signal } })} />
+							<TextField label="Time to exit (s)" type="number" value={String(own.stop_timeout)} class="w-40 [&_div]:h-10" onblur={(e: FocusEvent) => { const n = Math.max(1, Math.min(300, Number((e.currentTarget as HTMLInputElement).value) || 10)); if (n !== own.stop_timeout) save({ service: { ...own, stop_timeout: n } }); }} supporting="Before it's killed" />
+						</div>
+					{/if}
 				</div>
 			{/if}
 

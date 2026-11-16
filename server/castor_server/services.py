@@ -335,16 +335,19 @@ async def enqueue_job(
             image=task.image,
             tool=task.tool,
             container_flags=list(task.container_flags or []),
-            timeout_s=task.timeout_s,
+            timeout_s=None if service else task.timeout_s,  # a service runs until stopped
             env={},
             var_bindings=dict(task.var_bindings or {}),
             created_by=user.id if user else None,
             tty=tty,
+            service=service,
             status=m.JobStatus.approval if ask else m.JobStatus.queued,
             **extra,
         )
 
     tty = (task.tty or bool(spec and spec.tty)) and kind == "command"
+    # Runs until stopped: its library command's `service:`, else the card's own.
+    service = (spec.service.model_dump() if spec and spec.service else task.service) if kind == "command" else None
     targets = await broadcast_targets(db, task, new_job()) if is_broadcast(task) and kind == "command" else []
     if len(targets) > 1:
         batch = uuid.uuid4()

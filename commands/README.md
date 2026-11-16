@@ -184,6 +184,42 @@ needs-attention, people on the project are notified (and alert channels that tak
 an operator approves or rejects it on the card; rejected, it's cancelled with the reason. In a
 playbook the step waits. Settings → General can require someone other than whoever started it.
 
+## Services: commands that run until stopped (`service`)
+
+A listener, a relay, a capture or a log tail runs until someone stops it. Say so with `service:`, and
+Castor treats it differently from a job that ends by itself:
+
+```yaml
+id: tcp-relay
+name: TCP relay
+service:
+  stop_signal: INT        # how it's built to stop: TERM (default), INT, HUP, QUIT, USR1, USR2
+  stop_timeout: 10        # seconds it gets to exit and free its ports before it's killed
+  ready: "listening on"   # a regex: output that means it's up (the card says Ready)
+  watch:                  # lines worth telling the card's people about, as they come
+    - { match: 'connection from (\S+)', say: A client connected }
+  parse_every: 15         # its outputs are parsed this often while it runs (when there's new output)
+args: [{ name: port, type: number, default: 9000 }]
+command: socat -d -d TCP-LISTEN:{{ port }},fork,reuseaddr STDOUT
+```
+
+- **No timeout**, and it takes one of the agent's service slots (`castor-agent --max-services`, 4 by
+  default) rather than a job slot, so it doesn't hold up other runs. Agents from before services
+  aren't sent one.
+- **Stop** (on the card, `POST /api/jobs/{id}/stop`, MCP `stop_service`) sends `stop_signal` to the
+  program and waits up to `stop_timeout` seconds for it to exit, so it closes its sockets and writes
+  what it has, and kills it only after that. Stopped that way the run counts as done, whatever it
+  exits with. **Restart** stops it and runs the card again. In a container it runs with `--init`, so
+  the signal reaches the program rather than a shell. Keep a service to one command (no pipelines),
+  so the signal reaches the program that should get it.
+- **Its outputs are parsed while it runs**, so assets (and asset triggers) follow it live; `watch`
+  notifies the card's people of each distinct matching line (at most 50 a run) and lists recent
+  matches on the card.
+- A card with a typed command can be a service too: **Runs until stopped** in its command form, with
+  the stop signal and the time it gets to exit.
+
+Cancel (for any job, service or not) now also asks first: SIGTERM, five seconds, then a kill.
+
 ## HTTP actions (`kind: http`)
 
 A definition can make an HTTP request instead of running a command: the **Castor server** sends

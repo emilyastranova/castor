@@ -101,6 +101,9 @@ async def lifespan(app: FastAPI):
     sweeper = asyncio.create_task(alerts.sweep_forever())  # alerts for runs going long
     reminders = asyncio.create_task(due.remind_forever())  # due dates near or passed
     update_checks = asyncio.create_task(plugin_directory.check_forever())  # newer plugin releases
+    from . import service_jobs
+
+    service_parse = asyncio.create_task(service_jobs.parse_forever())  # services' outputs, while they run
     log.info("castor server ready")
     try:
         yield
@@ -108,6 +111,7 @@ async def lifespan(app: FastAPI):
         sweeper.cancel()
         reminders.cancel()
         update_checks.cancel()
+        service_parse.cancel()
         plugin_start.cancel()
         await plugins.stop_all()
         await ssh_hosts.stop()

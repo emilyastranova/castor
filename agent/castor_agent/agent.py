@@ -70,6 +70,9 @@ class Agent:
             "http": self.config.http,
             # Runs MCP servers that speak stdio for MCP actions (mcp.start); older agents don't.
             "mcp_stdio": True,
+            # Runs services (jobs until stopped) and stops them gracefully (job.stop); how many at once.
+            "services": True,
+            "max_services": self.config.max_services,
         }
 
     # ----- wire helpers -----
@@ -200,6 +203,12 @@ class Agent:
             if runner:
                 log.info("cancelling job %s", runner.job_id)
                 await runner.cancel()
+        elif kind == "job.stop":
+            # A service: its stop signal, a wait for it to exit (and free its ports), then a kill.
+            runner = self.runners.get(str(msg.get("job_id")))
+            if runner:
+                log.info("stopping service %s with SIG%s", runner.job_id, msg.get("signal") or "TERM")
+                asyncio.ensure_future(runner.stop(str(msg.get("signal") or "TERM"), float(msg.get("timeout") or 10)))
         elif kind in ("job.stdin", "job.resize", "job.signal"):
             runner = self.runners.get(str(msg.get("job_id")))
             if runner is None or not runner.tty:

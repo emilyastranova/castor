@@ -225,6 +225,9 @@ TOOLS: list[Tool] = [
     Tool("get_job_results", "A job's parsed results (hosts, services, URLs…).", "GET", "/api/jobs/{job_id}/outputs",
          {"job_id": ID["job_id"]}, ("job_id",), untrusted=True),
     Tool("cancel_job", "Cancel a queued or running job.", "POST", "/api/jobs/{job_id}/cancel", {"job_id": ID["job_id"]}, ("job_id",)),
+    Tool("stop_service", "Stop a service (a job that runs until stopped, like a listener or a log tail) gracefully: its stop "
+         "signal, a wait for it to exit and free its ports, then a kill. It ends as done; restart: true runs it again.",
+         "POST", "/api/jobs/{job_id}/stop", {"job_id": ID["job_id"], "restart": {"type": "boolean"}}, ("job_id",)),
     Tool("approve_job", "Let a run that waits for approval go (status approval: its definition says confirm: true, or its card "
          "asks before each run). Approve only what a person asked you to: these runs change things outside Castor.",
          "POST", "/api/jobs/{job_id}/approve", {"job_id": ID["job_id"]}, ("job_id",)),

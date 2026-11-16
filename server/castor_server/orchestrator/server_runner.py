@@ -68,6 +68,7 @@ class ServerConnection:
     agent_id: None = None
     name: str = NAME
     running: set[uuid.UUID] = field(default_factory=set)
+    services: set[uuid.UUID] = field(default_factory=set)  # never any: services run on agents
 
 
 class Park(Exception):

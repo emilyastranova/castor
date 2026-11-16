@@ -21,6 +21,8 @@ class AgentConfig:
     default_image: str
     tags: list[str] = field(default_factory=list)
     max_concurrency: int = 1
+    # Services (jobs that run until stopped: listeners, relays, captures) at once, on top of max_concurrency.
+    max_services: int = 4
     workdir: str | None = None
     network: str = "host"
     extra_run_args: list[str] = field(default_factory=list)
@@ -62,6 +64,8 @@ class AgentConfig:
         p.add_argument("--tags", default=env("CASTOR_AGENT_TAGS", ""),
                        help="Comma-separated tags for targeting (CASTOR_AGENT_TAGS)")
         p.add_argument("--max-concurrency", type=int, default=int(env("CASTOR_AGENT_MAX_CONCURRENCY", "1")))
+        p.add_argument("--max-services", type=int, default=int(env("CASTOR_AGENT_MAX_SERVICES", "4")),
+                       help="services (jobs that run until stopped) at once, besides --max-concurrency jobs; 0: none")
         p.add_argument("--workdir", default=env("CASTOR_AGENT_WORKDIR"),
                        help="Parent directory for per-job work directories; each job's own "
                             "directory is mounted at /work (default: a temp directory)")
@@ -85,6 +89,7 @@ class AgentConfig:
             default_image=a.default_image,
             tags=[t.strip() for t in a.tags.split(",") if t.strip()],
             max_concurrency=max(1, a.max_concurrency),
+            max_services=max(0, a.max_services),
             workdir=a.workdir,
             network=a.network,
             extra_run_args=a.run_arg,

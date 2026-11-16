@@ -40,6 +40,8 @@ def agent_can_run(conn: AgentConnection, job: m.Job, tool: ToolSpec | None = Non
     """Whether the agent could run the job at all (runtime, tool, terminal), busy or not."""
     if getattr(job, "tty", False) and not conn.capabilities.get("tty"):
         return False  # an agent from before interactive jobs would run it without a terminal
+    if getattr(job, "service", None) and not conn.capabilities.get("services"):
+        return False  # an agent from before services can't stop one gracefully
     if tool is not None:
         return tool_way(conn, tool) is not None
     if job.image:
@@ -63,7 +65,9 @@ def project_allowed(conn: AgentConnection, project_id: uuid.UUID | str | None) -
 
 
 def agent_matches(conn: AgentConnection, job: m.Job, selector: dict[str, Any], tool: ToolSpec | None = None) -> bool:
-    if conn.free_slots <= 0:
+    # A service (runs until stopped) takes one of the agent's service slots, not a job slot, so a
+    # listener doesn't hold up the scans.
+    if (conn.free_service_slots if getattr(job, "service", None) else conn.free_slots) <= 0:
         return False
     if getattr(job, "target_agent_id", None) is not None:  # one of a batch: that agent only
         return conn.agent_id == job.target_agent_id and agent_can_run(conn, job, tool)
@@ -183,6 +187,7 @@ class Dispatcher:
                 except Exception as exc:  # noqa: BLE001 - any send failure re-queues the job
                     log.warning("failed to send job %s to %s: %s", job.id, conn.name, exc)
                     conn.running.discard(job.id)
+                    conn.services.discard(job.id)
                     job.status = m.JobStatus.queued
                     job.agent_id = None
                     job.dispatched_at = None

@@ -155,7 +155,24 @@ export interface Job {
 		skipped?: unknown[];
 		/** Moves the AI made to recover its requests (on_failure: ai). */
 		ai_moves?: { move: string; reason: string; model: string; at: string }[];
+		/** A service: when its output said it was up (its `ready` pattern). */
+		ready_at?: string;
+		/** A service being stopped (or restarted) gracefully: who asked and when. */
+		stopping?: { by: UUID | null; at: string; restart: boolean };
+		/** A service's lines that matched a watch pattern, newest last. */
+		matches?: { line: string; say: string; at: string }[];
 	} | null;
+	/** A service (runs until stopped): how it stops, and what it watches for. */
+	service?: ServiceSpec | null;
+}
+
+/** A command that runs until stopped (a listener, relay, capture or log tail). */
+export interface ServiceSpec {
+	stop_signal: 'TERM' | 'INT' | 'HUP' | 'QUIT' | 'USR1' | 'USR2';
+	stop_timeout: number;
+	ready?: string | null;
+	watch?: { match: string; say?: string }[];
+	parse_every?: number;
 }
 
 export type ActionKind = 'command' | 'http' | 'mcp' | 'plugin';
@@ -1087,6 +1104,8 @@ export interface CommandSpec {
 	container_flags?: string[];
 	/** Runs in an interactive terminal (a pty). */
 	tty?: boolean;
+	/** Runs until stopped (a listener, relay, capture or log tail). */
+	service?: ServiceSpec | null;
 	args: ArgSpec[];
 	vars?: VarSlot[];
 	command: string;
@@ -1138,6 +1157,8 @@ export interface ArgErrors {
 export interface Task {
 	/** Run in an interactive terminal (or its library command says so). */
 	tty?: boolean;
+	/** Runs until stopped (a typed command's own; a library command's `service:` wins). */
+	service?: ServiceSpec | null;
 	/** HTTP actions: the most requests this card makes ("60/minute"); none: the definition's. */
 	rate_limit?: string | null;
 	/** Ask before each run: a person approves every job (its definition can demand it too). */
@@ -1723,6 +1744,8 @@ export function api(fetchFn: Fetch = fetch) {
 			list: (status?: JobStatus) => get<Job[]>(`/jobs${status ? `?status=${status}` : ''}`),
 			get: (id: UUID, afterSeq = -1) => get<JobDetail>(`/jobs/${id}?after_seq=${afterSeq}`),
 			cancel: (id: UUID) => post<Job>(`/jobs/${id}/cancel`),
+			/** A service: its stop signal, a wait for it to exit and free its ports, then a kill; it ends as done. */
+			stop: (id: UUID, restart = false) => post<Job>(`/jobs/${id}/stop`, { restart }),
 			/** A run that waits for approval: let it go, or reject it (cancelled, with the reason). */
 			approve: (id: UUID) => post<Job>(`/jobs/${id}/approve`),
 			reject: (id: UUID, reason = '') => post<Job>(`/jobs/${id}/reject`, { reason }),

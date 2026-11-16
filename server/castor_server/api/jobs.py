@@ -96,6 +96,34 @@ async def cancel_job(job_id: str, db: DB, user: CurrentUser):
     return job
 
 
+class StopIn(BaseModel):
+    # Run its card again once it has stopped.
+    restart: bool = False
+
+
+@router.post("/{job_id}/stop", response_model=JobOut)
+async def stop_job(job_id: str, db: DB, user: CurrentUser, body: StopIn | None = None):
+    """Stop a service gracefully: its stop signal, then up to its stop timeout for it to exit and free
+    its ports, then a kill. It ends as done (and runs again with `restart`). For an ordinary job use cancel."""
+    from ..service_jobs import ServiceError, stop
+
+    if user.role == m.UserRole.viewer:
+        raise HTTPException(403, "Viewers can't stop runs")
+    job = await job_or_404(db, user, parse_uuid(job_id), write=True)
+    try:
+        await stop(db, job, user, restart=bool(body and body.restart))
+    except ServiceError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    await db.commit()
+    return job
+
+
+@router.post("/{job_id}/restart", response_model=JobOut)
+async def restart_job(job_id: str, db: DB, user: CurrentUser):
+    """Stop a service gracefully and run its card again once it has."""
+    return await stop_job(job_id, db, user, StopIn(restart=True))
+
+
 async def _next_subtasks(task_id) -> None:
     """A subtask's run ended without an agent saying so: its activity's Run all moves on."""
     from ..db import SessionLocal

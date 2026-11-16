@@ -167,15 +167,6 @@ More events should be able to start a command or playbook:
 
 The same rules as now apply: scope checks, approval when wanted, and a record of each firing.
 
-### Long-running background tasks
-Jobs that keep running and report as they go, such as a packet capture, a Responder-style
-listener, or a log tail:
-- **What's new:** a "service" kind of command that runs until stopped, survives the card
-  leaving In Progress, and shows as running on its agent.
-- **Matches:** its output is parsed continuously, and a match can fire a trigger, for example
-  a hash captured or a hostname seen in traffic.
-- **Control:** start, stop and restart from the card, and a per-agent limit on how many run at once.
-
 ### Decision models
 Castor asks text models for judgements today (the playbook resolver's retry/skip/ask, HTTP
 recovery moves, sorting suggested assets) and parses a JSON answer with a confidence the model

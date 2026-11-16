@@ -38,6 +38,8 @@ class AgentConnection:
     # The token it authenticated with (None: the shared secret).
     token_id: uuid.UUID | None = None
     running: set[uuid.UUID] = field(default_factory=set)
+    # Of those, the services (run until stopped): they count against max_services, not max_concurrency.
+    services: set[uuid.UUID] = field(default_factory=set)
     last_seen: datetime = field(default_factory=utcnow)
     send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
@@ -47,7 +49,15 @@ class AgentConnection:
 
     @property
     def free_slots(self) -> int:
-        return max(self.max_concurrency - len(self.running), 0)
+        return max(self.max_concurrency - len(self.running - self.services), 0)
+
+    @property
+    def max_services(self) -> int:
+        return int(self.capabilities.get("max_services") or 0)
+
+    @property
+    def free_service_slots(self) -> int:
+        return max(self.max_services - len(self.services), 0)
 
     async def send(self, message: dict[str, Any]) -> None:
         async with self.send_lock:
@@ -479,6 +489,14 @@ class AgentGateway:
                 return
             data = (await self._redaction(db, job)).redact(data)
             db.add(m.JobLogChunk(job_id=job.id, seq=seq, stream=stream, data=data))
+            ready_before = bool((job.progress or {}).get("ready_at"))
+            matches_before = len((job.progress or {}).get("matches") or [])
+            if job.service and stream in ("stdout", "stderr"):
+                from ..service_jobs import on_output
+
+                await on_output(db, job, data)  # ready yet? a watched line?
+            service_changed = job.service is not None and (bool((job.progress or {}).get("ready_at")) != ready_before
+                                                           or len((job.progress or {}).get("matches") or []) != matches_before)
             if stream == "stdout":
                 job.stdout_bytes += len(data.encode())
             elif stream == "stderr":
@@ -487,6 +505,10 @@ class AgentGateway:
                 await db.execute(select(m.Task.project_id).where(m.Task.id == job.task_id))
             ).scalar()
             await db.commit()
+            if service_changed:
+                from ..services import publish_job
+
+                publish_job(job, task_project)
         bus.publish(
             "job.log",
             task_project,
@@ -498,6 +520,10 @@ class AgentGateway:
         if job_id is None:
             return
         conn.running.discard(job_id)
+        conn.services.discard(job_id)
+        from ..service_jobs import forget
+
+        forget(job_id)
         async with SessionLocal() as db:
             job = await db.get(m.Job, job_id)
             if job is None or job.agent_id != conn.agent_id:
@@ -517,6 +543,10 @@ class AgentGateway:
                     if job.exit_code == 0 and not job.error
                     else m.JobStatus.failed
                 )
+                stopping = (job.progress or {}).get("stopping") if job.service else None
+                if stopping and not msg.get("start_failed"):
+                    # A service someone stopped: done, whatever it exits with on its stop signal.
+                    job.status, job.error = m.JobStatus.succeeded, None
             if job.waiting_input is not None:
                 from ..interactive import finished as interactive_finished
 
@@ -526,7 +556,8 @@ class AgentGateway:
             if agent is not None:
                 agent.status = m.AgentStatus.busy if conn.running else m.AgentStatus.idle
             if task is not None:
-                verb = {
+                stopped = bool(job.service and (job.progress or {}).get("stopping"))
+                verb = "was stopped" if stopped else {
                     m.JobStatus.succeeded: "finished",
                     m.JobStatus.failed: "failed",
                     m.JobStatus.cancelled: "was cancelled",
@@ -556,6 +587,8 @@ class AgentGateway:
                 await publish_task(db, task)
                 if task.parent_id is not None:
                     await self.next_subtasks(task.parent_id)
+                if job.service and ((job.progress or {}).get("stopping") or {}).get("restart"):
+                    await self._restart_service(task.id, ((job.progress or {}).get("stopping") or {}).get("by"))
             if agent is not None:
                 await self._publish_agent(agent)
             if task is not None and not job.output_specs and job.status != m.JobStatus.cancelled:
@@ -578,6 +611,22 @@ class AgentGateway:
                 if enqueued:
                     dispatcher.wake()
         self._notify()
+
+    async def _restart_service(self, task_id: uuid.UUID, by: str | None) -> None:
+        """A service stopped to be restarted (POST /api/jobs/{id}/restart): run its card again."""
+        from ..services import enqueue_job, publish_task
+
+        async with SessionLocal() as db:
+            task = await db.get(m.Task, task_id)
+            if task is None or task.archived_at is not None:
+                return
+            user = await db.get(m.User, uuid.UUID(by)) if by else None
+            await enqueue_job(db, task, user, reason="restarted")
+            await db.commit()
+            await publish_task(db, task)
+        from .dispatcher import dispatcher
+
+        dispatcher.wake()
 
     async def next_subtasks(self, parent_id: uuid.UUID) -> None:
         """A subtask's run ended: its activity's Run all starts the next ones waiting their turn."""
@@ -672,6 +721,8 @@ class AgentGateway:
         resolved = resolved or variables.Resolved()
         self._redactions[job.id] = resolved
         conn.running.add(job.id)
+        if job.service:
+            conn.services.add(job.id)
         # A job without an image runs in the host shell, or (on an agent that doesn't allow
         # host commands) in the agent's default image; the dispatcher only sends it to an
         # agent that can do one of the two (agent_matches).
@@ -696,6 +747,9 @@ class AgentGateway:
                     # An interactive terminal (pty), and its size if someone already set one.
                     "tty": job.tty,
                     "tty_size": job.tty_size,
+                    # Runs until stopped: how to stop it gracefully (signal, then a wait, then a kill).
+                    "service": {"stop_signal": job.service.get("stop_signal", "TERM"),
+                                "stop_timeout": job.service.get("stop_timeout", 10)} if job.service else None,
                     # One-off upload token + files to collect from the job's /work afterwards.
                     "artifacts": artifacts or {},
                     # How to get the tool first: pull an image, build a recipe, or check

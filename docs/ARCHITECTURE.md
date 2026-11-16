@@ -868,6 +868,30 @@ TaskCard), "Start as a card with subtasks" in `RunPlaybookDialog`, `GroupCardsDi
 "Add cards from the board"), the progress on `TaskCard`/`BoardList` (`taskStatus.subtaskState`), and a
 "subtask of" banner on a subtask's card.
 
+## Services (jobs that run until stopped)
+
+A command definition's `service:` (`command_spec.ServiceSpec`: `stop_signal`, `stop_timeout`, `ready`,
+`watch`, `parse_every`), or a typed command card's `tasks.service`, makes its jobs services: `jobs.service`
+holds the settings at dispatch (`services.enqueue_job`; no `timeout_s`). The dispatcher sends them only to
+agents with the `services` capability and counts them against `max_services` (`AgentConnection.services`,
+`free_service_slots`), not `max_concurrency`; `job.run` carries `service: {stop_signal, stop_timeout}` and the
+agent runs a container service with `--init`. `service_jobs.py`:
+
+- `stop` (`POST /api/jobs/{id}/stop`, `/restart`; MCP `stop_service`) records `progress.stopping` and sends
+  `job.stop {signal, timeout}`; the agent (`JobRunner.stop`/`_end`) signals the process group (or
+  `<runtime> kill --signal`), waits, then kills. When it finishes with `progress.stopping` the gateway marks
+  it succeeded whatever the exit code ("was stopped"), and `restart` runs the card again (`_restart_service`).
+  Cancel goes through `_end` too (SIGTERM, 5 s, then a kill), for every job.
+- `on_output` (from the gateway's `job.log`) sets `progress.ready_at` on the `ready` pattern and, for `watch`
+  patterns, keeps `progress.matches` and notifies the card's people (`job.watch`, each distinct line once, at
+  most `MAX_NOTES` a run); patterns run through `regex` with a timeout.
+- `parse_running` (every 5 s from `app.py`) re-parses running services' outputs when there's new output and
+  `parse_every` has passed (`outputs.parse_job(partial=True)`: assets recorded, nothing that waits for the end).
+
+Web: `ServicePanel.svelte` (state, Stop, Restart, Force quit, recent matches) in TaskDialog, whose header
+shows Stop for a service; "Runs until stopped" with the stop signal and time to exit for typed commands.
+Tests: `tests/test_services.py` (a fake agent), agent `tests/test_runtime.py` (a real graceful stop).
+
 ## MCP tools from plugins
 
 A plugin's manifest `mcp_tools` (`plugin_manifest.McpToolSpec`, named `<plugin>__<name>` by

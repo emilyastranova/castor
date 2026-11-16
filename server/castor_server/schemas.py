@@ -295,6 +295,8 @@ class TaskIn(BaseModel):
     waits_on: list[uuid.UUID] = Field(default_factory=list)
     var_bindings: dict[str, uuid.UUID | None] = Field(default_factory=dict)
     tty: bool = False
+    # Runs until stopped (command_spec.ServiceSpec), for a typed command.
+    service: dict[str, Any] | None = None
     # HTTP actions: the most requests this card makes ("60/minute"); none: the definition's.
     rate_limit: str | None = None
     # Ask before each run (a person approves every job).
@@ -310,6 +312,13 @@ class TaskIn(BaseModel):
         from .http_spec import check_rate
 
         return check_rate(value)
+
+    @field_validator("service")
+    @classmethod
+    def service_spec(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        from .command_spec import ServiceSpec
+
+        return ServiceSpec.model_validate(value).model_dump() if value else None
 
 
 class TaskPatch(BaseModel):
@@ -336,6 +345,7 @@ class TaskPatch(BaseModel):
     # Alerts for this card's runs; channels: [] turns them off.
     alerts: AlertRules | None = None
     tty: bool | None = None
+    service: dict[str, Any] | None = None  # {} or null: an ordinary job again
     rate_limit: str | None = None  # null or "" clears it
     confirm: bool | None = None
     approvers: list[str] | None = None  # group ids (or @handles); [] uses the project's
@@ -346,6 +356,13 @@ class TaskPatch(BaseModel):
         from .http_spec import check_rate
 
         return check_rate(value)
+
+    @field_validator("service")
+    @classmethod
+    def service_spec(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        from .command_spec import ServiceSpec
+
+        return ServiceSpec.model_validate(value).model_dump() if value else None
 
 
 class TaskMove(BaseModel):
@@ -379,6 +396,8 @@ class JobOut(ORM):
     output_specs: list[dict[str, Any]] | None = None
     tty: bool = False
     tty_size: dict[str, Any] | None = None
+    # A service (runs until stopped): its settings; progress has ready_at, stopping, matches.
+    service: dict[str, Any] | None = None
     waiting_input: str | None = None
     input_by: uuid.UUID | None = None
     # HTTP actions: run by the Castor server ("server"); waiting for a rate limit until resume_at.
@@ -470,6 +489,7 @@ class TaskOut(ORM):
     var_bindings: dict[str, str] = Field(default_factory=dict)
     alerts: dict[str, Any] | None = None
     tty: bool = False
+    service: dict[str, Any] | None = None
     rate_limit: str | None = None
     confirm: bool = False
     approvers: list[str] = Field(default_factory=list)
