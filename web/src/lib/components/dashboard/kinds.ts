@@ -18,5 +18,6 @@ export const ALL_KINDS: { kind: FeedKind; label: string; icon: string }[] = [
 	{ kind: 'admin', label: 'Admin', icon: 'shield_person' }
 ];
 
-/** What the timeline shows by default: the work, not note edits, agent connections or admin. */
-export const WORK: FeedKind[] = ['comment', 'job', 'card', 'playbook', 'library', 'file', 'plugin'];
+/** What the timeline shows by default ("Just the work"): the project's work, not note edits, changes to the shared
+ *  library, agent connections or admin. */
+export const WORK: FeedKind[] = ['comment', 'job', 'card', 'playbook', 'file', 'plugin'];
