@@ -484,6 +484,9 @@ dependency; keep it that way so the agent stays trivially installable on target 
 - `lib/api.ts` is the typed client; pass SvelteKit's `fetch` in load functions
   (`api(fetch)`). `hooks.server.ts` rewrites server-side `/api/*` fetches to
   `API_INTERNAL_URL` and forwards the session cookie.
+- Updates under an open tab: `lib/updates.svelte.ts` (SvelteKit `updated.check()` against `/_app/version.json` for a new
+  web build, `/api/health` for a new server version; on focus, after the realtime socket reconnects, every 10 minutes),
+  `UpdateBanner.svelte` (Refresh / Later), and the root layout's `beforeNavigate` makes the next change of route a full load.
 - `routes/+layout.server.ts` is the auth guard. It deliberately uses `route.id` rather
   than `url` so query-string navigations (opening a card adds `?task=`) do not re-run it.
 - Pages copy load `data` into local rune state and then apply realtime events on top.

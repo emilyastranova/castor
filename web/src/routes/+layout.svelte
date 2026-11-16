@@ -3,7 +3,7 @@
 	import '../app.css';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { afterNavigate, goto, invalidateAll } from '$app/navigation';
+	import { afterNavigate, beforeNavigate, goto, invalidateAll } from '$app/navigation';
 	import { loadPluginScripts, navigated } from '$lib/pluginScripts';
 	import { NavigationRail, Snackbar, Icon, IconButton, Menu, MenuItem, Avatar } from '$lib/m3';
 	import { realtime } from '$lib/realtime.svelte';
@@ -23,6 +23,8 @@
 	import AccountDialog from '$lib/components/AccountDialog.svelte';
 	import { notifications } from '$lib/notifications.svelte';
 	import { version } from '$lib/version.svelte';
+	import { updates } from '$lib/updates.svelte';
+	import UpdateBanner from '$lib/components/UpdateBanner.svelte';
 	import { revealSpoilers } from '$lib/spoilers';
 
 	let { data, children } = $props();
@@ -82,6 +84,16 @@
 	});
 	afterNavigate(() => navigated(new URL(page.url)));
 
+	// A newer Castor is running than this page: watch for it, and make the next move to another
+	// page a full load so it picks the new version up (staying on a page, e.g. opening a card or
+	// typing a filter that goes into the address, doesn't reload it).
+	onMount(() => updates.start());
+	beforeNavigate(({ from, to, willUnload }) => {
+		if (updates.available && !willUnload && to?.url && to.url.origin === location.origin && from?.route.id !== to.route.id) {
+			location.href = to.url.href;
+		}
+	});
+
 	$effect(() => {
 		if (data.user) {
 			realtime.start();
@@ -101,6 +113,7 @@
 			seenReconnects = n;
 			void invalidateAll();
 			void notifications.load();
+			void updates.check(); // an upgrade restarts the server
 		}
 	});
 
@@ -201,6 +214,7 @@
 {/if}
 {#if data.user}<AccountDialog bind:open={accountOpen} user={data.user} />{/if}
 <Snackbar />
+<UpdateBanner />
 <ConfirmHost />
 <ImageViewer />
 {#if data.user}<CommandPalette />{/if}
