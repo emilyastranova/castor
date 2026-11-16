@@ -637,6 +637,10 @@ class AgentOut(ORM):
     connected: bool = False
     # Set for an SSH host Castor connects to (Agents → Add SSH host), not an agent that dials in.
     ssh_host_id: uuid.UUID | None = None
+    # A machine a plugin's agent type reaches: {id (the plugin), type, machine (its id there)}, and
+    # whether that system answered when last asked ({ok, message, checked_at}).
+    plugin: dict[str, Any] | None = None
+    plugin_status: dict[str, Any] | None = None
 
 
 class AgentPatch(BaseModel):

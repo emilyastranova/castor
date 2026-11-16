@@ -138,9 +138,14 @@ class SettingSpec(BaseModel):
     # Whether an admin can make it each person's own (an API key everyone brings): allowed (the
     # admin chooses), required (always each person's), never (one value for everyone).
     per_user: Literal["allowed", "required", "never"] = "allowed"
+    # The address of a system the plugin talks to (a Salt master's API): a sandboxed plugin may reach
+    # the host an admin sets here (`network_host`), on top of its manifest's `network`. Shared only.
+    network: bool = False
 
     @model_validator(mode="after")
     def _check(self) -> SettingSpec:
+        if self.network and (self.type != "text" or self.per_user == "required"):
+            raise ValueError(f"{self.name}: a network setting is a text setting everyone shares")
         if self.type == "select" and not self.options:
             raise ValueError(f"{self.name}: a select needs options")
         if self.type == "secret" and self.default not in (None, ""):
@@ -151,6 +156,24 @@ class SettingSpec(BaseModel):
 # Names fit the database columns (assets.type is 16 characters, asset_links.kind 24).
 TYPE_NAME = r"^[a-z][a-z0-9_]{1,15}$"
 KIND_NAME = r"^[a-z][a-z0-9_]{1,23}$"
+
+
+class AgentTypeSpec(BaseModel):
+    """A kind of agent the plugin adds (plugin_agents.py): the machines a system it talks to already
+    manages (Salt minions, Puppet nodes), each one a Castor agent. The plugin lists them and runs
+    jobs on them (SDK `ctx.agents.on`); the plugin's settings say how to reach the system."""
+
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(pattern=r"^[a-z][a-z0-9-]{0,39}$")
+    label: str = Field(min_length=1, max_length=60)
+    description: str = Field("", max_length=300)
+    icon: str = Field("dns", pattern=r"^[a-z0-9_]{1,40}$")  # a Material Symbols name
+    # What it runs: shell commands always; containers when its machines have podman or docker.
+    containers: bool = False
+    # Jobs at once on each machine, to start with (admins change it per agent).
+    max_concurrency: int = Field(1, ge=1, le=64)
+    # How often Castor asks it for its machines (their tags, whether they're there).
+    refresh_minutes: int = Field(10, ge=1, le=1440)
 
 
 class AssetFieldSpec(BaseModel):
@@ -232,6 +255,7 @@ class Manifest(BaseModel):
     # Actions that are library definitions (kind: plugin), for cards and playbook steps.
     library_actions: list[LibraryActionSpec] = Field(default_factory=list, max_length=50)
     mcp_tools: list[McpToolSpec] = Field(default_factory=list, max_length=40)
+    agent_types: list[AgentTypeSpec] = Field(default_factory=list, max_length=10)
     hooks: list[dict[str, Any]] = Field(default_factory=list)
     ui: list[UiSpec] = Field(default_factory=list)
     settings: list[SettingSpec] = Field(default_factory=list)
@@ -308,7 +332,7 @@ class Manifest(BaseModel):
     @model_validator(mode="after")
     def _unique(self) -> Manifest:
         for what, names in (("actions", [a.id for a in self.actions]), ("settings", [s.name for s in self.settings]),
-                            ("ui", [u.id for u in self.ui])):
+                            ("ui", [u.id for u in self.ui]), ("agent_types", [t.name for t in self.agent_types])):
             if len(names) != len(set(names)):
                 raise ValueError(f"{what}: two have the same id")
         for u in self.ui:
@@ -317,6 +341,8 @@ class Manifest(BaseModel):
                 raise ValueError(f"ui.{u.id}: page.script takes a .js file, the other slots an .html page")
             if script and self.runtime != "unrestricted":
                 raise ValueError(f"ui.{u.id}: page.script runs in Castor's own page, which only unrestricted plugins may do")
+        if self.agent_types and self.main is None:
+            raise ValueError("agent_types: a plugin with agent types needs code to run jobs (main)")
         self._check_kinds()
         return self
 

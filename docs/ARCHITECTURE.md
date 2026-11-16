@@ -14,6 +14,7 @@ the output back into the card.
 | API + orchestrator | `server/` | FastAPI, SQLAlchemy 2 (async), PostgreSQL | REST API, UI WebSocket, agent gateway, dispatcher |
 | Agent | `agent/` | Python 3.10+, `websockets` | Connects out to the server, runs jobs in podman/docker containers (or on the host), streams logs |
 | SSH hosts | `server/castor_server/orchestrator/ssh.py` | asyncssh | The other way around: the server connects to a host over SSH and runs jobs there as an agent |
+| Plugin agents | `server/castor_server/plugin_agents.py` | a plugin (Deno) | Machines a system already manages (Salt minions…), each an agent; the plugin runs their jobs |
 | Libraries | `commands/`, `tools/`, `playbooks/` | YAML | Built-in commands (typed arguments), tool environments and playbooks, synced into the database at startup |
 | Reverse proxy | `compose.yaml` (Caddy) | | Single origin: `/api` and `/ws` go to the server, everything else to the web app |
 

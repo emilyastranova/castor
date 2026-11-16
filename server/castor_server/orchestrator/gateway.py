@@ -115,6 +115,11 @@ class AgentGateway:
 
         link = ssh_hosts.by_agent(agent.id)
         out.ssh_host_id = link.host_id if link else None
+        if agent.plugin_id:
+            from ..plugin_agents import manager
+
+            out.plugin = {"id": agent.plugin_id, "type": agent.agent_type, "machine": agent.machine_ref}
+            out.plugin_status = manager.status_of(agent)
         return out
 
     async def _publish_agent(self, agent: m.Agent) -> None:
@@ -174,13 +179,15 @@ class AgentGateway:
 
     async def _register(
         self, ws: Any, hello: dict[str, Any], token_id: uuid.UUID | None = None,
-        ssh_agent_id: uuid.UUID | None = None,
+        ssh_agent_id: uuid.UUID | None = None, fixed_agent_id: uuid.UUID | None = None,
     ) -> AgentConnection:
         """Find or create the agent record. With a token, the token decides which agent
         this is (binding it on first use); with the shared secret, the name does, unless
         that agent has a token of its own. An SSH host (orchestrator/ssh.py) is its own
         agent record, which no connecting agent can claim."""
         name = str(hello.get("name") or hello.get("hostname") or uuid.uuid4().hex[:8])
+        # An SSH host's or a plugin machine's own agent record (Castor connects it; no agent dials in as it).
+        ssh_agent_id = ssh_agent_id or fixed_agent_id
         async with SessionLocal() as db:
             by_name = (
                 await db.execute(select(m.Agent).where(m.Agent.name == name))
@@ -216,6 +223,8 @@ class AgentGateway:
                     enrolled = True
             if ssh_agent_id is None and await db.scalar(select(m.SshHost.id).where(m.SshHost.agent_id == agent.id)):
                 raise RegisterError(f"{agent.name} is an SSH host that Castor connects to; give this agent another --name")
+            if ssh_agent_id is None and agent.plugin_id:
+                raise RegisterError(f"{agent.name} is a machine the {agent.plugin_id} plugin reaches; give this agent another --name")
             if token is not None:
                 agent_tokens.touch(token)
             agent.hostname = str(hello.get("hostname", ""))

@@ -123,6 +123,8 @@ RULES: list[tuple[str, str, str]] = [
     ("*", "/api/mcp-connections", "admin"),
     ("*", "/api/mcp-connections/**", "admin"),
     ("*", "/api/ssh-hosts", "admin"),
+    ("*", "/api/plugin-agent-types", "admin"),
+    ("*", "/api/plugin-agent-types/**", "admin"),
     ("*", "/api/ssh-hosts/**", "admin"),
     ("*", "/api/ssh-config", "admin"),
     ("*", "/api/ssh-config/**", "admin"),

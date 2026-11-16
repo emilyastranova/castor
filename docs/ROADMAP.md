@@ -43,35 +43,6 @@ own, a vendor's, or a community collection:
   repository's items should be pinned to a version (a Git tag or commit) per project, and signing,
   shared with signed plugin releases.
 
-### Agent types from plugins
-Jobs run on Castor's own agents, SSH hosts, or (for HTTP actions) the server. A plugin should be
-able to add another kind of agent that reaches machines through a system that already manages
-them: SaltStack minions through the Salt master's API, Puppet nodes through Bolt or PuppetDB,
-Ansible inventory, a cloud's run-command service, a remote management tool's API.
-- **How it fits:** the same way SSH hosts do. A plugin-provided agent registers with the gateway
-  and speaks the agent protocol, so the dispatcher, selectors (an agent, tags, every agent with a
-  tag), project limits, logs, cancel, artifacts, parsers and playbooks all work unchanged. The
-  plugin only turns `job.run` into its system's call (`cmd.run` on a minion, a Bolt task) and
-  streams the output back.
-- **What a plugin declares:** an agent type in its manifest (a name, an icon, the settings an
-  admin fills in, such as the Salt master's URL and a token from the vault, and what it can run:
-  shell commands, containers or not), and a handler in the SDK for running, cancelling and
-  reporting jobs.
-- **Machines as agents:** the agent type lists the machines it reaches (minions, nodes), and each
-  becomes an agent in Castor with tags from its own system (Salt grains, Puppet facts, inventory
-  groups), refreshed as the system changes. Admins choose which machines to bring in and which
-  projects may use them, as for any agent.
-- **Settings and the Agents page:** Agents → Add agents from a plugin, next to Enroll agent and Add
-  SSH host; each agent shows the type it came from and whether its system is reachable.
-- **The same rules:** variables reach the job the way they reach SSH hosts (never in a command
-  line), secrets are masked in logs, and the plugin runs in its sandbox with the network access it
-  declares. One that needs a local CLI (Bolt, `salt-call`) needs an unrestricted plugin, behind
-  restricted mode like any other.
-- **Open questions:** whether one Castor agent per machine scales to large fleets (thousands of
-  minions), or the agent type should be one agent that fans out by target; how tools (images,
-  recipes, host installs) map onto machines Castor doesn't prepare itself; and whether the
-  official SaltStack and Puppet plugins live in castor-plugins.
-
 ## Running work
 
 ### Ansible playbooks

@@ -1522,6 +1522,34 @@ export interface Agent {
 	connected: boolean;
 	/** Set for an SSH host Castor connects to, rather than an agent that dials in. */
 	ssh_host_id?: UUID | null;
+	/** A machine a plugin's agent type reaches: the plugin, the type, its id in that system. */
+	plugin?: { id: string; type: string; machine: string } | null;
+	/** Whether that system answered when last asked. */
+	plugin_status?: { ok: boolean | null; message: string; checked_at: string | null } | null;
+}
+
+/** An agent type a plugin adds (Salt minions…): its machines can become agents. */
+export interface PluginAgentType {
+	plugin: { id: string; name: string; enabled: boolean; icon_url: string | null };
+	name: string;
+	label: string;
+	description: string;
+	icon: string;
+	containers: boolean;
+	/** How many of its machines are agents. */
+	agents: number;
+	status: { ok: boolean | null; message: string; checked_at: string | null; machines?: number | null };
+}
+
+export interface PluginMachine {
+	id: string;
+	name: string;
+	hostname: string;
+	os: string;
+	tags: string[];
+	facts: Record<string, string | number | boolean>;
+	/** The agent it already is. */
+	agent_id: UUID | null;
 }
 
 export type SshHostState = 'connecting' | 'connected' | 'error' | 'host_key_changed' | 'disabled';
@@ -2026,6 +2054,13 @@ export function api(fetchFn: Fetch = fetch) {
 			/** A kind: mcp definition for one of its tools, as YAML to edit and save. */
 			draft: (id: string, tool: string) =>
 				get<{ yaml: string }>(`/mcp-connections/${encodeURIComponent(id)}/tools/${encodeURIComponent(tool)}/draft`)
+		},
+		pluginAgents: {
+			types: () => get<PluginAgentType[]>('/plugin-agent-types'),
+			machines: (plugin: string, type: string) => get<{ machines: PluginMachine[] }>(`/plugin-agent-types/${plugin}/${type}/machines`),
+			import: (plugin: string, type: string, body: { machines: string[]; tags?: string[]; project_ids?: UUID[] | null }) =>
+				post<Agent[]>(`/plugin-agent-types/${plugin}/${type}/import`, body),
+			refresh: (plugin: string) => post<Record<string, unknown>>(`/plugin-agent-types/${plugin}/refresh`)
 		},
 		sshHosts: {
 			list: () => get<SshHost[]>('/ssh-hosts'),
@@ -2579,6 +2614,8 @@ export interface PluginSettingSpec {
 	required: boolean;
 	/** Whether an admin can make it each person's own: allowed, required (always), never. */
 	per_user: 'allowed' | 'required' | 'never';
+	/** The address of a system it talks to: it may reach the host you set here. */
+	network?: boolean;
 }
 
 /** A plugin that wants some settings from you (your own API key…), with yours. */
@@ -2728,6 +2765,8 @@ export interface PluginPreview {
 		actions: PluginActionSpec[];
 		/** Tools it adds to Castor's MCP server for AI assistants (as `<plugin>__<name>`). */
 		mcp_tools?: { name: string; description: string; read_only: boolean; destructive: boolean }[];
+		/** Kinds of agent it adds: machines its system reaches, run as Castor agents. */
+		agent_types?: { name: string; label: string; description: string; icon: string; containers: boolean }[];
 		/** Its pages shown in Castor (sandboxed frames). */
 		ui: Pick<PluginPanel, 'id' | 'slot' | 'title' | 'icon' | 'asset_types'>[];
 		asset_types?: { name: string; label: string; plural: string; icon: string; description: string; fields: { name: string; label: string }[] }[];

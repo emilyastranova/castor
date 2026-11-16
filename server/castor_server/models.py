@@ -543,6 +543,13 @@ class Agent(Base, TimestampMixin):
     # Where it sits on the network ("VLAN 20 / user LAN"): its vantage point. Set by admins; every
     # observation from its runs records it (segmentation.py).
     segment: Mapped[str] = mapped_column(String(80), default="", server_default="")
+    # A machine a plugin's agent type reaches (plugin_agents.py): the plugin, its type, the machine's
+    # id in that system (a Salt minion id), and the tags that system gave it (refreshed; an admin's
+    # own tags stay).
+    plugin_id: Mapped[str | None] = mapped_column(ForeignKey("plugins.id", ondelete="CASCADE"), nullable=True, index=True)
+    agent_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    machine_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_tags: Mapped[list[str] | None] = mapped_column(JSONType, default=list, nullable=True)
     max_concurrency: Mapped[int] = mapped_column(Integer, default=1)
     status: Mapped[AgentStatus] = mapped_column(
         Enum(AgentStatus, name="agent_status", native_enum=False, length=16),

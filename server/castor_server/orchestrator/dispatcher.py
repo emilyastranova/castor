@@ -26,7 +26,12 @@ log = logging.getLogger(__name__)
 
 
 def tool_way(conn: AgentConnection, tool: ToolSpec) -> dict[str, Any] | None:
-    """How this agent would run the tool (image, build or host), or None if it can't."""
+    """How this agent would run the tool (image, build or host), or None if it can't. A plugin's
+    machine gets the whole tool (`kind: plugin`): how it gets there is the plugin's to decide."""
+    if conn.capabilities.get("plugin"):
+        return {"id": tool.id, "name": tool.name, "kind": "plugin", "image": tool.image,
+                "build": tool.build_files() if tool.build else None, "build_ref": tool.build_tag() if tool.build else None,
+                "check": tool.host.check if tool.host else "", "install": tool.host.install if tool.host else ""}
     return tool.way_for(conn.runtimes, bool(conn.capabilities.get("host_install")))
 
 

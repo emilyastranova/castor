@@ -150,6 +150,76 @@ export interface AssetCreated {
  *  for json-records, an object for json-value). */
 export type ActionResult = string | { message?: string; output?: unknown } | void;
 
+/** A machine an agent type reaches (a Salt minion, a Puppet node): each one an admin brings in
+ *  becomes a Castor agent. `id` is the machine's id in your system and must stay the same; `tags`
+ *  (from grains, facts, inventory groups) go on the agent and are refreshed. */
+export interface Machine {
+  id: string;
+  name?: string;
+  hostname?: string;
+  os?: string;
+  tags?: string[];
+  facts?: Record<string, string | number | boolean>;
+}
+
+/** How a job's tool would be provided: the tool's image, build recipe files and host check and
+ *  install, for your system to provide as it can (or fail the job saying why). */
+export interface JobTool {
+  id: string;
+  name: string;
+  kind: "plugin";
+  image: string | null;
+  build: Record<string, string> | null;
+  build_ref: string | null;
+  check: string;
+  install: string;
+}
+
+/** A job to run on one of your machines. Variable values are in `env` and `files` only: hand them
+ *  to the machine without putting them in a command line (your system's env parameter, a file). */
+export interface AgentJob {
+  id: string;
+  command: string;
+  /** The command as people see it (values filled in, secrets masked): log this, not `command`. */
+  displayCommand: string;
+  /** "container" when it should run in `image` (only for an agent type with `containers: true`). */
+  runtime: "host" | "container";
+  image: string | null;
+  containerFlags: string[];
+  /** Run it with these environment variables (variables' values, CASTOR_WORK…). */
+  env: Record<string, string>;
+  /** Write these before it runs (relative `path` under the job's directory, `data` base64, `mode`),
+   *  set `env` to each one's full path, and delete them afterwards. */
+  files: { path: string; env: string; mode: number; data: string }[];
+  timeoutS: number | null;
+  tool: JobTool | null;
+  /** Files to send back afterwards, relative to the job's directory ("scan.xml", "artifacts/**": everything
+   *  under artifacts/): io.artifact each, named by that relative path. Never anything under .castor/. */
+  artifacts: string[];
+}
+
+export interface JobIO {
+  machine: Machine;
+  /** Output, as it comes (stdout unless said). Castor masks secrets in it. */
+  log(data: string, stream?: "stdout" | "stderr"): void;
+  /** A file the job produced, kept as the job's artifact (parsers read them). */
+  artifact(name: string, content: Uint8Array | string, contentType?: string): Promise<void>;
+  /** Aborted when someone cancels the job: stop it on the machine and return. */
+  signal: AbortSignal;
+}
+
+/** What a job ended with: its exit code, or an error saying why it couldn't run. */
+export interface AgentResult {
+  exitCode: number | null;
+  error?: string;
+}
+
+/** An agent type of the manifest's `agent_types`: list the machines, run jobs on them. */
+export interface AgentTypeHandler {
+  list(): Machine[] | Promise<Machine[]>;
+  run(job: AgentJob, io: JobIO): AgentResult | Promise<AgentResult>;
+}
+
 export interface Context {
   plugin: PluginInfo;
   castorVersion: string;
@@ -171,6 +241,8 @@ export interface Context {
    *  server (as `<plugin id>__<name>`). What it returns (text, or JSON) is the tool's answer; throw a
    *  `CastorError` to say it failed. Register these in `activate`: Castor learns them when it returns. */
   mcp: { on<A = Record<string, unknown>>(name: string, handler: (call: McpCall<A>) => unknown): void };
+  /** Answer one of the manifest's `agent_types`: the machines it reaches, and running jobs on them. */
+  agents: { on(type: string, handler: AgentTypeHandler): void };
 }
 
 /** A call of one of the plugin's MCP tools (manifest `mcp_tools`), by an assistant acting for a person. */
@@ -340,6 +412,7 @@ const handlers = new Map<string, (run: ActionRun) => ActionResult | Promise<Acti
 const aborts = new Map<string, AbortController>();
 const uiHandlers = new Map<string, { handler: (call: UiCall) => unknown; readOnly: boolean }>();
 const mcpHandlers = new Map<string, (call: McpCall) => unknown>();
+const agentTypes = new Map<string, AgentTypeHandler>();
 const eventHandlers = new Map<string, ((event: PluginEvent) => void | Promise<void>)[]>();
 let definition: PluginDefinition | null = null;
 
@@ -366,6 +439,12 @@ async function onRequest(method: string, params: Record<string, unknown>): Promi
           mcpHandlers.set(name, handler as (call: McpCall) => unknown);
         },
       },
+      agents: {
+        on: (type, handler) => {
+          if (!/^[a-z][a-z0-9-]{0,39}$/.test(type)) throw new CastorError(`ctx.agents.on: “${type}” isn't an agent type name (manifest agent_types)`);
+          agentTypes.set(type, handler);
+        },
+      },
       events: {
         on: (name, handler) => {
           const list = eventHandlers.get(name) ?? [];
@@ -380,7 +459,52 @@ async function onRequest(method: string, params: Record<string, unknown>): Promi
       events: [...eventHandlers.keys()],
       ui: [...uiHandlers].map(([name, h]) => ({ name, read_only: h.readOnly })),
       mcp: [...mcpHandlers.keys()],
+      agents: [...agentTypes.keys()],
     };
+  }
+  if (method === "agent.list") {
+    const handler = agentTypes.get(String(params.type));
+    if (!handler) throw new CastorError(`This plugin has no handler for the agent type “${params.type}” (ctx.agents.on)`);
+    return await handler.list();
+  }
+  if (method === "agent.run") {
+    const handler = agentTypes.get(String(params.type));
+    if (!handler) throw new CastorError(`This plugin has no handler for the agent type “${params.type}” (ctx.agents.on)`);
+    const j = params.job as Record<string, unknown>;
+    const jobId = String(j.id);
+    const abort = new AbortController();
+    aborts.set(jobId, abort);
+    let logged = 0; // numbered, so Castor keeps them in order and waits for the last before the end
+    const job: AgentJob = {
+      id: jobId,
+      command: String(j.command ?? ""),
+      displayCommand: String(j.display_command ?? ""),
+      runtime: j.runtime === "container" ? "container" : "host",
+      image: (j.image ?? null) as string | null,
+      containerFlags: (j.container_flags ?? []) as string[],
+      env: (j.env ?? {}) as Record<string, string>,
+      files: (j.files ?? []) as AgentJob["files"],
+      timeoutS: (j.timeout_s ?? null) as number | null,
+      tool: (j.tool ?? null) as JobTool | null,
+      artifacts: (j.artifacts ?? []) as string[],
+    };
+    const io: JobIO = {
+      machine: params.machine as Machine,
+      log: (data, stream = "stdout") => notify("agent.log", { job_id: jobId, stream, data: String(data), n: ++logged }),
+      async artifact(name, content, contentType) {
+        const bytes = typeof content === "string" ? new TextEncoder().encode(content) : content;
+        let binary = "";
+        for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        await call("agent.artifact", { job_id: jobId, name, base64: btoa(binary), content_type: contentType ?? "" });
+      },
+      signal: abort.signal,
+    };
+    try {
+      const result = await handler.run(job, io);
+      return { exit_code: result?.exitCode ?? null, error: result?.error ?? null, logged };
+    } finally {
+      aborts.delete(jobId);
+    }
   }
   if (method === "event") {
     const event = params as unknown as PluginEvent;

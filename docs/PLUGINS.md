@@ -86,6 +86,13 @@ library_actions:               # actions that are library definitions, for cards
     vars: [{ name: creds, kind: credential, required: false }]
     outputs: [{ name: cracked, parser: json-records, options: { records: cracked } }]
     timeout_minutes: 30
+agent_types:                   # kinds of agent: machines a system it talks to manages (below)
+  - name: minion
+    label: Salt minion
+    icon: grain
+    containers: false            # its machines run shell commands (true: containers too)
+    max_concurrency: 2           # jobs at once per machine, to start with
+    refresh_minutes: 10          # how often Castor asks for its machines
 mcp_tools:                     # tools for AI assistants on Castor's MCP server, as `<plugin id>__<name>`
   - name: shodan_host
     description: What Shodan knows about an address.
@@ -102,6 +109,7 @@ ui:                            # its pages, shown in Castor in sandboxed frames 
   - { id: asset-path, slot: asset.panel, title: Path to Domain Admins, path: ui/paths.html, asset_types: [user, host], height: 140 }
 settings:
   - { name: info_findings, label: "Record informational findings", type: bool, default: false }
+  - { name: api_url, label: Salt API URL, type: text, network: true }   # it may reach the host an admin sets here
 contents: [commands, tools]    # library content it ships in library/<kind>/*.yaml (packs, below)
 asset_types:                   # kinds of asset it adds (see below)
   - { name: source_file, label: Source file, icon: code, identity: [repo, path], label_template: "{repo}/{path}",
@@ -111,7 +119,7 @@ link_kinds:                    # kinds of relationship it adds, or more pairs fo
   - { name: affects, pairs: [[vulnerability, source_file]] }
 ```
 
-`network`, `events`, `actions`, `mcp_tools`, `hooks`, `ui`, `settings`, `asset_types` and `link_kinds` are all optional. Castor rejects a
+`network`, `events`, `actions`, `agent_types`, `mcp_tools`, `hooks`, `ui`, `settings`, `asset_types` and `link_kinds` are all optional. Castor rejects a
 manifest with unknown fields, a permission it doesn't know, or an `id` that's taken by another
 publisher.
 
@@ -303,6 +311,48 @@ answer, and a thrown `CastorError` is a failed call.
   `projects:write`). The plugin's actions rate limit counts them too; calls that aren't read-only are in
   the project's feed (`plugin.tool.called`). `GET /api/plugin-tools` lists what the caller may use.
 - **Untrusted answers.** The MCP server marks a plugin's answer as data, not instructions.
+
+### Agent types
+
+A manifest's `agent_types` add kinds of agent: machines that a system the plugin talks to already
+manages (Salt minions, Puppet nodes, a cloud's run-command targets). Each machine an admin brings in
+is a Castor agent (one per machine), so the dispatcher, selectors (an agent, tags, every agent with a
+tag), project limits, logs, cancel, artifacts, parsers, playbooks and reachability segments all work
+as for any agent. `plugin_agents.py` keeps a `MachineLink` per machine registered with the gateway,
+like an SSH host, and turns the agent protocol into calls to the plugin.
+
+```ts
+ctx.agents.on("minion", {
+  list: async () => [{ id: "web01", name: "web01", hostname: "web01.lab", os: "Ubuntu 24.04", tags: ["roles:web"] }],
+  async run(job, io) {          // job: command, env, files, timeoutS, tool, artifacts; io.signal on cancel
+    io.log("output\n");          // as it comes (numbered: Castor keeps the order and waits for the last line)
+    await io.artifact("scan.xml", bytes);
+    return { exitCode: 0 };     // or { exitCode: null, error: "why it couldn't run" }
+  },
+});
+```
+
+- **Machines.** `list()` returns the machines it reaches now; `id` is the machine's id in that system and
+  must stay the same. Admins pick them in Agents → **Add from a plugin** (`GET
+  /api/plugin-agent-types`, `…/{plugin}/{type}/machines`, `POST …/import` with `tags` and `project_ids`).
+  The agent's `plugin_id`, `agent_type` and `machine_ref` say where it came from; `source_tags` are the
+  system's tags, refreshed every `refresh_minutes` (an admin's own tags stay). A machine the plugin no
+  longer lists, or a plugin that's off, stopped or crashed, is offline (running jobs are lost, as with any
+  agent); Castor connects them again when the plugin lists them.
+- **Jobs.** `run(job, io)` gets the command, `env` and `files` (variables' values: hand them to the
+  machine without putting them in a command line, and remove the files afterwards), `timeoutS`, the
+  `tool` and the files to send back (`artifacts`, relative to the job's directory). Output goes through
+  the gateway, which masks secrets. A job that doesn't fit (a container on a shell-only type) returns an
+  error.
+- **Tools are the plugin's to provide.** Its machines get the whole tool (`kind: plugin`: `image`,
+  `build`, the host `check` and `install`); the plugin decides what its system can do (check, install,
+  or fail saying what's missing).
+- **Approved like permissions** (`granted.agent_types`); an update that adds one asks again.
+
+A sandboxed plugin's network is fixed in its manifest, but a system like a Salt master has an address
+only the admin knows: a `text` setting with `network: true` (shared, not per person) lets the plugin
+reach the host an admin sets there (`granted.network_settings`, listed in the install review as "the
+host you set in …"). The official example is **SaltStack minions** (castor-plugins `plugins/saltstack`).
 
 ### UI slots (phase C)
 
@@ -511,7 +561,8 @@ sent to it, so it can't loop on itself. Queues are in memory: events during a re
 ### Network (phase B)
 
 `network:` lists exact hosts (`api.shodan.io`, `10.0.0.5:8443`, no schemes, paths or wildcards); the
-process starts with `--allow-net=` those and nothing else (Deno also refuses a few ports outright).
+process starts with `--allow-net=` those and nothing else (Deno also refuses a few ports outright), plus
+the hosts its approved network settings name (Agent types, above).
 The install review lists them with a reminder that the plugin can send there what it can read; an
 update that adds a host must be approved again.
 
@@ -610,11 +661,9 @@ network):
 ## Open questions
 
 - Resource limits per plugin: fixed defaults, or set per plugin by the admin.
-- Plugins on agents (new runtimes, not just tools) are out of scope for now.
 - **Library actions** (docs/ACTIONS.md phase 4, built): an action in `library_actions` is handled
   by the same `ctx.actions.on(id, …)` as a button, and gets `run.args`, `run.vars` (variable sets'
   values), `run.job` and `run.signal` (aborted on cancel); it returns `{message, output}`, the
   output read by the definition's parsers. Castor writes each into the library as
   `<plugin id>-<id>` while the plugin is installed; admins can cap them (`actions_rate_limit`). Plugins adding
-  agent *types* (SaltStack, Puppet: machines reached through another system) are on the roadmap
-  ("Agent types from plugins").
+  agent *types* are built (Agent types, above).

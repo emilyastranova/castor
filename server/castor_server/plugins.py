@@ -74,7 +74,11 @@ def grants(man: Manifest) -> dict[str, Any]:
     return {"permissions": sorted(man.permissions), "network": sorted(man.network), "events": sorted(man.events),
             "runtime": ["unrestricted"] if man.runtime == "unrestricted" else [],
             # MCP tools for assistants: a new one in an update is asked for again, like a permission.
-            "mcp_tools": sorted(t.name for t in man.mcp_tools)}
+            "mcp_tools": sorted(t.name for t in man.mcp_tools),
+            # Settings whose host it may reach (whatever an admin sets them to).
+            "network_settings": sorted(s.name for s in man.settings if s.network),
+            # Agent types run jobs on machines: a new one in an update is asked for again.
+            "agent_types": sorted(t.name for t in man.agent_types)}
 
 
 # ---------- restricted and safe mode ----------
@@ -173,6 +177,31 @@ def per_user_names(p: m.Plugin, man: Manifest | None = None) -> set[str]:
     man = man or manifest_of(p)
     chosen = set(p.per_user or [])
     return {s.name for s in man.settings if s.per_user == "required" or (s.name in chosen and s.per_user != "never")}
+
+
+def network_host(value: Any) -> str | None:
+    """"https://salt.example.com:8000/x" → "salt.example.com:8000": what --allow-net takes."""
+    from urllib.parse import urlsplit
+
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parts = urlsplit(text if "://" in text else f"//{text}")
+        host, port = parts.hostname, parts.port
+    except ValueError:
+        return None
+    if not host or any(c in host for c in "*,/ "):
+        return None
+    host = f"[{host}]" if ":" in host else host
+    return f"{host}:{port}" if port else host
+
+
+def network_hosts(p: m.Plugin, man: Manifest) -> list[str]:
+    """The hosts its approved network settings name, as an admin set them."""
+    approved = set((p.granted or {}).get("network_settings") or [])
+    values = settings_for(p)
+    return [h for s in man.settings if s.network and s.name in approved if (h := network_host(values.get(s.name)))]
 
 
 def settings_for(p: m.Plugin) -> dict[str, Any]:
@@ -343,9 +372,10 @@ async def problems_of(db: AsyncSession, pkg: plugin_package.Package) -> list[str
     return out + await plugin_library.conflicts(db, man.id, pkg.library)
 
 
-def castor_ok(constraint: str, version: str = CASTOR_VERSION) -> bool:
+def castor_ok(constraint: str, version: str | None = None) -> bool:
     """A manifest's `castor:` versions: comparisons joined by commas (">=0.1, <0.3"), each with
     >=, >, <=, <, == or a bare version (==). Something unreadable doesn't block the install."""
+    version = version or CASTOR_VERSION
     ops = {">=": lambda a, b: a >= b, ">": lambda a, b: a > b, "<=": lambda a, b: a <= b, "<": lambda a, b: a < b,
            "==": lambda a, b: a == b, "=": lambda a, b: a == b}
 
@@ -481,7 +511,7 @@ async def ensure_running(plugin_id: str, *, force: bool = False) -> PluginProces
             token = await _fresh_token(db, p)
             await db.commit()
             payload = {"plugin": {"id": p.id, "version": p.version}, "settings": settings_for(p), "castor_version": CASTOR_VERSION}
-            network = list((p.granted or {}).get("network") or [])
+            network = list((p.granted or {}).get("network") or []) + network_hosts(p, man)
         if force:
             host.forget_crashes(plugin_id)
         await _status(plugin_id, "starting")
@@ -594,6 +624,10 @@ async def handle_call(plugin_id: str, method: str, params: dict[str, Any], proc:
     if method == "progress":
         await _progress(plugin_id, params)
         return None
+    if method in ("agent.log", "agent.artifact"):  # a job on one of its machines (plugin_agents.py)
+        from .plugin_agents import manager
+
+        return await (manager.on_log if method == "agent.log" else manager.on_artifact)(plugin_id, params)
     if method == "log":
         to_job = job_runs.get(str(params.get("run_id")))
         if to_job is not None:  # first: the action's result may be on its way already

@@ -95,6 +95,9 @@ async def lifespan(app: FastAPI):
     await server_runner.recover()  # HTTP actions the last process was running carry on
     await dispatcher.start()
     await ssh_hosts.start()  # hosts Castor connects to over SSH
+    from .plugin_agents import manager as plugin_agents
+
+    plugin_agents.start()  # machines plugins reach (Salt minions…), as agents
     plugins.APP = app  # plugins call the API in-process, as their own accounts
     await plugins.load_types()  # the asset types and relationship kinds plugins add
     plugin_start = asyncio.create_task(plugins.start_enabled())
@@ -113,6 +116,7 @@ async def lifespan(app: FastAPI):
         update_checks.cancel()
         service_parse.cancel()
         plugin_start.cancel()
+        await plugin_agents.stop()
         await plugins.stop_all()
         await ssh_hosts.stop()
         await dispatcher.stop()

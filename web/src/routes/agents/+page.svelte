@@ -17,6 +17,8 @@
 	import SshConfigDialog from '$lib/components/SshConfigDialog.svelte';
 	import TagManagerDialog from '$lib/components/TagManagerDialog.svelte';
 	import AgentProjectsPicker from '$lib/components/AgentProjectsPicker.svelte';
+	import PluginAgentsDialog from '$lib/components/PluginAgentsDialog.svelte';
+	import type { PluginAgentType } from '$lib/api';
 
 	let { data } = $props();
 	// svelte-ignore state_referenced_locally
@@ -184,6 +186,18 @@
 		})
 	);
 
+	// ---- agents from plugins (Salt minions…) ----
+	let pluginTypes = $state<PluginAgentType[]>([]);
+	let pluginOpen = $state(false);
+	$effect(() => {
+		if (isAdmin()) api().pluginAgents.types().then((t) => (pluginTypes = t)).catch(() => {});
+	});
+	const typeOf = (a: Agent) => (a.plugin ? pluginTypes.find((t) => t.plugin.id === a.plugin!.id && t.name === a.plugin!.type) : undefined);
+	function imported(made: Agent[]) {
+		agents = [...agents.filter((x) => !made.some((y) => y.id === x.id)), ...made].sort((x, y) => x.name.localeCompare(y.name));
+		void api().pluginAgents.types().then((t) => (pluginTypes = t));
+	}
+
 	let editing = $state<Agent | null>(null);
 	/** Its network segment: where its runs look from. */
 	let segment = $state('');
@@ -236,7 +250,9 @@
 	async function removeAgent(a: Agent) {
 		const ok = await confirmAction({
 			title: `Forget agent ${a.name}?`,
-			message: tokenOf(a)
+			message: a.plugin
+				? 'It will be removed from the agent list with its tags and settings (a job running on it is lost); the machine itself is untouched. Add it again from the plugin to use it.'
+				: tokenOf(a)
 				? 'It will be removed from the agent list with its tags, settings and token. To use it again, enroll it with a new token.'
 				: 'It will be removed from the agent list, and its tags and settings will be lost. It reappears if it connects again.',
 			confirmLabel: 'Forget agent'
@@ -269,6 +285,7 @@
 			<IconButton icon="sell" label="Agent tags: rename or merge" onclick={() => (agentTagsOpen = true)} />
 			<Button variant="text" icon="route" onclick={() => (sshConfigOpen = true)}>SSH config</Button>
 			<Button variant="text" icon="terminal" onclick={addSshHost}>Add SSH host</Button>
+			{#if pluginTypes.length}<Button variant="text" icon="extension" onclick={() => (pluginOpen = true)}>Add from a plugin</Button>{/if}
 			<Button variant="tonal" icon="add" onclick={() => { revealed = null; enrollOpen = true; }}>Enroll agent</Button>
 		{/if}
 	{/snippet}
@@ -283,6 +300,7 @@
 			<div class="flex flex-wrap justify-center gap-2">
 				<Button icon="add" onclick={() => { revealed = null; enrollOpen = true; }}>Enroll an agent</Button>
 				{#if isAdmin()}<Button variant="outlined" icon="terminal" onclick={addSshHost}>Add SSH host</Button>{/if}
+				{#if isAdmin() && pluginTypes.length}<Button variant="outlined" icon="extension" onclick={() => (pluginOpen = true)}>Add from a plugin</Button>{/if}
 			</div>
 		</div>
 	{:else}
@@ -292,12 +310,12 @@
 				<Card variant="elevated" class="flex flex-1 flex-col gap-3 p-5">
 					<div class="flex items-start gap-3">
 						<span class="flex size-10 items-center justify-center rounded-md {a.connected ? 'bg-primary-container text-on-primary-container' : 'bg-surface-container-highest text-on-surface-variant'}">
-							<Icon name={a.ssh_host_id ? 'terminal' : 'dns'} filled={a.connected} />
+							<Icon name={a.ssh_host_id ? 'terminal' : a.plugin ? (typeOf(a)?.icon ?? 'extension') : 'dns'} filled={a.connected} />
 						</span>
 						<div class="min-w-0 flex-1">
 							<h2 class="truncate title-medium text-on-surface">{a.name}</h2>
 							<p class="truncate body-small text-on-surface-variant">
-								{#if sshOf(a)}{@const h = sshOf(a)!}{h.route.at(-1)?.replace(/:22$/, '') ?? `${h.username ? `${h.username}@` : ''}${h.host}`}{:else}{a.username}@{a.hostname}{/if}
+								{#if sshOf(a)}{@const h = sshOf(a)!}{h.route.at(-1)?.replace(/:22$/, '') ?? `${h.username ? `${h.username}@` : ''}${h.host}`}{:else if a.plugin}{a.hostname || a.plugin.machine} · {typeOf(a)?.label ?? a.plugin.type} via {typeOf(a)?.plugin.name ?? a.plugin.id}{:else}{a.username}@{a.hostname}{/if}
 							</p>
 						</div>
 						<span class="rounded-full px-2 py-0.5 label-small {statusCls[a.status]}">{a.status}{a.running_jobs ? ` · ${a.running_jobs}` : ''}</span>
@@ -306,6 +324,7 @@
 						<dt>OS</dt><dd class="truncate text-on-surface" title={a.os}>{a.os || '—'}</dd>
 						<dt>Runtimes</dt><dd class="text-on-surface">{(a.capabilities.runtimes ?? []).join(', ') || '—'}</dd>
 						<dt>Slots</dt><dd class="text-on-surface">{a.running_jobs}/{a.max_concurrency}</dd>
+						{#if a.plugin && a.plugin_status?.ok === false}<dt>System</dt><dd class="truncate text-error" title={a.plugin_status.message}>not answering: {a.plugin_status.message || 'no reply'}</dd>{/if}
 						{#if a.segment}<dt>Segment</dt><dd class="truncate text-on-surface" title="Its network segment: where its runs look from">{a.segment}</dd>{/if}
 						<dt>Projects</dt><dd class="truncate {a.project_ids && !a.project_ids.length ? 'text-error' : 'text-on-surface'}" title={projectsOf(a)}>{projectsOf(a)}</dd>
 						{#if (sshOf(a)?.route.length ?? 0) > 1}
@@ -319,6 +338,10 @@
 								{@const h = sshOf(a)}
 								<span class="flex min-w-0 items-center gap-1 text-on-surface" title="Castor connects to it over SSH{h?.host_key_fingerprint ? `; host key ${h.host_key_fingerprint}` : ''}">
 									<Icon name="key" size={14} /><span class="truncate">SSH{h?.key_fingerprint ? ` · ${h.key_fingerprint.replace('SHA256:', '').slice(0, 12)}…` : ''}</span>
+								</span>
+							{:else if a.plugin}
+								<span class="flex min-w-0 items-center gap-1 text-on-surface" title="Castor runs its jobs through the plugin, which reaches it through its own system">
+									<Icon name="extension" size={14} /><span class="truncate">the {typeOf(a)?.plugin.name ?? a.plugin.id} plugin</span>
 								</span>
 							{:else if tokenOf(a)}
 								{@const t = tokenOf(a)!}
@@ -375,7 +398,7 @@
 							<IconButton icon="delete" label="Remove SSH host" size="sm" onclick={() => removeSshHost(a, h)} />
 						{:else if isAdmin()}
 							<IconButton icon="edit" label="Edit agent" size="sm" onclick={() => edit(a)} />
-							<IconButton icon="delete" label="Forget agent" size="sm" disabled={a.connected} onclick={() => removeAgent(a)} />
+							<IconButton icon="delete" label="Forget agent" size="sm" disabled={a.connected && !a.plugin} onclick={() => removeAgent(a)} />
 						{/if}
 					</div>
 				</Card>
@@ -433,6 +456,8 @@
 		</table>
 	</div>
 </div>
+
+<PluginAgentsDialog bind:open={pluginOpen} types={pluginTypes} onimported={imported} />
 
 <Dialog open={editing !== null} title="Edit agent {editing?.name ?? ''}" onclose={() => (editing = null)}>
 	<div class="flex flex-col gap-5 pt-2 pb-2">

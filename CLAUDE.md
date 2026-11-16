@@ -426,6 +426,14 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   on the server). Variable values reach the host only in `.castor/env`
   (sourced and deleted by the job's script), never in a command line. Tests run a real
   asyncssh server in a thread (`tests/test_ssh_hosts.py`).
+- Agent types from plugins: `plugin_agents.py` (manifest `agent_types`, SDK `ctx.agents.on(type, {list, run})`; a
+  `MachineLink` per imported machine registers with the gateway like an SSH host (`PluginSocket`; `_register`'s
+  `fixed_agent_id`), `job.run` → the plugin's `agent.run`, its `agent.log` (numbered `n`) and `agent.artifact` back, checked
+  against the plugin's running jobs; `PluginAgents.tick` heartbeats and re-lists; a plugin stopping takes its machines
+  offline). `agents.plugin_id`/`agent_type`/`machine_ref`/`source_tags`; `api/plugin_agents.py` (admins); a plugin
+  machine's tools are `kind: plugin` (`dispatcher.tool_way`). A setting with `network: true` lets a sandboxed plugin
+  reach the host an admin sets (`plugins.network_hosts`). Web `PluginAgentsDialog` (Agents → Add from a plugin). Tests
+  `tests/test_plugin_agents.py` (a Deno fleet plugin; the official `saltstack` against a fake salt-api).
 - Config is `pydantic-settings` with the `CASTOR_` prefix (`config.py`).
 - SQLite uses `NullPool` (aiosqlite connections are bound to the event loop that opened
   them; the test client runs WebSocket sessions on another loop).

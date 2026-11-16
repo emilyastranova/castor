@@ -292,6 +292,9 @@ class PluginHost:
     def exited(self, proc: PluginProcess, code: int) -> None:
         if self.procs.get(proc.plugin_id) is proc:
             self.procs.pop(proc.plugin_id, None)
+        from .plugin_agents import manager
+
+        manager.plugin_stopped(proc.plugin_id)  # its machines go offline until it's back
         if proc.stopping:
             return
         self.crashes.setdefault(proc.plugin_id, []).append(time.monotonic())
@@ -300,6 +303,9 @@ class PluginHost:
         asyncio.ensure_future(on_crash(proc.plugin_id, code, self.crashed_too_often(proc.plugin_id)))
 
     async def stop(self, plugin_id: str) -> None:
+        from .plugin_agents import manager
+
+        manager.plugin_stopped(plugin_id)
         proc = self.procs.pop(plugin_id, None)
         if proc is not None:
             await proc.stop()

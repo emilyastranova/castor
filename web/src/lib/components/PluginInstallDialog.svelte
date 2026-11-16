@@ -84,6 +84,8 @@
 	let newHosts = $derived(new Set(preview?.new_permissions.network ?? []));
 	let newEvents = $derived(new Set(preview?.new_permissions.events ?? []));
 	let newTools = $derived(new Set(preview?.new_permissions.mcp_tools ?? []));
+	let netSettings = $derived((preview?.manifest.settings ?? []).filter((st) => st.network));
+	let newAgentTypes = $derived(new Set(preview?.new_permissions.agent_types ?? []));
 	let unrestricted = $derived(preview?.manifest.runtime === 'unrestricted');
 	let newlyUnrestricted = $derived(!!preview?.new_permissions.runtime?.length);
 	let confirmed = $derived(!unrestricted || confirmId.trim() === preview?.manifest.id);
@@ -223,7 +225,7 @@
 						{#if !hasCode}
 							<b class="font-medium">No code.</b> Nothing of it runs: it only adds to the library.
 						{:else}
-							<b class="font-medium">Sandboxed.</b> It runs in its own process with no access to this server's files or programs{m.network.length ? ', and no network beyond the hosts below' : ', and no network'}.
+							<b class="font-medium">Sandboxed.</b> It runs in its own process with no access to this server's files or programs{m.network.length || netSettings.length ? ', and no network beyond the hosts below' : ', and no network'}.
 						It can only use Castor through its own account, with the permissions below, in the projects you choose.
 						{/if}
 					</p>
@@ -249,10 +251,15 @@
 				{/if}
 			</section>
 
-			{#if m.network.length}
+			{#if m.network.length || netSettings.length}
 				<section aria-label="Where it connects">
 					<h3 class="mb-1.5 label-large text-on-surface-variant">It connects to</h3>
 					<ul class="flex flex-wrap gap-1.5">
+						{#each netSettings as st (st.name)}
+							<li class="flex items-center gap-1.5 rounded-full border border-outline-variant px-2.5 py-1 body-small text-on-surface">
+								<Icon name="settings_ethernet" size={16} class="text-on-surface-variant" />the host you set in <b class="font-medium">{st.label}</b>
+							</li>
+						{/each}
 						{#each m.network as h (h)}
 							<li class="flex items-center gap-1.5 rounded-full border border-outline-variant px-2.5 py-1 body-small text-on-surface">
 								<Icon name="public" size={16} class="text-on-surface-variant" /><code class="font-mono">{h}</code>
@@ -275,6 +282,27 @@
 							</li>
 						{/each}
 					</ul>
+				</section>
+			{/if}
+
+			{#if m.agent_types?.length}
+				<section aria-label="Agent types">
+					<h3 class="mb-1.5 label-large text-on-surface-variant">It runs jobs on machines it reaches</h3>
+					<ul class="flex flex-col gap-1.5 body-medium text-on-surface">
+						{#each m.agent_types as t (t.name)}
+							<li class="flex items-start gap-2">
+								<Icon name={t.icon} size={18} class="mt-0.5 shrink-0 text-on-surface-variant" />
+								<span class="min-w-0">
+									{t.label}<span class="body-small text-on-surface-variant"> · shell commands{t.containers ? ' and containers' : ''}</span>
+									{#if newAgentTypes.has(t.name)}<span class="ml-1 rounded-xs bg-tertiary-container px-1.5 label-small text-on-tertiary-container">New</span>{/if}
+									{#if t.description}<span class="block body-small text-on-surface-variant">{t.description}</span>{/if}
+								</span>
+							</li>
+						{/each}
+					</ul>
+					<p class="mt-1 body-small text-on-surface-variant">
+						Admins can bring its machines in as agents (Agents → Add from a plugin). Jobs sent to them, with their variables' values, go to the plugin, which runs them through its system.
+					</p>
 				</section>
 			{/if}
 

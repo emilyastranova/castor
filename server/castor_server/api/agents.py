@@ -72,7 +72,13 @@ async def delete_agent(agent_id: str, db: DB, user: Admin):
         raise HTTPException(404, "Agent not found")
     if await db.scalar(select(m.SshHost.id).where(m.SshHost.agent_id == agent.id)):
         raise HTTPException(409, "This is an SSH host: remove it as one (DELETE /api/ssh-hosts/{id})")
-    if gateway.get(agent.id) is not None:
+    if agent.plugin_id:  # a plugin's machine: let it go here (its system keeps running it)
+        from ..plugin_agents import manager
+
+        link = manager.links.pop(agent.id, None)
+        if link is not None:
+            await link.disconnect()
+    elif gateway.get(agent.id) is not None:
         raise HTTPException(409, "Agent is connected; stop it first")
     await db.delete(agent)
     await record_activity(db, type="agent.deleted", message=f"Removed the agent {agent.name}", project_id=None, **actor_of(user))
