@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Spoilers from '$lib/components/Spoilers.svelte';
+	import { maskSpoilers } from '$lib/spoilers';
 	import type { Task } from '$lib/api';
 	import { Icon } from '$lib/m3';
 	import { people } from '$lib/people.svelte';
@@ -51,7 +53,7 @@
 			size={18}
 			class="mt-0.5 {task.run || task.kind === 'command' ? 'text-primary' : 'text-on-surface-variant'}"
 		/>
-		<p class="min-w-0 flex-1 body-medium text-on-surface">{task.title}</p>
+		<p class="min-w-0 flex-1 body-medium text-on-surface"><Spoilers text={task.title} /></p>
 		{#if task.priority > 0}
 			<span class="mt-0.5" title="{priorityLabels[task.priority] ?? ''} priority"><PriorityGlyph level={task.priority} /></span>
 		{/if}
@@ -90,10 +92,10 @@
 			onconsider={(e) => (dropped = e.detail.items)}
 			onfinalize={droppedIn}
 			role="region"
-			aria-label="Drop here to make it a subtask of {task.title}"
+			aria-label="Drop here to make it a subtask of {maskSpoilers(task.title)}"
 		>
 			{#if !dropped.length}<span class="pointer-events-none flex items-center gap-1"><Icon name="subdirectory_arrow_right" size={16} />Drop here to make it a subtask</span>{/if}
-			{#each dropped as d (d.id)}<span class="truncate">Make “{d.title}” a subtask</span>{/each}
+			{#each dropped as d (d.id)}<span class="truncate">Make “<Spoilers text={d.title} />” a subtask</span>{/each}
 		</div>
 	{/if}
 	{#if task.kind === 'command' && task.command}
@@ -103,7 +105,7 @@
 		<div class="flex flex-wrap items-center gap-1.5">
 			<StatusChip job={task.latest_job} batch={task.batch} />
 			{#if blockers.length}
-				<span class="inline-flex items-center gap-1 rounded-sm bg-tertiary-container px-1.5 py-0.5 label-small text-on-tertiary-container" title="Waits on {blockers.map((b) => `“${b.title}”`).join(', ')}">
+				<span class="inline-flex items-center gap-1 rounded-sm bg-tertiary-container px-1.5 py-0.5 label-small text-on-tertiary-container" title="Waits on {blockers.map((b) => `“${maskSpoilers(b.title)}”`).join(', ')}">
 					<Icon name="lock" size={14} />Blocked{blockers.length > 1 ? ` · ${blockers.length}` : ''}
 				</span>
 			{/if}

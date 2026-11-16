@@ -868,6 +868,18 @@ TaskCard), "Start as a card with subtasks" in `RunPlaybookDialog`, `GroupCardsDi
 "Add cards from the board"), the progress on `TaskCard`/`BoardList` (`taskStatus.subtaskState`), and a
 "subtask of" banner on a subtask's card.
 
+## Spoilers
+
+`||text||` (Discord's format) hides text until someone clicks it, in titles, descriptions, comments, posts, notes and
+summaries. It's display only: the API, search, the AI and exports carry the text as written. Web `lib/spoilers.ts`
+(the rule, a `marked` extension for rendered markdown, `Spoilers.svelte` for plain text, `maskSpoilers`, asterisks, where text
+can't be hidden (snackbars, notifications, dropdowns, search results; the pipes show only where you type), and `revealSpoilers`, one capturing click/Enter handler from the root layout that shows a spoiler and stops
+the click so the card under it doesn't open); styles `.spoiler`/`.revealed` in `app.css`. A card's title with a
+spoiler shows as text until edited (TaskDialog `editTitle`). The markdown toolbar has a Spoiler button. Server
+`spoilers.py`: `mask` (asterisks) for chat alerts (`alerts.values_for`) and webhooks (`notifications._send_webhooks`),
+`html_text` and a markdown-it rule (`|` added as a text terminator) for the timeline export, where a spoiler is a bar
+that shows on hover in HTML and stays a bar in PDF (the text is still in the file).
+
 ## Import and export
 
 `transfer.py`, `api/transfer.py`. `POST /api/export` (JSON: library ids, variable set ids,

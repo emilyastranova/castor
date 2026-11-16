@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Spoilers from './Spoilers.svelte';
+	import { hasSpoilers } from '$lib/spoilers';
 	import { originLabel } from '$lib/origin';
 	import { copyableCode } from '$lib/copyCode';
 	import PersonName from '$lib/components/PersonName.svelte';
@@ -560,6 +562,15 @@
 		}
 	}
 
+	// ---- a title with ||spoilers|| shows them hidden until you edit it ----
+	let titleEditing = $state(false);
+	let titleInput = $state<HTMLInputElement>();
+	async function editTitle() {
+		titleEditing = true;
+		await tick();
+		titleInput?.focus();
+	}
+
 	// ---- a subtask: its activity card ----
 	let parentTitle = $state<string | null>(null);
 	$effect(() => {
@@ -766,16 +777,30 @@
 		<div class="flex items-start gap-2 px-4 pt-4 pb-3 sm:gap-3 sm:px-6 sm:pt-5">
 			<Icon name={kindIcon(task)} class="mt-2 {task.run || task.kind === 'command' ? 'text-primary' : 'text-on-surface-variant'}" />
 			<div class="min-w-0 flex-1">
+				{#if hasSpoilers(title) && !titleEditing}
+					<!-- A title with a ||spoiler||: shown hidden, edited as written (click it, or the pencil). -->
+					<div class="flex min-w-0 items-start gap-1">
+						<h2 class="min-w-0 headline-small text-on-surface {editable ? 'cursor-text' : ''}">
+							{#if editable}<button type="button" class="text-left" onclick={editTitle}><Spoilers text={title} /></button>{:else}<Spoilers text={title} />{/if}
+						</h2>
+						{#if editable}<IconButton icon="edit" label="Edit the title" size="sm" onclick={editTitle} />{/if}
+					</div>
+				{:else}
 				<input
+					bind:this={titleInput}
 					class="w-full bg-transparent headline-small text-on-surface outline-none focus:underline decoration-primary/40 underline-offset-4"
 					bind:value={title}
 					readonly={!editable}
 					oninput={() => edited('title')}
-					onblur={() => title.trim() && title !== task.title && commit('title', { title: title.trim() })}
+					onblur={() => {
+						titleEditing = false;
+						if (title.trim() && title !== task.title) commit('title', { title: title.trim() });
+					}}
 					autocomplete="off"
 					onkeydown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()}
 					aria-label="Title"
 				/>
+				{/if}
 				<div class="mt-1 flex flex-wrap items-center gap-2 body-small text-on-surface-variant">
 					<StatusChip job={task.latest_job} batch={task.batch} />
 					<span><span class="hidden sm:inline">created {relativeTime(task.created_at)} · </span>updated {relativeTime(task.updated_at)}</span>
@@ -852,7 +877,7 @@
 		<div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-surface-container-high px-3 py-2">
 			<Icon name="checklist" size={20} class="shrink-0 text-on-surface-variant" />
 			<span class="min-w-0 flex-1 body-medium text-on-surface">
-				A subtask of <a class="text-primary underline-offset-2 hover:underline" href={parentHref}>“{parentTitle ?? '…'}”</a>: it's not on the board by itself.
+				A subtask of <a class="text-primary underline-offset-2 hover:underline" href={parentHref}>“<Spoilers text={parentTitle ?? '…'} />”</a>: it's not on the board by itself.
 			</span>
 			{#if editable}<Button variant="text" icon="move_up" onclick={release}>Make it its own card</Button>{/if}
 		</div>

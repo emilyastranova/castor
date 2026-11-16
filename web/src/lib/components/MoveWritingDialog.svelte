@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Spoilers from '$lib/components/Spoilers.svelte';
 	import type { Column, Task, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Dialog, Icon } from '$lib/m3';
@@ -142,7 +143,7 @@
 							onclick={() => pick(t.id)}
 						>
 							<Icon name={kindIcon(t)} size={18} class="shrink-0 {t.run || t.kind === 'command' ? 'text-primary' : 'text-on-surface-variant'}" />
-							<span class="min-w-0 flex-1 truncate body-medium">{t.title}</span>
+							<span class="min-w-0 flex-1 truncate body-medium"><Spoilers text={t.title} /></span>
 							{#each t.tags.slice(0, 2) as tag (tag)}<span class="hidden shrink-0 rounded-xs border border-outline-variant px-1.5 label-small text-on-surface-variant sm:inline">{tag}</span>{/each}
 							{#if moving === t.id}<Icon name="progress_activity" size={18} class="animate-spin" />{/if}
 						</button>

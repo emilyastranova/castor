@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Spoilers from '$lib/components/Spoilers.svelte';
+	import { maskSpoilers } from '$lib/spoilers';
 	import type { Column, Task, UUID } from '$lib/api';
 	import { Icon, IconButton, Menu, MenuItem } from '$lib/m3';
 	import AssigneeFace from './AssigneeFace.svelte';
@@ -177,12 +179,12 @@
 								<div class="flex min-w-0 items-center gap-2 overflow-hidden">
 									<Icon name={kindIcon(t)} size={18} class="shrink-0 {t.run || t.kind === 'command' ? 'text-primary' : 'text-on-surface-variant'}" />
 									<div class="min-w-0 flex-1">
-										<p class="truncate body-medium text-on-surface">{t.title}</p>
+										<p class="truncate body-medium text-on-surface"><Spoilers text={t.title} /></p>
 										{#if t.kind === 'command' && t.command}<p class="truncate font-mono text-[12px] text-on-surface-variant">{t.command}</p>{/if}
 										<div class="mt-1 sm:hidden">{@render status(t)}</div>
 									</div>
 									{#if !fin && t.blocked_by?.length}
-										<span class="flex shrink-0 items-center gap-0.5 rounded-sm bg-tertiary-container px-1 py-0.5 label-small text-on-tertiary-container" title="Waits on {t.blocked_by.map((b) => `“${b.title}”`).join(', ')}"><Icon name="lock" size={14} /><span class="max-sm:hidden">Blocked</span></span>
+										<span class="flex shrink-0 items-center gap-0.5 rounded-sm bg-tertiary-container px-1 py-0.5 label-small text-on-tertiary-container" title="Waits on {t.blocked_by.map((b) => `“${maskSpoilers(b.title)}”`).join(', ')}"><Icon name="lock" size={14} /><span class="max-sm:hidden">Blocked</span></span>
 									{/if}
 									{#if due}
 										<span class="flex shrink-0 items-center gap-0.5 rounded-sm px-1 py-0.5 label-small {DUE_TONE[due.tone]}" title={due.title}><Icon name={due.icon} size={14} />{due.label}</span>
@@ -219,7 +221,7 @@
 							<td class="border-t border-outline-variant/40 py-1 pr-2 text-right" onclick={(e) => e.stopPropagation()}>
 								{#if !readonly}
 									<Menu align="right">
-										{#snippet anchor()}<IconButton icon="more_vert" label="Move {t.title}" size="sm" />{/snippet}
+										{#snippet anchor()}<IconButton icon="more_vert" label="Move {maskSpoilers(t.title)}" size="sm" />{/snippet}
 										<p class="px-3 pt-1 pb-2 label-medium text-on-surface-variant">Move to</p>
 										{#each columns.filter((c) => c.id !== t.column_id) as c (c.id)}
 											<MenuItem onclick={() => onmoveto(t.id, c.id)}>

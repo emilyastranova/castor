@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Spoilers from '$lib/components/Spoilers.svelte';
+	import { maskSpoilers } from '$lib/spoilers';
 	import type { CardDependencies, CardRef, Task, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Icon, IconButton, Select } from '$lib/m3';
@@ -40,7 +42,7 @@
 		return (cards ?? [])
 			.filter((c) => !taken.has(c.id))
 			.sort((a, b) => a.title.localeCompare(b.title))
-			.map((c) => ({ value: c.id, label: c.title, keywords: c.tags.join(' ') }));
+			.map((c) => ({ value: c.id, label: maskSpoilers(c.title), keywords: c.tags.join(' ') }));
 	});
 	async function add(id: string) {
 		if (!id) return;
@@ -65,11 +67,11 @@
 		<button type="button" class="state-layer flex min-w-0 flex-1 items-center gap-2 rounded-sm px-1.5 py-1 text-left" onclick={() => onopen(c.id)}>
 			<Icon name={c.finished ? 'check_circle' : 'radio_button_unchecked'} size={18} class="shrink-0 {c.finished ? 'text-primary' : 'text-on-surface-variant'}" />
 			<span class="min-w-0 flex-1">
-				<span class="block truncate body-medium {c.finished ? 'text-on-surface-variant line-through' : 'text-on-surface'}">{c.title}</span>
+				<span class="block truncate body-medium {c.finished ? 'text-on-surface-variant line-through' : 'text-on-surface'}"><Spoilers text={c.title} /></span>
 				<span class="block truncate body-small text-on-surface-variant">{c.archived ? 'Archived' : c.column}</span>
 			</span>
 		</button>
-		{#if removable && editable}<IconButton icon="close" size="sm" label="Stop waiting on {c.title}" onclick={() => remove(c.id)} />{/if}
+		{#if removable && editable}<IconButton icon="close" size="sm" label="Stop waiting on {maskSpoilers(c.title)}" onclick={() => remove(c.id)} />{/if}
 	</li>
 {/snippet}
 

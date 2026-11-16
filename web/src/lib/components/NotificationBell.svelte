@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { maskSpoilers } from '$lib/spoilers';
 	import { enter, leave } from '$lib/motion';
 	import { goto } from '$app/navigation';
 	import type { AppNotification } from '$lib/api';
@@ -90,8 +91,8 @@
 						<div class="flex items-start gap-3 px-4 py-3 {n.read_at ? 'opacity-70' : ''}">
 							<Icon name={sev.icon} size={20} class="mt-0.5 shrink-0 {sev.tone}" filled />
 							<button type="button" class="min-w-0 flex-1 text-left" onclick={() => visit(n)}>
-								<p class="body-medium text-on-surface {n.read_at ? '' : 'font-medium'}">{n.title}</p>
-								{#if n.body}<p class="mt-0.5 line-clamp-3 body-small break-words text-on-surface-variant">{n.body}</p>{/if}
+								<p class="body-medium text-on-surface {n.read_at ? '' : 'font-medium'}">{maskSpoilers(n.title)}</p>
+								{#if n.body}<p class="mt-0.5 line-clamp-3 body-small break-words text-on-surface-variant">{maskSpoilers(n.body)}</p>{/if}
 								<p class="mt-1 label-small text-on-surface-variant" title={absoluteTime(n.created_at)}>{relativeTime(n.created_at)}</p>
 							</button>
 							{#if !n.read_at}

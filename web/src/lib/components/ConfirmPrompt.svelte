@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { maskSpoilers } from '$lib/spoilers';
+	import Spoilers from './Spoilers.svelte';
 	import { Button, Dialog } from '$lib/m3';
 	import type { ConfirmOptions } from '$lib/confirm.svelte';
 
@@ -21,8 +23,8 @@
 </script>
 
 <!-- Cancel comes first so it gets initial focus: Enter or Escape never deletes anything. -->
-<Dialog bind:open title={options.title} icon={options.icon ?? (options.danger ? 'delete' : 'help')} onclose={() => settle(false)}>
-	<p class="pb-2 body-medium whitespace-pre-line text-on-surface-variant">{options.message}</p>
+<Dialog bind:open title={maskSpoilers(options.title)} icon={options.icon ?? (options.danger ? 'delete' : 'help')} onclose={() => settle(false)}>
+	<p class="pb-2 body-medium whitespace-pre-line text-on-surface-variant"><Spoilers text={options.message} /></p>
 	{#snippet actions()}
 		<Button variant="text" onclick={() => settle(false)}>{options.cancelLabel ?? 'Cancel'}</Button>
 		<Button variant={options.danger ? 'danger' : 'filled'} onclick={() => settle(true)}>

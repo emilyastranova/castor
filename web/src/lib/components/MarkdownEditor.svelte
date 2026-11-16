@@ -182,6 +182,7 @@
 		{ icon: 'format_bold', label: 'Bold', phone: true, keys: `${mod}+B`, act: () => run((t, s, e) => wrapInline(t, s, e, '**', 'bold text')) },
 		{ icon: 'format_italic', label: 'Italic', phone: true, keys: `${mod}+I`, act: () => run((t, s, e) => wrapInline(t, s, e, '_', 'italic text')) },
 		{ icon: 'strikethrough_s', label: 'Strikethrough', act: () => run((t, s, e) => wrapInline(t, s, e, '~~', 'struck text')) },
+		{ icon: 'visibility_off', label: 'Spoiler (hidden until clicked)', act: () => run((t, s, e) => wrapInline(t, s, e, '||', 'hidden text')) },
 		null,
 		{ icon: 'code', label: 'Code', phone: true, keys: `${mod}+E`, act: () => run(inlineCode) },
 		{ icon: 'data_object', label: 'Code block', act: () => run(codeBlock) },

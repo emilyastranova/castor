@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Spoilers from '$lib/components/Spoilers.svelte';
 	import PersonName from '$lib/components/PersonName.svelte';
 	import type { FeedItem, Person } from '$lib/api';
 	import { api } from '$lib/api';
@@ -193,9 +194,9 @@
 									<a href="/projects/{c.project?.id}?task={c.id}" class="state-layer flex items-start gap-2.5 rounded-md px-2 py-2">
 										<span class="mt-0.5 shrink-0"><ColumnGlyph role={c.column_role} size={16} /></span>
 										<span class="min-w-0 flex-1">
-											<span class="flex items-center gap-1.5 body-medium text-on-surface"><span class="truncate">{c.title}</span>{#if c.priority > 0}<PriorityGlyph level={c.priority} size={14} />{/if}</span>
+											<span class="flex items-center gap-1.5 body-medium text-on-surface"><span class="truncate"><Spoilers text={c.title} /></span>{#if c.priority > 0}<PriorityGlyph level={c.priority} size={14} />{/if}</span>
 											<span class="block truncate body-small text-on-surface-variant">
-												{#if c.activity}in {c.activity.title} · {/if}{c.column}{c.status ? ' · ' : ''}{#if c.status}<span class={STATUS[c.status] ?? ''}>{c.status}</span>{/if}{c.project ? ` · ${c.project.codename}` : ''}
+												{#if c.activity}in <Spoilers text={c.activity.title} /> · {/if}{c.column}{c.status ? ' · ' : ''}{#if c.status}<span class={STATUS[c.status] ?? ''}>{c.status}</span>{/if}{c.project ? ` · ${c.project.codename}` : ''}
 											</span>
 										</span>
 									</a>
@@ -219,8 +220,8 @@
 									<a href={mn.link} class="state-layer flex items-start gap-2.5 rounded-md px-2 py-2">
 										<Avatar name={mn.author.name} src={mn.author.avatar_url} size={24} />
 										<span class="min-w-0 flex-1">
-											<span class="block truncate body-small text-on-surface-variant"><span class="font-medium text-on-surface"><PersonName name={mn.author.name} /></span> on {mn.task.title}</span>
-											<span class="block line-clamp-2 body-medium text-on-surface">{mn.body}</span>
+											<span class="block truncate body-small text-on-surface-variant"><span class="font-medium text-on-surface"><PersonName name={mn.author.name} /></span> on <Spoilers text={mn.task.title} /></span>
+											<span class="block line-clamp-2 body-medium text-on-surface"><Spoilers text={mn.body} /></span>
 											<span class="block body-small text-on-surface-variant" title={absoluteTime(mn.created_at)}>{relativeTime(mn.created_at)}{mn.project ? ` · ${mn.project.codename}` : ''}</span>
 										</span>
 									</a>

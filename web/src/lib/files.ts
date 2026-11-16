@@ -1,5 +1,6 @@
 /** A project's Files view: how each sort of file looks, and grouping the list (pure). */
 import type { FileCategory, FileSource, ProjectFile } from '$lib/api';
+import { maskSpoilers } from './spoilers';
 
 export const CATEGORY: Record<FileCategory, { label: string; icon: string }> = {
 	image: { label: 'Images', icon: 'image' },
@@ -37,7 +38,7 @@ export const isPdf = (f: ProjectFile) => f.content_type === 'application/pdf';
 /** Where a file came from, in a few words: "Recon run › Find hosts", "Notes and posts". */
 export function placeOf(f: ProjectFile): string {
 	if (!f.card_id) return 'Notes and posts';
-	return f.step ? `${f.card_title} › ${f.step}` : (f.card_title ?? 'A card');
+	return f.step ? `${maskSpoilers(f.card_title)} › ${f.step}` : f.card_title ? maskSpoilers(f.card_title) : 'A card';
 }
 
 /** A link to the card a file is on (a step's link opens the step on top of its run's card). */
@@ -74,7 +75,7 @@ export function groupFiles(files: ProjectFile[], by: Grouping, now = new Date())
 			label = dayLabel(d, now);
 		} else {
 			key = f.card_id ?? 'none';
-			label = f.card_id ? (f.card_title ?? 'A card') : 'Notes and posts';
+			label = f.card_id ? (f.card_title ? maskSpoilers(f.card_title) : 'A card') : 'Notes and posts';
 		}
 		let g = groups.get(key);
 		if (!g) groups.set(key, (g = { key, label, items: [] }));

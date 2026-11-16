@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { maskSpoilers } from '$lib/spoilers';
 	import { currentProject } from '$lib/currentProject.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -253,9 +254,9 @@
 							<Icon name={h.icon} size={20} class="mt-0.5 shrink-0 {index === active ? '' : 'text-on-surface-variant'}" />
 						{/if}
 						<span class="min-w-0 flex-1">
-							<span class="block truncate body-medium">{#each parts(h.title) as p, i (i)}{#if p.hit}<mark class="hit">{p.t}</mark>{:else}{p.t}{/if}{/each}</span>
+							<span class="block truncate body-medium">{#each parts(maskSpoilers(h.title)) as p, i (i)}{#if p.hit}<mark class="hit">{p.t}</mark>{:else}{p.t}{/if}{/each}</span>
 							{#if h.snippet}
-								<span class="block truncate body-small text-on-surface-variant {h.mono ? 'font-mono text-[12px]' : ''}">{#each parts(h.snippet) as p, i (i)}{#if p.hit}<mark class="hit">{p.t}</mark>{:else}{p.t}{/if}{/each}</span>
+								<span class="block truncate body-small text-on-surface-variant {h.mono ? 'font-mono text-[12px]' : ''}">{#each parts(maskSpoilers(h.snippet)) as p, i (i)}{#if p.hit}<mark class="hit">{p.t}</mark>{:else}{p.t}{/if}{/each}</span>
 							{/if}
 						</span>
 						<span class="flex shrink-0 flex-col items-end gap-0.5 pt-0.5">

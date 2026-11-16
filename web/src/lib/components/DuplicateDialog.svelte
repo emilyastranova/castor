@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Spoilers from '$lib/components/Spoilers.svelte';
 	import type { Task } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, Switch } from '$lib/m3';
@@ -45,7 +46,7 @@
 <Dialog bind:open title="Duplicate card" icon="content_copy" size="sm">
 	<div class="flex flex-col gap-3 pt-2 pb-2">
 		<p class="body-medium text-on-surface-variant">
-			A copy of “{task.title}” goes to the top of To Do with its {task.kind === 'command' ? 'command, arguments, ' : ''}description, tags, priority and fields. It won't run until you start it.
+			A copy of “<Spoilers text={task.title} />” goes to the top of To Do with its {task.kind === 'command' ? 'command, arguments, ' : ''}description, tags, priority and fields. It won't run until you start it.
 		</p>
 		{#if task.assignees.length || task.group_assignees?.length}<Switch bind:checked={assignees} label="Keep the assignees" />{/if}
 		<Switch bind:checked={comments} disabled={!counts.comments} label="Comments ({counts.comments})" />

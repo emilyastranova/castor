@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Spoilers from '$lib/components/Spoilers.svelte';
 	import PersonName from '$lib/components/PersonName.svelte';
 	import type { FeedItem } from '$lib/api';
 	import { Avatar, Icon, IconButton, Menu, MenuItem } from '$lib/m3';
@@ -144,9 +145,9 @@
 				<span>{item.type === 'comment.edited' ? 'edited a comment on' : item.type === 'comment.deleted' ? 'deleted a comment on' : item.type === 'comment.moved' ? `moved a ${item.message.startsWith('Moved a post') ? 'post' : 'comment'}${item.task ? ' to' : ''}` : 'commented on'}</span>
 			{/if}
 			{#if item.task}
-				{#if link}<a href={link} class="min-w-0 truncate font-medium text-primary hover:underline">{item.task.name}</a>{:else}<span class="truncate">{item.task.name}</span>{/if}
+				{#if link}<a href={link} class="min-w-0 truncate font-medium text-primary hover:underline"><Spoilers text={item.task.name} /></a>{:else}<span class="truncate"><Spoilers text={item.task.name} /></span>{/if}
 				{#if item.activity && !item.subtasks}
-					<span class="min-w-0 truncate">in {#if item.project}<a href="/projects/{item.project.id}?task={item.activity.id}" class="hover:underline">{item.activity.name}</a>{:else}{item.activity.name}{/if}</span>
+					<span class="min-w-0 truncate">in {#if item.project}<a href="/projects/{item.project.id}?task={item.activity.id}" class="hover:underline"><Spoilers text={item.activity.name} /></a>{:else}<Spoilers text={item.activity.name} />{/if}</span>
 				{/if}
 			{/if}
 			{#if showProject && item.project}
@@ -213,13 +214,13 @@
 			</div>
 		{:else}
 			<p class="mt-0.5 body-medium text-on-surface">
-				{#if link && !item.task}<a href={link} class="hover:underline">{item.message}</a>{:else}{item.message}{/if}
+				{#if link && !item.task}<a href={link} class="hover:underline"><Spoilers text={item.message} /></a>{:else}<Spoilers text={item.message} />{/if}
 			</p>
 			{#if item.subtasks?.length && item.project}
 				<!-- Rolled up: the subtasks it's about, each opening on top of its activity. -->
 				<ul class="mt-1 flex flex-wrap gap-1.5">
 					{#each item.subtasks.slice(0, 12) as sub (sub.id)}
-						<li><a href="/projects/{item.project.id}?task={sub.id}" class="state-layer inline-flex max-w-56 items-center gap-1 rounded-sm border border-outline-variant px-2 py-0.5 label-medium text-on-surface"><Icon name="checklist" size={14} class="shrink-0 text-on-surface-variant" /><span class="truncate">{sub.name}</span></a></li>
+						<li><a href="/projects/{item.project.id}?task={sub.id}" class="state-layer inline-flex max-w-56 items-center gap-1 rounded-sm border border-outline-variant px-2 py-0.5 label-medium text-on-surface"><Icon name="checklist" size={14} class="shrink-0 text-on-surface-variant" /><span class="truncate"><Spoilers text={sub.name} /></span></a></li>
 					{/each}
 					{#if item.subtasks.length > 12}<li class="self-center body-small text-on-surface-variant">and {item.subtasks.length - 12} more</li>{/if}
 				</ul>

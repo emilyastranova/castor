@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { maskSpoilers } from '$lib/spoilers';
 	import { agentsFor, selectorFrom, selectorOptions } from '$lib/agentSelector';
 	import type { Agent, ArgErrors, Column, CommandDefinition, Task, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
@@ -215,7 +216,7 @@
 						bind:value={parentId}
 						options={[
 							{ value: '', label: 'No, on the board', description: 'A card of its own' },
-							...parents.map((p) => ({ value: p.id, label: p.title, description: p.subtasks?.total ? `${p.subtasks.total} subtask${p.subtasks.total === 1 ? '' : 's'}` : columns.find((c) => c.id === p.column_id)?.name, group: p.subtasks?.total ? 'Cards with subtasks' : 'Other cards' }))
+							...parents.map((p) => ({ value: p.id, label: maskSpoilers(p.title), description: p.subtasks?.total ? `${p.subtasks.total} subtask${p.subtasks.total === 1 ? '' : 's'}` : columns.find((c) => c.id === p.column_id)?.name, group: p.subtasks?.total ? 'Cards with subtasks' : 'Other cards' }))
 						]}
 						supporting={parentId ? 'It becomes a subtask of that card: off the board, in its Subtasks tab' : ''}
 					/>

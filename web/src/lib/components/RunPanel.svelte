@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Spoilers from '$lib/components/Spoilers.svelte';
 	import type { PlaybookRun, PlaybookStepSpec, Task, UUID } from '$lib/api';
 	import AiSummary from './AiSummary.svelte';
 	import RunChanges from './RunChanges.svelte';
@@ -157,7 +158,7 @@
 								{#each its as item (item.id)}
 									<li>
 										<button type="button" class="state-layer flex w-full items-center gap-2 px-3 py-1.5 text-left body-small" onclick={() => onopenstep(item.id)}>
-											<span class="min-w-0 flex-1 truncate text-on-surface">{item.title}</span>
+											<span class="min-w-0 flex-1 truncate text-on-surface"><Spoilers text={item.title} /></span>
 											<span class="shrink-0 text-on-surface-variant">{item.latest_job?.status ?? 'waiting'}</span>
 											<Icon name="chevron_right" size={16} class="text-on-surface-variant" />
 										</button>

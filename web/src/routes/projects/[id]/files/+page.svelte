@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { maskSpoilers } from '$lib/spoilers';
 	import { untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -147,7 +148,7 @@
 		if (current && !opts.some((o) => o.value === current)) opts.unshift({ value: current, label: 'The one chosen', description: 'No files with the other filters' });
 		return opts;
 	};
-	let cardOptions = $derived([ANY('Every card'), ...facetOptions(res?.facets.card, card)]);
+	let cardOptions = $derived([ANY('Every card'), ...facetOptions(res?.facets.card, card, (f) => maskSpoilers(f.label))]);
 	let runOptions = $derived([ANY('Every run'), ...facetOptions(res?.facets.run, run, (f) => (f.when ? `${f.label} · ${new Date(f.when).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : f.label))]);
 	let agentOptions = $derived([ANY('Every agent'), ...facetOptions(res?.facets.agent, agent)]);
 	let sourceOptions = $derived([ANY('Anywhere'), ...facetOptions(res?.facets.source, source)]);

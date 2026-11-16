@@ -5,6 +5,7 @@ import { goto } from '$app/navigation';
 import type { AppNotification } from '$lib/api';
 import { api } from '$lib/api';
 import { realtime, type ServerEvent } from '$lib/realtime.svelte';
+import { maskSpoilers } from './spoilers';
 
 const DESKTOP_KEY = 'castor.desktopNotifications';
 
@@ -123,7 +124,7 @@ class Notifications {
 	#desktop(n: AppNotification) {
 		if (!this.desktop || this.permission !== 'granted' || (document.hasFocus() && n.severity !== 'warning')) return;
 		try {
-			const shown = new Notification(n.title, { body: n.body, tag: n.subject || n.id, requireInteraction: n.severity === 'warning' });
+			const shown = new Notification(maskSpoilers(n.title), { body: maskSpoilers(n.body), tag: n.subject || n.id, requireInteraction: n.severity === 'warning' });
 			shown.onclick = () => {
 				window.focus();
 				void this.read(n);

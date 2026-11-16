@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Spoilers from '$lib/components/Spoilers.svelte';
 	import { untrack } from 'svelte';
 	import type { Column, Task, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
@@ -90,7 +91,7 @@
 						<button type="button" class="state-layer flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left" onclick={() => onopen(t)}>
 							<Icon name={kindIcon(t)} size={18} class="shrink-0 text-on-surface-variant" />
 							<span class="min-w-0 flex-1">
-								<span class="block truncate body-medium text-on-surface">{t.title}</span>
+								<span class="block truncate body-medium text-on-surface"><Spoilers text={t.title} /></span>
 								<span class="block truncate body-small text-on-surface-variant" title={t.archived_at ? absoluteTime(t.archived_at) : ''}>
 									From {columnName(t.column_id)} · archived {t.archived_at ? relativeTime(t.archived_at) : ''}
 								</span>

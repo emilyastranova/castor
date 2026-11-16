@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Spoilers from '$lib/components/Spoilers.svelte';
+	import { maskSpoilers } from '$lib/spoilers';
 	import { dndzone, type DndEvent, SHADOW_ITEM_MARKER_PROPERTY_NAME } from 'svelte-dnd-action';
 	import type { Column, Job, PlaybookRun, PlaybookSpec, PlaybookStepStatus, Task, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
@@ -280,12 +282,12 @@
 					<li class="flex items-center pr-1 {(kid as unknown as Record<string, unknown>)[SHADOW_ITEM_MARKER_PROPERTY_NAME] ? 'opacity-40' : ''}" in:enter={{ enabled: animate && !dragging }} out:leave={{ enabled: animate && !dragging }}>
 						{#if editable}<span class="flex shrink-0 cursor-grab items-center pl-1.5 text-on-surface-variant/70" aria-hidden="true"><Icon name="drag_indicator" size={18} /></span>{/if}
 						{#if kid.kind === 'manual' && editable}
-							<input type="checkbox" class="ml-2 size-4 shrink-0 accent-[var(--md-sys-color-primary)]" checked={finished(kid)} aria-label="“{kid.title}” is done" onchange={(e) => tick(kid, (e.currentTarget as HTMLInputElement).checked)} />
+							<input type="checkbox" class="ml-2 size-4 shrink-0 accent-[var(--md-sys-color-primary)]" checked={finished(kid)} aria-label="“{maskSpoilers(kid.title)}” is done" onchange={(e) => tick(kid, (e.currentTarget as HTMLInputElement).checked)} />
 						{/if}
 						<button type="button" class="state-layer flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left" onclick={() => onopen(kid.id)}>
 							<span title={col?.name}><ColumnGlyph role={col?.role} size={18} /></span>
 							<Icon name={kindIcon(kid)} size={16} class="shrink-0 text-on-surface-variant" />
-							<span class="min-w-0 flex-1 truncate body-medium {finished(kid) ? 'text-on-surface-variant line-through decoration-on-surface-variant/50' : 'text-on-surface'}">{kid.title}</span>
+							<span class="min-w-0 flex-1 truncate body-medium {finished(kid) ? 'text-on-surface-variant line-through decoration-on-surface-variant/50' : 'text-on-surface'}"><Spoilers text={kid.title} /></span>
 							{#if due}<span class="hidden shrink-0 items-center gap-1 rounded-sm px-1.5 py-0.5 label-small sm:inline-flex {DUE_TONE[due.tone]}" title={due.title}><Icon name={due.icon} size={14} />{due.label}</span>{/if}
 							{#if kid.latest_job}<span class="shrink-0"><StatusChip job={kid.latest_job} compact /></span>{/if}
 							{#if faces.length}

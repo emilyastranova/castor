@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Spoilers from '$lib/components/Spoilers.svelte';
 	import type { ProjectFile } from '$lib/api';
 	import { api } from '$lib/api';
 	import { Button, Dialog, Icon, IconButton } from '$lib/m3';
@@ -141,7 +142,7 @@
 					<dt class="text-on-surface-variant">On</dt>
 					<dd class="min-w-0 text-on-surface">
 						{#if file.task_id}
-							<a class="text-primary hover:underline" href={cardHref(projectId, file)}>{file.card_title}</a>
+							<a class="text-primary hover:underline" href={cardHref(projectId, file)}><Spoilers text={file.card_title} /></a>
 						{:else}
 							Notes and posts
 						{/if}

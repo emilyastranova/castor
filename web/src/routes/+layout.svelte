@@ -23,6 +23,7 @@
 	import AccountDialog from '$lib/components/AccountDialog.svelte';
 	import { notifications } from '$lib/notifications.svelte';
 	import { version } from '$lib/version.svelte';
+	import { revealSpoilers } from '$lib/spoilers';
 
 	let { data, children } = $props();
 	let dark = $state(false);
@@ -48,6 +49,7 @@
 	onMount(() => {
 		initTheme();
 		dark = isDark();
+		return revealSpoilers(); // ||spoilers|| anywhere on the page show on a click
 	});
 	// Your account's theme colour wins over whatever this browser last showed.
 	$effect(() => {

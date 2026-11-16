@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Spoilers from '$lib/components/Spoilers.svelte';
 	import { originLabel, pluginOf, readOnlyOrigin } from '$lib/origin';
 	import type { CommandDefinition, CommandUsage } from '$lib/api';
 	import { api, ApiError, saveBlob } from '$lib/api';
@@ -283,7 +284,7 @@
 							<li>
 								<a href="/projects/{t.project_id}?task={t.id}" class="state-layer flex items-center gap-3 rounded-sm px-2 py-1.5 body-medium text-on-surface">
 									<Icon name="view_kanban" size={18} class="text-on-surface-variant" />
-									<span class="min-w-0 flex-1 truncate">{t.title}</span>
+									<span class="min-w-0 flex-1 truncate"><Spoilers text={t.title} /></span>
 									<span class="label-medium text-primary">{t.project_codename}</span>
 								</a>
 							</li>

@@ -324,6 +324,10 @@ def values_for(event: str, *, title: str, body: str = "", link: str = "", severi
     full = settings.public_url.rstrip("/") + link if link and settings.public_url else link
     if not full.startswith("http"):
         full = ""
+    # A chat message can't hide part of itself: ||spoilers|| (in a card's title…) go as bars.
+    from .spoilers import mask
+
+    title, body, card, playbook = mask(title), mask(body), mask(card), mask(playbook)
     emoji = EMOJI.get(severity, "")
     message = f"{emoji} {title}".strip() + (f"\n{body}" if body else "") + (f"\n{full}" if full else "")
     duration = ""

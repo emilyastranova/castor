@@ -1,3 +1,5 @@
+import { maskSpoilers } from './spoilers';
+
 /** Global snackbar queue (M3 snackbar: one visible at a time, bottom of the screen). */
 export interface SnackbarMessage {
 	id: number;
@@ -12,7 +14,8 @@ class SnackbarStore {
 	private next = 1;
 
 	show(text: string, opts: Omit<SnackbarMessage, 'id' | 'text'> = {}): void {
-		this.queue.push({ id: this.next++, text, timeout: 4000, ...opts });
+		// A snackbar can't hide part of itself: a ||spoiler|| in it (a card's title) shows as a bar.
+		this.queue.push({ id: this.next++, text: maskSpoilers(text), timeout: 4000, ...opts });
 	}
 
 	error(text: string): void {

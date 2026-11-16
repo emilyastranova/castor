@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { maskSpoilers } from '$lib/spoilers';
 	import type { Job, JobChanges, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Chip, Icon, Progress, Select } from '$lib/m3';
@@ -55,7 +56,7 @@
 		if (data?.base && !list.some((c) => c.job_id === data!.base!.job_id)) list.unshift(data.base);
 		return list.map((c) => ({
 			value: c.job_id,
-			label: `${c.task_id === job.task_id ? 'This card' : c.card_title} · ${relativeTime(c.queued_at)}`,
+			label: `${c.task_id === job.task_id ? 'This card' : maskSpoilers(c.card_title)} · ${relativeTime(c.queued_at)}`,
 			description: `${absoluteTime(c.queued_at)} · ${c.status}${c.task_id === job.task_id ? '' : ` · ${HOW[c.how] ?? c.how}`}`
 		}));
 	});
@@ -105,7 +106,7 @@
 			<Select label="Compared with" value={data.base.job_id} {options} onchange={pick} class="w-full max-w-sm" />
 			<div class="flex min-h-14 min-w-52 flex-1 flex-col justify-center">
 				<span class="title-small {anyChange(data.totals) ? 'text-on-surface' : 'text-on-surface-variant'}">{countWords(data.totals)}</span>
-				<span class="body-small text-on-surface-variant">since {data.base.task_id === job.task_id ? 'the run' : `“${data.base.card_title}”`} {relativeTime(data.base.queued_at)}</span>
+				<span class="body-small text-on-surface-variant">since {data.base.task_id === job.task_id ? 'the run' : `“${maskSpoilers(data.base.card_title)}”`} {relativeTime(data.base.queued_at)}</span>
 			</div>
 			{#if anyChange(data.totals)}
 				<Button variant="text" icon="content_copy" onclick={copy}>Copy as Markdown</Button>

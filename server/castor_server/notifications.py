@@ -145,6 +145,10 @@ def _send_webhooks(**message: Any) -> None:
     urls = webhook_urls()
     if not urls:
         return
+    from .spoilers import mask
+
+    # ||spoilers|| go out as bars: a webhook's receiver can't hide them.
+    message = {k: mask(v) if k in ("title", "body") and isinstance(v, str) else v for k, v in message.items()}
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:

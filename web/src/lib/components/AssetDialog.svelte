@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Spoilers from '$lib/components/Spoilers.svelte';
 	import type { Asset, AssetDetail, AssetRelation, AssetSource, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, Icon, IconButton, Select, TextField } from '$lib/m3';
@@ -381,7 +382,7 @@
 								<span class="body-medium break-words text-on-surface {typeof r.value === 'boolean' && r.name === 'smb_signing' && !r.value ? 'font-medium text-error' : ''}">{show(r.value)}</span>
 								{#if r.seen[0]}
 									<span class="block body-small text-on-surface-variant">
-										from {sourceText(r.seen[0].source)}{#if r.seen[0].source.task}{' '}on <a href={r.seen[0].source.task.link} class="text-primary hover:underline">{r.seen[0].source.task.title}</a>{/if}
+										from {sourceText(r.seen[0].source)}{#if r.seen[0].source.task}{' '}on <a href={r.seen[0].source.task.link} class="text-primary hover:underline"><Spoilers text={r.seen[0].source.task.title} /></a>{/if}
 										· <span title={absoluteTime(r.seen[0].source.at)}>{relativeTime(r.seen[0].source.at)}</span>
 									</span>
 								{/if}
@@ -469,7 +470,7 @@
 											<div class="min-w-0 flex-1">
 												<button type="button" class="text-left body-medium break-all text-on-surface hover:text-primary hover:underline" onclick={() => onopenasset(l.asset.id)}>{l.asset.label}</button>
 												<p class="body-small text-on-surface-variant">
-													{#if details(l.fields)}<span class="font-medium text-on-surface">{details(l.fields)}</span> · {/if}{linkSource(l)}{#if l.task}{' '}on <a href={l.task.link} class="text-primary hover:underline">{l.task.title}</a>{/if}
+													{#if details(l.fields)}<span class="font-medium text-on-surface">{details(l.fields)}</span> · {/if}{linkSource(l)}{#if l.task}{' '}on <a href={l.task.link} class="text-primary hover:underline"><Spoilers text={l.task.title} /></a>{/if}
 													· <span title={absoluteTime(l.first_seen)}>{relativeTime(l.first_seen)}</span>
 												</p>
 												{#if l.note}<p class="mt-0.5 body-small text-on-surface italic">{l.note}</p>{/if}
@@ -521,7 +522,7 @@
 					{#each asset.history as h, i (i)}
 						<li class="rounded-md bg-surface-container px-3 py-2 body-small">
 							<p class="text-on-surface-variant">
-								{#if h.source.link && !['parser', 'manual', 'import'].includes(h.source.kind)}<a href={h.source.link} class="text-primary hover:underline">{sourceText(h.source)}</a>{:else}{sourceText(h.source)}{/if}{#if h.source.task}{' '}on <a href={h.source.task.link} class="text-primary hover:underline">{h.source.task.title}</a>{/if} · {relativeTime(h.source.at)}
+								{#if h.source.link && !['parser', 'manual', 'import'].includes(h.source.kind)}<a href={h.source.link} class="text-primary hover:underline">{sourceText(h.source)}</a>{:else}{sourceText(h.source)}{/if}{#if h.source.task}{' '}on <a href={h.source.task.link} class="text-primary hover:underline"><Spoilers text={h.source.task.title} /></a>{/if} · {relativeTime(h.source.at)}
 							</p>
 							{#if h.source.excerpt}<p class="mb-0.5 text-on-surface-variant italic">“{h.source.excerpt}”</p>{/if}
 							<p class="font-mono text-[12px] break-words text-on-surface">{Object.entries(h.fields).map(([k, v]) => `${k}=${show(v)}`).join('  ')}</p>

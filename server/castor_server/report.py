@@ -24,7 +24,7 @@ from markdown_it import MarkdownIt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import avatars
+from . import avatars, spoilers
 from . import models as m
 from .config import settings
 
@@ -45,11 +45,11 @@ NEUTRAL = ("#e4e1e9", "#46464f")
 JOB_WORDS = {"succeeded": "Succeeded", "failed": "Failed", "lost": "Lost", "cancelled": "Cancelled", "running": "Running",
              "queued": "Queued", "dispatched": "Queued"}
 
-_md = MarkdownIt("commonmark", {"breaks": True, "html": False}).enable(["table", "strikethrough"])
+_md = MarkdownIt("commonmark", {"breaks": True, "html": False}).enable(["table", "strikethrough"]).use(spoilers.markdown_it_plugin)
 _TAGS = {"p", "br", "strong", "em", "del", "s", "code", "pre", "blockquote", "ul", "ol", "li", "a", "img", "h1", "h2", "h3",
-         "h4", "h5", "h6", "hr", "table", "thead", "tbody", "tr", "th", "td", "input"}
+         "h4", "h5", "h6", "hr", "table", "thead", "tbody", "tr", "th", "td", "input", "span"}
 _ATTRS = {"a": {"href", "title"}, "img": {"src", "alt", "title"}, "input": {"type", "checked", "disabled"}, "th": {"align"},
-          "td": {"align"}, "ol": {"start"}}
+          "td": {"align"}, "ol": {"start"}, "span": {"class"}}  # span: ||spoilers||
 _ATTACHMENT = re.compile(r"^/api/attachments/([0-9a-fA-F-]{36})/download")
 _IMG = re.compile(r"<img\b[^>]*>")
 
@@ -243,7 +243,7 @@ async def timeline_html(db: AsyncSession, *, project: m.Project, items: list, fi
             avatar = (f'<img class="face" src="{face}" alt="">' if face
                       else f'<span class="face" style="background:{bg};color:{fg}">{esc(_initials(name))}</span>')
             verb = _verb(item)
-            card = f' <span class="card">{esc(item.task.name)}</span>' if item.task else ""
+            card = f' <span class="card">{spoilers.html_text(item.task.name)}</span>' if item.task else ""
             outcome = ""
             if item.kind == "job":
                 state = item.type.split(".", 1)[1] if "." in item.type else ""
@@ -265,7 +265,7 @@ async def timeline_html(db: AsyncSession, *, project: m.Project, items: list, fi
                 body = (f'<div class="job">{"<p class=facts>" + esc(" · ".join(facts)) + "</p>" if facts else ""}'
                         f'<pre>{esc(_first_lines(j.get("command") or ""))}</pre></div>')
             else:
-                body = f'<p class="message">{esc(item.message)}</p>'
+                body = f'<p class="message">{spoilers.html_text(item.message)}</p>'
             rows.append(f'<li class="entry">{avatar}<div class="what">{stamp}{head}{body}</div></li>')
         rows.append("</ol></section>")
 
@@ -297,6 +297,10 @@ _CSS = """
 html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 body { margin: 0; background: #fbf8ff; color: #1b1b21; font: 14px/1.5 "Roboto Flex", "Roboto", "DejaVu Sans", system-ui, sans-serif; }
 body.pdf { background: #fff; font-size: 9.5pt; }
+.spoiler { background: #303036; color: transparent; border-radius: 3px; padding: 0 2px; }
+.spoiler * { color: transparent !important; background: transparent !important; }
+.spoiler img { filter: blur(12px) brightness(0.4); }
+body:not(.pdf) .spoiler:hover, body:not(.pdf) .spoiler:hover * { background: #e4e1e9; color: inherit !important; }
 .top, main { max-width: 860px; margin: 0 auto; padding: 0 20px; }
 body.pdf .top, body.pdf main { max-width: none; padding: 0; }
 .top { padding-top: 32px; padding-bottom: 12px; border-bottom: 1px solid #c7c5d0; margin-bottom: 8px; }

@@ -541,6 +541,14 @@ dependency; keep it that way so the agent stays trivially installable on target 
   own first). Don't add comma-separated tag text fields. Renaming or merging (`services.rename_tags`,
   `TagManagerDialog`): a project's card tags, or agent tags, which also rewrite the `agent_selector`
   of cards and runs and the live `AgentConnection.tags`.
+- Spoilers (`||text||`, Discord style) anywhere people write: web `lib/spoilers.ts` (the `marked` extension in
+  `lib/markdown.ts`, `splitSpoilers` for the `Spoilers.svelte` component on plain text such as card titles, `maskSpoilers`
+  (asterisks) for text that can't hide part of itself: snackbars, notifications, dropdown options, confirm titles, tooltips and
+  aria labels, search results; the pipes never show outside an editing field;
+  `revealSpoilers` is the one click/Enter handler, from the root layout, and stops the click there so a card doesn't open);
+  server `spoilers.py` (the same rule: `mask`, asterisks, in chat alerts and webhooks, `html_text` and a markdown-it rule in the timeline
+  export). A new place that shows a title, comment or description uses `Spoilers`/`RichText`, or `maskSpoilers` in an
+  attribute. They hide from a glance, not from anyone determined (the text is in the API and exports).
 - Motion: `lib/motion.ts` (`enter`/`leave` for list rows, `pop` for grid cards, `glide` for
   reorders). Use it for anything that appears or disappears live, and pass
   `{ enabled: false }` while a list (re)loads so page loads and filter changes don't cascade.

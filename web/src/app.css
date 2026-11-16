@@ -270,6 +270,24 @@ select optgroup {
 * { scrollbar-width: thin; scrollbar-color: var(--md-sys-color-outline-variant) transparent; }
 
 /* Rendered markdown */
+/* ||Spoiler|| text (lib/spoilers.ts): a bar until clicked. Pictures in one are blurred. */
+.spoiler {
+	border-radius: 4px;
+	padding: 0 0.15em;
+	background: var(--md-sys-color-inverse-surface);
+	color: transparent;
+	cursor: pointer;
+	transition: background-color 150ms, color 150ms;
+	box-decoration-break: clone;
+	-webkit-box-decoration-break: clone;
+}
+.spoiler:not(.revealed) * { color: transparent !important; background: transparent !important; text-decoration-color: transparent !important; pointer-events: none; }
+.spoiler:not(.revealed) img { filter: blur(16px) brightness(0.4); }
+.spoiler:not(.revealed):hover { background: color-mix(in srgb, var(--md-sys-color-inverse-surface) 85%, var(--md-sys-color-primary)); }
+.spoiler:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 1px; }
+.spoiler.revealed { background: var(--md-sys-color-surface-container-highest); color: inherit; cursor: auto; }
+@media (prefers-reduced-motion: reduce) { .spoiler { transition: none; } }
+
 .prose-m3 { line-height: 1.6; }
 .prose-m3 p { margin: 0 0 0.75em; }
 .prose-m3 p:last-child { margin-bottom: 0; }

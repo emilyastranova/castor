@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Spoilers from '$lib/components/Spoilers.svelte';
 	import type { AssetLink, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Chip, Icon } from '$lib/m3';
@@ -130,7 +131,7 @@
 						</button>
 					</div>
 					<p class="body-small text-on-surface-variant">
-						{#if details(l.fields)}<span class="font-medium text-on-surface">{details(l.fields)}</span> · {/if}{source(l)}{#if l.task}{' '}on <a href={l.task.link} class="text-primary hover:underline">{l.task.title}</a>{/if}
+						{#if details(l.fields)}<span class="font-medium text-on-surface">{details(l.fields)}</span> · {/if}{source(l)}{#if l.task}{' '}on <a href={l.task.link} class="text-primary hover:underline"><Spoilers text={l.task.title} /></a>{/if}
 						· <span title={absoluteTime(l.first_seen)}>{relativeTime(l.first_seen)}</span>
 					</p>
 					{#if l.note}<p class="body-small text-on-surface italic">{l.note}</p>{/if}

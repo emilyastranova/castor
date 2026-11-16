@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Spoilers from '$lib/components/Spoilers.svelte';
 	import type { Column, Task, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, Icon, Progress, TextField } from '$lib/m3';
@@ -128,7 +129,7 @@
 									<label class="state-layer flex cursor-pointer items-center gap-3 px-3 py-2">
 										<input type="checkbox" class="size-4 shrink-0 accent-[var(--md-sys-color-primary)]" checked={chosen.has(t.id)} onchange={() => toggle(t.id)} />
 										<Icon name={kindIcon(t)} size={18} class="shrink-0 text-on-surface-variant" />
-										<span class="min-w-0 flex-1 truncate body-medium text-on-surface">{t.title}</span>
+										<span class="min-w-0 flex-1 truncate body-medium text-on-surface"><Spoilers text={t.title} /></span>
 										{#each t.tags.slice(0, 2) as tag (tag)}
 											<span class="hidden shrink-0 rounded-xs border border-outline-variant px-1.5 py-0.5 label-small text-on-surface-variant sm:inline">{tag}</span>
 										{/each}

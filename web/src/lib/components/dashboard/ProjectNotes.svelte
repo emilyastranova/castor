@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Spoilers from '$lib/components/Spoilers.svelte';
+	import { maskSpoilers } from '$lib/spoilers';
 	import { copyableCode } from '$lib/copyCode';
 	import PersonName from '$lib/components/PersonName.svelte';
 	import { tick } from 'svelte';
@@ -288,7 +290,7 @@
 				<article class="group flex min-w-0 flex-col gap-2 rounded-lg bg-surface-container-low p-4 {expanded[note.id] ? '' : 'h-60'}" style:background-color={noteBg(note.color)}>
 					<header class="flex items-start gap-2">
 						<Icon name="push_pin" size={18} class="mt-0.5 shrink-0 text-tertiary" />
-						<h2 class="min-w-0 flex-1 truncate title-medium text-on-surface" title={note.title}>{note.title}</h2>
+						<h2 class="min-w-0 flex-1 truncate title-medium text-on-surface" title={maskSpoilers(note.title)}><Spoilers text={note.title} /></h2>
 						{#if canEdit()}
 							<IconButton icon="edit" label="Edit note" size="sm" class="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100" onclick={() => startEdit(note)} />
 							<Menu class="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 has-[[role=menu]]:opacity-100">

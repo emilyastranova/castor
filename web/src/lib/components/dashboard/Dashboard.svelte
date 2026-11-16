@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { maskSpoilers } from '$lib/spoilers';
+	import Spoilers from '$lib/components/Spoilers.svelte';
 	import type { DashboardSummary, FeedItem, FeedKind } from '$lib/api';
 	import { api } from '$lib/api';
 	import { Button, Icon } from '$lib/m3';
@@ -491,9 +493,9 @@
 								<a href={a.link} class="state-layer flex items-start gap-2.5 rounded-md px-2 py-2" onclick={() => a.notification_id && void api().notifications.read(a.notification_id).catch(() => {})}>
 									<Icon name={a.kind === 'mention' ? 'alternate_email' : a.kind === 'decision' ? 'front_hand' : a.kind === 'approval' ? 'bolt' : a.kind === 'input' ? 'keyboard' : 'error'} size={18} class="mt-0.5 shrink-0 {a.kind === 'mention' ? 'text-primary' : a.kind === 'decision' || a.kind === 'approval' || a.kind === 'input' ? 'text-tertiary' : 'text-error'}" />
 									<span class="min-w-0 flex-1">
-										<span class="block body-medium text-on-surface">{a.title}{#if a.for_you && a.kind === 'failed'}<span class="ml-1.5 rounded-full bg-primary-container px-1.5 py-0.5 align-middle label-small text-on-primary-container">for you</span>{/if}</span>
-										<span class="block truncate body-small text-on-surface-variant" title={a.detail}>
-											{a.detail}{a.since ? ` · ${relativeTime(a.since)}` : ''}
+										<span class="block body-medium text-on-surface"><Spoilers text={a.title} />{#if a.for_you && a.kind === 'failed'}<span class="ml-1.5 rounded-full bg-primary-container px-1.5 py-0.5 align-middle label-small text-on-primary-container">for you</span>{/if}</span>
+										<span class="block truncate body-small text-on-surface-variant" title={maskSpoilers(a.detail)}>
+											<Spoilers text={a.detail} />{a.since ? ` · ${relativeTime(a.since)}` : ''}
 										</span>
 									</span>
 								</a>
@@ -548,7 +550,7 @@
 									{:else}
 										<Icon name="hourglass_empty" size={14} class="shrink-0 text-tertiary" />
 									{/if}
-									<span class="min-w-0 flex-1 truncate body-medium text-on-surface" title={j.task.name}>{j.task.name}</span>
+									<span class="min-w-0 flex-1 truncate body-medium text-on-surface" title={maskSpoilers(j.task.name)}><Spoilers text={j.task.name} /></span>
 									<span class="shrink-0 body-small text-on-surface-variant" title={absoluteTime(j.started_at ?? j.queued_at)}>
 										{j.status === 'running' ? `${elapsed(j.started_at)}${j.agent ? ` · ${j.agent}` : ''}` : 'queued'}
 									</span>
