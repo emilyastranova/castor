@@ -184,12 +184,13 @@ class MachineLink:
             self.seq[job_id] = seq + 1
         else:
             seq = n
-            self.received[job_id] = self.received.get(job_id, 0) + 1
         await self.to_gateway({"type": "job.log", "job_id": job_id, "seq": seq, "stream": stream, "data": data})
+        if n is not None:  # counted once it's stored: the job only finishes after its last line is in
+            self.received[job_id] = self.received.get(job_id, 0) + 1
 
     async def _all_in(self, job_id: str, logged: int) -> None:
         """Wait (a little) for the plugin's last lines, so parsers read the whole output."""
-        for _ in range(100):
+        for _ in range(200):
             if self.received.get(job_id, 0) >= logged:
                 return
             await asyncio.sleep(0.05)
