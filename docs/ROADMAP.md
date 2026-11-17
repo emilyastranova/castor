@@ -77,7 +77,18 @@ of those.)
 ### More for network routes
 [Routes](https://github.com/emilyastranova/castor/wiki/Routes) send jobs through SSH jumps and SOCKS
 and HTTP proxies today. Still to come:
-- **Tunnels as hops:** Chisel, ligolo-ng and WireGuard, set up and torn down by the agent like an SSH hop.
+- **Tunnels as hops:** Chisel and ligolo-ng, set up and torn down by the agent like an SSH hop.
+- **WireGuard, Tailscale and Headscale as hops:** a layer-3 hop, so UDP and ICMP go through too (the route box routes
+  them into the tunnel instead of dropping them). WireGuard with its config and keys in the vault (the box brings the
+  interface up in its own network namespace, so the agent's host is untouched); Tailscale or a self-hosted Headscale
+  with an auth key (ephemeral and tagged, so the box's node disappears when the route stops), the hop being a
+  tailnet node or subnet router that reaches the targets. Peers and exit nodes shown in the route editor, the
+  tunnel's handshake and latency in tests.
+- **Hop types from plugins:** a plugin declares a hop type in its manifest (name, icon, its fields and which are
+  secrets), and the route editor offers it next to SSH and the proxies. The plugin's code says how to bring the hop up
+  and down and what it gives the hop after it (a SOCKS address, or a network interface for a layer-3 hop); the route
+  box runs it, sandboxed like other plugin code, with its secrets from the vault. Tests and host-key-style trust work
+  the same for plugin hops.
 - **Real DNS through the route:** today the route box answers lookups with stand-in addresses (198.18.0.0/15)
   that turn back into names when a TCP connection follows, so a tool that only looks names up (MX, TXT, SRV,
   the real A record) gets nothing useful. A per-route option would forward each query as DNS over TCP through
@@ -176,6 +187,25 @@ Turn a project's findings into a deliverable:
 Card tags (per project) and agent tags can be renamed and merged; library tags (commands and
 playbooks) can't yet, because they live in each definition's YAML and the built-in ones are
 re-read from files at startup.
+
+### Quick slots: a hotbar for what you paste all day
+During an engagement the same few values go into the clipboard over and over: the test account's username, its UPN,
+the domain, the DC's address, the client's VPN portal. Quick slots put them one click away, like a game's hotbar or
+a macro pad, in the unused space on the right of a project's Home.
+- **A grid of slots**, each with a colour (and a number), a short label and what it holds. Click one and its value is
+  on the clipboard, with a snackbar saying which ("Copied UPN"). The value itself stays hidden until hovered or
+  revealed, so it's fine to have on screen while sharing it.
+- **Keyboard first:** Alt+1…9 copies a slot from anywhere in the project, and the command palette finds them by label.
+- **Where values come from:** typed in, or a field of a variable set (so a secret comes from the vault, is never stored
+  in the slot, and copying it is recorded like revealing a secret), an asset's field, or a short template mixing them
+  (`{{ creds.username }}@{{ domain }}`).
+- **More than copying:** a slot can open a link (the client's portal, a ticket, a report), copy and open at once, put
+  its value into the comment or card being written, start a card or playbook, or run a plugin action, so it becomes a
+  small macro pad for the project.
+- **Whose slots:** the project's (shared with everyone on it) and your own on top, set per person; drag to rearrange,
+  right-click to edit. On a phone they're a row of chips at the top of Home.
+- Over the API and MCP like everything else, so an assistant can read a slot's label and use it without seeing a
+  secret value.
 
 ## More
 
