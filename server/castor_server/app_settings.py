@@ -3,7 +3,7 @@ back to the defaults here. Add a setting by adding a field to `AppSettings`."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
@@ -26,6 +26,12 @@ class AppSettings(BaseModel):
     # Signing in with a username and password. Off (with a sign-on provider enabled): only
     # single sign-on; `castor-admin password-login on` turns it back on from the shell.
     password_login: bool = True
+    # The sign-in page: a provider id to go straight to (no sign-in page at all, unless someone just
+    # signed out, sign-on failed, or the address has ?local); a message over the buttons; and the
+    # password form shown, or tucked behind "Sign in with a password".
+    sso_redirect: str = Field(default="", max_length=32)
+    sign_in_message: str = Field(default="", max_length=400)
+    password_form: Literal["shown", "collapsed"] = "shown"
     # The theme for everyone who hasn't picked one, and for the sign-in page on a browser that has
     # never signed in: a theme_definitions id, or "" for Castor's own.
     default_theme: str = Field(default="", max_length=64)

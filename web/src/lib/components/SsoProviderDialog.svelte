@@ -1,10 +1,12 @@
 <script lang="ts">
 	import type { SamlCertificate, SamlConfig, SsoProtocol, SsoProvider, SsoProviderIn, UserRole } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
-	import { Button, Dialog, Icon, IconButton, Select, Switch, Tabs, TagInput, TextField } from '$lib/m3';
+	import { Button, Chip, Dialog, Icon, IconButton, Select, Switch, Tabs, TagInput, TextField } from '$lib/m3';
 	import { absoluteTime, relativeTime } from '$lib/format';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { confirmAction } from '$lib/confirm.svelte';
+	import type { SsoBranding } from '$lib/api';
+	import SsoButton from './SsoButton.svelte';
 
 	/** Add or edit a sign-on provider: OpenID Connect (the redirect URI to register, the issuer
 	 *  checked before saving) or SAML (the identity provider's metadata read from its URL or
@@ -47,6 +49,70 @@
 		};
 	}
 	let saml = $state<SamlConfig>(blankSaml());
+	const blankBranding = (): SsoBranding => ({ label: '', style: 'theme', color: '', text_color: '', logo: 'symbol', symbol: 'key' });
+	let branding = $state<SsoBranding>(blankBranding());
+	/** The uploaded logos (saved at once, apart from the rest of the form). */
+	let logos = $state<{ light: string | null; dark: string | null }>({ light: null, dark: null });
+	let uploading = $state<'light' | 'dark' | null>(null);
+	const STYLES = [
+		{ value: 'theme', label: 'Castor’s look', icon: 'palette' },
+		{ value: 'filled', label: 'Filled with a colour', icon: 'format_color_fill' },
+		{ value: 'outlined', label: 'Outlined in a colour', icon: 'border_style' }
+	] as const;
+	const LOGOS = [
+		{ value: 'symbol', label: 'An icon', icon: 'key' },
+		{ value: 'icon', label: 'A square logo', icon: 'crop_square' },
+		{ value: 'wordmark', label: 'A wordmark', icon: 'title' },
+		{ value: 'none', label: 'Words only', icon: 'text_fields' }
+	] as const;
+	/** WCAG contrast between two #rrggbb colours. */
+	function contrast(a: string, b: string): number {
+		const lum = (hex: string) => {
+			const [r, g, bl] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+			return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+		};
+		const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m);
+		return (x + 0.05) / (y + 0.05);
+	}
+	/** Where an outlined colour (or a filled button's words) would be hard to read. */
+	const hardToRead = $derived.by(() => {
+		const c = branding.color;
+		if (!/^#[0-9a-f]{6}$/i.test(c)) return '';
+		if (branding.style === 'outlined') {
+			const onLight = contrast(c, '#ffffff'), onDark = contrast(c, '#1b1b1f');
+			if (onLight < 3 && onDark < 3) return 'Hard to read on light and dark pages alike';
+			if (onDark < 3) return 'Hard to read on dark themes: pick a lighter colour, or fill the button with it';
+			if (onLight < 3) return 'Hard to read on light themes: pick a darker colour, or fill the button with it';
+		}
+		if (branding.style === 'filled' && /^#[0-9a-f]{6}$/i.test(branding.text_color) && contrast(c, branding.text_color) < 4.5)
+			return 'The words are hard to read on that colour: leave their colour empty to have it worked out';
+		return '';
+	});
+	async function uploadLogo(variant: 'light' | 'dark', input: HTMLInputElement) {
+		const file = input.files?.[0];
+		input.value = '';
+		if (!file || !provider) return;
+		uploading = variant;
+		try {
+			const saved = await api().sso.uploadLogo(provider.id, file, variant);
+			logos = { light: saved.branding.logo_url, dark: saved.branding.logo_dark_url };
+			onsaved?.(saved);
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not upload the logo');
+		} finally {
+			uploading = null;
+		}
+	}
+	async function removeLogo(variant: 'light' | 'dark') {
+		if (!provider) return;
+		try {
+			const saved = await api().sso.removeLogo(provider.id, variant);
+			logos = { light: saved.branding.logo_url, dark: saved.branding.logo_dark_url };
+			onsaved?.(saved);
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not remove the logo');
+		}
+	}
 	/** What the certificates are, as the server read them (kept in step with `saml.certificates`). */
 	let described = $state<SamlCertificate[]>([]);
 	let metadataXml = $state('');
@@ -70,6 +136,9 @@
 		for (const k of Object.keys(cfg) as (keyof SamlConfig)[]) if (p?.saml && k in p.saml) (cfg as unknown as Record<string, unknown>)[k] = p.saml[k];
 		saml = { ...cfg, certificates: [...cfg.certificates] };
 		described = [...(p?.saml?.described ?? [])];
+		branding = p ? { label: p.branding.label, style: p.branding.style, color: p.branding.color, text_color: p.branding.text_color,
+			logo: p.branding.logo, symbol: p.branding.symbol } : blankBranding();
+		logos = { light: p?.branding.logo_url ?? null, dark: p?.branding.logo_dark_url ?? null };
 		secret = metadataXml = newCert = '';
 		pasting = addingCert = advanced = false;
 		tested = loaded = null;
@@ -156,7 +225,7 @@
 	async function save() {
 		saving = true;
 		try {
-			const body: SsoProviderIn = { ...form, role_map: form.role_map.filter((r) => r.group.trim()) };
+			const body: SsoProviderIn = { ...form, role_map: form.role_map.filter((r) => r.group.trim()), branding: { ...branding } };
 			if (isSaml) body.saml = { ...saml };
 			else if (secret.trim()) body.client_secret = secret.trim();
 			const saved = provider ? await api().sso.update(provider.id, body) : await api().sso.create(body);
@@ -235,6 +304,78 @@
 			<p class="mt-1 body-small text-on-surface-variant">Register this at the provider as the app's redirect (callback) URI. It uses CASTOR_PUBLIC_URL when that's set.</p>
 		</div>
 		{/if}
+
+		<h3 class="mt-1 title-small text-on-surface">Its button</h3>
+		<div class="flex flex-col gap-2 rounded-lg bg-surface-container-low p-4">
+			<span class="label-medium text-on-surface-variant">On the sign-in page</span>
+			<div class="mx-auto w-full max-w-sm">
+				<SsoButton name={form.name || 'your provider'} {branding} logoUrl={logos.light} logoDarkUrl={logos.dark} />
+			</div>
+		</div>
+		<TextField label="Words" bind:value={branding.label} placeholder="Continue with {form.name || 'the provider'}"
+			supporting="{'{name}'} is the provider’s name. With a wordmark, they’re what screen readers say." />
+		<div class="flex flex-col gap-2">
+			<span class="label-large text-on-surface">Style</span>
+			<div class="flex flex-wrap gap-2" role="radiogroup" aria-label="Style">
+				{#each STYLES as st (st.value)}
+					<Chip variant="filter" icon={st.icon} selected={branding.style === st.value} onclick={() => (branding.style = st.value)}>{st.label}</Chip>
+				{/each}
+			</div>
+		</div>
+		{#if branding.style !== 'theme'}
+			<div class="grid gap-4 sm:grid-cols-2">
+				<div class="flex items-start gap-2">
+					<input type="color" class="mt-2 size-10 shrink-0 cursor-pointer rounded-md border border-outline-variant bg-transparent" aria-label="Pick the colour"
+						value={branding.color || '#2f6feb'} oninput={(e) => (branding.color = (e.currentTarget as HTMLInputElement).value)} />
+					<TextField label="Colour" bind:value={branding.color} mono placeholder="#2f6feb" class="flex-1" supporting={hardToRead || 'The brand’s colour, as #rrggbb'} />
+				</div>
+				{#if branding.style === 'filled'}
+					<div class="flex items-start gap-2">
+						<input type="color" class="mt-2 size-10 shrink-0 cursor-pointer rounded-md border border-outline-variant bg-transparent" aria-label="Pick the words’ colour"
+							value={branding.text_color || '#ffffff'} oninput={(e) => (branding.text_color = (e.currentTarget as HTMLInputElement).value)} />
+						<TextField label="Words’ colour (optional)" bind:value={branding.text_color} mono placeholder="worked out from the colour" class="flex-1"
+							supporting="Empty: white or black, whichever reads" />
+					</div>
+				{/if}
+			</div>
+		{/if}
+		<div class="flex flex-col gap-2">
+			<span class="label-large text-on-surface">Logo</span>
+			<div class="flex flex-wrap gap-2" role="radiogroup" aria-label="Logo">
+				{#each LOGOS as lg (lg.value)}
+					<Chip variant="filter" icon={lg.icon} selected={branding.logo === lg.value} onclick={() => (branding.logo = lg.value)}>{lg.label}</Chip>
+				{/each}
+			</div>
+			{#if branding.logo === 'symbol'}
+				<TextField label="Icon" bind:value={branding.symbol} mono placeholder="key"
+					supporting="A Material Symbols name: key, shield_person, badge, lock, apartment…" />
+			{:else if branding.logo === 'icon' || branding.logo === 'wordmark'}
+				<p class="body-small text-on-surface-variant">
+					{branding.logo === 'icon' ? 'A square logo before the words (it’s drawn 20 px tall).' : 'A horizontal logo instead of the words (24 px tall).'}
+					SVG, PNG, WebP, JPEG or GIF, up to 512 KB. A second one for dark themes is optional.
+				</p>
+				{#if provider}
+					{#each [{ v: 'light', label: 'Logo', url: logos.light }, { v: 'dark', label: 'For dark themes', url: logos.dark }] as slot (slot.v)}
+						<div class="flex items-center gap-3 rounded-md border border-outline-variant px-3 py-2">
+							<!-- On what it'll be on: the button's colour when it's filled, else a light or dark page. -->
+							<span class="flex h-10 w-24 shrink-0 items-center justify-center rounded-sm border border-outline-variant {slot.v === 'dark' ? 'bg-[#1b1b1f]' : 'bg-white'}"
+								style={branding.style === 'filled' && /^#[0-9a-f]{6}$/i.test(branding.color) ? `background:${branding.color}` : ''}>
+								{#if slot.url}<img src={slot.url} alt="" class="max-h-8 max-w-20 object-contain" />{:else}<Icon name="image" size={20} class="text-[#888]" />{/if}
+							</span>
+							<span class="min-w-0 flex-1 label-large text-on-surface">{slot.label}</span>
+							<label class="state-layer focus-ring inline-flex h-10 cursor-pointer items-center gap-2 rounded-full px-3 label-large text-primary">
+								<Icon name={uploading === slot.v ? 'progress_activity' : 'upload'} size={18} />{slot.url ? 'Replace' : 'Upload'}
+								<input type="file" class="sr-only" accept="image/svg+xml,image/png,image/webp,image/jpeg,image/gif"
+									onchange={(e) => uploadLogo(slot.v as 'light' | 'dark', e.currentTarget)} />
+							</label>
+							{#if slot.url}<IconButton icon="delete" label="Remove the {slot.label.toLowerCase()}" onclick={() => removeLogo(slot.v as 'light' | 'dark')} />{/if}
+						</div>
+					{/each}
+				{:else}
+					<p class="body-small text-on-surface-variant">Add the provider first, then upload its logo here.</p>
+				{/if}
+			{/if}
+		</div>
 
 		<h3 class="mt-1 title-small text-on-surface">Who can sign in, and as what</h3>
 		<Select label="Role for new accounts" bind:value={form.default_role} options={ROLES} supporting="Accounts are made the first time someone signs in." />

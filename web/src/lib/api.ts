@@ -1846,7 +1846,7 @@ export function api(fetchFn: Fetch = fetch) {
 			changePassword: (current_password: string, new_password: string) =>
 				post<void>('/auth/password', { current_password, new_password }),
 			/** What the sign-in page offers: providers to sign in with, and whether passwords work. */
-			signInOptions: () => get<{ providers: { id: string; name: string }[]; password_login: boolean }>('/auth/sso')
+			signInOptions: () => get<SignInOptions>('/auth/sso')
 		},
 		groups: {
 			list: () => get<Group[]>('/groups'),
@@ -1863,7 +1863,16 @@ export function api(fetchFn: Fetch = fetch) {
 			remove: (id: string) => del(`/sso-providers/${id}`),
 			test: (issuer: string) => post<{ ok: boolean; error: string | null; issuer: string | null; authorization_endpoint: string | null }>('/sso-providers/test', { issuer }),
 			/** Read a SAML identity provider's metadata, from its URL or pasted, to fill in a provider. */
-			readMetadata: (body: { url?: string; xml?: string; entity_id?: string }) => post<SamlMetadata>('/sso-providers/saml/metadata', body)
+			readMetadata: (body: { url?: string; xml?: string; entity_id?: string }) => post<SamlMetadata>('/sso-providers/saml/metadata', body),
+			/** Its logo: the square icon or horizontal wordmark; `dark` for dark themes. */
+			uploadLogo: (id: string, file: File, variant: 'light' | 'dark' = 'light') => {
+				const form = new FormData();
+				form.append('file', file);
+				return request<SsoProvider>(fetchFn, 'PUT', `/sso-providers/${id}/logo?variant=${variant}`, form);
+			},
+			removeLogo: (id: string, variant: 'light' | 'dark' = 'light') => request<SsoProvider>(fetchFn, 'DELETE', `/sso-providers/${id}/logo?variant=${variant}`),
+			/** The buttons' order on the sign-in page. */
+			order: (ids: string[]) => post<void>('/sso-providers/order', { ids })
 		},
 		users: {
 			list: () => get<User[]>('/users'),
@@ -2591,6 +2600,12 @@ export interface AppSettings {
 	password_login: boolean;
 	/** The theme for everyone who hasn't picked one, and the sign-in page ("" for Castor's own). */
 	default_theme: string;
+	/** A sign-on provider to go straight to instead of showing the sign-in page ("": show it). */
+	sso_redirect: string;
+	/** A line over the sign-in buttons. */
+	sign_in_message: string;
+	/** The password form on the sign-in page: shown, or behind "Sign in with a password". */
+	password_form: 'shown' | 'collapsed';
 	/** Look for newer releases of installed plugins in the directory daily (Settings → Plugins). */
 	plugin_update_checks?: boolean;
 	/** Outbound requests (HTTP actions, alert channels): addresses exempt from the block on
@@ -2666,6 +2681,34 @@ export interface SamlMetadata {
 	described: SamlCertificate[];
 }
 
+/** How a sign-on button looks (Settings → Sign-on → the provider's Button). */
+export interface SsoBranding {
+	/** "" is "Continue with <name>"; {name} is the provider's name. */
+	label: string;
+	style: 'theme' | 'filled' | 'outlined';
+	color: string;
+	/** "" works it out from the colour. */
+	text_color: string;
+	logo: 'none' | 'symbol' | 'icon' | 'wordmark';
+	symbol: string;
+}
+
+/** A button as the sign-in page draws it. */
+export interface SsoButtonInfo extends SsoBranding {
+	id: string;
+	name: string;
+	logo_url: string | null;
+	logo_dark_url: string | null;
+}
+
+export interface SignInOptions {
+	providers: SsoButtonInfo[];
+	password_login: boolean;
+	redirect: string | null;
+	message: string;
+	password_form: 'shown' | 'collapsed';
+}
+
 export interface SsoProvider {
 	id: string;
 	name: string;
@@ -2687,9 +2730,15 @@ export interface SsoProvider {
 	/** People who have signed in through it. */
 	users: number;
 	saml: SamlOut | null;
+	branding: SsoBranding & { has_logo: boolean; has_logo_dark: boolean; logo_url: string | null; logo_dark_url: string | null; logo_version: number };
+	position: number;
 }
 
-export type SsoProviderIn = Omit<SsoProvider, 'has_secret' | 'redirect_uri' | 'users' | 'saml'> & { client_secret?: string; saml?: SamlConfig };
+export type SsoProviderIn = Omit<SsoProvider, 'has_secret' | 'redirect_uri' | 'users' | 'saml' | 'branding' | 'position'> & {
+	client_secret?: string;
+	saml?: SamlConfig;
+	branding?: SsoBranding;
+};
 
 export interface AiField {
 	name: string;

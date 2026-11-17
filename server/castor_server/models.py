@@ -645,6 +645,9 @@ class SsoProvider(Base, TimestampMixin):
     role_map: Mapped[list[dict[str, str]]] = mapped_column(JSONType, default=list)
     # Link to an existing account with the same email, if the provider says it's verified.
     link_by_email: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Its button on the sign-in page (sso_branding.Branding, plus the uploaded logos' files).
+    branding: Mapped[dict[str, Any] | None] = mapped_column(JSONType, default=dict, nullable=True)
+    position: Mapped[int] = mapped_column(Integer, default=0, server_default="0")  # order on the sign-in page
     # SAML only (saml.SamlConfig): sso_url, certificates, sp_entity_id, attributes, trust_email…
     saml: Mapped[dict[str, Any] | None] = mapped_column(JSONType, default=dict, nullable=True)
 

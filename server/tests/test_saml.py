@@ -162,7 +162,7 @@ def test_provider_settings_and_castors_metadata(client, auth, provider, idp):
     assert md.status_code == 200 and md.headers["content-type"].startswith("application/samlmetadata+xml")
     root = etree.fromstring(md.content)
     assert root.get("entityID") == s["entity_id"] and s["acs_url"] in md.text and 'WantAssertionsSigned="true"' in md.text
-    assert {"id": provider["id"], "name": "Test SAML"} in client.get("/api/auth/sso").json()["providers"]
+    assert any(p["id"] == provider["id"] and p["name"] == "Test SAML" for p in client.get("/api/auth/sso").json()["providers"])
     # The request names Castor and where to answer.
     req, _ = _request(client.get(f"/api/auth/sso/{provider['id']}/start", follow_redirects=False).headers["location"])
     assert req.findtext(f"{{{SAML}}}Issuer") == s["entity_id"] and req.get("Destination") == SSO_URL

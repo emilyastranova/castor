@@ -6,6 +6,6 @@ export const load: PageLoad = async ({ fetch }) => {
 	try {
 		return await api(fetch).auth.signInOptions();
 	} catch {
-		return { providers: [], password_login: true };
+		return { providers: [], password_login: true, redirect: null, message: '', password_form: 'shown' as const };
 	}
 };

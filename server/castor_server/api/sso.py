@@ -7,12 +7,12 @@ import re
 from typing import Annotated, Any, Literal
 from urllib.parse import quote
 
-from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
-from .. import app_settings, saml, sso, vault
+from .. import app_settings, saml, sso, sso_branding, vault
 from .. import models as m
 from ..config import settings
 from ..deps import DB, Admin
@@ -33,16 +33,38 @@ def _base_url(request: Request) -> str:
 
 
 class SignInOptions(BaseModel):
-    providers: list[dict[str, str]]  # [{id, name}]
+    # [{id, name, label, style, color, text_color, logo, symbol, logo_url, logo_dark_url}], in order
+    providers: list[dict[str, Any]]
     password_login: bool
+    # A provider to go straight to (the page offers a way back; see sso_redirect).
+    redirect: str | None = None
+    message: str = ""
+    password_form: str = "shown"
 
 
 @router.get("", response_model=SignInOptions)
 async def sign_in_options(db: DB):
-    """What the sign-in page offers."""
-    rows = (await db.execute(select(m.SsoProvider).where(m.SsoProvider.enabled.is_(True)).order_by(m.SsoProvider.name))).scalars()
-    providers = [{"id": p.id, "name": p.name} for p in rows]
-    return SignInOptions(providers=providers, password_login=await password_login_allowed(db))
+    """What the sign-in page offers, and how its buttons look."""
+    rows = (await db.execute(select(m.SsoProvider).where(m.SsoProvider.enabled.is_(True))
+                             .order_by(m.SsoProvider.position, m.SsoProvider.name))).scalars().all()
+    providers = [{"id": p.id, "name": p.name, **sso_branding.public(p.id, p.branding)} for p in rows]
+    s = await app_settings.load(db)
+    redirect = s.sso_redirect if any(p["id"] == s.sso_redirect for p in providers) else None
+    return SignInOptions(providers=providers, password_login=await password_login_allowed(db), redirect=redirect,
+                         message=s.sign_in_message, password_form=s.password_form)
+
+
+@router.get("/{provider_id}/logo")
+async def provider_logo(provider_id: str, db: DB, variant: Literal["light", "dark"] = "light"):
+    """A provider's uploaded logo (public: the sign-in page shows it)."""
+    row = await db.get(m.SsoProvider, provider_id)
+    name = ((row.branding or {}).get("logo_dark_file" if variant == "dark" else "logo_file")) if row else None
+    path = sso_branding.directory() / name if name and "/" not in name else None
+    if row is None or not row.enabled or path is None or not path.is_file():
+        raise HTTPException(404, "No logo")
+    return Response(path.read_bytes(), media_type=sso_branding.content_type(name), headers={
+        "Content-Security-Policy": sso_branding.LOGO_CSP, "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "public, max-age=31536000, immutable"})
 
 
 async def password_login_allowed(db: Any) -> bool:
@@ -193,6 +215,8 @@ class ProviderIn(BaseModel):
     role_map: list[RoleRule] = Field(default_factory=list)
     link_by_email: bool = False
     saml: SamlIn | None = None  # SAML only
+    # Its button on the sign-in page; left out: unchanged (logos are uploaded separately).
+    branding: sso_branding.Branding | None = None
 
 
 class CertificateOut(BaseModel):
@@ -228,6 +252,9 @@ class ProviderOut(BaseModel):
     redirect_uri: str
     users: int  # people who have signed in through it
     saml: SamlOut | None = None
+    # Its button: the choices (sso_branding.Branding), whether logos are uploaded, and their URLs.
+    branding: dict[str, Any] = Field(default_factory=dict)
+    position: int = 0
 
 
 class TestOut(BaseModel):
@@ -255,7 +282,11 @@ async def _out(db: DB, row: m.SsoProvider, request: Request) -> ProviderOut:
         id=row.id, name=row.name, protocol=row.protocol, issuer=row.issuer, saml=saml_out, client_id=row.client_id, has_secret=bool(row.client_secret),
         scopes=row.scopes, enabled=row.enabled, default_role=row.default_role, allowed_domains=row.allowed_domains or [],
         allowed_groups=row.allowed_groups or [], groups_claim=row.groups_claim, role_map=[RoleRule(**r) for r in row.role_map or []],
-        link_by_email=row.link_by_email, users=users,
+        link_by_email=row.link_by_email, users=users, position=row.position or 0,
+        branding={**{k: v for k, v in sso_branding.stored(row.branding).items() if k not in ("logo_file", "logo_dark_file")},
+                  "has_logo": bool((row.branding or {}).get("logo_file")), "has_logo_dark": bool((row.branding or {}).get("logo_dark_file")),
+                  "logo_url": sso_branding.public(row.id, row.branding)["logo_url"],
+                  "logo_dark_url": sso_branding.public(row.id, row.branding)["logo_dark_url"]},
         redirect_uri=saml.acs_url(base, row.id) if row.protocol == "saml" else sso.redirect_uri(base, row.id),
     )
 
@@ -306,6 +337,9 @@ def _apply_common(row: m.SsoProvider, body: ProviderIn) -> None:
     row.groups_claim = body.groups_claim.strip()
     row.role_map = [r.model_dump() for r in body.role_map]
     row.link_by_email = body.link_by_email
+    if body.branding is not None:
+        kept = {k: v for k, v in (row.branding or {}).items() if k in ("logo_file", "logo_dark_file", "logo_version")}
+        row.branding = {**body.branding.model_dump(), **kept}
 
 
 @admin_router.get("", response_model=list[ProviderOut])
@@ -344,8 +378,62 @@ async def delete_provider(provider_id: str, db: DB, _: Admin):
     row = await db.get(m.SsoProvider, provider_id)
     if row is None:
         raise HTTPException(404, "Provider not found")
+    for key in ("logo_file", "logo_dark_file"):
+        sso_branding.remove_logo((row.branding or {}).get(key))
+    if (await app_settings.load(db)).sso_redirect == provider_id:
+        await app_settings.save(db, {"sso_redirect": ""}, None)
     await db.delete(row)
     await db.commit()
+
+
+class OrderIn(BaseModel):
+    ids: list[str]
+
+
+@admin_router.post("/order", status_code=204)
+async def order_providers(body: OrderIn, db: DB, _: Admin):
+    """The order of the buttons on the sign-in page (ids first to last; others after them)."""
+    rows = {r.id: r for r in (await db.execute(select(m.SsoProvider))).scalars()}
+    rest = sorted((r for i, r in rows.items() if i not in body.ids), key=lambda r: (r.position, r.name))
+    for pos, row in enumerate([rows[i] for i in body.ids if i in rows] + rest):
+        row.position = pos
+    await db.commit()
+
+
+@admin_router.put("/{provider_id}/logo", response_model=ProviderOut)
+async def upload_logo(provider_id: str, request: Request, db: DB, _: Admin,
+                      file: Annotated[UploadFile, File()], variant: Literal["light", "dark"] = "light"):
+    """Its logo (SVG, PNG, WebP, JPEG or GIF, up to 512 KB): a square icon or a horizontal wordmark,
+    as its branding says; `dark` is the one for dark themes (optional)."""
+    row = await db.get(m.SsoProvider, provider_id)
+    if row is None:
+        raise HTTPException(404, "Provider not found")
+    branding = dict(row.branding or {})
+    version = int(branding.get("logo_version") or 0) + 1
+    try:
+        name = sso_branding.save_logo(provider_id, version, variant, await file.read(sso_branding.MAX_BYTES + 1))
+    except sso_branding.BrandingError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    key = "logo_dark_file" if variant == "dark" else "logo_file"
+    sso_branding.remove_logo(branding.get(key))
+    branding.update({key: name, "logo_version": version})
+    row.branding = branding
+    await db.commit()
+    return await _out(db, row, request)
+
+
+@admin_router.delete("/{provider_id}/logo", response_model=ProviderOut)
+async def delete_logo(provider_id: str, request: Request, db: DB, _: Admin, variant: Literal["light", "dark"] = "light"):
+    row = await db.get(m.SsoProvider, provider_id)
+    if row is None:
+        raise HTTPException(404, "Provider not found")
+    branding = dict(row.branding or {})
+    key = "logo_dark_file" if variant == "dark" else "logo_file"
+    sso_branding.remove_logo(branding.pop(key, None))
+    branding["logo_version"] = int(branding.get("logo_version") or 0) + 1
+    row.branding = branding
+    await db.commit()
+    return await _out(db, row, request)
 
 
 @admin_router.post("/test", response_model=TestOut)

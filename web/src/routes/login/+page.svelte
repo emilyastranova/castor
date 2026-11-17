@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
 	import { Button, TextField, Icon } from '$lib/m3';
+	import SsoButton from '$lib/components/SsoButton.svelte';
 
 	let { data } = $props();
 
@@ -32,6 +33,17 @@
 		}
 	}
 	const startUrl = (id: string) => `/api/auth/sso/${encodeURIComponent(id)}/start?next=${encodeURIComponent(next)}`;
+
+	// Straight to the provider an admin chose, unless someone just signed out (or it would loop),
+	// sign-on came back with an error, or the address says ?local (the way back to this page).
+	const stay = $derived(!!ssoError || page.url.searchParams.has('local') || page.url.searchParams.has('signed_out'));
+	const going = $derived(!stay && data.redirect ? data.providers.find((p) => p.id === data.redirect) ?? null : null);
+	$effect(() => {
+		if (going) window.location.replace(startUrl(going.id));
+	});
+	// The password form tucked behind a link, if an admin asked (always open when it's the only way).
+	let showPassword = $state(false);
+	const passwordOpen = $derived(data.password_form !== 'collapsed' || !data.providers.length || showPassword || !!error);
 </script>
 
 <svelte:head><title>Sign in · Castor</title></svelte:head>
@@ -48,6 +60,21 @@
 			</div>
 		</div>
 
+		{#if going}
+			<div class="flex flex-col items-center gap-3 py-2 text-center" role="status">
+				<span class="size-6 animate-spin rounded-full border-2 border-primary border-t-transparent"></span>
+				<p class="body-large text-on-surface">Taking you to {going.name}…</p>
+				<a class="label-large text-primary hover:underline" href="/login?local{next !== '/' ? `&next=${encodeURIComponent(next)}` : ''}">Use another way to sign in</a>
+			</div>
+		{:else}
+		{#if page.url.searchParams.has('signed_out')}
+			<p role="status" class="flex items-center gap-2 rounded-md bg-secondary-container px-3 py-2 body-small text-on-secondary-container">
+				<Icon name="logout" size={18} class="shrink-0" />You’re signed out.
+			</p>
+		{/if}
+		{#if data.message}
+			<p class="body-medium whitespace-pre-line text-on-surface">{data.message}</p>
+		{/if}
 		{#if ssoError}
 			<p role="alert" class="flex items-start gap-2 rounded-md bg-error-container px-3 py-2 body-small text-on-error-container">
 				<Icon name="error" size={18} class="mt-px shrink-0" />{ssoError}
@@ -57,29 +84,25 @@
 		{#if data.providers.length}
 			<div class="flex flex-col gap-2">
 				{#each data.providers as p (p.id)}
-					<!-- A full page load: the server sends the browser on to the provider. -->
-					<a
-						href={startUrl(p.id)}
-						data-sveltekit-reload
-						class="state-layer flex h-12 items-center justify-center gap-2 rounded-full border border-outline label-large text-on-surface"
-					>
-						<Icon name="key" size={20} class="text-primary" />Continue with {p.name}
-					</a>
+					<SsoButton name={p.name} branding={p} logoUrl={p.logo_url} logoDarkUrl={p.logo_dark_url} href={startUrl(p.id)} />
 				{/each}
 			</div>
 		{/if}
 
-		{#if data.password_login}
+		{#if data.password_login && !passwordOpen}
+			<button type="button" class="self-center label-large text-primary hover:underline" onclick={() => (showPassword = true)}>Sign in with a password</button>
+		{:else if data.password_login}
 			{#if data.providers.length}
 				<div class="flex items-center gap-3 label-medium text-on-surface-variant" aria-hidden="true">
 					<span class="h-px flex-1 bg-outline-variant"></span>or with a password<span class="h-px flex-1 bg-outline-variant"></span>
 				</div>
 			{/if}
-			<TextField label="Username" bind:value={username} autocomplete="username" required autofocus={!data.providers.length} />
+			<TextField label="Username" bind:value={username} autocomplete="username" required autofocus={!data.providers.length || showPassword} />
 			<TextField label="Password" type="password" bind:value={password} autocomplete="current-password" required {error} />
 			<Button type="submit" loading={busy} class="w-full" variant={data.providers.length ? 'tonal' : 'filled'}>Sign in</Button>
 		{:else if !data.providers.length}
 			<p class="body-medium text-on-surface-variant">No way to sign in is set up. An administrator can turn password sign-in back on with <code class="font-mono">castor-admin password-login on</code>.</p>
+		{/if}
 		{/if}
 	</form>
 </div>

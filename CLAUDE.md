@@ -349,7 +349,7 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   whose user sees it, so keep passing `project_id` to `bus.publish` (and `user_id=` for
   one user's events). Single sign-on: `sso.py` (OpenID Connect, PKCE, `id_token` verified against
   JWKS; `resolve_user`), `api/sso.py` (public `/api/auth/sso/*`, admin `/api/sso-providers`), web
-  `routes/settings/sso`, login page buttons; `users.email` is admin-set (SSO links by it). Tests run a
+  `routes/settings/sso`, login page buttons (`sso_branding.py`: per-provider `branding` and `position`, logos in `<data_dir>/sso_logos` served publicly with a CSP that forbids everything, SVG allowed; web `SsoButton.svelte`; settings `sso_redirect` (skipped after sign-out, on `sso_error` and at `/login?local`), `sign_in_message`, `password_form`); `users.email` is admin-set (SSO links by it). Tests run a
   fake provider (`tests/test_sso.py`). SAML: `saml.py` (`protocol = "saml"`, `sso_providers.saml`; the ACS
   checks the signature with signxml and reads only its `signed_xml`, never verify XML signatures by hand;
   a cross-site POST lacks the Lax cookie, so the result goes on vault-encrypted to `…/saml/done`, which

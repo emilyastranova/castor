@@ -130,7 +130,7 @@ def test_provider_settings_keep_the_secret(client, auth, provider, idp):
     assert client.post("/api/sso-providers/test", json={"issuer": idp.issuer}, headers=auth).json()["ok"] is True
     assert client.post("/api/sso-providers/test", json={"issuer": "http://127.0.0.1:9"}, headers=auth).json()["ok"] is False
     options = client.get("/api/auth/sso").json()  # public, for the sign-in page
-    assert {"id": provider["id"], "name": "Test SSO"} in options["providers"] and options["password_login"] is True
+    assert any(p["id"] == provider["id"] and p["name"] == "Test SSO" for p in options["providers"]) and options["password_login"] is True
 
 
 def test_first_sign_in_makes_an_account_and_groups_set_the_role(client, auth, idp, provider):

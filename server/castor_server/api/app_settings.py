@@ -39,6 +39,12 @@ async def update(body: dict[str, Any], db: DB, user: Admin):
             raise HTTPException(422, "password_login: turn on a sign-on provider first")
         if not (await db.execute(select(m.UserIdentity.id).where(m.UserIdentity.user_id == user.id))).first():
             raise HTTPException(422, "password_login: sign in with single sign-on yourself first, so you know it works")
+    if body.get("sso_redirect"):
+        from .. import models as m
+
+        row = await db.get(m.SsoProvider, str(body["sso_redirect"]))
+        if row is None or not row.enabled:
+            raise HTTPException(422, "sso_redirect: a sign-on provider that's on")
     if body.get("default_theme"):
         from .. import models as m
 

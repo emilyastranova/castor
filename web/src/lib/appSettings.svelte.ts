@@ -4,7 +4,7 @@ import type { AppSettings } from '$lib/api';
 import { api } from '$lib/api';
 import { realtime } from '$lib/realtime.svelte';
 
-const DEFAULTS: AppSettings = { notes_per_project: 4, ai_chains: {}, password_login: true, default_theme: '' };
+const DEFAULTS: AppSettings = { notes_per_project: 4, ai_chains: {}, password_login: true, default_theme: '', sso_redirect: '', sign_in_message: '', password_form: 'shown' };
 
 class AppSettingsStore {
 	value = $state<AppSettings>({ ...DEFAULTS });

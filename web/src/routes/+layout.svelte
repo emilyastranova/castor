@@ -131,7 +131,8 @@
 		realtime.stop();
 		notifications.stop();
 		await invalidateAll();
-		await goto('/login');
+		// Not straight back to single sign-on (it would sign you in again): the page says you're out.
+		await goto('/login?signed_out');
 	}
 
 	$effect(() => {
