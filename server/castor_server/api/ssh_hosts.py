@@ -86,10 +86,18 @@ def _route(row: m.SshHost, parsed: ssh_config.Parsed) -> tuple[list[str], str | 
         return [], str(exc)
 
 
-def _out(row: m.SshHost, agent: m.Agent, parsed: ssh_config.Parsed) -> SshHostOut:
-    link = ssh_hosts.links.get(row.id)
+def _live() -> dict[uuid.UUID, tuple[str, str | None]]:
+    """Each link's state and error, as they are now. Read these before the rows: a link stores what a
+    state is about (a changed host key in host_key_pending) before it takes the state, so rows read
+    afterwards are never older than the state shown with them."""
+    return {host_id: (link.state, link.error) for host_id, link in ssh_hosts.links.items()}
+
+
+def _out(row: m.SshHost, agent: m.Agent, parsed: ssh_config.Parsed,
+         live: dict[uuid.UUID, tuple[str, str | None]] | None = None) -> SshHostOut:
     route, route_error = _route(row, parsed)
-    state = link.state if link else ("disabled" if not row.enabled else "connecting")
+    seen = (live if live is not None else _live()).get(row.id)
+    state = seen[0] if seen else ("disabled" if not row.enabled else "connecting")
     return SshHostOut(
         id=row.id, agent_id=row.agent_id, name=agent.name, host=row.host, port=row.port, username=row.username,
         workdir=row.workdir, network=row.network, allow_host=row.allow_host, allow_host_install=row.allow_host_install,
@@ -99,7 +107,7 @@ def _out(row: m.SshHost, agent: m.Agent, parsed: ssh_config.Parsed) -> SshHostOu
         host_key_pending_fingerprint=fingerprint(row.host_key_pending), state=state, route=route, route_error=route_error,
         jump_host_keys={k: fingerprint(v) for k, v in (row.jump_host_keys or {}).items()},
         jump_host_keys_pending={k: fingerprint(v) for k, v in (row.jump_host_keys_pending or {}).items()},
-        error=(link.error if link else row.last_error), connected=gateway.get(row.agent_id) is not None,
+        error=(seen[1] if seen else row.last_error), connected=gateway.get(row.agent_id) is not None,
     )
 
 
@@ -155,9 +163,13 @@ def _changed(row: m.SshHost) -> None:
 
 @router.get("", response_model=list[SshHostOut])
 async def list_hosts(db: DB, _: Admin):
+    live = _live()
+    # A new transaction for the rows: on SQLite one keeps the snapshot of its first read (signing in
+    # read the user), which can be older than the states just taken.
+    await db.commit()
     rows = (await db.execute(select(m.SshHost, m.Agent).join(m.Agent, m.Agent.id == m.SshHost.agent_id).order_by(m.Agent.name))).all()
     parsed = ssh_config.parse(await load_config(db))
-    return [_out(row, agent, parsed) for row, agent in rows]
+    return [_out(row, agent, parsed, live) for row, agent in rows]
 
 
 @router.post("", response_model=SshHostOut, status_code=201)

@@ -343,3 +343,46 @@ def test_jump_hosts_from_the_ssh_config(client, auth, fake_host, tmp_path_factor
         for h in client.get("/api/ssh-hosts", headers=auth).json():
             client.delete(f"/api/ssh-hosts/{h['id']}", headers=auth)
         bastion.stop()
+
+
+def test_a_changed_key_is_never_shown_without_its_key(client, auth, monkeypatch):
+    """The link commits the presented key, then takes the state host_key_changed. A list that read the
+    rows before and the state after would show the state with no key (a race CI hit): the states
+    are taken first. Here the change happens in the middle of the request, deterministically."""
+    import types
+
+    from castor_server.api import ssh_hosts as api
+    from castor_server.db import SessionLocal
+    from castor_server.models import SshHost
+    from castor_server.orchestrator.ssh import ssh_hosts
+
+    r = client.post("/api/ssh-hosts", json={"name": f"race-{uuid.uuid4().hex[:6]}", "host": "127.0.0.1", "port": 1, "username": "u",
+                                            "generate_key": True, "enabled": False}, headers=auth)
+    host_id = uuid.UUID(r.json()["id"])
+    new_key = asyncssh.generate_private_key("ssh-ed25519").export_public_key().decode().strip()
+    fake = types.SimpleNamespace(state="connecting", error=None)
+    real_load = api.load_config
+
+    async def load_config_while_the_key_changes(db):
+        async with SessionLocal() as other:  # what HostLink does when it sees a different key
+            row = await other.get(SshHost, host_id)
+            row.host_key, row.host_key_pending = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl", new_key
+            await other.commit()
+        fake.state, fake.error = "host_key_changed", "the host key changed"
+        return await real_load(db)
+
+    old = ssh_hosts.links.get(host_id)
+    ssh_hosts.links[host_id] = fake
+    monkeypatch.setattr(api, "load_config", load_config_while_the_key_changes)
+    try:
+        h = _host(client, auth, str(host_id))
+        assert not (h["state"] == "host_key_changed" and h["host_key_pending_fingerprint"] is None), h
+        monkeypatch.setattr(api, "load_config", real_load)
+        h = _host(client, auth, str(host_id))  # the next look has both
+        assert h["state"] == "host_key_changed" and h["host_key_pending_fingerprint"] == asyncssh.import_public_key(new_key).get_fingerprint()
+    finally:
+        if old is None:
+            ssh_hosts.links.pop(host_id, None)
+        else:
+            ssh_hosts.links[host_id] = old
+        client.delete(f"/api/ssh-hosts/{host_id}", headers=auth)
