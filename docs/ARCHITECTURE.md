@@ -85,12 +85,14 @@ Agent → server
 
 | type | fields |
 | --- | --- |
-| `hello` | `token` or `secret`, `name, hostname, os, username, version, capabilities{runtimes[], default_image, host_install, tools[], tty, http, mcp_stdio}, tags[], max_concurrency` |
+| `hello` | `token` or `secret`, `name, hostname, os, username, version, capabilities{runtimes[], default_image, host_install, tools[], tty, http, mcp_stdio, routes{box, ssh, proxychains}}, tags[], max_concurrency` |
 | `heartbeat` | `running[]` (job ids), `tools[]` (cached tool image tags) |
 | `tool.prepared` | `tool_id, ref, ok, error?, tools[]` (answer to `tool.prepare`) |
 | `job.started` | `job_id, started_at` |
 | `job.log` | `job_id, seq, stream ("stdout"\|"stderr"\|"system"), data` |
-| `job.finished` | `job_id, exit_code, finished_at, error?` |
+| `job.finished` | `job_id, exit_code, finished_at, error?, route_names?{address: name}` (the route box's stand-in addresses) |
+| `job.route` | `job_id, method` (how it went through its network route: native, env, hooked, transparent) |
+| `route.status`, `route.hop`, `route.host_key`, `route.tested` | a route's state on this agent, each hop's, an SSH hop's host key, a test's results ([ROUTES.md](ROUTES.md)) |
 | `job.prompt` | `job_id, text` (an interactive job is waiting at this prompt; `null`: no longer) |
 | `http.chunk` | `request_id, data` (base64, up to 512 KB of the response body; any number, in order) |
 | `http.response` | `request_id, status, reason, headers[[name, value]], url` or `request_id, error, error_kind ("timeout"\|"connect"\|"too_big"\|"refused")` |
@@ -105,13 +107,14 @@ Server → agent
 | `hello.ok` | `agent_id, heartbeat_interval` |
 | `hello.error` | `reason` (then close 4401; the agent exits) |
 | `auth.revoked` | `reason` (token rotated or revoked; then close 4401) |
-| `job.run` | `job{id, command, display_command?, image?, runtime ("container"\|"host"), env{}, files[], timeout_s, tty, tty_size?{cols, rows}, artifacts{token, collect[]}, tool?}` |
+| `job.run` | `job{id, command, display_command?, image?, runtime ("container"\|"host"), env{}, files[], timeout_s, tty, tty_size?{cols, rows}, artifacts{token, collect[]}, tool?, route?}` (`route`: its network route with secrets and the ways to go through it, [ROUTES.md](ROUTES.md)) |
+| `route.test` | `request_id, route, target?` (bring a route up and try it hop by hop) |
 | `job.cancel` | `job_id` |
 | `job.stdin` | `job_id, data` (keystrokes for an interactive job's terminal) |
 | `job.resize` | `job_id, cols, rows` |
 | `job.signal` | `job_id, name ("INT"\|"TERM"\|"QUIT")` (INT is sent as Ctrl+C through the terminal) |
 | `tool.prepare` | `tool` (same shape as `job.tool`; build or pull it now) |
-| `http.request` | `request_id, job_id, method, url, headers{}, body? (base64), timeout_s, max_bytes` (one request of an HTTP action, sent from the agent's network; redirects not followed) |
+| `http.request` | `request_id, job_id, method, url, headers{}, body? (base64), timeout_s, max_bytes, route?` (one request of an HTTP action, sent from the agent's network, or only through `route`; redirects not followed) |
 | `mcp.start` | `session_id, connection, command[], image?, tool? (a tool way, as in job.tool), env{}, idle_s` (start a stdio MCP server; a no-op if it runs) |
 | `mcp.send` | `session_id, message` (a JSON-RPC message for its stdin) |
 | `mcp.stop` | `session_id` |
@@ -543,6 +546,15 @@ exercise failure and skip handling. `fixtures/playbooks/branching-demo.yaml` doe
 conditions, failure branches, `expect`, `on_failure` and `join: any`
 (`server/tests/test_playbook_conditions.py` drives it). `server/tests/test_playbook_transforms.py`
 runs `pipeline-demo` end to end with each command executed under `/bin/sh`.
+
+## Network routes
+
+Chains of hops (SSH jumps, SOCKS and HTTP proxies) a job's traffic goes through to reach networks
+the agent can't reach directly: `routes` (hops with vault-encrypted secrets, `dns`, `strict`,
+`segment`, `last_test`), chosen by `tasks.route`, `playbook_runs.route`, `projects.settings.route`
+and `agents.route`; `jobs.route_info` records what a run went through and how. They run on agents (a
+route box per route with a container runtime). Tools and commands say how they take one (`route:`)
+and commands where its flags go (`{{ route }}`). All of it is in [ROUTES.md](ROUTES.md).
 
 ## Tool library
 

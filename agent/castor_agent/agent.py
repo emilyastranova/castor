@@ -16,6 +16,7 @@ import websockets
 from websockets.asyncio.client import ClientConnection
 
 from . import artifacts, http_proxy
+from . import routes as routing
 from .config import AgentConfig, host_info
 from .mcp_bridge import McpBridge
 from .runtime import JobRunner, RunResult, detect_container_runtime
@@ -50,6 +51,7 @@ class Agent:
         self.tools = ToolPreparer(self.container_runtime, config.allow_host_install, config.workdir)
         base = Path(config.workdir) if config.workdir else Path(tempfile.gettempdir()) / "castor-agent"
         self.mcp = McpBridge(self.send, self.container_runtime, config.allow_host, config.network, self.tools, str(base / "mcp"))
+        self.routes = routing.RouteManager(self.send, self.container_runtime, base, self.tools, config.network)
 
     # ----- capabilities -----
 
@@ -73,6 +75,8 @@ class Agent:
             # Runs services (jobs until stopped) and stops them gracefully (job.stop); how many at once.
             "services": True,
             "max_services": self.config.max_services,
+            # Network routes (route.test, job.run's route, http.request's route); older agents don't.
+            "routes": self.routes.capabilities(),
         }
 
     # ----- wire helpers -----
@@ -87,6 +91,7 @@ class Agent:
 
     async def run_forever(self) -> None:
         backoff = 2
+        await self.routes.cleanup()
         while True:
             try:
                 await self._session()
@@ -190,6 +195,10 @@ class Agent:
             task = asyncio.create_task(self._http(msg))
             self._background.add(task)
             task.add_done_callback(self._background.discard)
+        elif kind == "route.test":
+            task = asyncio.create_task(self._route_test(msg))
+            self._background.add(task)
+            task.add_done_callback(self._background.discard)
         elif kind == "mcp.start":
             task = asyncio.create_task(self.mcp.handle(msg))  # it may pull or build a tool first
             self._background.add(task)
@@ -225,10 +234,28 @@ class Agent:
         else:
             log.debug("ignoring message %r", kind)
 
+    async def _route_test(self, msg: dict[str, Any]) -> None:
+        result = await self.routes.test(msg.get("route") or {}, msg.get("target"))
+        await self.send({"type": "route.tested", "request_id": msg.get("request_id"), **result})
+
     async def _http(self, msg: dict[str, Any]) -> None:
         """One request of an HTTP action, made from here; the body goes back in chunks."""
         request_id = msg.get("request_id")
-        head, body = await asyncio.to_thread(http_proxy.fetch, msg)
+        route = msg.get("route")
+        if route:
+            # Through a network route: its local proxy, never this machine's own way out.
+            try:
+                active = await self.routes.acquire(route, f"http-{request_id}")
+            except routing.RouteError as exc:
+                await self.send({"type": "http.response", "request_id": request_id,
+                                 "error": f"route: {exc}", "error_kind": "connect"})
+                return
+            try:
+                head, body = await asyncio.to_thread(http_proxy.fetch, msg, active.host_url("http"))
+            finally:
+                await self.routes.release(active.key, f"http-{request_id}")
+        else:
+            head, body = await asyncio.to_thread(http_proxy.fetch, msg)
         for piece in http_proxy.chunks(body):
             await self.send({"type": "http.chunk", "request_id": request_id, "data": piece})
         await self.send({"type": "http.response", "request_id": request_id, **head})
@@ -238,6 +265,38 @@ class Agent:
         job_dir = base / job_id
         job_dir.mkdir(parents=True, exist_ok=True)
         return job_dir
+
+    async def _route_for(self, job: dict[str, Any], runner: JobRunner, sink) -> tuple[str | None, str | None]:
+        """Bring the job's route up and decide how this run goes through it. Returns (error, route
+        key): a job whose route isn't up fails with the reason, never runs unrouted."""
+        route = job["route"]
+        name = route.get("name") or "the route"
+        await sink("system", f"[castor] route “{name}”: {route.get('label') or ''}\n")
+        try:
+            active = await self.routes.acquire(route, str(job["id"]), sink)
+        except routing.RouteError as exc:
+            return f"route “{name}” isn't up: {exc}", None
+        if active.broken and route.get("strict", True):
+            hop = active.broken.get("index")
+            where = f"hop {hop + 1}" if isinstance(hop, int) else "the route"
+            await self.routes.release(active.key, str(job["id"]))
+            return f"route “{name}” is broken at {where}: {active.broken.get('error')}", None
+        in_container = runner._wants_container()
+        try:
+            applied = await routing.apply(active, route.get("plan") or [], in_container=in_container,
+                                          image=job.get("image") or (self.config.default_image if in_container else None),
+                                          tools=self.tools, sink=sink, have_proxychains=self.routes.capabilities()["proxychains"])
+        except routing.RouteError as exc:
+            await self.routes.release(active.key, str(job["id"]))
+            return f"route “{name}”: {exc}", None
+        runner.route = applied
+        await self.send({"type": "job.route", "job_id": job["id"], "method": applied.method})
+        how = {"native": "the tool's own proxy setting", "env": "proxy environment variables",
+               "hooked": "proxychains", "transparent": "transparently (every connection in its network goes through it)"}
+        dns = "names resolved at the far end" if route.get("dns", "remote") != "local" else "names resolved here"
+        rest = "nothing else leaves" if route.get("strict", True) and in_container else "other traffic isn't held back"
+        await sink("system", f"[castor] going through it by {how.get(applied.method, applied.method)}; {dns}; {rest}\n")
+        return None, active.key
 
     async def _upload_artifacts(self, job: dict[str, Any], job_dir: Path, sink) -> None:
         spec = job.get("artifacts") or {}
@@ -282,9 +341,13 @@ class Agent:
 
         log.info("job %s started", job_id)
         await self.send({"type": "job.started", "job_id": job_id, "started_at": now_iso()})
+        route = job.get("route")
+        route_key: str | None = None
         try:
             tool = job.get("tool")
             error = await self.tools.prepare(tool, sink, str(job_dir)) if tool else None
+            if not error and route:
+                error, route_key = await self._route_for(job, runner, sink)
             if error:
                 await sink("system", f"[castor] {error}\n")
                 result = RunResult(exit_code=None, error=error)
@@ -300,11 +363,17 @@ class Agent:
             result_payload = {"exit_code": None, "error": f"agent error: {exc}"}
         else:
             result_payload = {"exit_code": result.exit_code, "error": result.error}
+            if route_key and runner.route and runner.route.network:
+                names = await routing.box_names(self.routes, route_key)
+                if names:
+                    result_payload["route_names"] = names
             # Files go up before job.finished so they are on the card when the job completes.
             await self._upload_artifacts(job, job_dir, sink)
         finally:
             self.runners.pop(job_id, None)
             self.tasks.pop(job_id, None)
+            if route_key:
+                await self.routes.release(route_key, job_id)
         log.info("job %s finished: %s", job_id, result_payload)
         await self.send(
             {"type": "job.finished", "job_id": job_id, "finished_at": now_iso(), **result_payload}

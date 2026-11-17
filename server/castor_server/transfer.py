@@ -239,6 +239,29 @@ def set_in(data: dict[str, Any], sec: Secrets) -> dict[str, Any]:
     return data
 
 
+def route_out(row: m.Route, sec: Secrets) -> dict[str, Any]:
+    """A network route for an archive: each hop's password or key re-encrypted under the passphrase,
+    or left out (the hop comes in without it)."""
+    data = row_of(row, skip=("last_test",))
+    hops, left = [], []
+    for i, h in enumerate(row.hops or []):
+        token = sec.out(h.get("secret")) if h.get("secret") else None
+        if h.get("secret") and token is None:
+            left.append(i + 1)
+        hops.append({**h, "secret": token or ""})
+    data["hops"] = hops
+    data["left_out"] = left
+    return data
+
+
+def route_in(data: dict[str, Any], sec: Secrets) -> dict[str, Any]:
+    data = dict(data)
+    data["hops"] = [{**h, "secret": (sec.into(h["secret"]) or "") if h.get("secret") else ""} for h in data.get("hops") or []]
+    data.pop("left_out", None)
+    data.pop("last_test", None)
+    return data
+
+
 # ---------- export ----------
 
 
@@ -253,6 +276,7 @@ class ExportOptions:
     mcp_servers: list[str] = field(default_factory=list)  # Settings → MCP servers (and those its MCP actions call)
     variable_kinds: list[str] = field(default_factory=list)
     variable_sets: list[uuid.UUID] = field(default_factory=list)
+    routes: list[uuid.UUID] = field(default_factory=list)  # network routes (their secrets like variable sets')
     projects: list[uuid.UUID] = field(default_factory=list)
     jobs: bool = False
     activity: bool = False
@@ -357,6 +381,10 @@ async def export_archive(db: AsyncSession, user: m.User, opts: ExportOptions, ou
         if sets := await _rows(db, sq):
             put("variable_sets.json", _dump([set_out(s, sec) for s in sets]))
             contents["variable_sets"] = len(sets)
+        rq = select(m.Route) if opts.everything else select(m.Route).where(m.Route.id.in_(opts.routes))
+        if routes := await _rows(db, rq.order_by(m.Route.name)):
+            put("routes.json", _dump([route_out(r, sec) for r in routes]))
+            contents["routes"] = len(routes)
 
         pq = select(m.Project) if opts.everything else select(m.Project).where(m.Project.id.in_(opts.projects))
         projects = await _rows(db, pq.order_by(m.Project.codename))
@@ -379,6 +407,11 @@ async def export_archive(db: AsyncSession, user: m.User, opts: ExportOptions, ou
         set_names = {str(i): n for i, n in (await db.execute(select(m.VariableSet.id, m.VariableSet.name).where(m.VariableSet.id.in_(named), m.VariableSet.ephemeral.is_(False)))).all()}
         if set_names:
             zf.writestr("set_names.json", _dump(set_names))
+        # Routes cards, runs and projects name but the archive doesn't carry: matched by name on import.
+        route_names = {str(i): n for i, n in (await db.execute(select(m.Route.id, m.Route.name).where(m.Route.id.in_(named)))).all()
+                       if not (opts.everything or i in opts.routes)}
+        if route_names:
+            zf.writestr("route_names.json", _dump(route_names))
         uq = select(m.User) if opts.everything else select(m.User).where(m.User.id.in_(named))
         users = await _rows(db, uq.order_by(m.User.username))
         people = []
@@ -657,6 +690,17 @@ async def _plan(db: AsyncSession, user: m.User, archive: Archive, passphrase: st
         state = "exists" if s["name"] in set_names else "new"
         item("variable_set", s["id"], s["name"], state, new_name=_free(s["name"], set_names, sep=" ", limit=200) if state == "exists" else "", notes=notes)
 
+    route_names = {n for (n,) in (await db.execute(select(m.Route.name))).all()}
+    for r in archive.json("routes.json", []):
+        notes = []
+        if r.get("left_out"):
+            notes.append(f"hops without their secret in the file: {', '.join(str(i) for i in r['left_out'])}")
+        elif any(h.get("secret") for h in r.get("hops") or []) and not unlocked:
+            notes.append("has passwords or keys; give the passphrase to bring them, or its hops come in without them")
+        state = "exists" if r["name"] in route_names else "new"
+        item("route", r["id"], r["name"], state, new_name=_free(r["name"], route_names, sep=" ", limit=200) if state == "exists" else "",
+             notes=notes)
+
     codes = {c for (c,) in (await db.execute(select(m.Project.codename))).all()}
     for name in archive.projects():
         bundle = archive.json(name)
@@ -857,6 +901,35 @@ async def _run_import(
         if old not in ids and name in here:
             ids[old] = here[name]
 
+    # Network routes (before projects: cards name them).
+    for r in archive.json("routes.json", []):
+        key = f"route:{r['id']}"
+        picked = choice(key)
+        if picked == "skip":
+            continue
+        data = route_in(r, sec)
+        if picked == "replace":
+            row = (await db.execute(select(m.Route).where(m.Route.name == r["name"]))).scalar_one()
+            row.hops, row.dns, row.strict = data.get("hops") or [], data.get("dns") or "remote", bool(data.get("strict", True))
+            row.segment, row.description, row.tags = data.get("segment") or "", data.get("description") or "", data.get("tags") or []
+            row.last_test = None
+            ids[r["id"]] = str(row.id)
+        else:
+            new = str(uuid.uuid4())
+            ids[r["id"]] = new
+            values = values_for(m.Route, data, {**ids, r["id"]: new}) or {}
+            if picked == "copy":
+                values["name"] = by_key[key]["new_name"]
+            values["created_by"] = user.id
+            values["project_ids"] = []  # set below, once the projects are in
+            values["last_test"] = None
+            await insert_rows(db, m.Route, [values])
+        result.add("routes", r["name"])
+    routes_here = {n: str(i) for i, n in (await db.execute(select(m.Route.id, m.Route.name))).all()}
+    for old, name in (archive.json("route_names.json", {}) or {}).items():
+        if old not in ids and name in routes_here:
+            ids[old] = routes_here[name]
+
     clients = {c.name: c for c in (await db.execute(select(m.Client))).scalars()}
     for c in archive.json("clients.json", []):
         target = clients.get(c["name"])
@@ -904,6 +977,12 @@ async def _run_import(
         if s.get("project_ids") and s["id"] in ids:
             await db.execute(update(m.VariableSet).where(m.VariableSet.id == uuid.UUID(ids[s["id"]]))
                              .values(project_ids=remap(s["project_ids"], ids)))
+    for r in archive.json("routes.json", []):
+        if r["id"] in ids and choice(f"route:{r['id']}") in ("import", "copy"):
+            # Limited to projects: the imported copies (projects not in the file stay as they were, so a
+            # limited route never becomes everyone's).
+            await db.execute(update(m.Route).where(m.Route.id == uuid.UUID(ids[r["id"]]))
+                             .values(project_ids=remap(r.get("project_ids") or [], ids)))
     return result
 
 

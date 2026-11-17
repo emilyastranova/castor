@@ -43,6 +43,7 @@
 		{ href: '/parsers', icon: 'data_object', label: 'Parsers' },
 		{ href: '/snapshot', icon: 'photo_camera', label: 'Snapshot' },
 		{ href: '/agents', icon: 'dns', label: 'Agents', divider: true },
+		{ href: '/routes', icon: 'alt_route', label: 'Routes' },
 		{ href: '/people', icon: 'groups', label: 'People' },
 		...(data.user?.role === 'admin' ? [{ href: '/settings', icon: 'settings', label: 'Settings' }] : [])
 	]);

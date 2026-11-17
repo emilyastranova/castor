@@ -33,6 +33,7 @@ class ExportIn(BaseModel):
     mcp_servers: list[str] = []
     variable_kinds: list[str] = []
     variable_sets: list[uuid.UUID] = []
+    routes: list[uuid.UUID] = []
     projects: list[uuid.UUID] = []
     jobs: bool = False
     activity: bool = False
@@ -57,6 +58,12 @@ async def export(body: ExportIn, db: DB, user: CurrentUser):
         for row in rows:
             if row.project_ids and not any(uuid.UUID(str(p)) in visible for p in row.project_ids):
                 raise HTTPException(404, "Variable set not found")
+    if body.routes and (visible := await visible_project_ids(db, user)) is not None:
+        from .. import network_routes
+
+        for row in (await db.execute(select(m.Route).where(m.Route.id.in_(body.routes)))).scalars():
+            if not network_routes.can_see(row, visible):
+                raise HTTPException(404, "Route not found")
     opts = T.ExportOptions(**body.model_dump(exclude={"label"}))
     handle = tempfile.NamedTemporaryFile(suffix=T.SUFFIX, delete=False)  # noqa: SIM115 - removed after sending
     try:
@@ -80,7 +87,7 @@ async def export(body: ExportIn, db: DB, user: CurrentUser):
 
 def _summary(contents: dict[str, int]) -> str:
     words = {"parsers": "parser", "commands": "command", "tools": "tool", "playbooks": "playbook", "themes": "theme", "mcp_servers": "MCP server", "variable_kinds": "variable kind",
-             "variable_sets": "variable set", "projects": "project", "users": "user"}
+             "variable_sets": "variable set", "routes": "route", "projects": "project", "users": "user"}
     parts = [f"{n} {words.get(k, k)}{'' if n == 1 else 's'}" for k, n in contents.items() if n]
     return ", ".join(parts) or "nothing"
 

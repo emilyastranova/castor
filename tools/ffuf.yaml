@@ -11,3 +11,6 @@ build:
     mkdir -p /usr/share/wordlists
     wget -q -O /usr/share/wordlists/common.txt https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt
   check: ffuf -V && test -s /usr/share/wordlists/common.txt
+route:
+  proxy: "-x {url}"
+  scheme: http

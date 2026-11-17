@@ -119,6 +119,7 @@ async def create_task(project_id: str, body: TaskIn, db: DB, user: CurrentUser):
     if body.approvers:
         data["approvers"] = await _approvers(db, user, project.id, [], body.approvers)
     data["agent_selector"] = await _selector(db, body.agent_selector, project.id)
+    data["route"] = await _route(db, body.route, project.id)
     task = m.Task(
         project_id=project.id,
         column_id=column.id,
@@ -193,6 +194,8 @@ async def update_task(task_id: str, body: TaskPatch, db: DB, user: CurrentUser):
         task.due_reminded = None  # a new date: remind again
     if "agent_selector" in changes:
         changes["agent_selector"] = await _selector(db, changes["agent_selector"], task.project_id)
+    if "route" in changes:
+        changes["route"] = await _route(db, changes["route"], task.project_id)
     if "alerts" in changes:
         changes.pop("alerts")
         if body.alerts and body.alerts.people:
@@ -472,7 +475,7 @@ async def _mention(db, task: m.Task, comment: m.Comment, author: m.User, already
 
 
 FIELD_WORDS = {"command_ref": "command", "command_args": "command", "image": "image", "container_flags": "container flags",
-               "agent_selector": "where it runs", "run_on_move": "run on move", "timeout_s": "timeout", "due_at": "due date", "waits_on": "what it waits on",
+               "agent_selector": "where it runs", "route": "network route", "run_on_move": "run on move", "timeout_s": "timeout", "due_at": "due date", "waits_on": "what it waits on",
                "custom_fields": "fields", "tty": "interactive"}
 
 
@@ -582,6 +585,15 @@ async def delete_comment(task_id: str, comment_id: str, db: DB, user: CurrentUse
     await db.commit()
     bus.publish("comment.deleted", task.project_id, {"id": comment.id, "task_id": task.id})
     await publish_task(db, task)
+
+
+async def _route(db, value: str | None, project_id: uuid.UUID) -> str | None:
+    from .. import network_routes, routing
+
+    try:
+        return await network_routes.check_choice(db, value, project_id)
+    except routing.RouteError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 async def _selector(db, selector: dict | None, project_id: uuid.UUID) -> dict:

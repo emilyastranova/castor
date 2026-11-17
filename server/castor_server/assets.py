@@ -973,7 +973,11 @@ async def ingest_outputs(db: AsyncSession, job: m.Job, task: m.Task, outputs: li
 
 
 async def segment_of(db: AsyncSession, job: m.Job) -> str | None:
-    """The network segment of the agent a job ran on (its vantage point), if it has one."""
+    """The network segment a job saw things from (its vantage point): its network route's when it
+    went through one (the route's segment, or its name), else the agent's, if it has one."""
+    route = job.route_info or {}
+    if route.get("segment") or route.get("name"):
+        return str(route.get("segment") or route.get("name"))[:80]
     if job.agent_id is None:
         return None
     agent = await db.get(m.Agent, job.agent_id)

@@ -4,3 +4,7 @@ description: HTTP client (curlimages/curl) for header and endpoint checks
 tags: [web, http]
 homepage: https://curl.se
 image: docker.io/curlimages/curl
+route:
+  proxy: "-x {url}"
+  scheme: socks5h
+  env: true

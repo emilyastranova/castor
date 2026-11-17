@@ -256,6 +256,8 @@ def link_for(e: m.ActivityEvent, payload: dict, *, task: m.Task | None, has_comm
     if head == "summary" and task is not None:  # the card it's on (a job's: its output)
         card = f"/projects/{task.project_id}?task={task.id}"
         return f"{card}&tab=output&job={payload['job_id']}" if _is_uuid(payload.get("job_id")) else card
+    if head == "route" and payload.get("route_id"):
+        return f"/routes?r={payload['route_id']}"
     if payload.get("run_id"):
         return f"/playbooks?run={payload['run_id']}" + (f"&step={quote(str(payload['step_id']))}" if payload.get("step_id") else "")
     if head == "post":

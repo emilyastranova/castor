@@ -46,6 +46,17 @@ async def update_agent(agent_id: str, body: AgentPatch, db: DB, user: Admin):
     if body.segment is not None and body.segment.strip() != (agent.segment or ""):
         agent.segment = body.segment.strip()
         message = f"Put the agent {agent.name} in the segment “{agent.segment}”" if agent.segment else f"Took the agent {agent.name} out of its segment"
+    if body.route is not None and (body.route or None) != (agent.route or None):
+        from .. import network_routes
+
+        if agent.plugin_id or (await db.execute(select(m.SshHost.id).where(m.SshHost.agent_id == agent.id))).first():
+            raise HTTPException(422, "Only agents that connect to Castor can have a route (not SSH hosts or plugin machines)")
+        row = await network_routes.get(db, body.route) if body.route else None
+        if body.route and row is None:
+            raise HTTPException(422, "route: no such route")
+        agent.route = str(row.id) if row else None
+        message = (f"Sent everything the agent {agent.name} runs through route “{row.name}”" if row
+                   else f"Took the agent {agent.name} off its route")
     if "project_ids" in body.model_fields_set:  # null is a value here: any project
         agent.project_ids = await existing_projects(db, body.project_ids)
         if conn := gateway.get(agent.id):

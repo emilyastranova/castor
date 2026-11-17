@@ -153,6 +153,9 @@ class PlaybookStepSpec(BaseModel):
     # HTTP action steps: send its requests through an agent ({tags: [lab]} or {agent_id: …});
     # none: from the Castor server.
     send_from: dict[str, Any] | None = None
+    # Command steps: the network route its traffic goes through (a route's name, or "none" for
+    # direct); none: the run's route, else the project's default.
+    route: str | None = None
 
     @field_validator("rate_limit")
     @classmethod

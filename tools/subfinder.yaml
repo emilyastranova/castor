@@ -4,3 +4,6 @@ description: Passive subdomain discovery from public sources (ProjectDiscovery)
 tags: [dns, recon]
 homepage: https://github.com/projectdiscovery/subfinder
 image: docker.io/projectdiscovery/subfinder
+route:
+  proxy: "-proxy {url}"
+  scheme: http

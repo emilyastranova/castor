@@ -56,6 +56,7 @@ TYPES: list[tuple[str, str]] = [
     ("tool", "Tools"),
     ("parser", "Parsers"),
     ("variable", "Variables"),
+    ("route", "Network routes"),
     ("person", "People"),
     ("agent", "Agents"),
 ]
@@ -66,7 +67,8 @@ ALIASES = {"cards": "card", "task": "card", "tasks": "card", "comments": "commen
            "playbooks": "playbook", "commands": "command", "tools": "tool", "parsers": "parser",
            "variables": "variable", "vars": "variable", "people": "person", "user": "person", "assets": "asset",
            "host": "asset", "hosts": "asset", "service": "asset", "services": "asset", "domain": "asset", "domains": "asset",
-           "users": "person", "agents": "agent"}
+           "users": "person", "agents": "agent", "routes": "route", "proxy": "route", "proxies": "route",
+           "jump": "route", "pivot": "route"}
 BY_TYPES = {"card", "comment", "post", "run", "note"}
 TAG_TYPES = {"card", "post", "command", "playbook", "agent"}
 STATUS_TYPES = {"card", "run"}
@@ -141,7 +143,7 @@ def _closest_first(columns: list, terms: list[str]):
 
 # How much each kind counts beyond how closely it matches: things before mentions of them.
 KIND_WEIGHT = {"asset": 8, "project": 8, "card": 6, "person": 6, "agent": 5, "command": 5, "playbook": 5, "tool": 5,
-               "parser": 4, "note": 4, "run": 4, "variable": 3, "post": 3, "comment": 2, "output": 2, "file": 2, "log": 0}
+               "parser": 4, "note": 4, "run": 4, "route": 4, "variable": 3, "post": 3, "comment": 2, "output": 2, "file": 2, "log": 0}
 BEST = 80  # a hit this close is a best match
 
 
@@ -469,6 +471,21 @@ class Searcher:
         out += [{"id": f"kind:{kd.id}", "title": f"{kd.name} (kind)", "snippet": kd.description, "project": None, "at": None,
                  "icon": "category", "link": "/variables"} for (kd,) in kinds]
         return out[: self.limit + 1]
+
+    async def route(self) -> list[dict[str, Any]]:
+        from .network_routes import can_see
+        from .routing import chain_label
+
+        q, r = self.q, m.Route
+        if not q.terms:
+            return []
+        visible = None if self.user.is_admin and project_limit(self.user) is None else self.scope
+        rows = (await self.db.execute(
+            select(r).where(_match([r.name, r.description, r.segment, _text(r.tags), _text(r.hops)], q.terms))
+            .order_by(_closest_first([r.name], q.terms), r.name).limit(self.limit * 3))).all()
+        return [{"id": str(rt.id), "title": rt.name, "keys": [h.get("host") for h in rt.hops or [] if h.get("host")],
+                 "snippet": chain_label(rt.hops or []), "project": None, "at": rt.updated_at, "icon": "alt_route",
+                 "link": f"/routes?r={rt.id}"} for (rt,) in rows if can_see(rt, visible)][: self.limit + 1]
 
     async def person(self) -> list[dict[str, Any]]:
         q, u = self.q, m.User

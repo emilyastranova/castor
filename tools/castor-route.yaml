@@ -1,0 +1,14 @@
+# The route box: Castor starts one per network route on an agent while jobs use it, and container
+# jobs join its network. It holds the route's chain (OpenSSH for SSH hops, Python for the proxies)
+# and, with iptables, sends every connection in that network into the route and lets nothing else
+# out. You don't run commands with it; agents build it the first time they need a route.
+id: castor-route
+name: Castor route box
+description: Holds a network route for container jobs (OpenSSH, Python, iptables); Castor starts it itself
+tags: [castor, network, routes]
+build:
+  base: docker.io/library/alpine:3.20
+  install: |
+    apk add --no-cache python3 openssh-client iptables ip6tables
+    adduser -D -H -u 39999 -s /bin/sh castor-route
+  check: python3 --version && ssh -V && iptables --version

@@ -153,6 +153,11 @@ async def parse_job(db: AsyncSession, job: m.Job, *, partial: bool = False) -> l
                 raise parsers.ParseError("the tool wrote nothing to read")
             options = parser.configure(spec.options)
             row.value = await asyncio.to_thread(run_parser, parser, options, blobs)
+            names = (job.route_info or {}).get("names")
+            if names:
+                from .routing import unfake
+
+                row.value = unfake(row.value, names)
         except (parsers.ParseError, parsers.OptionsError) as exc:
             row.error = str(exc)
         except OSError as exc:

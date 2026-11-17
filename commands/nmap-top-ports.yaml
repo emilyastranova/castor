@@ -24,7 +24,7 @@ args:
     description: Hosts or ranges to skip (pick an exclusion list)
     regex: '^[0-9a-zA-Z./:_-]+$'
     flag: --exclude
-command: nmap -Pn -sS --top-ports {{ top }} --open -T4 -oX {{ work }}/top-ports.xml {{ targets }} {{ exclude }}
+command: nmap {{ route }} -Pn --top-ports {{ top }} --open -T4 -oX {{ work }}/top-ports.xml {{ targets }} {{ exclude }}
 outputs:
   - name: services
     type: list<service>

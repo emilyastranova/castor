@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from . import parsers
 from .http_spec import Batch, Expect, HttpRequest, Paginate, Retry, check_rate
+from .routing import ROUTE, ROUTE_PLACEHOLDER, RouteCaps
 
 # "varset" is for playbook inputs only (pick a variable set of `kind`); commands take
 # variable sets through `vars` slots instead.
@@ -329,6 +330,8 @@ class CommandSpec(BaseModel):
     # Ask before each run: a person approves every job of it (actions that change things outside
     # Castor, like posting to a customer's channel). A card can ask too; it can't stop asking.
     confirm: bool = False
+    # How this command takes a network route, over its tool's (routing.RouteCaps).
+    route: RouteCaps | None = None
     # kind: mcp.
     mcp: McpCall | None = None
     # kind: plugin.
@@ -424,6 +427,8 @@ class CommandSpec(BaseModel):
                 raise ValueError(f"batch.arg: {self.batch.arg} isn't a list argument")
         if any(WORK_PLACEHOLDER.search(t) for t in self.template_text()):
             raise ValueError("{{ work }} is for commands; an http action has no work directory")
+        if any(ROUTE_PLACEHOLDER.search(t) for t in self.template_text()):
+            raise ValueError("{{ route }} is for commands; an http action goes through its route by itself")
         return self
 
     @model_validator(mode="after")
@@ -436,8 +441,10 @@ class CommandSpec(BaseModel):
             raise ValueError("output names must be unique")
         if WORK in names:
             raise ValueError("work is reserved: {{ work }} is the job's work directory")
+        if ROUTE in names:
+            raise ValueError("route is reserved: {{ route }} is where a network route's flags go")
         text = "\n".join(self.template_text())
-        undefined = sorted(set(PLACEHOLDER.findall(text)) - set(names) - {WORK})
+        undefined = sorted(set(PLACEHOLDER.findall(text)) - set(names) - {WORK, ROUTE})
         if undefined:
             raise ValueError(f"template uses undefined arguments: {', '.join(undefined)}")
         varsets = [a.name for a in self.args if a.type == "varset"]

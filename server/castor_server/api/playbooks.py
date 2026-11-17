@@ -45,6 +45,8 @@ class RunRequest(BaseModel):
     # Where its steps run: {agent_id}, {tags} (one agent with them), or {tags, all: true}
     # (one run per connected agent with them).
     agent_selector: dict[str, Any] = Field(default_factory=dict)
+    # The network route for steps that don't name their own: a route id, or "none" (direct).
+    route: str | None = None
 
 
 @router.get("/playbooks", response_model=list[PlaybookDefinitionOut])
@@ -160,19 +162,22 @@ async def delete_playbook(playbook_id: str, db: DB, user: Operator):
 
 @router.post("/playbooks/{playbook_id}/run", response_model=PlaybookRunOut, status_code=201)
 async def run_playbook(playbook_id: str, body: RunRequest, db: DB, user: CurrentUser):
-    return await _execute_playbook_run(db, playbook_id, body.project_id, body.inputs, user, body.alerts, body.agent_selector)
+    return await _execute_playbook_run(db, playbook_id, body.project_id, body.inputs, user, body.alerts, body.agent_selector, body.route)
 
 
 @router.post("/playbook-runs", response_model=PlaybookRunOut, status_code=201)
 async def create_playbook_run(body: PlaybookRunIn, db: DB, user: CurrentUser):
-    return await _execute_playbook_run(db, body.playbook_id, body.project_id, body.inputs, user, body.alerts, body.agent_selector)
+    return await _execute_playbook_run(db, body.playbook_id, body.project_id, body.inputs, user, body.alerts, body.agent_selector, body.route)
 
 
 async def _execute_playbook_run(
     db: DB, playbook_id: str, project_id: uuid.UUID, inputs: dict[str, Any], user: CurrentUser,
     alerts: AlertRules | None = None,
     agent_selector: dict[str, Any] | None = None,
+    route: str | None = None,
 ) -> PlaybookRunOut:
+    from .. import network_routes, routing
+
     spec = await load_playbook_spec(db, playbook_id)
     if spec is None:
         raise HTTPException(404, f"Playbook “{playbook_id}” not found")
@@ -203,6 +208,10 @@ async def _execute_playbook_run(
         selector = await check_selector(db, agent_selector, project_id)
     except SelectorError as exc:
         raise HTTPException(422, str(exc)) from exc
+    try:
+        route = await network_routes.check_choice(db, route, project_id)
+    except routing.RouteError as exc:
+        raise HTTPException(422, str(exc)) from exc
     # Every agent with the tags: one run each, pinned to it, so each one's results stay apart.
     if selector.get("all"):
         targets = sorted((c for c in gateway.connections.values()
@@ -215,7 +224,7 @@ async def _execute_playbook_run(
     runs, queued = [], False
     for run_selector, title in plans:
         try:
-            run, jobs = await start_playbook_run(db, spec, project_id, dict(inputs), user, run_selector, title)
+            run, jobs = await start_playbook_run(db, spec, project_id, dict(inputs), user, run_selector, title, route=route)
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
         if alerts is not None and run.card_id:

@@ -54,6 +54,25 @@ def detect_container_runtime(preferred: str) -> str | None:
     return None
 
 
+def _network_flag(arg: str) -> bool:
+    return arg in ("--network", "--net") or arg.startswith(("--network=", "--net="))
+
+
+def _without_network(args: list[str]) -> list[str]:
+    out: list[str] = []
+    skip = False
+    for arg in args:
+        if skip:
+            skip = False
+            continue
+        if arg in ("--network", "--net"):
+            skip = True
+            continue
+        if not _network_flag(arg):
+            out.append(arg)
+    return out
+
+
 @dataclass
 class RunResult:
     exit_code: int | None
@@ -73,8 +92,10 @@ class JobRunner:
         job_dir: str,
         network: str,
         extra_run_args: list[str],
+        route: Any = None,
     ) -> None:
         self.job = job
+        self.route = route  # routes.Applied: how this run goes through its network route
         self.job_id = str(job["id"])
         self.container_runtime = container_runtime
         self.allow_host = allow_host
@@ -106,13 +127,34 @@ class JobRunner:
                 handle.write(base64.b64decode(item.get("data", "")))
             relative = target.relative_to(root).as_posix()
             env[str(item["env"])] = f"/work/{relative}" if is_container else str(target)
+        for path, text in (self.route.files.items() if self.route else ()):
+            target = (root / path).resolve()
+            if not target.is_relative_to(root / VARS_DIR):
+                raise RuntimeError(f"refusing to write a route file outside the job: {path}")
+            target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+            with os.fdopen(fd, "w") as handle:
+                handle.write(text)
+            relative = target.relative_to(root).as_posix()
+            env["CASTOR_ROUTE_PROXYCHAINS"] = f"/work/{relative}" if is_container else str(target)
         return env
 
     def remove_files(self) -> None:
         shutil.rmtree(Path(self.job_dir) / VARS_DIR, ignore_errors=True)
 
     def job_env(self) -> dict[str, str]:
-        return {str(k): str(v) for k, v in (self.job.get("env") or {}).items()}
+        env = {str(k): str(v) for k, v in (self.job.get("env") or {}).items()}
+        if self.route:
+            env.update(self.route.env)
+        return env
+
+    def command(self) -> str:
+        command = str(self.job.get("command", ""))
+        if self.route and self.route.wrap:
+            from .routes import wrap_command
+
+            return wrap_command(command)
+        return command
 
     # ----- command construction -----
 
@@ -123,19 +165,23 @@ class JobRunner:
         """Return (argv, is_container). Container variables are passed by name only
         (`-e NAME`): the runtime reads the value from its own environment, so values (and
         secrets) never appear in the process list."""
-        command = str(self.job.get("command", ""))
+        command = self.command()
         names = env_names if env_names is not None else list(self.job_env())
         if self._wants_container():
             if not self.container_runtime:
                 raise RuntimeError("job requires a container runtime but none is available")
-            image = self.job.get("image") or self.default_image
+            image = (self.route.image if self.route and self.route.image else None) or self.job.get("image") or self.default_image
             container_flags = [str(f) for f in (self.job.get("container_flags") or [])]
+            extra_run_args = self.extra_run_args
+            routed = self.route.network if self.route else None
+            if routed:
+                # Its network is the route's: a --network the card or its command asks for (nmap's
+                # --network=bridge, so it doesn't scan from the host's) gives way to it.
+                container_flags = _without_network(container_flags)
+                extra_run_args = _without_network(extra_run_args)
             # If the user or agent configuration specifies a network flag, don't supply default --network
-            all_extra = [*self.extra_run_args, *container_flags]
-            has_network_flag = any(
-                arg == "--network" or arg == "--net" or arg.startswith(("--network=", "--net="))
-                for arg in all_extra
-            )
+            all_extra = [*extra_run_args, *container_flags]
+            has_network_flag = any(_network_flag(arg) for arg in all_extra)
             argv = [
                 self.container_runtime,
                 "run",
@@ -153,13 +199,15 @@ class JobRunner:
                 argv += ["-t", "-i"]
             for key in TERM_ENV if self.tty else ():
                 argv += ["-e", key]
-            if not has_network_flag and self.network:
+            if routed:
+                argv += ["--network", routed]
+            elif not has_network_flag and self.network:
                 argv += ["--network", self.network]
             # ":Z" relabels the directory for SELinux hosts (Fedora/RHEL); harmless elsewhere.
             argv += ["-v", f"{os.path.abspath(self.job_dir)}:/work:Z", "-w", "/work"]
             for key in names:
                 argv += ["-e", key]
-            argv += self.extra_run_args
+            argv += extra_run_args
             argv += container_flags
             # Override the image's entrypoint: tool images often set it to the tool itself
             # (instrumentisto/nmap uses /usr/bin/nmap), which would turn "/bin/sh -c <cmd>"
@@ -194,6 +242,10 @@ class JobRunner:
             env["CASTOR_WORK"] = os.path.abspath(self.job_dir)
         where = f"{self.container_runtime} ({self.job.get('image') or self.default_image})" if is_container else "host shell"
         shown = self.job.get("display_command") or self.job.get("command", "")
+        if self.route is not None:
+            # The route's flags as they are (a host proxy's password masked), or nothing.
+            args = self.route.env.get("CASTOR_ROUTE_ARGS", "")
+            shown = shown.replace("${CASTOR_ROUTE_ARGS}", re.sub(r"//[^:/@\s]+:[^@\s]+@", "//••••@", args)).replace("  ", " ")
         await sink("system", f"$ {shown}\n[castor] running on {where}\n")
 
         if self.tty:

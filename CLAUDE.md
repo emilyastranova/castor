@@ -222,6 +222,20 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   ran out) on an `on_failure: ai` step goes to `_recover` → `ai.recover_http`, a fixed list of
   moves recorded in `progress.ai_moves`; batches count values (`progress.offset`). Web:
   `agentSelector.httpSenderOptions`/`describeSender`.
+- Network routes (docs/ROUTES.md): `routing.py` (pure: `RouteCaps` = a tool's/command's `route:` block, `plan` = the ways to
+  try best first or why not, `raw_reason` refuses SYN/UDP scans and ping sweeps, `unfake`), `network_routes.py` (`routes`
+  table: hops with vault secrets, `store_hops`/`route_out` (never secrets), `chosen_for`/`rows_for`: card `tasks.route` ("none" =
+  direct) → `playbook_runs.route` → `projects.settings.route`, an agent's `agents.route` chained in front; a missing route stops
+  the job, never runs it unrouted; host keys trusted on first use, `host_key_pending` stops it; `payload` (secrets) only in
+  job.run/route.test/http.request; `outside_scope` makes `enqueue_job` ask for approval), `api/routes.py`, MCP `*_route` tools.
+  `{{ route }}` renders `${CASTOR_ROUTE_ARGS}` (unquoted). Agent: `route_chain.py` (stdlib; SSH hops are OpenSSH `-D` with
+  ProxyCommand through "stage" SOCKS servers; the box's iptables redirect + kill switch + stand-in DNS 198.18/15) and
+  `routes.py` (`RouteManager`: a `castor-route` box per route with a container runtime, `LocalRoute` without; `apply`).
+  Container jobs join the box (`--network container:`), a card's own `--network` gives way. Box stand-ins come back in
+  `job.finished.route_names` → `jobs.route_info.names` → `outputs` puts names back. `jobs.route_info.segment` is the
+  vantage point (`assets.segment_of`). Web: `routes/routes` (`RouteChain`, `HopEditor`), `RouteChoice` (TaskDialog,
+  RunPlaybookDialog, ProjectDialog), agent edit, `lib/routes.ts`. Tests: `tests/test_routes.py`, agent `test_route_chain.py`
+  (real OpenSSH against asyncssh servers).
 - Tools (Phase 3a): `tool_spec.py` (YAML → `ToolSpec`: `image`, `build` recipe, `host`;
   `way_for` picks one per agent; recipe tags hash the recipe), `tool_library.py` (built-ins
   from `CASTOR_TOOLS_DIR` = `tools/`), `api/tools.py`. Commands say `tool: <id>`; the

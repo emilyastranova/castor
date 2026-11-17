@@ -26,7 +26,7 @@ class _NoRedirects(urllib.request.HTTPRedirectHandler):
 _OPENER = urllib.request.build_opener(_NoRedirects)
 
 
-def fetch(msg: dict[str, Any]) -> tuple[dict[str, Any], bytes]:
+def fetch(msg: dict[str, Any], proxy: str | None = None) -> tuple[dict[str, Any], bytes]:
     """Make one request; returns (the response's head, its body). Errors come back in the
     head as {"error", "error_kind": timeout|connect} rather than raised."""
     method = str(msg.get("method") or "GET").upper()
@@ -35,8 +35,11 @@ def fetch(msg: dict[str, Any]) -> tuple[dict[str, Any], bytes]:
                                  headers={"User-Agent": "castor", **(msg.get("headers") or {})})
     limit = int(msg.get("max_bytes") or 50 * 1024 * 1024)
     timeout = float(msg.get("timeout_s") or 60)
+    # Through a route: only its local proxy (the machine's own proxy settings don't apply).
+    opener = urllib.request.build_opener(_NoRedirects, urllib.request.ProxyHandler({"http": proxy, "https": proxy})) \
+        if proxy else _OPENER
     try:
-        resp = _OPENER.open(req, timeout=timeout)
+        resp = opener.open(req, timeout=timeout)
     except urllib.error.HTTPError as exc:  # 4xx/5xx (and unfollowed 3xx) are answers, not errors
         resp = exc
     except TimeoutError:

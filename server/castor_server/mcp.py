@@ -174,7 +174,9 @@ TOOLS: list[Tool] = [
           "command_ref": _s("Library command id (from list_commands)"),
           "command_args": {"type": "object", "description": "Arguments for command_ref"},
           "column_id": _s("Column id (from get_board)"), "tags": {"type": "array", "items": {"type": "string"}},
-          "agent_selector": _SELECTOR, "due_at": _s("Due date-time, ISO 8601 (its people are reminded the day before and when it's overdue)"),
+          "agent_selector": _SELECTOR, "route": _s("Network route its traffic goes through: a route id (from list_routes), or \"none\" to go direct even when the "
+                     "project has a default; left out: the project's default"),
+          "due_at": _s("Due date-time, ISO 8601 (its people are reminded the day before and when it's overdue)"),
           "waits_on": {"type": "array", "items": {"type": "string"}, "description": "Card ids of this project it depends on"},
           "parent_id": _s("Make it a subtask of this card (an activity card of the project); it stays off the board"),
           "approvers": {"type": "array", "items": {"type": "string"},
@@ -240,7 +242,8 @@ TOOLS: list[Tool] = [
     Tool("run_playbook", "Start a playbook run in a project.", "POST", "/api/playbooks/{playbook_id}/run",
          {"playbook_id": _s("Playbook id"), "project_id": ID["project_id"], "inputs": {"type": "object"},
           "agent_selector": {**_SELECTOR, "description": _SELECTOR["description"] + " With all, one run per agent (the "
-                             "result's sibling_run_ids are the others)."}},
+                             "result's sibling_run_ids are the others)."},
+          "route": _s("Network route for the steps that don't name their own (a route id from list_routes, or \"none\")")},
          ("playbook_id", "project_id")),
     Tool("get_run", "A playbook run: status, inputs, each step's status, steps waiting for a decision.", "GET",
          "/api/playbook-runs/{run_id}", {"run_id": ID["run_id"]}, ("run_id",)),
@@ -264,7 +267,9 @@ TOOLS: list[Tool] = [
          {"agent_id": _s("Agent id (from list_agents)"), "tags": {"type": "array", "items": {"type": "string"}},
           "max_concurrency": {"type": "integer", "minimum": 1},
           "project_ids": {"type": ["array", "null"], "items": {"type": "string"},
-                          "description": "Project ids whose jobs it may run; null: any project"}}, ("agent_id",)),
+                          "description": "Project ids whose jobs it may run; null: any project"},
+          "route": _s("A network route id: everything the agent runs goes through it (a card's own route is chained after it); "
+                      "\"\" takes it off")}, ("agent_id",)),
     Tool("forget_agent", "Remove a disconnected agent from the list (its tags and settings go too; an SSH host is "
          "removed with remove_ssh_host instead).", "DELETE", "/api/agents/{agent_id}",
          {"agent_id": _s("Agent id")}, ("agent_id",), destructive=True),
@@ -388,10 +393,46 @@ TOOLS += [
           "tools (a stdio one is started on an agent first)."),
     _auto("draft_mcp_action", "GET", "/api/mcp-connections/{connection_id}/tools/{tool}/draft", "A kind: mcp definition for one of "
           "an MCP server's tools, its input schema as typed arguments: YAML to check and save with create_command."),
+    # Network routes: chains of hops (SSH jumps, SOCKS4/5 and HTTP CONNECT proxies) a job's traffic goes
+    # through to reach its targets. They run on agents; passwords and keys are write-only.
+    _auto("list_routes", "GET", "/api/routes", "Network routes you can use (project_id: the ones that project can use): their "
+          "chain (label: agent → hop → … → targets), each hop's kind, address, user, whether it has a secret, its SSH host key "
+          "fingerprint (and a changed one waiting: host_key_pending), the last test, and where they're up now (live, per agent)."),
+    _auto("get_route", "GET", "/api/routes/{route_id}", "One network route, as in list_routes."),
+    _auto("create_route", "POST", "/api/routes",
+          "Make a network route. hops are in order from the agent outwards; the last hop reaches the targets. Each hop: kind (ssh, "
+          "socks5, socks4 or http for an HTTP CONNECT proxy), host, port (default 22/1080/1080/8080), username, and a secret: password, "
+          "or for SSH private_key (with passphrase if it has one) or generate_key: true (the result's public_key is what to add to "
+          "authorized_keys on that host). host_key pins an SSH hop's key ahead of time; otherwise the first one seen is trusted. "
+          "dns: remote (names resolved at the far end, the default) or local; strict (default true): jobs on it run in a container "
+          "whose only way out is the route (host jobs are refused). segment: the vantage point name its findings are recorded under "
+          "(default: the route's name). project_ids: the projects that may use it ([] = every project, admins only). Then try it "
+          "with test_route."),
+    _auto("update_route", "PATCH", "/api/routes/{route_id}", "Change a route; only the fields given change. hops replaces the whole "
+          "chain: send each kept hop with its id (from get_route) to keep its stored secret, and new ones without an id. A hop that "
+          "now points at another host forgets its trusted host key."),
+    _auto("delete_route", "DELETE", "/api/routes/{route_id}", "Delete a route. Cards, projects and agents that use it don't fall back "
+          "to going direct: their jobs refuse to run until they get another route. In use, it's refused unless force is true "
+          "(route_usage lists who uses it).", **_DESTRUCTIVE),
+    _auto("route_usage", "GET", "/api/routes/{route_id}/usage", "The cards, projects (as their default), agents and running "
+          "playbook runs that use a route."),
+    _auto("test_route", "POST", "/api/routes/{route_id}/test", "Bring a route up on an agent (agent_id, or any that can) and try it "
+          "hop by hop: each hop's latency, or the hop where it breaks and why (a key refused at hop 2, a proxy timing out). With "
+          "target (host:port) it also tries reaching that through the route. The result is kept as the route's last_test."),
+    _auto("accept_route_host_key", "POST", "/api/routes/{route_id}/hops/{hop_id}/accept-host-key", "Trust the new host key an SSH "
+          "hop shows (host_key_pending). A changed key can mean someone is in the middle: accept it only when a person has "
+          "checked the fingerprint and asked you to."),
+    _auto("route_from_ssh_host", "POST", "/api/routes/from-ssh-host", "Make a route from an SSH host (list_ssh_hosts): its jump "
+          "hosts from the shared SSH config and the host itself become SSH hops, signing in with the host's key (admins)."),
+    _auto("plan_route", "POST", "/api/routes/plan", "How a card's runs would go through a route, before running it: give task_id (and "
+          "route_id to try another route) or a command_ref. For a run in a container and on a host: the ways Castor would use, "
+          "best first (native: the tool's own proxy flag; env: proxy variables; hooked: proxychains; transparent: every connection "
+          "in the job's network goes through), or why it can't (an nmap SYN scan, a ping sweep, UDP)."),
     # Cards
     _auto("update_card", "PATCH", "/api/tasks/{task_id}",
           "Change a card (move it with move_card); only the fields given change: title, description, command (shell) or command_ref + "
-          "command_args (library), image, container_flags, agent_selector (where it runs), tags, priority, assignees "
+          "command_args (library), image, container_flags, agent_selector (where it runs), route (its network route: a route id, "
+          "\"none\" for direct, \"\" for the project's default; plan_route says how it would go), tags, priority, assignees "
           "(user ids from list_people), group_assignees (group ids or @handles from list_groups), approvers (groups whose members approve "
           "its runs; [] uses the project's), timeout_s, run_on_move, tty, var_bindings, alerts (see set_card_alerts), "
           "due_at (ISO date-time, null clears it; its people are reminded the day before and when it's overdue), waits_on (card ids of the "
@@ -780,6 +821,7 @@ RESOURCES = [
     Resource("castor://jobs/{job_id}/output", "Job output", "A job's output as plain text (untrusted)", "/api/jobs/{job_id}/output",
              "text/plain", untrusted=True),
     Resource("castor://runs/{run_id}", "Playbook run", "A run with each step's status", "/api/playbook-runs/{run_id}"),
+    Resource("castor://routes/{route_id}", "Network route", "A route's hops, host keys, last test and live state", "/api/routes/{route_id}"),
 ]
 
 

@@ -4,3 +4,9 @@ description: Fast DNS resolution and record lookups (ProjectDiscovery)
 tags: [dns, recon]
 homepage: https://github.com/projectdiscovery/dnsx
 image: docker.io/projectdiscovery/dnsx
+# DNS lookups through a route must reach a real resolver at the far end (over TCP, by its own
+# SOCKS support); answered in the route box, they'd be stand-in addresses.
+route:
+  proxy: "-proxy {url}"
+  scheme: socks5
+  only: [native]

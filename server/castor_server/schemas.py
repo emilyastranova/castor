@@ -283,6 +283,8 @@ class TaskIn(BaseModel):
     image: str | None = None
     container_flags: list[str] = Field(default_factory=list)
     agent_selector: dict[str, Any] = Field(default_factory=dict)
+    # Its network route: a route id, "none" (direct), or null (the project's default).
+    route: str | None = None
     run_on_move: bool = True
     timeout_s: int | None = None
     priority: int = 0
@@ -331,6 +333,8 @@ class TaskPatch(BaseModel):
     image: str | None = None
     container_flags: list[str] | None = None
     agent_selector: dict[str, Any] | None = None
+    # A route id, "none" (direct) or "" (back to the project's default).
+    route: str | None = None
     run_on_move: bool | None = None
     timeout_s: int | None = None
     priority: int | None = None
@@ -404,6 +408,8 @@ class JobOut(ORM):
     kind: str = "command"
     runner: str | None = None
     via_agent_id: uuid.UUID | None = None
+    # The network route it went through (no secrets) and how the agent applied it.
+    route_info: dict[str, Any] | None = None
     resume_at: datetime | None = None
     approved_by: uuid.UUID | None = None
     approved_at: datetime | None = None
@@ -466,6 +472,7 @@ class TaskOut(ORM):
     tool: str | None = None
     container_flags: list[str] = Field(default_factory=list)
     agent_selector: dict[str, Any]
+    route: str | None = None
     run_on_move: bool
     timeout_s: int | None
     priority: int
@@ -629,6 +636,8 @@ class AgentOut(ORM):
     project_ids: list[uuid.UUID] | None = None
     # Its network segment ("VLAN 20 / user LAN"), its vantage point; empty: not said.
     segment: str = ""
+    # Its network route (everything it runs goes that way); null: none.
+    route: str | None = None
     max_concurrency: int
     status: AgentStatus
     last_seen_at: datetime | None
@@ -646,6 +655,8 @@ class AgentOut(ORM):
 class AgentPatch(BaseModel):
     tags: list[str] | None = None
     segment: str | None = Field(None, max_length=80)
+    # A route id; "" takes it off. Left out: unchanged.
+    route: str | None = None
     max_concurrency: int | None = None
     # Limit it to these projects' jobs; null lifts the limit (any project). Left out: unchanged.
     project_ids: list[uuid.UUID] | None = None
@@ -750,6 +761,8 @@ class PlaybookRunIn(BaseModel):
     # Where its steps run: {agent_id}, {tags} (one agent with them), or {tags, all: true}
     # (one run per connected agent with them).
     agent_selector: dict[str, Any] = Field(default_factory=dict)
+    # The network route for steps that don't name their own (a route id, or "none": direct).
+    route: str | None = None
 
 
 class PlaybookRunOut(ORM):
@@ -772,6 +785,7 @@ class PlaybookRunOut(ORM):
     card_id: uuid.UUID | None = None
     tasks: list[TaskOut] = Field(default_factory=list)
     agent_selector: dict[str, Any] = Field(default_factory=dict)
+    route: str | None = None
     # Started together with it on other agents (agent_selector all: one run per agent).
     sibling_run_ids: list[uuid.UUID] = Field(default_factory=list)
 

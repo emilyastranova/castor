@@ -93,6 +93,10 @@ class AgentGateway:
         self.tool_status: dict[tuple[uuid.UUID, str], dict[str, Any]] = {}
         # HTTP requests agents are making for the server runner, by request id.
         self._http: dict[str, _HttpWait] = {}
+        # Route tests agents are running (route.test → route.tested), by request id.
+        self._route_tests: dict[str, tuple[uuid.UUID, asyncio.Future]] = {}
+        # The route payload (secrets included) of each running HTTP action that goes through one.
+        self.route_payloads: dict[uuid.UUID, dict[str, Any]] = {}
 
     # ----- registry -----
 
@@ -323,6 +327,14 @@ class AgentGateway:
             if wait.agent_id == conn.agent_id and not wait.future.done():
                 wait.future.set_exception(AgentGone(f"{conn.name} disconnected"))
                 self._http.pop(request_id, None)
+        for request_id, (agent_id, fut) in list(self._route_tests.items()):
+            if agent_id == conn.agent_id and not fut.done():
+                fut.set_result({"error": f"{conn.name} disconnected"})
+                self._route_tests.pop(request_id, None)
+        from .. import network_routes
+
+        for route_id in network_routes.forget_agent(conn.agent_id):
+            bus.publish("route.live", None, {"route_id": route_id, "agent_id": str(conn.agent_id), "state": "down"})
         async with SessionLocal() as db:
             agent = await db.get(m.Agent, conn.agent_id)
             if agent is not None:
@@ -414,6 +426,11 @@ class AgentGateway:
             wait = self._http.pop(str(msg.get("request_id")), None)
             if wait is not None and wait.agent_id == conn.agent_id and not wait.future.done():
                 wait.future.set_result({**msg, "body": "".join(wait.chunks)})
+        elif kind in ("route.status", "route.hop", "route.host_key", "route.tested", "job.route"):
+            try:
+                await self._on_route(conn, kind, msg)
+            except Exception:  # a bad report mustn't drop the agent's connection
+                log.exception("route message %s from %s", kind, conn.name)
         else:
             log.warning("agent %s sent unknown message type %r", conn.name, kind)
 
@@ -544,6 +561,11 @@ class AgentGateway:
             else:
                 exit_code = msg.get("exit_code")
                 job.exit_code = int(exit_code) if exit_code is not None else None
+                if job.route_info and msg.get("route_names"):
+                    from ..routing import stand_ins
+
+                    # Names its route box answered with stand-in addresses: parsing puts them back.
+                    job.route_info = {**job.route_info, "names": stand_ins(msg["route_names"])}
                 error = msg.get("error")
                 job.error = redaction.redact(error) if error else None
                 job.finished_at = utcnow()
@@ -714,6 +736,12 @@ class AgentGateway:
                     resolved = await variables.resolve(db, spec.vars, job.var_bindings, task.project_id)
                 except variables.VariableError:
                     pass
+        if job.route_info:  # its route's passwords too
+            from .. import network_routes
+
+            ids = [*(job.route_info.get("via") or []), job.route_info.get("id")]
+            rows = [r for r in [await network_routes.get(db, i) for i in ids] if r is not None]
+            resolved.secrets = [*resolved.secrets, *network_routes.secrets_of(rows)]
         self._redactions[job.id] = resolved
         return resolved
 
@@ -726,6 +754,7 @@ class AgentGateway:
         artifacts: dict[str, Any] | None = None,
         resolved: variables.Resolved | None = None,
         tool: dict[str, Any] | None = None,
+        route: dict[str, Any] | None = None,
     ) -> None:
         resolved = resolved or variables.Resolved()
         self._redactions[job.id] = resolved
@@ -764,6 +793,9 @@ class AgentGateway:
                     # How to get the tool first: pull an image, build a recipe, or check
                     # (and maybe install) it on the host. None: nothing to prepare.
                     "tool": tool,
+                    # Its network route, secrets included (only ever in this message), with the
+                    # ways to go through it best first. None: it goes direct.
+                    "route": route,
                 },
             }
         )
@@ -803,6 +835,62 @@ class AgentGateway:
             return await asyncio.wait_for(wait.future, timeout)
         finally:
             self._http.pop(request_id, None)
+
+    async def route_test(self, conn: AgentConnection, route: dict[str, Any], target: list[Any] | None,
+                         timeout: float) -> dict[str, Any]:
+        """Have an agent bring a route up and try it hop by hop (route.test → route.tested)."""
+        if not (conn.capabilities.get("routes")):
+            return {"error": f"{conn.name} is too old for network routes (update the agent)"}
+        request_id = uuid.uuid4().hex
+        fut = asyncio.get_running_loop().create_future()
+        self._route_tests[request_id] = (conn.agent_id, fut)
+        try:
+            await conn.send({"type": "route.test", "request_id": request_id, "route": route, "target": target})
+            return await asyncio.wait_for(fut, timeout)
+        finally:
+            self._route_tests.pop(request_id, None)
+
+    async def _on_route(self, conn: AgentConnection, kind: str, msg: dict[str, Any]) -> None:
+        """What an agent says about the routes it holds: up/down/broken, each hop, host keys seen,
+        test results, and how a job went through its route."""
+        from .. import network_routes
+
+        if kind == "route.tested":
+            entry = self._route_tests.pop(str(msg.get("request_id")), None)
+            if entry and entry[0] == conn.agent_id and not entry[1].done():
+                entry[1].set_result({k: v for k, v in msg.items() if k in ("hops", "target", "error")})
+            return
+        route_id = str(msg.get("route_id") or "") or None
+        if kind == "route.status":
+            state = network_routes.set_state(route_id, conn.agent_id, {
+                "state": msg.get("state"), "mode": msg.get("mode"), "jobs": msg.get("jobs"),
+                "broken": msg.get("broken"), "error": msg.get("error")})
+            if state:
+                bus.publish("route.live", None, {"route_id": route_id, **state})
+        elif kind == "route.hop":
+            hop_id = str(msg.get("hop_id") or "")
+            current = network_routes.STATES.get((str(route_id), str(conn.agent_id)), {})
+            hops = {**(current.get("hops") or {}), hop_id: {"state": msg.get("state"), "error": msg.get("error"), "ms": msg.get("ms")}}
+            state = network_routes.set_state(route_id, conn.agent_id, {"hops": hops})
+            if state:
+                bus.publish("route.live", None, {"route_id": route_id, **state})
+        elif kind == "route.host_key":
+            async with SessionLocal() as db:
+                await network_routes.learn_host_key(db, route_id, str(msg.get("hop_id") or ""), str(msg.get("key") or ""),
+                                                    bool(msg.get("changed")))
+        elif kind == "job.route":
+            job_id = await self._job_id(msg)
+            if job_id is None:
+                return
+            async with SessionLocal() as db:
+                job = await db.get(m.Job, job_id)
+                if job is None or job.agent_id != conn.agent_id or not job.route_info:
+                    return
+                job.route_info = {**job.route_info, "method": str(msg.get("method") or "")[:20]}
+                await db.commit()
+                task = await db.get(m.Task, job.task_id)
+                if task is not None:
+                    publish_job(job, task.project_id)
 
     async def cancel_job(self, job: m.Job) -> bool:
         if job.runner == "server":

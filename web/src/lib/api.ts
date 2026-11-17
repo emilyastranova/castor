@@ -138,6 +138,8 @@ export interface Job {
 	runner?: string | null;
 	/** An HTTP action sent through an agent: the agent whose network it went out from. */
 	via_agent_id?: UUID | null;
+	/** The network route it went through (no secrets) and how the agent applied it. */
+	route_info?: JobRoute | null;
 	/** Who started it (null: Castor, a trigger or a playbook with no person). */
 	created_by?: UUID | null;
 	/** Who let a run that waited for approval go, and when. */
@@ -938,6 +940,7 @@ export interface PlaybookRun {
 	card_id: UUID | null;
 	tasks: Task[];
 	agent_selector?: AgentSelector;
+	route?: string | null;
 	/** Started with it on the other agents (run on every agent with some tags). */
 	sibling_run_ids?: UUID[];
 }
@@ -1285,6 +1288,8 @@ export interface Task {
 	tool?: string | null;
 	container_flags?: string[];
 	agent_selector: AgentSelector;
+	/** Its network route: a route id, "none" (direct), or null (the project's default). */
+	route?: string | null;
 	/** The latest run went to several agents at once (one job each). */
 	batch?: BatchSummary | null;
 	run_on_move: boolean;
@@ -1508,12 +1513,16 @@ export interface Agent {
 	os: string;
 	username: string;
 	version: string;
-	capabilities: { runtimes?: string[]; default_image?: string; /** Sends HTTP actions' requests from its network. */ http?: boolean; /** Runs stdio MCP servers. */ mcp_stdio?: boolean };
+	capabilities: { runtimes?: string[]; default_image?: string; /** Sends HTTP actions' requests from its network. */ http?: boolean; /** Runs stdio MCP servers. */ mcp_stdio?: boolean;
+		/** Network routes: a route box (it has a container runtime), ssh and proxychains on its host. */
+		routes?: { box?: boolean; ssh?: boolean; proxychains?: boolean } };
 	tags: string[];
 	/** The projects whose jobs it may run; null: any project (an empty list: none). */
 	project_ids?: UUID[] | null;
 	/** Its network segment ("VLAN 20 / user LAN"): where its runs look from. */
 	segment?: string;
+	/** Its network route (admins): everything it runs goes that way. */
+	route?: string | null;
 	max_concurrency: number;
 	status: AgentStatus;
 	last_seen_at: string | null;
@@ -1553,6 +1562,138 @@ export interface PluginMachine {
 }
 
 export type SshHostState = 'connecting' | 'connected' | 'error' | 'host_key_changed' | 'disabled';
+
+export type HopKind = 'ssh' | 'socks5' | 'socks4' | 'http';
+export type RouteMethod = 'native' | 'env' | 'hooked' | 'transparent' | 'proxy';
+
+/** One hop of a network route, as Castor shows it: secrets never come back. */
+export interface RouteHop {
+	id: string;
+	kind: HopKind;
+	host: string;
+	port: number;
+	username: string;
+	label: string;
+	auth: 'none' | 'password' | 'key';
+	has_secret: boolean;
+	/** A key pair's public half (SSH, key auth): goes in authorized_keys on that host. */
+	public_key: string;
+	host_key: string | null;
+	host_key_fingerprint: string | null;
+	/** A different key it showed: the route stops at this hop until someone accepts it. */
+	host_key_pending: string | null;
+	host_key_pending_fingerprint: string | null;
+}
+
+/** A hop as it's sent: secrets are write-only (left out: kept). */
+export interface RouteHopIn {
+	id?: string;
+	kind: HopKind;
+	host: string;
+	port?: number | null;
+	username?: string;
+	auth?: 'none' | 'password' | 'key';
+	password?: string;
+	private_key?: string;
+	passphrase?: string;
+	generate_key?: boolean;
+	host_key?: string | null;
+	label?: string;
+}
+
+export interface RouteHopResult {
+	hop_id?: string | null;
+	index: number;
+	/** null: not reached (a hop before it broke). */
+	ok: boolean | null;
+	ms?: number;
+	error?: string;
+}
+
+export interface RouteTest {
+	at: number;
+	agent_id: UUID;
+	agent_name: string;
+	target: string | null;
+	error: string | null;
+	ok: boolean;
+	hops: RouteHopResult[];
+	target_result: { ok: boolean; ms?: number; error?: string; hop?: number | null } | null;
+}
+
+/** Where a route is up right now. */
+export interface RouteLive {
+	agent_id: UUID;
+	state: 'starting' | 'up' | 'broken' | 'error' | 'down';
+	mode?: 'box' | 'local';
+	jobs?: number;
+	broken?: { index: number | null; error: string } | null;
+	error?: string | null;
+	hops?: Record<string, { state: string; error?: string | null; ms?: number | null }>;
+	at?: number;
+}
+
+export interface NetworkRoute {
+	id: UUID;
+	name: string;
+	description: string;
+	tags: string[];
+	/** Empty: every project. */
+	project_ids: UUID[];
+	hops: RouteHop[];
+	/** remote: names resolved at the far end; local: on the agent. */
+	dns: 'remote' | 'local';
+	/** Nothing leaves except through the route (container jobs only). */
+	strict: boolean;
+	segment: string;
+	/** agent → SSH ops@jump:22 → SOCKS5 10.0.0.5:1080 → targets */
+	label: string;
+	last_test: RouteTest | null;
+	pending_keys: number;
+	live: RouteLive[];
+	created_by: UUID | null;
+	created_at: string | null;
+	updated_at: string | null;
+}
+
+export interface NetworkRouteIn {
+	name: string;
+	description?: string;
+	tags?: string[];
+	project_ids?: UUID[];
+	hops: RouteHopIn[];
+	dns?: 'remote' | 'local';
+	strict?: boolean;
+	segment?: string;
+}
+
+export interface RouteUsage {
+	cards: { id: UUID; title: string; project_id: UUID }[];
+	card_count: number;
+	projects: { id: UUID; codename: string }[];
+	agents: { id: UUID; name: string }[];
+	runs: number;
+	summary: string;
+}
+
+export interface RoutePlan {
+	route: { id: UUID; name: string; label: string; strict: boolean; dns: string } | null;
+	container: { ways?: RouteMethod[]; error?: string } | null;
+	host: { ways?: RouteMethod[]; error?: string } | null;
+	runs_in?: 'container' | 'either';
+}
+
+export interface JobRoute {
+	id: UUID;
+	name: string;
+	label: string;
+	dns: string;
+	strict: boolean;
+	segment: string;
+	method?: RouteMethod | '';
+	hops: { kind: HopKind; host: string; port: number; username: string }[];
+	via?: UUID[];
+}
 
 export interface SshHost {
 	id: UUID;
@@ -1930,8 +2071,10 @@ export function api(fetchFn: Fetch = fetch) {
 			update: (id: string, yaml: string) =>
 				request<PlaybookDefinition>(fetchFn, 'PUT', `/playbooks/${id}`, { yaml }),
 			remove: (id: string) => del(`/playbooks/${id}`),
-			run: (id: string, projectId: UUID, inputs: Record<string, unknown> = {}, alerts: AlertRules | null = null, agentSelector: AgentSelector = {}) =>
-				post<PlaybookRun>(`/playbooks/${id}/run`, { project_id: projectId, inputs, agent_selector: agentSelector, ...(alerts ? { alerts } : {}) }),
+			run: (id: string, projectId: UUID, inputs: Record<string, unknown> = {}, alerts: AlertRules | null = null, agentSelector: AgentSelector = {},
+				route: string | null = null) =>
+				post<PlaybookRun>(`/playbooks/${id}/run`, { project_id: projectId, inputs, agent_selector: agentSelector, ...(alerts ? { alerts } : {}),
+					...(route ? { route } : {}) }),
 			validate: (yaml: string) => post<PlaybookCheck>('/playbooks/validate', { yaml }),
 			/** A new activity whose subtasks are the playbook's command steps; nothing starts. */
 			activity: (id: string, projectId: UUID, inputs: Record<string, unknown>) =>
@@ -2028,7 +2171,7 @@ export function api(fetchFn: Fetch = fetch) {
 		agents: {
 			list: () => get<Agent[]>('/agents'),
 			/** project_ids: null lifts the limit; leave it out to keep it. */
-			update: (id: UUID, body: { tags?: string[]; max_concurrency?: number; project_ids?: UUID[] | null; segment?: string }) =>
+			update: (id: UUID, body: { tags?: string[]; max_concurrency?: number; project_ids?: UUID[] | null; segment?: string; route?: string }) =>
 				patch<Agent>(`/agents/${id}`, body),
 			remove: (id: UUID) => del(`/agents/${id}`)
 		},
@@ -2061,6 +2204,20 @@ export function api(fetchFn: Fetch = fetch) {
 			import: (plugin: string, type: string, body: { machines: string[]; tags?: string[]; project_ids?: UUID[] | null }) =>
 				post<Agent[]>(`/plugin-agent-types/${plugin}/${type}/import`, body),
 			refresh: (plugin: string) => post<Record<string, unknown>>(`/plugin-agent-types/${plugin}/refresh`)
+		},
+		routes: {
+			list: (projectId?: UUID) => get<NetworkRoute[]>(`/routes${projectId ? `?project_id=${projectId}` : ''}`),
+			get: (id: UUID) => get<NetworkRoute>(`/routes/${id}`),
+			create: (body: NetworkRouteIn) => post<NetworkRoute>('/routes', body),
+			update: (id: UUID, body: Partial<NetworkRouteIn>) => request<NetworkRoute>(fetchFn, 'PATCH', `/routes/${id}`, body),
+			remove: (id: UUID, force = false) => del(`/routes/${id}${force ? '?force=true' : ''}`),
+			usage: (id: UUID) => get<RouteUsage>(`/routes/${id}/usage`),
+			/** Bring it up on an agent and try it hop by hop (and target, host:port). */
+			test: (id: UUID, body: { agent_id?: UUID | null; target?: string | null }) => post<RouteTest>(`/routes/${id}/test`, body),
+			acceptHostKey: (id: UUID, hopId: string) => post<NetworkRoute>(`/routes/${id}/hops/${encodeURIComponent(hopId)}/accept-host-key`),
+			fromSshHost: (body: { ssh_host_id: UUID; name: string; project_ids?: UUID[] }) => post<NetworkRoute>('/routes/from-ssh-host', body),
+			plan: (body: { route_id?: string | null; task_id?: UUID | null; command_ref?: string | null; agent_id?: UUID | null }) =>
+				post<RoutePlan>('/routes/plan', body)
 		},
 		sshHosts: {
 			list: () => get<SshHost[]>('/ssh-hosts'),
@@ -2956,6 +3113,7 @@ export interface ExportRequest {
 	mcp_servers?: string[];
 	variable_kinds?: string[];
 	variable_sets?: UUID[];
+	routes?: UUID[];
 	projects?: UUID[];
 	jobs?: boolean;
 	activity?: boolean;

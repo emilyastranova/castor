@@ -31,7 +31,7 @@ command: |
   printf '%s\n' {{ targets }} | tr ',' '\n' | sed '/^$/d' > {{ work }}/targets.txt
   nuclei -update-templates -silent > /dev/null 2>&1
   mkdir -p {{ work }}/artifacts
-  nuclei -l {{ work }}/targets.txt {{ severity }} {{ tags }} -rl {{ rate_limit }} -nc -silent -o {{ work }}/nuclei.txt -jle {{ work }}/artifacts/nuclei.jsonl
+  nuclei {{ route }} -l {{ work }}/targets.txt {{ severity }} {{ tags }} -rl {{ rate_limit }} -nc -silent -o {{ work }}/nuclei.txt -jle {{ work }}/artifacts/nuclei.jsonl
   touch {{ work }}/nuclei.txt
 outputs:
   - name: findings

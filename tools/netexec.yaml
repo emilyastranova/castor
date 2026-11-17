@@ -22,3 +22,6 @@ build:
 host:
   check: command -v nxc
   install: pipx install "git+https://github.com/Pennyw0rth/NetExec@f08f65a4596fdf4a4e98c958e292accf31801422"
+# Python (impacket): proxychains is how NetExec is usually sent through a pivot.
+route:
+  hook: true

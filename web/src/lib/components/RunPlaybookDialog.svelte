@@ -8,6 +8,7 @@
 	import VariableSetDialog from './VariableSetDialog.svelte';
 	import ListArgInput from './ListArgInput.svelte';
 	import AlertRulesForm from './AlertRulesForm.svelte';
+	import RouteChoice from './routes/RouteChoice.svelte';
 
 	interface Props {
 		open: boolean;
@@ -61,6 +62,7 @@
 	// (one run each).
 	let agents = $state<Agent[]>([]);
 	let agentChoice = $state('');
+	let routeChoice = $state('');
 	$effect(() => {
 		if (!open) return;
 		api()
@@ -121,7 +123,7 @@
 		running = true;
 		error = null;
 		try {
-			const run = await api().playbooks.run(spec.id, selectedProjectId, inputValues, alertRules.channels.length ? alertRules : null, selectorFrom(agentChoice));
+			const run = await api().playbooks.run(spec.id, selectedProjectId, inputValues, alertRules.channels.length ? alertRules : null, selectorFrom(agentChoice), routeChoice || null);
 			const count = 1 + (run.sibling_run_ids?.length ?? 0);
 			snackbar.show(count > 1 ? `Started “${spec.name}” on ${count} agents` : `Started playbook “${spec.name}”`);
 			open = false;
@@ -192,6 +194,7 @@
 				bind:value={agentChoice}
 				supporting={agentHelp}
 			/>
+			<RouteChoice projectId={selectedProjectId || null} bind:value={routeChoice} label="Network route (steps that don’t name one)" />
 
 			{#if spec.inputs && spec.inputs.length > 0}
 				<div class="flex flex-col gap-3 border-t border-outline-variant/60 pt-3">

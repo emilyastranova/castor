@@ -30,3 +30,5 @@ outputs:
     type: list<service>
     parser: nmap.services
     source: "{{ work }}/udp-scan.xml"
+route:
+  unroutable: "UDP can't go through a network route (SOCKS and SSH carry TCP only)"

@@ -10,8 +10,10 @@
 		supporting?: string;
 		/** Only some projects: "Any project" isn't offered. */
 		limited?: boolean;
+		/** The heading over the list of projects. */
+		listLabel?: string;
 	}
-	let { value = $bindable(null), supporting = '', limited = false }: Props = $props();
+	let { value = $bindable(null), supporting = '', limited = false, listLabel = 'Runs jobs from' }: Props = $props();
 	$effect(() => {
 		if (limited && value === null) value = [];
 	});
@@ -46,7 +48,7 @@
 	{#if value !== null}
 		<div class="flex flex-col gap-1 rounded-md border border-outline-variant/70 p-2">
 			<div class="flex items-center gap-2 px-1">
-				<span class="flex-1 label-large text-on-surface">Runs jobs from</span>
+				<span class="flex-1 label-large text-on-surface">{listLabel}</span>
 				<span class="body-small {value.length ? 'text-on-surface-variant' : 'text-error'}">{value.length ? `${value.length} chosen` : 'None: it runs nothing'}</span>
 			</div>
 			{#if projects.length > 8}

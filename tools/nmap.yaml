@@ -5,3 +5,10 @@ description: Network scanner (instrumentisto/nmap, Alpine with /bin/sh)
 tags: [network, scanning]
 homepage: https://nmap.org
 image: docker.io/instrumentisto/nmap
+# Through a network route: a connect scan without pings (the command says where with {{ route }}),
+# and only by proxychains, which reports closed ports truthfully (a transparent route would answer
+# every port itself).
+route:
+  hook: true
+  flags: "-sT -Pn"
+  only: [native, hooked]

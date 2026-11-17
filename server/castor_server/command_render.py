@@ -18,6 +18,7 @@ from .command_spec import (
     ArgSpec,
     CommandSpec,
 )
+from .routing import ROUTE_PLACEHOLDER, ROUTE_REF
 
 
 class ArgumentError(ValueError):
@@ -148,6 +149,8 @@ def render_command(spec: CommandSpec, values: dict[str, Any]) -> str:
     by_name = {a.name: a for a in spec.args}
     # {{ work }} first: it's no argument, and it stays a reference the runtime fills in.
     rendered = WORK_PLACEHOLDER.sub(lambda _: WORK_REF, spec.command)
+    # {{ route }}: the tool's route flags, filled in by the agent (empty when it isn't routed).
+    rendered = ROUTE_PLACEHOLDER.sub(lambda _: ROUTE_REF, rendered)
     rendered = PLACEHOLDER.sub(lambda m: _shell_words(by_name[m.group(1)], resolved[m.group(1)]), rendered)
     # Variable fields become references to environment variables the agent sets at run
     # time, so no value (secret or not) is ever part of the stored command line.

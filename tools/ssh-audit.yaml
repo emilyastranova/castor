@@ -5,3 +5,5 @@ description: SSH server configuration audit (key exchange, ciphers, MACs, host k
 tags: [ssh, hardening, compliance]
 homepage: https://github.com/jtesta/ssh-audit
 image: docker.io/positronsecurity/ssh-audit
+route:
+  hook: true

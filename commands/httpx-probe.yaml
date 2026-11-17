@@ -17,7 +17,7 @@ args:
     flag: -ports
 command: |
   printf '%s\n' {{ targets }} | tr ',' '\n' | sed '/^$/d' > {{ work }}/targets.txt
-  httpx -l {{ work }}/targets.txt -sc -cl -wc -lc -title -td -fr -favicon -json -silent -o {{ work }}/httpx.jsonl {{ ports }}
+  httpx {{ route }} -l {{ work }}/targets.txt -sc -cl -wc -lc -title -td -fr -favicon -json -silent -o {{ work }}/httpx.jsonl {{ ports }}
 outputs:
   - name: urls
     type: list<url>

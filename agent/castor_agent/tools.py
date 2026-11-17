@@ -138,3 +138,53 @@ class ToolPreparer:
         if check and await _quiet(["/bin/sh", "-c", check], cwd=cwd) != 0:
             return f"{name} still isn't available after installing (check: {check})"
         return None
+
+    # ----- routes: an image with proxychains added -----
+
+    async def hooked_image(self, base: str, sink: Sink) -> tuple[str | None, str | None]:
+        """The tool's image with proxychains-ng installed on top (for "hooked" routing of dynamically
+        linked tools in containers): castor-tools/hooked-<hash of the base>:1, built once per agent.
+        Returns (image, None) or (None, why not)."""
+        if not self.runtime:
+            return None, "hooked routing in a container needs a container runtime"
+        import hashlib
+
+        ref = f"castor-tools/hooked-{hashlib.sha256(base.encode()).hexdigest()[:12]}:1"
+        async with self._locks.setdefault(ref, asyncio.Lock()):
+            if await self._have_image(ref):
+                return ref, None
+            if not await self._have_image(base) and await _stream([self.runtime, "pull", base], sink) != 0:
+                return None, f"couldn't pull {base} to add proxychains to it"
+            proc = await asyncio.create_subprocess_exec(
+                self.runtime, "image", "inspect", "--format", "{{.Config.User}}", base,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+            out, _ = await proc.communicate()
+            user = out.decode().strip()
+            await sink("system", f"[castor] adding proxychains to {base} for the route (once on this agent)\n")
+            install = (
+                "set -e\n"
+                "if command -v apk >/dev/null; then apk add --no-cache proxychains-ng\n"
+                "elif command -v apt-get >/dev/null; then apt-get update && "
+                "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends proxychains4 && rm -rf /var/lib/apt/lists/*\n"
+                "elif command -v dnf >/dev/null; then dnf install -y proxychains-ng && dnf clean all\n"
+                "elif command -v microdnf >/dev/null; then microdnf install -y proxychains-ng\n"
+                "else echo 'no package manager to install proxychains with' >&2; exit 1; fi\n"
+                "command -v proxychains4 >/dev/null || command -v proxychains >/dev/null\n"
+            )
+            lines = [f"FROM {base}", "USER root", 'LABEL castor.tool="hooked"',
+                     "COPY castor-hook.sh /tmp/castor-hook.sh", "RUN sh /tmp/castor-hook.sh && rm -f /tmp/castor-hook.sh"]
+            if user:
+                lines.append(f"USER {user}")
+            base_dir = Path(self.workdir) if self.workdir else Path(tempfile.gettempdir()) / "castor-agent"
+            base_dir.mkdir(parents=True, exist_ok=True)
+            context = Path(tempfile.mkdtemp(prefix="hook-", dir=base_dir))
+            try:
+                (context / "castor-hook.sh").write_text(install)
+                (context / "Dockerfile").write_text("\n".join(lines) + "\n")
+                code = await _stream([self.runtime, "build", "-t", ref, str(context)], sink,
+                                     env={**os.environ, "BUILDKIT_PROGRESS": "plain"})
+            finally:
+                shutil.rmtree(context, ignore_errors=True)
+            if code != 0:
+                return None, f"couldn't add proxychains to {base} (exit {code})"
+            return ref, None

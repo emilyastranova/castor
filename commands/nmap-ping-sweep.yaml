@@ -26,3 +26,5 @@ outputs:
     type: list<host>
     parser: nmap.hosts
     source: "{{ work }}/ping-sweep.xml"
+route:
+  unroutable: "A ping sweep sends ICMP and raw packets, which can't go through a network route; use Top ports (a connect scan) through it instead"

@@ -324,8 +324,19 @@ async def enqueue_job(
 
     spec = await load_spec(db, task.command_ref) if task.command_ref else None
     kind = spec.kind if spec else "command"
-    # A person lets each run go first: the definition demands it, or the card asks.
+    # A person lets each run go first: the definition demands it, or the card asks, or it goes
+    # through a network route toward targets outside the project's scope.
     ask = bool(task.confirm or (spec and spec.confirm))
+    why = ""
+    if not ask and kind in ("command", "http"):
+        from . import network_routes
+
+        route = await network_routes.get(db, await network_routes.chosen_for(db, task))
+        outside = await network_routes.outside_scope(db, task) if route is not None else []
+        if outside:
+            ask = True
+            shown = ", ".join(outside[:5]) + (f" and {len(outside) - 5} more" if len(outside) > 5 else "")
+            why = f"it goes through route “{route.name}” to targets outside the project's scope: {shown}"
 
     def new_job(**extra: Any) -> m.Job:
         return m.Job(
@@ -370,13 +381,13 @@ async def enqueue_job(
         **actor_of(user),
     )
     if ask:
-        await ask_approval(db, task, jobs[0], user, len(jobs))
+        await ask_approval(db, task, jobs[0], user, len(jobs), why=why)
     for job in jobs:
         publish_job(job, task.project_id)
     return jobs[0]
 
 
-async def ask_approval(db: AsyncSession, task: m.Task, job: m.Job, user: m.User | None, count: int = 1) -> None:
+async def ask_approval(db: AsyncSession, task: m.Task, job: m.Job, user: m.User | None, count: int = 1, why: str = "") -> None:
     """Tell the project a run waits for a person to let it go (the card, Home, the bell and alert
     channels that take approvals)."""
     from . import alerts
@@ -389,9 +400,12 @@ async def ask_approval(db: AsyncSession, task: m.Task, job: m.Job, user: m.User 
     groups = await approver_groups(db, task.project_id, task.approvers)
     by = await approvers_text(db, groups)
     await record_activity(db, type="job.approval_requested",
-                          message=f"{what} waits for approval to run (started by {who}" + (f"; {by} approve it)" if by else ")"),
-                          project_id=task.project_id, task_id=task.id, payload={"job_id": str(job.id), "approvers": groups}, **actor_of(user))
-    await notify(db, kind="job.approval", title=f"{what} needs approval to run", body=f"Started by {who}: {task.command[:300]}",
+                          message=f"{what} waits for approval to run (" + (f"{why}; " if why else "") + f"started by {who}"
+                          + (f"; {by} approve it)" if by else ")"),
+                          project_id=task.project_id, task_id=task.id,
+                          payload={"job_id": str(job.id), "approvers": groups, **({"why": why} if why else {})}, **actor_of(user))
+    await notify(db, kind="job.approval", title=f"{what} needs approval to run",
+                 body=(f"{why[0].upper()}{why[1:]}. " if why else "") + f"Started by {who}: {task.command[:300]}",
                  link=link, severity="warning", project_id=task.project_id, subject=f"approval:{job.id}",
                  payload={"job_id": str(job.id), "task_id": str(task.id)},
                  user_ids=await approver_people(db, task.project_id, groups))
@@ -1122,6 +1136,7 @@ async def playbook_run_out(db: AsyncSession, run: m.PlaybookRun) -> PlaybookRunO
         card_id=run.card_id,
         tasks=tasks_o,
         agent_selector=run.agent_selector or {},
+        route=run.route,
     )
 
 
@@ -1145,13 +1160,25 @@ async def start_playbook_run(
     user: m.User | None,
     agent_selector: dict[str, Any] | None = None,
     title: str | None = None,
+    *,
+    route: str | None = None,
 ) -> tuple[m.PlaybookRun, list[m.Job]]:
     """Instantiate a playbook: one card per command step (transform steps have no card),
     then run every step whose dependencies are already met. Caller commits.
     `agent_selector` ({agent_id} or {tags}) is where every step runs."""
     selector = {k: v for k, v in (agent_selector or {}).items() if k in ("agent_id", "tags") and v}
+    from . import network_routes
+
+    step_routes: dict[str, str | None] = {}
+    for step in spec.steps:  # a step's route by name: it must exist, and be for this project
+        if step.route:
+            try:
+                step_routes[step.id] = await network_routes.step_choice(db, step.route, project_id)
+            except network_routes.RouteError as exc:
+                raise ValueError(f"step {step.id}: {exc}") from exc
     run = m.PlaybookRun(
         agent_selector=selector,
+        route=route,
         playbook_id=spec.id,
         playbook_name=spec.name,
         project_id=project_id,
@@ -1211,6 +1238,7 @@ async def start_playbook_run(
             command_ref=step.command_ref,
             created_by=user.id if user else None,
             agent_selector=dict(selector),
+            route=step_routes.get(step.id),
         )
         db.add(task)
         await db.flush()  # next_position must see this card
@@ -1608,6 +1636,7 @@ async def _advance(
                 command_ref=step.command_ref,
                 created_by=run.created_by,
                 agent_selector=dict(run.agent_selector or {}),
+                route=await _step_route(db, step, run.project_id),
             )
             db.add(card)
             await db.flush()
@@ -1785,6 +1814,17 @@ async def _advance(
     run.step_results = results  # reassign: JSON columns don't track in-place changes
     await _settle_run(db, run, spec, statuses())
     return jobs, touched
+
+
+async def _step_route(db: AsyncSession, step: PlaybookStepSpec, project_id: uuid.UUID) -> str | None:
+    from . import network_routes
+
+    if not step.route:
+        return None
+    try:
+        return await network_routes.step_choice(db, step.route, project_id)
+    except network_routes.RouteError:
+        return f"missing:{step.route}"[:40]  # the card refuses to run, saying so, rather than going direct
 
 
 async def _prepare_command_step(

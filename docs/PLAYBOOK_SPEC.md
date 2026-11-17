@@ -142,6 +142,7 @@ Every step has these fields:
 | `for_each` | no | reference or mapping | Command steps only: run once per item of a list. See 5.3. |
 | `rate_limit` | no | string | HTTP action steps only: the most requests the step makes (`60/minute`, `5/second, 2 at once`), on top of the credential's limit. |
 | `send_from` | no | mapping | HTTP action steps only: send its requests through an agent, `{tags: [lab]}` or `{agent_id: <id>}`. Default: from the Castor server. |
+| `route` | no | string | Command and HTTP steps: the network route its traffic goes through, by the route's name (or id), or `none` to go direct. Default: the run's route (chosen when it starts), else the project's default. A name that isn't a route for the project stops the run from starting. |
 
 A step is **either** a command step (`command_ref` + `args`) **or** a transform step
 (`transform`). Giving both, or neither, is an error. Don't write `kind:` yourself; it's

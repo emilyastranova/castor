@@ -12,7 +12,7 @@ args:
     example: www.example.com,mail.example.com
 command: |
   printf '%s\n' {{ names }} | tr ',' '\n' | sed '/^$/d' > {{ work }}/names.txt
-  dnsx -l {{ work }}/names.txt -silent -nc -a -resp -o {{ work }}/resolved.txt
+  dnsx {{ route }} -l {{ work }}/names.txt -silent -nc -a -resp -o {{ work }}/resolved.txt
 outputs:
   - name: resolved
     type: list<string>

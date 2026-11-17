@@ -4,3 +4,7 @@ description: Probe hosts for live web servers with status, title and technologie
 tags: [web, discovery]
 homepage: https://github.com/projectdiscovery/httpx
 image: docker.io/projectdiscovery/httpx
+# Through a network route: its own proxy flag, where the command says {{ route }}.
+route:
+  proxy: "-http-proxy {url}"
+  scheme: http

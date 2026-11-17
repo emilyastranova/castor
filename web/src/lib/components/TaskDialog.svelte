@@ -1,5 +1,8 @@
 <script lang="ts">
 	import Spoilers from './Spoilers.svelte';
+	import RouteChoice from './routes/RouteChoice.svelte';
+	import { METHOD_WORDS } from '$lib/routes';
+	import type { RouteMethod } from '$lib/api';
 	import { hasSpoilers } from '$lib/spoilers';
 	import { originLabel } from '$lib/origin';
 	import { copyableCode } from '$lib/copyCode';
@@ -91,6 +94,7 @@
 	let image = $state('');
 	let containerFlagsText = $state('');
 	let agentId = $state('');
+	let routeId = $state('');
 	let runOnMove = $state(true);
 	let timeout = $state('');
 	let rateLimit = $state('');
@@ -113,6 +117,7 @@
 		image = task.image ?? '';
 		containerFlagsText = (task.container_flags ?? []).join(' ');
 		agentId = selectorValue(task.agent_selector);
+		routeId = task.route ?? '';
 		runOnMove = task.run_on_move;
 		timeout = task.timeout_s ? String(task.timeout_s) : '';
 		rateLimit = task.rate_limit ?? '';
@@ -972,6 +977,9 @@
 						<dt>Runs in</dt><dd class="truncate font-mono text-on-surface">{task.tool ? `the ${task.tool} tool` : task.image || 'the agent’s shell'}{task.container_flags?.length ? ` ${task.container_flags.join(' ')}` : ''}</dd>
 						<dt>Agent</dt><dd class="text-on-surface">{describeSelector(selectorFrom(agentId), agents)}</dd>
 						{/if}
+						{#if !isMcp && !isPluginAction}
+							<dt>Route</dt><dd class="text-on-surface">{task.route === 'none' ? 'direct (no route)' : task.route ? 'its own network route (see its runs)' : 'the project’s default'}</dd>
+						{/if}
 						<dt>Timeout</dt><dd class="text-on-surface">{task.timeout_s ? `${task.timeout_s}s` : 'none'}</dd>
 						<dt>On move</dt><dd class="text-on-surface">{task.run_on_move ? 'runs when moved to In Progress' : 'doesn’t run on move'}</dd>
 					</dl>
@@ -1031,6 +1039,9 @@
 								onchange={(v) => save({ agent_selector: selectorFrom(v) })}
 							/>
 							{/if}
+							{#if isHttp}
+								<RouteChoice projectId={task.project_id} bind:value={routeId} taskId={task.id} recheck={task.updated_at} onchange={(v) => save({ route: v })} />
+							{/if}
 							<TextField
 								label="Rate limit (optional)"
 								bind:value={rateLimit}
@@ -1057,6 +1068,8 @@
 						{/if}
 						<Select label="Agent" bind:value={agentId} options={agentOptions} onchange={(v) => save({ agent_selector: selectorFrom(v) })} />
 					</div>
+					<RouteChoice projectId={task.project_id} bind:value={routeId} taskId={task.id} recheck={`${task.updated_at}${task.image}${task.command}`}
+						onchange={(v) => save({ route: v })} />
 					{#if image.trim()}
 						<TextField
 							label="Container flags (optional)"
@@ -1173,6 +1186,13 @@
 								{/if}
 							{:else}
 							Agent {agentName(selectedJob.agent_id)}{selectedJob.image ? ` · ${selectedJob.image}` : ' · host shell'} · queued {absoluteTime(selectedJob.queued_at)}
+							{/if}
+							{#if selectedJob.route_info}
+								{@const ri = selectedJob.route_info}
+								<a href={`/routes?r=${ri.id}`} class="inline-flex items-center gap-1 rounded-sm bg-secondary-container px-1.5 text-on-secondary-container hover:underline"
+									title={`${ri.label}${ri.method ? `\nBy ${METHOD_WORDS[ri.method as RouteMethod]?.label ?? ri.method}` : ''}${ri.dns === 'local' ? '' : '\nNames resolved at the far end'}`}>
+									<Icon name="alt_route" size={14} />through {ri.name}{ri.method ? ` · ${METHOD_WORDS[ri.method as RouteMethod]?.label ?? ri.method}` : ''}
+								</a>
 							{/if}
 							{#if aiStatus.enabled && (selectedJob.status === 'failed' || selectedJob.status === 'lost')}
 								<button type="button" class="ml-auto flex items-center gap-1 label-large text-primary hover:underline disabled:opacity-60" disabled={explaining} onclick={() => explain(selectedJob!.id)}>
@@ -1446,6 +1466,7 @@
 					{#if task.latest_job}
 						<dt>Last run</dt><dd class="text-on-surface">{task.latest_job.status}{task.latest_job.started_at ? ` · ${duration(task.latest_job.started_at, task.latest_job.finished_at)}` : ''}</dd>
 						<dt>{task.latest_job.kind && task.latest_job.kind !== 'command' ? 'Sent by' : 'Agent'}</dt><dd class="text-on-surface">{task.latest_job.kind && task.latest_job.kind !== 'command' ? `Castor server${task.latest_job.via_agent_id ? ` via ${agentName(task.latest_job.via_agent_id)}` : ''}` : agentName(task.latest_job.agent_id)}</dd>
+						{#if task.latest_job.route_info}<dt>Route</dt><dd class="truncate text-on-surface" title={task.latest_job.route_info.label}>{task.latest_job.route_info.name}</dd>{/if}
 					{/if}
 					<dt>ID</dt><dd class="truncate font-mono text-on-surface" title={task.id}>{task.id.slice(0, 8)}</dd>
 				</dl>

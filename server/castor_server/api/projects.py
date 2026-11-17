@@ -136,6 +136,16 @@ async def update_project(project_id: str, body: ProjectPatch, db: DB, user: Curr
         if wanted != current and not await people.may_approve(db, user, current):
             raise HTTPException(403, "Only someone who can approve the project's runs now (or an admin) can change who approves them")
         body.settings = {**body.settings, "approvers": wanted} if wanted else {k: v for k, v in body.settings.items() if k != "approvers"}
+        if (body.settings.get("route") or None) != ((project.settings or {}).get("route") or None):
+            # The default network route: one that's for this project ("" or null: none).
+            from .. import network_routes, routing
+
+            try:
+                chosen = await network_routes.check_choice(db, body.settings.get("route") or None, project.id)
+            except routing.RouteError as exc:
+                raise HTTPException(422, str(exc)) from exc
+            body.settings = {**body.settings, "route": chosen} if chosen and chosen != routing.NONE else \
+                {k: v for k, v in body.settings.items() if k != "route"}
     before = {k: getattr(project, k) for k in body.model_dump(exclude_unset=True)}
     for key, value in body.model_dump(exclude_unset=True).items():
         setattr(project, key, value)

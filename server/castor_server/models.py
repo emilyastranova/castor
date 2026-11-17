@@ -329,6 +329,10 @@ class Task(Base, TimestampMixin):
     tool: Mapped[str | None] = mapped_column(String(64), nullable=True)
     container_flags: Mapped[list[str]] = mapped_column(JSONType, default=list)
     agent_selector: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    # Its network route: a route id, "none" (direct, even if the project has a default), or None (the
+    # step's or run's, else the project's default). Not a foreign key: a card whose route was deleted
+    # refuses to run rather than going direct.
+    route: Mapped[str | None] = mapped_column(String(40), nullable=True)
     run_on_move: Mapped[bool] = mapped_column(Boolean, default=True)
     timeout_s: Mapped[int | None] = mapped_column(Integer, nullable=True)
     priority: Mapped[int] = mapped_column(Integer, default=0)  # 0 none … 3 high
@@ -509,6 +513,7 @@ class PlaybookRun(Base, TimestampMixin):
     spec_snapshot: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
     # Where its steps run ({agent_id} or {tags}); every step card gets it.
     agent_selector: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    route: Mapped[str | None] = mapped_column(String(40), nullable=True)  # for steps that don't name one
     finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
@@ -543,6 +548,8 @@ class Agent(Base, TimestampMixin):
     # Where it sits on the network ("VLAN 20 / user LAN"): its vantage point. Set by admins; every
     # observation from its runs records it (segmentation.py).
     segment: Mapped[str] = mapped_column(String(80), default="", server_default="")
+    # Its network route (admins): everything it runs goes that way (a job's own route is chained after it).
+    route: Mapped[str | None] = mapped_column(String(40), nullable=True)
     # A machine a plugin's agent type reaches (plugin_agents.py): the plugin, its type, the machine's
     # id in that system (a Salt minion id), and the tags that system gave it (refreshed; an admin's
     # own tags stay).
@@ -590,6 +597,27 @@ class SshHost(Base, TimestampMixin):
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     agent: Mapped[Agent] = relationship()
+
+
+class Route(Base, TimestampMixin):
+    """A network route: a chain of hops (SSH jumps, SOCKS and HTTP proxies) a job's traffic goes
+    through to reach its targets. Hops hold their secrets as vault tokens (`secret`), never plain."""
+
+    __tablename__ = "routes"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(200), unique=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    tags: Mapped[list[str]] = mapped_column(JSONType, default=list)
+    # Projects that can use it (empty: every project), like variable sets.
+    project_ids: Mapped[list[str]] = mapped_column(JSONType, default=list)
+    # [{id, kind, host, port, username, auth, secret (vault), public_key, host_key, host_key_pending, label}]
+    hops: Mapped[list[dict[str, Any]]] = mapped_column(JSONType, default=list)
+    dns: Mapped[str] = mapped_column(String(8), default="remote")  # remote (at the far end) | local
+    strict: Mapped[bool] = mapped_column(Boolean, default=True)  # nothing leaves except through it
+    segment: Mapped[str] = mapped_column(String(80), default="", server_default="")  # vantage point label
+    last_test: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
 
 class SsoProvider(Base, TimestampMixin):
@@ -682,6 +710,9 @@ class Job(Base):
     tty: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     # A service (runs until stopped): its ServiceSpec at dispatch time. None: an ordinary job.
     service: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
+    # The network route it went through (no secrets): {id, name, label, hops, dns, strict, segment,
+    # method (how the agent applied it)}. Set when it's sent.
+    route_info: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
     # The terminal's size as the person in control last set it: {"cols": n, "rows": n}.
     tty_size: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
     # The prompt it's waiting at (an automated run nobody has typed into yet), if any.

@@ -5,6 +5,7 @@
 	import { aiStatus } from '$lib/ai.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import GroupPicker from './GroupPicker.svelte';
+	import RouteChoice from './routes/RouteChoice.svelte';
 
 	interface Props {
 		open?: boolean;
@@ -30,6 +31,7 @@
 	let pictures = $state(false);
 	let follows = $state(true);
 	let approvers = $state<string[]>([]);
+	let route = $state('');
 	$effect(() => void aiStatus.load());
 	let busy = $state(false);
 
@@ -45,6 +47,7 @@
 			pictures = !!project?.settings?.ai_read_pictures;
 			follows = project?.settings?.subtasks_move_card !== false;
 			approvers = [...((project?.settings?.approvers as string[] | undefined) ?? [])];
+			route = ((project?.settings?.route as string | undefined) ?? '') || 'none';
 			newClient = '';
 			api()
 				.clients.list()
@@ -79,7 +82,7 @@
 			let client_id: string | null = clientId || null;
 			if (clientId === '__new') client_id = newClient.trim() ? await clientFor(newClient.trim()) : null;
 			if (project) {
-				const settings = { ...project.settings, ai_summaries: summaries, asset_mentions: mentions, ai_read_pictures: pictures, subtasks_move_card: follows, approvers };
+				const settings = { ...project.settings, ai_summaries: summaries, asset_mentions: mentions, ai_read_pictures: pictures, subtasks_move_card: follows, approvers, route: route === 'none' ? '' : route };
 				const saved = await api().projects.update(project.id, { codename, name, kind, client_id, description, settings });
 				onsaved?.(saved);
 			} else {
@@ -121,6 +124,11 @@
 			supporting={approvers.length ? 'Only people in these groups, and admins, approve runs that ask first and asset triggers that wait, and only they are asked. A card or trigger can name its own.' : ''}
 			onchange={(ids) => (approvers = ids)}
 		/>
+		{#if project}
+			<RouteChoice projectId={project.id} bind:value={route} inherit={false} label="Default network route"
+				class="col-span-full" />
+			<p class="col-span-full -mt-3 px-1 body-small text-on-surface-variant">Cards and playbook runs of the project go through it unless they pick another (or Direct).</p>
+		{/if}
 		<div>
 			<Switch bind:checked={follows} label="Cards follow their subtasks" />
 			<p class="mt-1 body-small text-on-surface-variant">A card with subtasks moves to In Progress when one starts, and to Review when they're all finished.</p>

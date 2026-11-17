@@ -186,6 +186,28 @@ needs-attention, people on the project are notified (and alert channels that tak
 an operator approves or rejects it on the card; rejected, it's cancelled with the reason. In a
 playbook the step waits. Settings → General can require someone other than whoever started it.
 
+## Network routes (`{{ route }}` and `route:`)
+
+A card can go through a network route (Routes: SSH jumps, SOCKS and HTTP proxies). How a tool takes
+one is said once on the tool, in a `route:` block (see [docs/ROUTES.md](../docs/ROUTES.md)): its own
+proxy flag (`proxy: "-proxy {url}"`), whether it honours proxy variables (`env: true`), whether
+proxychains works for it (`hook: true`), flags it needs when routed (`flags: "-sT -Pn"`), and the
+only ways that give true answers (`only: [native, hooked]`). A command says where those flags go with
+`{{ route }}`, which is empty when the card isn't routed:
+
+```yaml
+command: nmap {{ route }} -sV -p {{ ports }} -oX {{ work }}/scan.xml {{ targets }}
+```
+
+A command can have its own `route:` block, overriding its tool's key by key. One that can't go
+through a route at all says why, and Castor refuses it with that reason instead of letting it out
+from the agent's own network:
+
+```yaml
+route:
+  unroutable: "UDP can't go through a network route (SOCKS and SSH carry TCP only)"
+```
+
 ## Services: commands that run until stopped (`service`)
 
 A listener, a relay, a capture or a log tail runs until someone stops it. Say so with `service:`, and

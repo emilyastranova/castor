@@ -173,6 +173,9 @@ class ServerRunner:
         finally:
             self._tasks.pop(job_id, None)
             self.conn.running.discard(job_id)
+            from .gateway import gateway
+
+            gateway.route_payloads.pop(job_id, None)
             if not self._stopping:
                 from .dispatcher import dispatcher
 
@@ -532,6 +535,9 @@ class ServerRunner:
             raise Park(15, "the agent it sends through isn't connected")
         payload = {"job_id": str(run.job_id), "method": method, "url": url, "headers": headers, "timeout_s": timeout,
                    "body": base64.b64encode(content).decode() if content else None, "max_bytes": settings.http_max_bytes}
+        route = gateway.route_payloads.get(run.job_id) or await _route_payload(run.job_id, conn)
+        if route:
+            payload["route"] = route  # its network route: the agent sends it through that, never directly
         try:
             answer = await gateway.http_request(conn, payload, timeout + 30)
         except AgentGone as exc:
@@ -1049,3 +1055,28 @@ def _short(url: str) -> str:
 
 
 server_runner = ServerRunner()
+
+
+async def _route_payload(job_id: Any, conn: Any) -> dict[str, Any] | None:
+    """A routed HTTP action's route, rebuilt (after a restart the payload isn't in memory any more)."""
+    from .. import models as m
+    from .. import network_routes
+    from ..db import SessionLocal
+    from ..tool_library import tools_by_id
+    from .dispatcher import tool_way
+    from .gateway import gateway
+
+    async with SessionLocal() as db:
+        job = await db.get(m.Job, job_id)
+        if job is None or not job.route_info:
+            return None
+        rows = [r for r in [await network_routes.get(db, i) for i in [*(job.route_info.get("via") or []), job.route_info.get("id")]]
+                if r is not None]
+        if not rows:
+            raise Failed("its route no longer exists")
+        data = network_routes.payload(rows)
+        box = (await tools_by_id(db)).get("castor-route")
+        if (conn.capabilities.get("routes") or {}).get("box") and box is not None:
+            data["box"] = tool_way(conn, box)
+    gateway.route_payloads[job_id] = data
+    return data

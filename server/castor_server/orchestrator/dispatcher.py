@@ -11,7 +11,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import selectinload
 
 from .. import models as m
-from .. import variables
+from .. import network_routes, routing, variables
 from ..artifacts import collect_patterns, new_token
 from ..command_library import load_spec
 from ..config import settings
@@ -62,6 +62,17 @@ def selector_matches(conn: AgentConnection, selector: dict[str, Any]) -> bool:
         return False
     wanted_tags = set(selector.get("tags") or [])
     return not wanted_tags or wanted_tags.issubset(set(conn.tags))
+
+
+def route_capable(conn: AgentConnection, job: m.Job, tool: ToolSpec | None) -> bool:
+    """Whether the agent can take this job through a route: it knows routes, and has a route box
+    for a job that runs in a container."""
+    caps = conn.capabilities.get("routes")
+    if not caps:
+        return False
+    way = tool_way(conn, tool) if tool else None
+    in_container = (way["kind"] in ("image", "build")) if way else (bool(job.image) or "host" not in conn.runtimes)
+    return bool(caps.get("box")) or not in_container
 
 
 def project_allowed(conn: AgentConnection, project_id: uuid.UUID | str | None) -> bool:
@@ -132,6 +143,9 @@ class Dispatcher:
             if not queued:
                 return
             tools = await tools_by_id(db) if any(j.tool for j in queued) else {}
+            # Agents with a route of their own (everything they run goes that way).
+            agent_routes = {a: r for a, r in (await db.execute(
+                select(m.Agent.id, m.Agent.route).where(m.Agent.route.is_not(None), m.Agent.route != ""))).all()}
             for job in queued:
                 task = job.task
                 if job.kind in ("http", "mcp", "plugin"):
@@ -144,9 +158,11 @@ class Dispatcher:
                 if job.tool and tool is None:
                     await self._fail_unsent(db, job, task, f"the tool {job.tool} isn't in the library")
                     continue
+                job_route = await network_routes.chosen_for(db, task)
                 candidates = [
                     c for c in gateway.connections.values()
                     if project_allowed(c, task.project_id) and agent_matches(c, job, selector, tool)
+                    and (not (job_route or agent_routes.get(c.agent_id)) or route_capable(c, job, tool))
                 ]
                 if not candidates:
                     continue
@@ -164,11 +180,19 @@ class Dispatcher:
                 if way is not None:
                     # The image the tool resolves to on this agent, kept on the job.
                     job.image = way.get("ref") if way["kind"] in ("image", "build") else None
+                spec = await load_spec(db, task.command_ref) if task.command_ref else None
+                route_payload = None
+                try:
+                    rows = await network_routes.rows_for(db, task, agent_routes.get(conn.agent_id))
+                    if rows:
+                        route_payload = await self._route_plan(db, job, rows, conn, tool, spec, tools)
+                except routing.RouteError as exc:
+                    await self._fail_unsent(db, job, task, f"route: {exc}")
+                    continue
                 job.agent_id = conn.agent_id
                 job.status = m.JobStatus.dispatched
                 job.dispatched_at = utcnow()
                 upload_token, job.artifact_token_hash = new_token()
-                spec = await load_spec(db, task.command_ref) if task.command_ref else None
                 artifacts = {"token": upload_token, "collect": collect_patterns(spec)}
                 job.output_specs = output_specs_for(spec.outputs) if spec else None
                 try:
@@ -178,17 +202,22 @@ class Dispatcher:
                 except variables.VariableError as exc:
                     await self._fail_unsent(db, job, task, f"variables: {exc}")
                     continue
+                if route_payload is not None:
+                    resolved.secrets = [*resolved.secrets, *network_routes.secrets_of(rows)]
+                    job.route_info = network_routes.info(rows)
+                via = f" through route “{job.route_info['name']}”" if route_payload is not None and job.route_info else ""
                 await record_activity(
                     db,
                     type="job.dispatched",
-                    message=f"Sent “{task.title}” to {conn.name}",
+                    message=f"Sent “{task.title}” to {conn.name}{via}",
                     project_id=task.project_id,
                     task_id=task.id,
-                    payload={"job_id": str(job.id), "agent_id": str(conn.agent_id)},
+                    payload={"job_id": str(job.id), "agent_id": str(conn.agent_id),
+                             **({"route_id": job.route_info["id"]} if route_payload is not None and job.route_info else {})},
                 )
                 await db.commit()
                 try:
-                    await gateway.send_job(conn, job, artifacts, resolved, way)
+                    await gateway.send_job(conn, job, artifacts, resolved, way, route_payload)
                 except Exception as exc:  # noqa: BLE001 - any send failure re-queues the job
                     log.warning("failed to send job %s to %s: %s", job.id, conn.name, exc)
                     conn.running.discard(job.id)
@@ -200,6 +229,27 @@ class Dispatcher:
                     continue
                 publish_job(job, task.project_id)
                 await publish_task(db, task)
+
+    async def _route_plan(self, db, job: m.Job, rows: list[m.Route], conn: AgentConnection, tool: ToolSpec | None,
+                          spec: Any, tools: dict[str, ToolSpec]) -> dict[str, Any]:
+        """The route as this agent gets it in job.run: hops (with secrets), how to go through it
+        (best way first, for this tool and whether it runs in a container) and the route box."""
+        in_container = bool(job.image) or "host" not in conn.runtimes
+        caps = routing.merge_caps(tool.route if tool else None, spec.route if spec else None, shell=tool is None and spec is None)
+        strict = any(r.strict for r in rows)
+        names = " + ".join(r.name for r in rows)
+        try:
+            ways = routing.plan(caps, job.command, in_container=in_container, strict=strict, agent=conn.capabilities)
+        except routing.RouteError as exc:
+            raise routing.RouteError(f"“{names}”: {exc}") from exc
+        data = network_routes.payload(rows)
+        data["plan"] = ways
+        box = (tools or await tools_by_id(db)).get("castor-route") or (await tools_by_id(db)).get("castor-route")
+        if (conn.capabilities.get("routes") or {}).get("box"):
+            if box is None:
+                raise routing.RouteError("the castor-route tool (the route box) isn't in the library")
+            data["box"] = tool_way(conn, box)
+        return data
 
     async def _to_server(self, db, job: m.Job, task: m.Task) -> None:
         """An HTTP action: the Castor server's runner makes it (docs/ACTIONS.md). The request
@@ -239,13 +289,27 @@ class Dispatcher:
         # the project and sends HTTP requests. None now: it waits for one, like a command would.
         # (An MCP action's connection decides where it runs, not the card.)
         selector = {k: v for k, v in (task.agent_selector or {}).items() if k in ("agent_id", "tags") and v} if job.kind == "http" else {}
+        # A route: an HTTP action goes through an agent that holds it (routes only run on agents).
+        try:
+            rows = await network_routes.rows_for(db, task, None) if job.kind == "http" else []
+        except routing.RouteError as exc:
+            await self._fail_unsent(db, job, task, f"route: {exc}")
+            return
         via: AgentConnection | None = None
-        if selector:
+        if selector or rows:
             able = [c for c in gateway.connections.values()
-                    if c.capabilities.get("http") and project_allowed(c, task.project_id) and selector_matches(c, selector)]
+                    if c.capabilities.get("http") and project_allowed(c, task.project_id) and selector_matches(c, selector)
+                    and (not rows or c.capabilities.get("routes"))]
             if not able:
                 return
             via = min(able, key=lambda c: len(c.running))
+        if rows and via is not None:
+            data = network_routes.payload(rows)
+            box = (await tools_by_id(db)).get("castor-route")
+            if (via.capabilities.get("routes") or {}).get("box") and box is not None:
+                data["box"] = tool_way(via, box)
+            gateway.route_payloads[job.id] = data
+            job.route_info = {**network_routes.info(rows), "method": "proxy"}
         job.runner = "server"
         job.agent_id = None
         job.via_agent_id = via.agent_id if via else None
@@ -255,7 +319,8 @@ class Dispatcher:
             await record_activity(
                 db,
                 type="job.dispatched",
-                message=f"Started “{task.title}” on the Castor server" + (f", sending through {via.name}" if via else ""),
+                message=f"Started “{task.title}” on the Castor server" + (f", sending through {via.name}" if via else "")
+                + (f" by route “{job.route_info['name']}”" if rows and job.route_info else ""),
                 project_id=task.project_id,
                 task_id=task.id,
                 payload={"job_id": str(job.id), "runner": "server", **({"agent_id": str(via.agent_id)} if via else {})},

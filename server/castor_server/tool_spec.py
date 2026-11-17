@@ -25,6 +25,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from .command_spec import ID_PATTERN
+from .routing import RouteCaps
 
 # Bumped when the Dockerfile Castor renders changes shape, so old builds aren't reused.
 RECIPE_FORMAT = 1
@@ -65,6 +66,8 @@ class ToolSpec(BaseModel):
     image: str | None = None
     build: BuildRecipe | None = None
     host: HostInstall | None = None
+    # How it takes a network route (routing.RouteCaps): its proxy flag, env, proxychains, ...
+    route: RouteCaps | None = None
 
     @field_validator("id")
     @classmethod

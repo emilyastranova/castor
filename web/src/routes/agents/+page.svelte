@@ -5,7 +5,7 @@
 	import { page } from '$app/state';
 	import type { Agent, AgentToken, Job, SshHost, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
-	import { TopAppBar, Card, Icon, IconButton, Chip, Dialog, Button, TextField, TagInput } from '$lib/m3';
+	import { TopAppBar, Card, Icon, IconButton, Chip, Dialog, Button, TextField, TagInput, Select } from '$lib/m3';
 	import { loadTags, type TagSuggestion } from '$lib/tags';
 	import StatusChip from '$lib/components/StatusChip.svelte';
 	import { realtime } from '$lib/realtime.svelte';
@@ -201,6 +201,9 @@
 	let editing = $state<Agent | null>(null);
 	/** Its network segment: where its runs look from. */
 	let segment = $state('');
+	/** Its network route: everything it runs goes that way. */
+	let route = $state('');
+	let routeOptions = $state<{ value: string; label: string; description?: string }[]>([]);
 
 	let tags = $state<string[]>([]);
 	let tagSuggestions = $state<TagSuggestion[]>([]);
@@ -231,6 +234,9 @@
 		void loadTags('agents').then((t) => (tagSuggestions = t));
 		concurrency = String(a.max_concurrency);
 		segment = a.segment ?? '';
+		route = a.route ?? '';
+		api().routes.list().then((rs) => (routeOptions = [{ value: '', label: 'None', description: 'It reaches targets from its own network' },
+			...rs.map((r) => ({ value: r.id, label: r.name, description: r.label }))])).catch(() => {});
 	}
 	async function saveAgent() {
 		if (!editing) return;
@@ -239,7 +245,8 @@
 				tags,
 				max_concurrency: Number(concurrency) || 1,
 				project_ids: limitTo,
-				segment
+				segment,
+				...(editing.ssh_host_id || editing.plugin ? {} : { route })
 			});
 			agents = agents.map((x) => (x.id === a.id ? a : x));
 			editing = null;
@@ -326,6 +333,7 @@
 						<dt>Slots</dt><dd class="text-on-surface">{a.running_jobs}/{a.max_concurrency}</dd>
 						{#if a.plugin && a.plugin_status?.ok === false}<dt>System</dt><dd class="truncate text-error" title={a.plugin_status.message}>not answering: {a.plugin_status.message || 'no reply'}</dd>{/if}
 						{#if a.segment}<dt>Segment</dt><dd class="truncate text-on-surface" title="Its network segment: where its runs look from">{a.segment}</dd>{/if}
+						{#if a.route}<dt>Route</dt><dd class="truncate text-on-surface"><a class="text-primary hover:underline" href={`/routes?r=${a.route}`}>everything it runs goes through a route</a></dd>{/if}
 						<dt>Projects</dt><dd class="truncate {a.project_ids && !a.project_ids.length ? 'text-error' : 'text-on-surface'}" title={projectsOf(a)}>{projectsOf(a)}</dd>
 						{#if (sshOf(a)?.route.length ?? 0) > 1}
 							{@const hops = sshOf(a)!.route.slice(0, -1)}
@@ -465,6 +473,10 @@
 		<TextField label="Max concurrent jobs" bind:value={concurrency} type="number" />
 		<TextField label="Network segment" bind:value={segment} placeholder="e.g. VLAN 20 / user LAN"
 			supporting="Where it sits on the network. Its runs record it, so the Assets page's Reachability shows what each segment reaches; empty: not said." />
+		{#if editing && !editing.ssh_host_id && !editing.plugin}
+			<Select label="Network route" bind:value={route} options={routeOptions}
+				supporting="Everything it runs goes through this route (a card’s own route is chained after it). For an agent that only gets out through a jumpbox or a proxy." />
+		{/if}
 		<AgentProjectsPicker bind:value={limitTo} supporting="Limit it to some projects to keep their work (and their targets' traffic) on this machine and other projects' work off it." />
 	</div>
 	{#snippet actions()}
