@@ -154,7 +154,7 @@
 			{#if showProject && item.project}
 				<span class="rounded bg-surface-container-highest px-1.5 font-mono text-[11px]" title={item.project.name}>{item.project.codename}</span>
 			{/if}
-			<span class="ml-auto shrink-0" title={absoluteTime(item.created_at)}>{time}</span>
+			<span class="ml-auto shrink-0 {perched ? 'perch-time' : ''}" title={absoluteTime(item.created_at)}>{time}</span>
 			{#if mayChange && !editing}
 				<Menu>
 					{#snippet anchor()}<IconButton icon="more_vert" label="Post actions" size="sm" class="-my-1.5" />{/snippet}
@@ -177,12 +177,14 @@
 		{:else if item.kind === 'comment' && item.comment}
 			{@const forMe = !!myId && item.comment.mentions?.includes(myId)}
 			<div class="relative">
-				<!-- Shown in full. Perched, the words wrap around the corner under the legs (a float). -->
+				<!-- Shown in full. Perched, the words wrap around the corner under the legs (a float), and the
+				     comment holds that corner (flow-root): a short one grows to fit the legs, so they rest on it
+				     instead of hanging into what comes after (its reactions). -->
 				<RichText
 					text={item.comment.body}
 					projectId={item.project?.id}
 					room={perched}
-					class="mt-1.5 rounded-md bg-surface-container px-3.5 py-2.5 body-medium text-on-surface {forMe ? 'mentions-me quiet' : ''}"
+					class="mt-1.5 rounded-md bg-surface-container px-3.5 py-2.5 body-medium text-on-surface {perched ? 'flow-root' : ''} {forMe ? 'mentions-me quiet' : ''}"
 				/>
 				{#if perched}
 					<!-- The companion sits on the newest comment, legs over its front edge. -->
@@ -275,10 +277,16 @@
 			--companion-h: 116px;
 			--companion-right: 3.5rem;
 		}
-		/* On a phone the entry's header runs the full width, up into the companion's body: it
-		   stops short of them instead (on wider screens it never reaches them). */
-		.perch-head {
-			padding-right: calc(var(--companion-right) + var(--companion-h) * var(--companion-aspect) + 0.25rem);
-		}
+	}
+	/* The entry's header (a long card title, say) would run behind her: it wraps short of her instead,
+	   and its time keeps its place at the right edge, past her. */
+	.perch-head {
+		position: relative;
+		padding-right: calc(var(--companion-right) + var(--companion-h) * var(--companion-aspect) + 0.25rem);
+	}
+	.perch-time {
+		position: absolute;
+		top: 0;
+		right: 0;
 	}
 </style>
