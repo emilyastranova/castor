@@ -547,6 +547,13 @@ dependency; keep it that way so the agent stays trivially installable on target 
   `dashboard.link_for`. Every mutation that
   changes something people would care about records an activity (`record_activity`; library items
   through `services.library_activity`), or MCP work done through it never shows up in the feed.
+  Reactions (`reactions.py`, `api/reactions.py`): `reactions` rows on a comment or a post (Unicode emoji, or `:name:` for a
+  `custom_emojis` row an admin uploaded; raster images only, in `<data_dir>/emojis`), returned on `CommentOut`/`PostOut` and
+  the feed's `comment`/`post` (`reactions.summaries`), published as `reactions.changed`; not activity. Moving a comment ⇄ post
+  moves its reactions. Web `components/reactions/` (`Reactions`, `EmojiPicker`, `Emoji`), `lib/emoji.ts` (curated set, search),
+  `lib/emojis.svelte.ts`, `routes/settings/emoji`. `:name:` in markdown draws a custom emoji (`lib/markdown.ts` extension, reactive
+  on `customEmojis.list`; `report.py` embeds them in exports); typing `:xx` in `MarkdownEditor` suggests (`lib/emojiSuggest.svelte.ts`,
+  `EmojiMenu`). Authors are notified (`reactions._tell_author`, kind `reaction`, subject `reaction:<id>` folded via `clear`).
   Posts (`api/posts.py`, `project_posts`) are comments on nothing in the timeline (`PostComposer.svelte`,
   rendered by `TimelineItem` from `FeedItem.post`). Comments and posts move (`api/moves.py`: card to card keeps
   the comment's id; post ⇄ comment converts with a backdated `created` activity; same project only;

@@ -408,7 +408,7 @@ export interface FeedItem {
 	project: ProjectRef | null;
 	task: { id: UUID; name: string } | null;
 	actor: { type: 'user' | 'agent' | 'system'; name: string; avatar_url: string | null; username?: string | null };
-	comment: { id: UUID; body: string; edited: boolean; mentions: string[] } | null;
+	comment: { id: UUID; body: string; edited: boolean; mentions: string[]; reactions?: Reaction[] } | null;
 	job: { id: UUID; status: string; exit_code: number | null; seconds: number | null; agent: string | null; command: string } | null;
 	run_id: string | null;
 	step_id: string | null;
@@ -417,7 +417,7 @@ export interface FeedItem {
 	/** Where a library item lives (library events). */
 	link?: string | null;
 	/** A post written straight into the timeline (type post.created), as it is now. */
-	post?: { id: UUID; body: string; edited: boolean; mentions: string[]; tags: string[]; author_id: UUID | null } | null;
+	post?: { id: UUID; body: string; edited: boolean; mentions: string[]; tags: string[]; author_id: UUID | null; reactions?: Reaction[] } | null;
 	/** An AI summary of a run (type summary.written), as it is now. */
 	summary?: { id: UUID; text: string; model: string } | null;
 	/** About a subtask: the activity card it's in. */
@@ -462,6 +462,7 @@ export interface ProjectPost {
 	created_at: string;
 	edited_at: string | null;
 	via?: string | null;
+	reactions?: Reaction[];
 }
 
 export interface DashboardSummary {
@@ -1363,6 +1364,21 @@ export interface Comment {
 	edited_at: string | null;
 	/** 'mcp': written (or last edited) through an AI assistant. */
 	via?: string | null;
+	reactions?: Reaction[];
+}
+
+/** An emoji people reacted with, and who. `emoji` is Unicode, or ":name:" for a custom one. */
+export interface Reaction {
+	emoji: string;
+	count: number;
+	user_ids: string[];
+	names: string[];
+}
+
+export interface CustomEmoji {
+	name: string;
+	url: string;
+	created_at: string | null;
 }
 
 /** A file in a project's Files view: an attachment with where it came from. */
@@ -2227,6 +2243,25 @@ export function api(fetchFn: Fetch = fetch) {
 			fromSshHost: (body: { ssh_host_id: UUID; name: string; project_ids?: UUID[] }) => post<NetworkRoute>('/routes/from-ssh-host', body),
 			plan: (body: { route_id?: string | null; task_id?: UUID | null; command_ref?: string | null; agent_id?: UUID | null }) =>
 				post<RoutePlan>('/routes/plan', body)
+		},
+		reactions: {
+			/** React (again with the same emoji: no change); returns its reactions. */
+			add: (target: { comment?: UUID; post?: UUID }, emoji: string) =>
+				post<Reaction[]>(target.comment ? `/comments/${target.comment}/reactions` : `/posts/${target.post}/reactions`, { emoji }),
+			remove: (target: { comment?: UUID; post?: UUID }, emoji: string) =>
+				request<Reaction[]>(fetchFn, 'DELETE',
+					`${target.comment ? `/comments/${target.comment}` : `/posts/${target.post}`}/reactions?emoji=${encodeURIComponent(emoji)}`)
+		},
+		emojis: {
+			list: () => get<CustomEmoji[]>('/emojis'),
+			add: (name: string, file: File, replace = false) => {
+				const form = new FormData();
+				form.append('name', name);
+				form.append('file', file);
+				if (replace) form.append('replace', 'true');
+				return post<CustomEmoji>('/emojis', form);
+			},
+			remove: (name: string) => del(`/emojis/${encodeURIComponent(name)}`)
 		},
 		sshHosts: {
 			list: () => get<SshHost[]>('/ssh-hosts'),

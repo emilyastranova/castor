@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Spoilers from './Spoilers.svelte';
 	import RouteChoice from './routes/RouteChoice.svelte';
+	import Reactions from './reactions/Reactions.svelte';
 	import { METHOD_WORDS } from '$lib/routes';
 	import type { RouteMethod } from '$lib/api';
 	import { hasSpoilers } from '$lib/spoilers';
@@ -338,6 +339,9 @@
 			} else if (e.name === 'comment.deleted') {
 				const d = e.data as { id: UUID };
 				comments = comments.filter((x) => x.id !== d.id);
+			} else if (e.name === 'reactions.changed') {
+				const d = e.data as { comment_id: UUID | null; reactions: Comment['reactions'] };
+				if (d.comment_id) comments = comments.map((x) => (x.id === d.comment_id ? { ...x, reactions: d.reactions } : x));
 			} else if (e.name === 'attachment.created') {
 				const a = e.data as Attachment;
 				if (a.task_id === task.id && !attachments.some((x) => x.id === a.id)) attachments = [...attachments, a];
@@ -1273,7 +1277,7 @@
 							{:else}
 								<Avatar name={c.author_name} src={c.author_avatar} tone="secondary" />
 							{/if}
-							<div class="min-w-0 flex-1 rounded-md bg-surface-container px-4 py-3" class:mentions-me={mentionsMe(c)} class:flash={flashing === c.id}>
+							<div class="reacts-host min-w-0 flex-1 rounded-md bg-surface-container px-4 py-3" class:mentions-me={mentionsMe(c)} class:flash={flashing === c.id}>
 								<div class="flex items-center gap-2 body-small text-on-surface-variant">
 									{#if authorName}<a href="/people/{authorName}" class="label-large text-on-surface hover:underline"><PersonName name={c.author_name} /></a>{:else}<span class="label-large text-on-surface"><PersonName name={c.author_name} /></span>{/if}
 									<span title={absoluteTime(c.created_at)}>{relativeTime(c.created_at)}</span>
@@ -1310,6 +1314,8 @@
 									</div>
 								{:else}
 									<RichText text={c.body} projectId={task.project_id} class="mt-1 body-medium text-on-surface" />
+									<Reactions target={{ comment: c.id }} reactions={c.reactions ?? []} {editable}
+										onchange={(r) => (comments = comments.map((x) => (x.id === c.id ? { ...x, reactions: r } : x)))} />
 								{/if}
 							</div>
 						</div>

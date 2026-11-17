@@ -1060,6 +1060,33 @@ class ProjectPost(Base, TimestampMixin):
     author: Mapped[User | None] = relationship()
 
 
+class Reaction(Base):
+    """An emoji someone reacted to a comment or a timeline post with: a Unicode emoji, or ":name:"
+    for one of the instance's custom emoji (CustomEmoji)."""
+
+    __tablename__ = "reactions"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    comment_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("comments.id", ondelete="CASCADE"), nullable=True, index=True)
+    post_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("project_posts.id", ondelete="CASCADE"), nullable=True, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    emoji: Mapped[str] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class CustomEmoji(Base):
+    """An emoji an admin uploaded (Settings → Emoji), used in reactions as ":name:"."""
+
+    __tablename__ = "custom_emojis"
+
+    name: Mapped[str] = mapped_column(String(32), primary_key=True)
+    file: Mapped[str] = mapped_column(String(100))  # in <data_dir>/emojis
+    content_type: Mapped[str] = mapped_column(String(32))
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
 class Attachment(Base):
     __tablename__ = "attachments"
 

@@ -484,8 +484,9 @@ def _fields_said(fields: list[str]) -> str:
     return "the " + (", ".join(words[:-1]) + " and " + words[-1] if len(words) > 1 else words[0])
 
 
-def _comment_out(comment: m.Comment) -> CommentOut:
+def _comment_out(comment: m.Comment, reactions: list[dict] | None = None) -> CommentOut:
     out = CommentOut.model_validate(comment)
+    out.reactions = reactions or []
     out.author_name = comment.author.display_name if comment.author else "Deleted user"
     out.author_avatar = comment.author.avatar_url if comment.author else None
     return out
@@ -504,7 +505,10 @@ async def list_comments(task_id: str, db: DB, user: CurrentUser):
             .order_by(m.Comment.created_at)
         )
     ).scalars().all()
-    return [_comment_out(c) for c in rows]
+    from ..reactions import summaries
+
+    said = await summaries(db, comment_ids=[c.id for c in rows])
+    return [_comment_out(c, said.get(c.id)) for c in rows]
 
 
 @router.post("/tasks/{task_id}/comments", response_model=CommentOut, status_code=201)
@@ -566,7 +570,9 @@ async def update_comment(
         after_text(task.project_id, comment.body, source="comment", ref={"kind": "comment", "id": str(comment.id)},
                    task_id=task.id, actor_id=comment.author_id)
     await db.refresh(comment, ["author"])
-    out = _comment_out(comment)
+    from ..reactions import of_one
+
+    out = _comment_out(comment, await of_one(db, comment_id=comment.id))
     bus.publish("comment.updated", task.project_id, out)
     return out
 

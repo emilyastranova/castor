@@ -542,6 +542,8 @@ class CommentOut(ORM):
     updated_at: datetime
     edited_at: datetime | None = None
     via: str | None = None  # "mcp": through an AI assistant
+    # [{emoji, count, user_ids, names}] (reactions.py)
+    reactions: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AttachmentOut(ORM):

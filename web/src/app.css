@@ -527,6 +527,18 @@ pre:hover > .code-copy,
 	border: 1px solid var(--md-sys-color-outline-variant);
 	cursor: zoom-in;
 }
+/* A custom emoji (:name:) in text: the size of the words, on their line. */
+.prose-m3 img.emoji {
+	display: inline-block;
+	width: auto;
+	height: 1.3em;
+	max-width: none;
+	margin: 0;
+	border: 0;
+	border-radius: 0;
+	vertical-align: -0.3em;
+	cursor: default;
+}
 .prose-m3 td, .prose-m3 th { border: 1px solid var(--md-sys-color-outline-variant); padding: 0.25em 0.6em; }
 
 /* An easter egg: one person's name shimmers while you hover it (PersonName.svelte, mention

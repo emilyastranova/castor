@@ -15,6 +15,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import update
 from sqlalchemy.orm import selectinload
 
 from .. import models as m
@@ -80,7 +81,9 @@ async def move_comment(task_id: str, comment_id: str, body: MoveIn, db: DB, user
             payload={"moved_comment_id": str(comment.id), "from_task_id": str(source.id)}, **actor_of(user),
         )
         await db.commit()
-        out = _comment_out(comment)
+        from ..reactions import of_one
+
+        out = _comment_out(comment, await of_one(db, comment_id=comment.id))
         bus.publish("comment.deleted", source.project_id, {"id": comment.id, "task_id": source.id})
         bus.publish("comment.created", target.project_id, out)
         await publish_task(db, source)
@@ -95,7 +98,10 @@ async def move_comment(task_id: str, comment_id: str, body: MoveIn, db: DB, user
     )
     post.author = comment.author
     db.add(post)
+    await db.flush()
     old_id = comment.id
+    # Its reactions come along (they'd go with the comment otherwise).
+    await db.execute(update(m.Reaction).where(m.Reaction.comment_id == old_id).values(comment_id=None, post_id=post.id))
     await db.delete(comment)
     await db.flush()
     created = await record_activity(db, type="post.created", message="Posted to the timeline", project_id=source.project_id,
@@ -106,7 +112,9 @@ async def move_comment(task_id: str, comment_id: str, body: MoveIn, db: DB, user
         project_id=source.project_id, payload={"moved_post_id": str(post.id), "from_task_id": str(source.id)}, **actor_of(user),
     )
     await db.commit()
-    out = post_out(post)
+    from ..reactions import of_one
+
+    out = post_out(post, await of_one(db, post_id=post.id))
     bus.publish("comment.deleted", source.project_id, {"id": old_id, "task_id": source.id})
     bus.publish("post.created", source.project_id, out.model_dump(mode="json"))
     await publish_task(db, source)
@@ -130,7 +138,9 @@ async def move_post(post_id: str, body: MoveIn, db: DB, user: CurrentUser):
     )
     comment.author = post.author
     db.add(comment)
+    await db.flush()
     old_id, project_id = post.id, post.project_id
+    await db.execute(update(m.Reaction).where(m.Reaction.post_id == old_id).values(post_id=None, comment_id=comment.id))
     await db.delete(post)
     await db.flush()
     created = await record_activity(db, type="comment.created", message=f"Commented on “{target.title}”", project_id=project_id,
@@ -141,7 +151,9 @@ async def move_post(post_id: str, body: MoveIn, db: DB, user: CurrentUser):
         task_id=target.id, payload={"moved_comment_id": str(comment.id), "from": "timeline"}, **actor_of(user),
     )
     await db.commit()
-    out = _comment_out(comment)
+    from ..reactions import of_one
+
+    out = _comment_out(comment, await of_one(db, comment_id=comment.id))
     bus.publish("post.deleted", project_id, {"id": str(old_id), "project_id": str(project_id)})
     bus.publish("comment.created", project_id, out)
     await publish_task(db, target)

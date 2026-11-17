@@ -1176,7 +1176,7 @@ server sends each domain event as
 `{"type":"event","name":"task.moved","project_id":"…","data":{…}}` to the sockets allowed to
 see it (see Auth). Event names include `project.updated`, `column.*`,
 `task.created|updated|moved|deleted`, `job.updated`, `job.log`, `job.outputs`, `job.parser_proposal`, `job.resize`,
-`comment.created`, `attachment.created|updated|deleted`, `agent.updated`, `playbook_run.updated`,
+`comment.created`, `reactions.changed` (a comment's or post's reactions), `emojis.changed`, `attachment.created|updated|deleted`, `agent.updated`, `playbook_run.updated`,
 `agent_tokens.changed`, `ssh_hosts.changed`, `api_tokens.changed`, `tool.status`, `tools.changed`, `themes.changed`, `summary.updated`,
 `project.notes`, `notification.created|read`, `assets.changed`, `alert_channels.changed`,
 `settings.changed`, `project.members` and `user.changed`; each section above names its own.

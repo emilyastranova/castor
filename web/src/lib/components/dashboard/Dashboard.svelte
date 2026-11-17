@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { maskSpoilers } from '$lib/spoilers';
 	import Spoilers from '$lib/components/Spoilers.svelte';
-	import type { DashboardSummary, FeedItem, FeedKind } from '$lib/api';
+	import type { DashboardSummary, FeedItem, FeedKind, Reaction } from '$lib/api';
 	import { api } from '$lib/api';
 	import { Button, Icon } from '$lib/m3';
 	import { realtime } from '$lib/realtime.svelte';
@@ -169,6 +169,12 @@
 			} else if (e.name === 'post.deleted') {
 				const id = (e.data as { id: string }).id;
 				items = items.filter((i) => i.post?.id !== id);
+			}
+			if (e.name === 'reactions.changed') {
+				const d = e.data as { comment_id: string | null; post_id: string | null; reactions: Reaction[] };
+				items = items.map((i) =>
+					d.comment_id && i.comment?.id === d.comment_id ? { ...i, comment: { ...i.comment, reactions: d.reactions } }
+					: d.post_id && i.post?.id === d.post_id ? { ...i, post: { ...i.post, reactions: d.reactions } } : i);
 			}
 			if (e.name === 'activity.created') {
 				clearTimeout(headTimer);

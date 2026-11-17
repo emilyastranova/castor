@@ -393,6 +393,16 @@ TOOLS += [
           "tools (a stdio one is started on an agent first)."),
     _auto("draft_mcp_action", "GET", "/api/mcp-connections/{connection_id}/tools/{tool}/draft", "A kind: mcp definition for one of "
           "an MCP server's tools, its input schema as typed arguments: YAML to check and save with create_command."),
+    # Emoji reactions on comments and timeline posts
+    _auto("react_to_comment", "POST", "/api/comments/{comment_id}/reactions", "React to a comment (list_comments) with an emoji: a "
+          "Unicode one like 👍 or 🎉, or :name: for one of the instance's own (list_emojis). Reacting again with the same one "
+          "changes nothing. Returns the comment's reactions with who made them."),
+    _auto("remove_reaction", "DELETE", "/api/comments/{comment_id}/reactions", "Take back your reaction to a comment (emoji: the "
+          "same one)."),
+    _auto("react_to_post", "POST", "/api/posts/{post_id}/reactions", "React to a timeline post (list_posts), as react_to_comment."),
+    _auto("remove_post_reaction", "DELETE", "/api/posts/{post_id}/reactions", "Take back your reaction to a timeline post."),
+    _auto("list_emojis", "GET", "/api/emojis", "The instance's custom emoji, to react with as :name: (admins add them in "
+          "Settings → Emoji)."),
     # Network routes: chains of hops (SSH jumps, SOCKS4/5 and HTTP CONNECT proxies) a job's traffic goes
     # through to reach its targets. They run on agents; passwords and keys are write-only.
     _auto("list_routes", "GET", "/api/routes", "Network routes you can use (project_id: the ones that project can use): their "

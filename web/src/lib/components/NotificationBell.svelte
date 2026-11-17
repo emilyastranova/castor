@@ -89,7 +89,7 @@
 					{@const sev = SEVERITY[n.severity] ?? SEVERITY.info}
 					<li class="border-b border-outline-variant/50 last:border-b-0" in:enter out:leave>
 						<div class="flex items-start gap-3 px-4 py-3 {n.read_at ? 'opacity-70' : ''}">
-							<Icon name={sev.icon} size={20} class="mt-0.5 shrink-0 {sev.tone}" filled />
+							<Icon name={n.kind === 'reaction' ? 'add_reaction' : sev.icon} size={20} class="mt-0.5 shrink-0 {sev.tone}" filled />
 							<button type="button" class="min-w-0 flex-1 text-left" onclick={() => visit(n)}>
 								<p class="body-medium text-on-surface {n.read_at ? '' : 'font-medium'}">{maskSpoilers(n.title)}</p>
 								{#if n.body}<p class="mt-0.5 line-clamp-3 body-small break-words text-on-surface-variant">{maskSpoilers(n.body)}</p>{/if}

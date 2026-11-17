@@ -61,6 +61,7 @@ PROJECT_TABLES: list[tuple[str, type]] = [
     ("attachments", m.Attachment),
     ("notes", m.ProjectNote),
     ("posts", m.ProjectPost),
+    ("reactions", m.Reaction),
     ("variable_sets", m.VariableSet),
     ("assets", m.Asset),
     ("asset_observations", m.AssetObservation),
@@ -318,6 +319,7 @@ async def _project_bundle(db: AsyncSession, project: m.Project, opts: ExportOpti
         "attachments": [row_of(a, skip=("storage_path",)) for a in attachments],
         "notes": [row_of(n) for n in await _rows(db, select(m.ProjectNote).where(m.ProjectNote.project_id == pid))],
         "posts": [row_of(p) for p in await _rows(db, select(m.ProjectPost).where(m.ProjectPost.project_id == pid))],
+        "reactions": [row_of(r) for r in await _rows(db, select(m.Reaction).where(m.Reaction.project_id == pid))],
         "variable_sets": [set_out(s, sec) for s in sets],
         "assets": [{**row_of(a), "secret": sec.out(a.secret)} for a in assets],
         "asset_observations": [row_of(o) for o in await _rows(db, select(m.AssetObservation).where(m.AssetObservation.asset_id.in_(asset_ids)))],
@@ -1046,6 +1048,8 @@ async def _import_project(
                 values["var_bindings"] = {k: v for k, v in (values.get("var_bindings") or {}).items() if v in mapped}
             elif table in ("comments", "posts"):
                 values["mentions"] = [x for x in values.get("mentions") or [] if x in known_users]
+            elif table == "reactions" and str(values.get("user_id")) not in known_users:
+                continue  # someone who isn't here
             elif table == "asset_triggers":
                 values["approvers"] = regroup(raw.get("approvers"))
             elif table == "assets":

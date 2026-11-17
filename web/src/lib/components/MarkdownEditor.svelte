@@ -7,6 +7,8 @@
 	import type { PastedImages } from '$lib/pastedImages.svelte';
 	import type { Mentionable } from '$lib/people.svelte';
 	import MentionMenu from './MentionMenu.svelte';
+	import EmojiMenu from './reactions/EmojiMenu.svelte';
+	import { EmojiSuggest } from '$lib/emojiSuggest.svelte';
 	import RichText from './RichText.svelte';
 
 	/**
@@ -84,6 +86,7 @@
 
 	const target = { get: () => value, set: (v: string) => (value = v) };
 	const suggest = new MentionSuggest(() => mentionables(), target);
+	const emojiSuggest = new EmojiSuggest(target);
 
 	let expanded = $derived(!collapsible || focused || !!value || mode === 'preview' || images.pending.length > 0 || dragging > 0);
 	let reference = $derived([
@@ -209,7 +212,7 @@
 	}
 
 	function keydown(e: KeyboardEvent & { currentTarget: HTMLTextAreaElement }) {
-		if (suggest.onkeydown(e)) return;
+		if (suggest.onkeydown(e) || emojiSuggest.onkeydown(e)) return;
 		const ctrl = e.ctrlKey || e.metaKey;
 		const key = e.key.toLowerCase();
 		if (ctrl && e.key === 'Enter') {
@@ -241,6 +244,7 @@
 		if (next === 'preview' && textarea) height = textarea.offsetHeight;
 		mode = next;
 		suggest.close();
+		emojiSuggest.close();
 		if (next === 'write') {
 			await tick();
 			textarea?.focus();
@@ -362,9 +366,13 @@
 				oninput={(e) => {
 					restored = false;
 					suggest.oninput(e);
+					emojiSuggest.oninput(e);
 				}}
 				onkeydown={keydown}
-				onblur={suggest.close}
+				onblur={() => {
+					suggest.close();
+					emojiSuggest.close();
+				}}
 				onpaste={images.pasteInto(target)}
 			></textarea>
 			{#if !expanded}
@@ -378,6 +386,7 @@
 			{/if}
 			</div>
 			<MentionMenu {suggest} />
+			<EmojiMenu suggest={emojiSuggest} />
 		{:else}
 			<div class="overflow-y-auto px-3.5 py-2.5 {fill ? 'min-h-0 flex-1' : ''}" style={fill ? '' : `min-height: ${height}px; max-height: 50vh`}>
 				{#if value.trim()}

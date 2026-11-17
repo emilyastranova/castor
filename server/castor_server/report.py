@@ -135,6 +135,19 @@ class _Images:
         found = _ATTACHMENT.match(src)
         return self.cache.get(found[1].lower()) if found else None
 
+    async def preload_emoji(self) -> None:
+        """The instance's custom emoji, so :name: in the writing shows as its picture."""
+        from . import reactions
+
+        self.emoji: dict[str, str] = {}
+        for e in (await self.db.execute(select(m.CustomEmoji))).scalars():
+            path = reactions.directory() / e.file
+            try:
+                if path.is_file() and path.stat().st_size <= reactions.MAX_BYTES:
+                    self.emoji[e.name] = f"data:{e.content_type};base64,{base64.b64encode(path.read_bytes()).decode()}"
+            except OSError:
+                continue
+
 
 def render_markdown(text: str, images: _Images) -> str:
     clean = nh3.clean(_md.render(text or ""), tags=_TAGS, attributes=_ATTRS, url_schemes={"http", "https", "mailto"},
@@ -152,7 +165,31 @@ def render_markdown(text: str, images: _Images) -> str:
             return f'<a class="ext-image" href="{html.escape(src)}">{label}</a>'
         return f'<span class="ext-image">{label}</span>'
 
-    return _IMG.sub(img, clean)
+    out = _IMG.sub(img, clean)
+    emoji = getattr(images, "emoji", None)
+    if emoji:
+        # :name: in text (not in code, not inside a tag) becomes the custom emoji's picture.
+        parts = re.split(r"(<pre[\s>].*?</pre>|<code[\s>].*?</code>|<[^>]+>)", out, flags=re.DOTALL)
+        for i in range(0, len(parts), 2):
+            parts[i] = re.sub(r":([a-z0-9_]{2,32}):", lambda mt: f'<img class="emoji" src="{emoji[mt[1]]}" alt=":{mt[1]}:" title=":{mt[1]}:">'
+                              if mt[1] in emoji else mt[0], parts[i])
+        out = "".join(parts)
+    return out
+
+
+def _reactions(reactions: list[dict] | None, images: _Images) -> str:
+    """A comment's or post's reactions, as chips under it (custom emoji as their pictures)."""
+    if not reactions:
+        return ""
+    emoji = getattr(images, "emoji", {}) or {}
+    chips = []
+    for r in reactions:
+        e = str(r.get("emoji") or "")
+        custom = re.fullmatch(r":([a-z0-9_]{2,32}):", e)
+        shown = (f'<img class="emoji" src="{emoji[custom[1]]}" alt="{html.escape(e)}">' if custom and custom[1] in emoji else html.escape(e))
+        who = ", ".join(r.get("names") or [])
+        chips.append(f'<span class="reaction" title="{html.escape(who)}">{shown} {int(r.get("count") or 0)}</span>')
+    return f'<div class="reactions">{"".join(chips)}</div>'
 
 
 def _initials(name: str) -> str:
@@ -221,6 +258,7 @@ async def timeline_html(db: AsyncSession, *, project: m.Project, items: list, fi
     tz = ZoneInfo(filters.tz) if filters.tz else UTC
     images = _Images(db, project.id)
     await images.preload([i.comment["body"] for i in items if i.comment] + [i.post["body"] for i in items if i.post])
+    await images.preload_emoji()
     faces = await _faces(db, {i.actor.get("username") for i in items if i.actor.get("username")})
     esc = html.escape
     now = datetime.now(tz)
@@ -255,9 +293,11 @@ async def timeline_html(db: AsyncSession, *, project: m.Project, items: list, fi
                     f' <span class="kind" style="background:{bg};color:{fg}">{esc(label_of(item))}</span></div>')
             stamp = f'<time datetime="{item.created_at.isoformat()}">{when.strftime("%H:%M")}</time>'
             if item.post:
-                body = f'<div class="bubble prose">{render_markdown(item.post["body"], images)}</div>'
+                body = f'<div class="bubble prose">{render_markdown(item.post["body"], images)}</div>' \
+                    + _reactions(item.post.get("reactions"), images)
             elif item.kind == "comment" and item.comment:
-                body = f'<div class="bubble prose">{render_markdown(item.comment["body"], images)}</div>'
+                body = f'<div class="bubble prose">{render_markdown(item.comment["body"], images)}</div>' \
+                    + (_reactions(item.comment.get("reactions"), images) if item.type == "comment.created" else "")
             elif item.kind == "job" and item.job:
                 j = item.job
                 facts = [x for x in (f"exit {j['exit_code']}" if j.get("exit_code") not in (None, 0) else "",
@@ -347,6 +387,9 @@ body.pdf .head { font-size: 8.5pt; }
 .prose pre code { background: none; padding: 0; }
 .prose blockquote { border-left: 3px solid #c7c5d0; padding-left: .75em; color: #46464f; }
 .prose img { display: block; max-width: 100%; max-height: 420px; margin: .4em 0; border-radius: 8px; border: 1px solid #c7c5d0; }
+img.emoji, .prose img.emoji { display: inline; height: 1.25em; width: auto; margin: 0; border: 0; border-radius: 0; vertical-align: -0.25em; }
+.reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.reaction { display: inline-flex; align-items: center; gap: 3px; padding: 1px 8px; border: 1px solid #c7c5d0; border-radius: 999px; font-size: 12px; }
 body.pdf .prose img { max-height: 110mm; }
 .prose table { border-collapse: collapse; } .prose th, .prose td { border: 1px solid #c7c5d0; padding: 2px 8px; }
 .ext-image { font-style: italic; }

@@ -389,6 +389,16 @@ async def _enrich(db: DB, events: list[m.ActivityEvent], *, full: bool = False) 
                 continue  # written again since (that has its own entry) or gone
             item.summary = {"id": str(summary.id), "text": summary.text, "model": summary.model}
         out.append(item)
+    # Reactions on the comments and posts shown.
+    from ..reactions import summaries
+
+    on_comments = await summaries(db, comment_ids=[uuid.UUID(i.comment["id"]) for i in out if i.comment])
+    on_posts = await summaries(db, post_ids=[uuid.UUID(i.post["id"]) for i in out if i.post])
+    for i in out:
+        if i.comment:
+            i.comment["reactions"] = on_comments.get(uuid.UUID(i.comment["id"]), [])
+        if i.post:
+            i.post["reactions"] = on_posts.get(uuid.UUID(i.post["id"]), [])
     return _roll_up(out, events)
 
 

@@ -13,6 +13,7 @@
 	import { snackbar } from '$lib/snackbar.svelte';
 	import PostComposer from './PostComposer.svelte';
 	import MoveWritingDialog from '../MoveWritingDialog.svelte';
+	import Reactions from '../reactions/Reactions.svelte';
 
 	/** One timeline entry; how it looks depends on its kind. */
 	interface Props {
@@ -171,6 +172,7 @@
 				{@const forMe = !!myId && item.post.mentions.includes(myId)}
 				<RichText text={item.post.body} projectId={item.project?.id} hashtags={item.project ? tagLink : undefined} {activeTag} class="mt-1.5 rounded-md bg-surface-container px-3.5 py-2.5 body-medium text-on-surface {long && !expanded ? 'line-clamp-[12]' : ''} {forMe ? 'mentions-me quiet' : ''}" />
 				{#if long}<button type="button" class="touch-target mt-1 label-medium text-primary hover:underline" onclick={() => (expanded = !expanded)}>{expanded ? 'Show less' : 'Show all'}</button>{/if}
+				<Reactions target={{ post: item.post.id }} reactions={item.post.reactions ?? []} editable={canEdit()} />
 			{/if}
 		{:else if item.kind === 'comment' && item.comment}
 			{@const forMe = !!myId && item.comment.mentions?.includes(myId)}
@@ -196,6 +198,9 @@
 					/>
 				{/if}
 			</div>
+			{#if item.type === 'comment.created'}
+				<Reactions target={{ comment: item.comment.id }} reactions={item.comment.reactions ?? []} editable={canEdit()} />
+			{/if}
 		{:else if item.summary}
 			<!-- An AI summary of a run: what it found, what failed, what next. -->
 			<RichText text={item.summary.text} projectId={item.project?.id} class="mt-1.5 rounded-md border border-outline-variant/70 px-3.5 py-2.5 body-medium text-on-surface line-clamp-[10]" />

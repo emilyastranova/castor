@@ -56,14 +56,15 @@ class PostOut(BaseModel):
     created_at: datetime
     edited_at: datetime | None = None
     via: str | None = None  # "mcp": through an AI assistant
+    reactions: list[dict] = []  # [{emoji, count, user_ids, names}] (reactions.py)
 
 
-def post_out(post: m.ProjectPost) -> PostOut:
+def post_out(post: m.ProjectPost, reactions: list[dict] | None = None) -> PostOut:
     a = post.author
     return PostOut(
         id=post.id, project_id=post.project_id, author_id=post.author_id, author_name=a.display_name if a else "Deleted user",
         author_avatar=a.avatar_url if a else None, body=post.body, mentions=list(post.mentions or []), tags=list(post.tags or []),
-        created_at=post.created_at, edited_at=post.edited_at, via=post.via,
+        created_at=post.created_at, edited_at=post.edited_at, via=post.via, reactions=reactions or [],
     )
 
 
@@ -130,8 +131,11 @@ async def list_posts(project_id: str, db: DB, user: CurrentUser, before: datetim
         query = query.where(tagged(tag))
     if before:
         query = query.where(m.ProjectPost.created_at < before)
-    rows = (await db.execute(query.order_by(m.ProjectPost.created_at.desc()).limit(max(1, min(limit, 200))))).scalars()
-    return [post_out(p) for p in rows]
+    rows = (await db.execute(query.order_by(m.ProjectPost.created_at.desc()).limit(max(1, min(limit, 200))))).scalars().all()
+    from ..reactions import summaries
+
+    said = await summaries(db, post_ids=[p.id for p in rows])
+    return [post_out(p, said.get(p.id)) for p in rows]
 
 
 @router.get("/projects/{project_id}/post-tags")
@@ -179,7 +183,9 @@ async def update_post(post_id: str, body: PostIn, db: DB, user: CurrentUser):
                               payload={"post_id": str(post.id)}, **actor_of(user))
         await db.commit()
         after_text(post.project_id, post.body, source="post", ref={"kind": "post", "id": str(post.id)}, actor_id=post.author_id)
-    out = post_out(post)
+    from ..reactions import of_one
+
+    out = post_out(post, await of_one(db, post_id=post.id))
     _publish("post.updated", post, out)
     return out
 
