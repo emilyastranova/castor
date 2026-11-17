@@ -781,6 +781,7 @@ class ServerRunner:
         try:
             proc = await plugins.ensure_running(call.id)
             result = await proc.request("action", params, timeout=call.timeout_minutes * 60)
+            await proc.settle()  # its last log lines and progress, before the result is
         except asyncio.CancelledError:
             if proc is not None:  # the card's job was cancelled: tell the handler (run.signal)
                 with contextlib.suppress(Exception):

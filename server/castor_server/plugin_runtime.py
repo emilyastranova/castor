@@ -137,6 +137,7 @@ class PluginProcess:
         self.next_id = 1
         self.write_lock = asyncio.Lock()
         self.tasks: set[asyncio.Task[Any]] = set()
+        self.answering: set[asyncio.Task[Any]] = set()  # handling a call the plugin made
         self.stopping = False
         self.token = ""  # its API token, for this run of the process only
         self.files: dict[str, Path] = {}  # run id → the file the action was given
@@ -181,6 +182,13 @@ class PluginProcess:
             self.proc.stdin.write(data)
             await self.proc.stdin.drain()
 
+    async def settle(self, timeout: float = 5) -> None:
+        """Wait for the calls the plugin made before now to be handled (its log lines just before a
+        result are read first, but handled in tasks of their own)."""
+        waiting = [t for t in self.answering if not t.done()]
+        if waiting:
+            await asyncio.wait(waiting, timeout=timeout)
+
     async def request(self, method: str, params: dict[str, Any], timeout: float) -> Any:
         mid = self.next_id
         self.next_id += 1
@@ -217,7 +225,11 @@ class PluginProcess:
             if not isinstance(msg, dict):
                 continue
             if "method" in msg:
-                self._spawn(self._answer(msg))
+                task = asyncio.ensure_future(self._answer(msg))
+                self.tasks.add(task)
+                self.answering.add(task)
+                task.add_done_callback(self.tasks.discard)
+                task.add_done_callback(self.answering.discard)
             elif (fut := self.pending.get(msg.get("id"))) is not None and not fut.done():
                 if "error" in msg:
                     fut.set_exception(PluginRuntimeError(str((msg.get("error") or {}).get("message") or "The plugin failed")))
