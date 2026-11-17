@@ -1,6 +1,6 @@
 [project]
 name = "castor-server"
-version = "1.15.0"
+version = "1.15.1"
 description = "Castor API server and job orchestrator"
 requires-python = ">=3.12"
 dependencies = [
