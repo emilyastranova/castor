@@ -78,6 +78,12 @@ of those.)
 [Routes](https://github.com/emilyastranova/castor/wiki/Routes) send jobs through SSH jumps and SOCKS
 and HTTP proxies today. Still to come:
 - **Tunnels as hops:** Chisel, ligolo-ng and WireGuard, set up and torn down by the agent like an SSH hop.
+- **Real DNS through the route:** today the route box answers lookups with stand-in addresses (198.18.0.0/15)
+  that turn back into names when a TCP connection follows, so a tool that only looks names up (MX, TXT, SRV,
+  the real A record) gets nothing useful. A per-route option would forward each query as DNS over TCP through
+  the chain to a resolver named at the far end (the jumpbox's, a domain controller), dns2socks-style, and pass
+  the real answer back. Stand-ins could stay for names the resolver doesn't know, and
+  tools such as dnsx would no longer need their own proxy flag.
 - **graftcp** for static binaries on an agent's host (in containers the route box already catches them).
 - **Routes on SSH hosts and plugin machines:** the chain would have to start on that machine.
 - **MCP actions through a route:** an MCP server reached through one (HTTP actions already go through agents).
