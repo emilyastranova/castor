@@ -213,6 +213,8 @@
 		if (!d.name.trim()) return 'Give the route a name.';
 		for (const [i, h] of d.hops.entries()) {
 			if (!h.host.trim()) return `Hop ${i + 1} needs a host.`;
+			const port = h.port.trim();
+			if (port && !(/^\d{1,5}$/.test(port) && Number(port) >= 1 && Number(port) <= 65535)) return `Hop ${i + 1}: the port is a number from 1 to 65535.`;
 			if (h.kind === 'ssh' && !h.username.trim()) return `Hop ${i + 1} (SSH) needs a user.`;
 			const stored = h.stored?.kind === h.kind && h.stored.has_secret && h.stored.auth === h.auth;
 			if (h.auth === 'password' && !h.secret.password && !stored) return `Hop ${i + 1} needs its password.`;

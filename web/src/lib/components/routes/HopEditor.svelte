@@ -83,7 +83,8 @@
 	<div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_7rem]">
 		<TextField label="Host" bind:value={hop.host} mono placeholder={index === 0 ? 'jump01.example.com' : '10.0.0.5'} disabled={readonly}
 			supporting={index > 0 ? 'As the hop before sees it' : ''} />
-		<TextField label="Port" bind:value={hop.port} type="number" mono placeholder={String(k.port)} disabled={readonly} />
+		<!-- Text, not type="number": a number input binds a number, and the port is kept as text until Save. -->
+		<TextField label="Port" bind:value={hop.port} mono placeholder={String(k.port)} disabled={readonly} />
 	</div>
 	<div class="grid gap-3 sm:grid-cols-2">
 		<TextField label={hop.kind === 'ssh' ? 'User' : hop.kind === 'socks4' ? 'User id (optional)' : 'User (optional)'} bind:value={hop.username} mono
