@@ -9,9 +9,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from .. import agent_people, routing
 from .. import models as m
 from .. import network_routes as nr
-from .. import routing
 from ..access import visible_project_ids
 from ..deps import DB, Admin, CurrentUser, Operator, parse_uuid
 from ..events import bus
@@ -250,6 +250,7 @@ async def test_route(route_id: str, body: TestIn, db: DB, user: Operator) -> dic
     and why; then the target, if given. Host keys seen for the first time are trusted; a changed one
     is held for someone to accept."""
     row = await _route_or_404(db, user, route_id)
+    me = await agent_people.who(db, user.id)
     conn = None
     if body.agent_id:
         conn = gateway.connections.get(body.agent_id)
@@ -258,8 +259,11 @@ async def test_route(route_id: str, body: TestIn, db: DB, user: Operator) -> dic
         if not nr.allows(row, conn.agent_id, conn.tags):
             raise HTTPException(409, f"“{row.name}” only works from {nr.agents_words(row)}, and {conn.name} isn't one; "
                                      "add it to the route's agents first")
+        if not agent_people.allowed(conn.people, me):
+            raise HTTPException(409, f"{conn.name} is only for some people, and you aren't one of them")
     else:
         able = [c for c in gateway.connections.values() if c.capabilities.get("routes") and nr.allows(row, c.agent_id, c.tags)
+                and agent_people.allowed(c.people, me)
                 and (not row.project_ids or any(project_allowed(c, p) for p in row.project_ids))]
         if not able:
             if row.agents is not None:

@@ -60,7 +60,7 @@
 	import { goto } from '$app/navigation';
 	import { canEdit as roleCanEdit } from '$lib/session';
 	import { isListRef, lists } from '$lib/lists.svelte';
-	import { agentsFor, describeSelector, describeSender, httpSenderOptions, selectorFrom, selectorOptions, selectorValue } from '$lib/agentSelector';
+	import { agentsFor, describeSelector, describeSender, httpSenderOptions, selectorFrom, selectorOptions, selectorValue, usableBy } from '$lib/agentSelector';
 
 	interface Props {
 		task: Task;
@@ -760,7 +760,7 @@
 	// The card's route (its own or the project's default): when it only works from some agents, only they're offered.
 	let cardRoute = $state<NetworkRoute | null>(null);
 	let routedAgents = $derived.by(() => {
-		const able = agentsForRoutes(agentsFor(agents, task.project_id), [cardRoute]);
+		const able = agentsForRoutes(agentsFor(agents, task.project_id, me), [cardRoute]);
 		// The agent it's set to stays in the list (with the warning below), so the choice still shows.
 		const pinned = agents.find((a) => a.id === task.agent_selector?.agent_id);
 		return pinned && !able.includes(pinned) ? [...able, pinned] : able;
@@ -779,6 +779,15 @@
 				? `“${cardRoute.name}” only works from ${routeAgentsWords(cardRoute, agentName)}: this isn’t one, so it won’t run`
 				: `Only the agents “${cardRoute.name}” works from`
 	);
+	// The agent it's pinned to is only for some people, and not you: your runs of it wait.
+	let notMine = $derived.by(() => {
+		const pinned = agents.find((a) => a.id === task.agent_selector?.agent_id);
+		return pinned && !usableBy(pinned, me) ? pinned : null;
+	});
+	let agentProblem = $derived(
+		routeMismatch ? routeAgentHint : notMine ? `${notMine.name} is only for some people, not you: when you run this card, it waits` : null
+	);
+	let agentHint = $derived(agentProblem ?? routeAgentHint);
 	let agentOptions = $derived(selectorOptions(routedAgents, task.agent_selector, !task.playbook_step_id));
 	let senderOptions = $derived(httpSenderOptions(routedAgents, task.agent_selector));
 	let runFiles = $derived(attachments.filter((a) => a.job_id && a.job_id === selectedJob?.id));
@@ -1062,8 +1071,8 @@
 								label="Sent from"
 								bind:value={agentId}
 								options={senderOptions}
-								supporting={routeAgentHint || 'The server makes it; an agent only sends it from its network'}
-								error={routeMismatch ? routeAgentHint : null}
+								supporting={agentHint || 'The server makes it; an agent only sends it from its network'}
+								error={agentProblem}
 								onchange={(v) => save({ agent_selector: selectorFrom(v) })}
 							/>
 							{/if}
@@ -1094,7 +1103,7 @@
 						{:else}
 							<TextField label="Container image" bind:value={image} mono placeholder="run in agent shell" oninput={() => edited('image')} onblur={() => (image.trim() || null) !== task.image && commit('image', { image: image.trim() || null })} />
 						{/if}
-						<Select label="Agent" bind:value={agentId} options={agentOptions} supporting={routeAgentHint} error={routeMismatch ? routeAgentHint : null}
+						<Select label="Agent" bind:value={agentId} options={agentOptions} supporting={agentHint} error={agentProblem}
 							onchange={(v) => save({ agent_selector: selectorFrom(v) })} />
 					</div>
 					<RouteChoice projectId={task.project_id} bind:value={routeId} bind:route={cardRoute} taskId={task.id} recheck={`${task.updated_at}${task.image}${task.command}`}

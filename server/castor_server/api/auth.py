@@ -44,5 +44,9 @@ async def logout(response: Response):
 
 
 @router.get("/me", response_model=UserOut)
-async def me(user: CurrentUser):
-    return user
+async def me(user: CurrentUser, db: DB):
+    from ..people import my_group_ids
+
+    out = UserOut.model_validate(user)
+    out.group_ids = sorted(await my_group_ids(db, user.id))
+    return out

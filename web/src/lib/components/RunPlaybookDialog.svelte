@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { me } from '$lib/session';
 	import type { Agent, AlertRules, NetworkRoute, PlaybookInputSpec, PlaybookSpec, PlaybookRun, Project, VariableKind, VariableSet } from '$lib/api';
 	import { agentsFor, describeSelector, selectorFrom, selectorOptions } from '$lib/agentSelector';
 	import { api, ApiError } from '$lib/api';
@@ -66,7 +67,7 @@
 	let routeChoice = $state('');
 	// The run's route (its own or the project's default): when it only works from some agents, only they're offered.
 	let runRoute = $state<NetworkRoute | null>(null);
-	let routedAgents = $derived(agentsForRoutes(agentsFor(agents, selectedProjectId), [runRoute]));
+	let routedAgents = $derived(agentsForRoutes(agentsFor(agents, selectedProjectId, me()), [runRoute]));
 	$effect(() => {
 		if (!open) return;
 		api()

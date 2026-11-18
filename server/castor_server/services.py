@@ -338,6 +338,10 @@ async def enqueue_job(
             shown = ", ".join(outside[:5]) + (f" and {len(outside) - 5} more" if len(outside) > 5 else "")
             why = f"it goes through route “{route.name}” to targets outside the project's scope: {shown}"
 
+    from . import agent_people
+
+    run_as = await agent_people.run_as_for(db, task, user)
+
     def new_job(**extra: Any) -> m.Job:
         return m.Job(
             kind=kind,
@@ -350,6 +354,7 @@ async def enqueue_job(
             env={},
             var_bindings=dict(task.var_bindings or {}),
             created_by=user.id if user else None,
+            run_as=run_as,
             tty=tty,
             service=service,
             status=m.JobStatus.approval if ask else m.JobStatus.queued,
@@ -359,7 +364,8 @@ async def enqueue_job(
     tty = (task.tty or bool(spec and spec.tty)) and kind == "command"
     # Runs until stopped: its library command's `service:`, else the card's own.
     service = (spec.service.model_dump() if spec and spec.service else task.service) if kind == "command" else None
-    targets = await broadcast_targets(db, task, new_job()) if is_broadcast(task) and kind == "command" else []
+    targets = (await broadcast_targets(db, task, new_job(), await agent_people.who(db, run_as))
+               if is_broadcast(task) and kind == "command" else [])
     if len(targets) > 1:
         batch = uuid.uuid4()
         jobs = [new_job(batch_id=batch, target_agent_id=conn.agent_id) for conn in targets]
@@ -632,10 +638,10 @@ def is_broadcast(task: m.Task) -> bool:
     return bool(selector.get("all") and selector.get("tags")) and task.playbook_step_id is None
 
 
-async def broadcast_targets(db: AsyncSession, task: m.Task, job: m.Job) -> list:
+async def broadcast_targets(db: AsyncSession, task: m.Task, job: m.Job, who: Any = None) -> list:
     """The connected agents a broadcast card runs on: every one with the tags that can run it (and,
-    when its route only works from some agents, is one of them)."""
-    from . import network_routes
+    when its route only works from some agents, is one of them, and the person it runs for may use)."""
+    from . import agent_people, network_routes
     from .orchestrator.dispatcher import agent_can_run, project_allowed, selector_matches
     from .orchestrator.gateway import gateway
     from .tool_library import tools_by_id
@@ -645,7 +651,7 @@ async def broadcast_targets(db: AsyncSession, task: m.Task, job: m.Job) -> list:
     route = await network_routes.get(db, await network_routes.chosen_for(db, task))
     found = [c for c in gateway.connections.values()
              if project_allowed(c, task.project_id) and selector_matches(c, selector) and agent_can_run(c, job, tool)
-             and network_routes.allows(route, c.agent_id, c.tags)]
+             and network_routes.allows(route, c.agent_id, c.tags) and agent_people.allowed(c.people, who)]
     return sorted(found, key=lambda c: c.name)
 
 

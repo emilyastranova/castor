@@ -269,7 +269,11 @@ TOOLS: list[Tool] = [
           "project_ids": {"type": ["array", "null"], "items": {"type": "string"},
                           "description": "Project ids whose jobs it may run; null: any project"},
           "route": _s("A network route id: everything the agent runs goes through it (a card's own route is chained after it); "
-                      "\"\" takes it off")}, ("agent_id",)),
+                      "\"\" takes it off"),
+          "people": {"type": ["object", "null"], "description": "Only these people may run work on it: {users: [user ids], groups: "
+                     "[group ids]} (admins always may; work started by automation counts as whoever set it up); null: everyone",
+                     "properties": {"users": {"type": "array", "items": {"type": "string"}},
+                                    "groups": {"type": "array", "items": {"type": "string"}}}}}, ("agent_id",)),
     Tool("forget_agent", "Remove a disconnected agent from the list (its tags and settings go too; an SSH host is "
          "removed with remove_ssh_host instead).", "DELETE", "/api/agents/{agent_id}",
          {"agent_id": _s("Agent id")}, ("agent_id",), destructive=True),

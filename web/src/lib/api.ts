@@ -35,6 +35,8 @@ export interface User {
 	companion?: boolean;
 	companion_url?: string | null;
 	companion_seat?: number;
+	/** Only from /auth/me: the groups they're in (agents limited to some people count them). */
+	group_ids?: UUID[];
 }
 
 export type AvatarKind = 'initials' | 'upload' | 'url' | 'gravatar';
@@ -1535,6 +1537,8 @@ export interface Agent {
 	tags: string[];
 	/** The projects whose jobs it may run; null: any project (an empty list: none). */
 	project_ids?: UUID[] | null;
+	/** Who may run work on it (admins always may); null: everyone. */
+	people?: AgentPeople | null;
 	/** Its network segment ("VLAN 20 / user LAN"): where its runs look from. */
 	segment?: string;
 	/** Its network route (admins): everything it runs goes that way. */
@@ -1551,6 +1555,12 @@ export interface Agent {
 	plugin?: { id: string; type: string; machine: string } | null;
 	/** Whether that system answered when last asked. */
 	plugin_status?: { ok: boolean | null; message: string; checked_at: string | null } | null;
+}
+
+/** People and groups (by id) an agent's work is for. */
+export interface AgentPeople {
+	users: UUID[];
+	groups: UUID[];
 }
 
 /** An agent type a plugin adds (Salt minions…): its machines can become agents. */
@@ -2206,7 +2216,7 @@ export function api(fetchFn: Fetch = fetch) {
 		agents: {
 			list: () => get<Agent[]>('/agents'),
 			/** project_ids: null lifts the limit; leave it out to keep it. */
-			update: (id: UUID, body: { tags?: string[]; max_concurrency?: number; project_ids?: UUID[] | null; segment?: string; route?: string }) =>
+			update: (id: UUID, body: { tags?: string[]; max_concurrency?: number; project_ids?: UUID[] | null; segment?: string; route?: string; people?: AgentPeople | null }) =>
 				patch<Agent>(`/agents/${id}`, body),
 			remove: (id: UUID) => del(`/agents/${id}`)
 		},

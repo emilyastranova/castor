@@ -69,6 +69,18 @@ async def update_agent(agent_id: str, body: AgentPatch, db: DB, user: Admin):
         else:
             names = (await db.execute(select(m.Project.codename).where(m.Project.id.in_([uuid.UUID(p) for p in agent.project_ids])))).scalars().all()
             message = f"Limited the agent {agent.name} to {', '.join(sorted(names)) or 'no projects'}"
+    if "people" in body.model_fields_set:  # null is a value here: everyone
+        from .. import agent_people
+
+        given = body.people.model_dump(mode="json") if body.people is not None else None
+        try:
+            agent.people = await agent_people.check(db, given, agent.people)
+        except agent_people.PeopleError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if conn := gateway.get(agent.id):
+            conn.people = agent.people
+        message = (f"Let everyone use the agent {agent.name}" if agent.people is None
+                   else f"Limited the agent {agent.name} to {await agent_people.words(db, agent.people)}")
     await record_activity(db, type="agent.updated", message=message, project_id=None, **actor_of(user))
     await db.commit()
     out = await gateway.agent_out(agent)

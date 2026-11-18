@@ -113,7 +113,9 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   and every `CASTOR_DISPATCH_INTERVAL` seconds. Matching rule is in `agent_matches`:
   free slot, required runtime (image → needs podman/docker), optional `agent_id` or
   `tags` selector; and `project_allowed` (an agent's `project_ids`, null = any project, `[]` = none; set by admins or
-  its enrollment token, never by the agent) wherever an agent is chosen. `{tags, all: true}` fans a card out to every connected agent with the tags
+  its enrollment token, never by the agent) wherever an agent is chosen; `agent_people.allowed` (an agent's `people`,
+  `{users, groups}`, null = everyone, admins always) beside it, judged for `jobs.run_as` (the starter, else the run's
+  starter, else the card's maker; web `agentSelector.usableBy`, `/auth/me` `group_ids`). `{tags, all: true}` fans a card out to every connected agent with the tags
   (`services.enqueue_job`: one job each, a `batch_id`, `target_agent_id`), and a playbook run
   to one run per agent; step cards never fan out.
 - Command library: `command_spec.py` (YAML format → `CommandSpec`), `command_render.py`

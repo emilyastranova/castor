@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { me } from '$lib/session';
 	import { maskSpoilers } from '$lib/spoilers';
 	import { agentsFor, selectorFrom, selectorOptions } from '$lib/agentSelector';
 	import type { Agent, ArgErrors, Column, CommandDefinition, Task, UUID } from '$lib/api';
@@ -151,7 +152,7 @@
 				keywords: [c.id, ...c.tags, c.spec.tool ?? '', c.spec.image ?? ''].join(' ')
 			}))
 	);
-	let agentOptions = $derived(selectorOptions(agentsFor(agents, projectId)));
+	let agentOptions = $derived(selectorOptions(agentsFor(agents, projectId, me())));
 </script>
 
 <Dialog bind:open title="New card" size="md">

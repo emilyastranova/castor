@@ -545,6 +545,9 @@ class Agent(Base, TimestampMixin):
     # The projects whose jobs it may run (ids as strings); None: any project. Set by admins (or
     # its enrollment token), never by the agent itself. An empty list runs nothing.
     project_ids: Mapped[list[str] | None] = mapped_column(JSONType, nullable=True, default=None)
+    # Who may run work on it (admins): {users: [user ids], groups: [group ids]}; None: everyone.
+    # Admins always may. agent_people.py.
+    people: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True, default=None)
     # Where it sits on the network ("VLAN 20 / user LAN"): its vantage point. Set by admins; every
     # observation from its runs records it (segmentation.py).
     segment: Mapped[str] = mapped_column(String(80), default="", server_default="")
@@ -730,6 +733,9 @@ class Job(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # Whose permission it runs with on an agent limited to some people: who started it, else the
+    # playbook run's starter, else the card's maker (a trigger's card is its trigger's maker's).
+    run_as: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     # What it does (docs/ACTIONS.md): "command" runs on an agent, "http" is a request.
     kind: Mapped[str] = mapped_column(String(16), default="command", server_default="command")
     # Who ran it, for jobs that no agent ran: "server" (the Castor server's runner).

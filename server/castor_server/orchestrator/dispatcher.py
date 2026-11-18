@@ -10,8 +10,8 @@ from typing import Any
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import selectinload
 
+from .. import agent_people, network_routes, routing, variables
 from .. import models as m
-from .. import network_routes, routing, variables
 from ..artifacts import collect_patterns, new_token
 from ..command_library import load_spec
 from ..config import settings
@@ -149,6 +149,7 @@ class Dispatcher:
             # Routes that only work from some agents (a proxy reachable from one VPN or segment).
             limited = {str(r.id): r for r in (await db.execute(select(m.Route).where(m.Route.agents.is_not(None)))).scalars()
                        if r.agents is not None}
+            people: dict[str, agent_people.Who | None] = {}  # whose permission each job runs with
             for job in queued:
                 task = job.task
                 if job.kind in ("http", "mcp", "plugin"):
@@ -162,12 +163,14 @@ class Dispatcher:
                     await self._fail_unsent(db, job, task, f"the tool {job.tool} isn't in the library")
                     continue
                 job_route = await network_routes.chosen_for(db, task)
+                person = await agent_people.who(db, job.run_as or job.created_by, people)
                 candidates = [
                     c for c in gateway.connections.values()
                     if project_allowed(c, task.project_id) and agent_matches(c, job, selector, tool)
                     and (not (job_route or agent_routes.get(c.agent_id)) or route_capable(c, job, tool))
                     and network_routes.allows(limited.get(str(job_route)), c.agent_id, c.tags)
                     and network_routes.allows(limited.get(str(agent_routes.get(c.agent_id))), c.agent_id, c.tags)
+                    and agent_people.allowed(c.people, person)
                 ]
                 if not candidates:
                     continue
@@ -302,8 +305,10 @@ class Dispatcher:
             return
         via: AgentConnection | None = None
         if selector or rows:
+            person = await agent_people.who(db, job.run_as or job.created_by)
             able = [c for c in gateway.connections.values()
                     if c.capabilities.get("http") and project_allowed(c, task.project_id) and selector_matches(c, selector)
+                    and agent_people.allowed(c.people, person)
                     and (not rows or (c.capabilities.get("routes") and network_routes.allows_all(rows, c.agent_id, c.tags)))]
             if not able:
                 return

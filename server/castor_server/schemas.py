@@ -48,6 +48,8 @@ class UserOut(ORM):
     companion: bool = False
     companion_url: str | None = None
     companion_seat: float = 0.605
+    # Only on /api/auth/me: the groups they're in (agents limited to some people count them).
+    group_ids: list[str] = []
 
 
 class UserBrief(ORM):
@@ -636,6 +638,8 @@ class AgentOut(ORM):
     tags: list[str]
     # The projects whose jobs it may run; null: any project.
     project_ids: list[uuid.UUID] | None = None
+    # Who may run work on it: {users: [ids], groups: [ids]}; null: everyone (admins always may).
+    people: dict[str, list[str]] | None = None
     # Its network segment ("VLAN 20 / user LAN"), its vantage point; empty: not said.
     segment: str = ""
     # Its network route (everything it runs goes that way); null: none.
@@ -654,6 +658,11 @@ class AgentOut(ORM):
     plugin_status: dict[str, Any] | None = None
 
 
+class AgentPeople(BaseModel):
+    users: list[uuid.UUID] = Field(default_factory=list, max_length=500)
+    groups: list[uuid.UUID] = Field(default_factory=list, max_length=200)
+
+
 class AgentPatch(BaseModel):
     tags: list[str] | None = None
     segment: str | None = Field(None, max_length=80)
@@ -662,6 +671,9 @@ class AgentPatch(BaseModel):
     max_concurrency: int | None = None
     # Limit it to these projects' jobs; null lifts the limit (any project). Left out: unchanged.
     project_ids: list[uuid.UUID] | None = None
+    # Only these people (and groups' members) may run work on it; null: everyone. Admins always may.
+    # Left out: unchanged.
+    people: AgentPeople | None = None
 
 
 class AgentTokenIn(BaseModel):

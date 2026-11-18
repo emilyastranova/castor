@@ -1063,6 +1063,19 @@ agents that may work in a project they can see. Web: `AgentProjectsPicker` (agen
 Projects line on agent cards, `agentSelector.agentsFor` narrows the card, New card and Run playbook pickers and
 the board's "agents online".
 
+**Agents only some people may use.** `agents.people` (`{users: [ids], groups: [ids]}`; null: everyone, empty
+lists: admins only) keeps an agent to some people's work: `agent_people.allowed(people, who)` next to
+`project_allowed` in `pump`, `_to_server` (an HTTP action's sending agent), `broadcast_targets`, a playbook's
+`{tags, all}` fan-out and route tests. Admins always may. Whose work a job is: `jobs.run_as`, set by `enqueue_job`
+(`agent_people.run_as_for`: the person starting it, else the playbook run's starter, else the card's maker, so a
+trigger's card is its trigger's maker's); a job from before it falls back to `created_by`; nobody (a deleted or
+disabled account) matches no limited agent. Only admins set it (`PATCH /api/agents/{id}` `people`; left out keeps
+it, null lifts it); ids already stored stay even when gone, only new unknown ones are refused. A job for someone
+else waits (queued). `GET /api/auth/me` carries `group_ids` so the web can tell (`agentSelector.usableBy`; keep it
+the same as the server's rule): `agentsFor(agents, project, user)` narrows the pickers, TaskDialog says when the
+pinned agent isn't yours, agent cards show a For line, `AgentPeoplePicker` in the agent editor. MCP servers'
+stdio programs aren't limited by people (admins set those connections up for projects).
+
 **Every agent with some tags.** A card with `agent_selector: {tags, all: true}` gets, from
 `enqueue_job`, one job per connected agent that has the tags and can run it
 (`broadcast_targets`, using `dispatcher.agent_can_run`). Its jobs share a `batch_id`, and each

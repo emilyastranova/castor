@@ -35,6 +35,8 @@ class AgentConnection:
     max_concurrency: int
     # Projects whose jobs it may run (ids as strings); None: any (Agent.project_ids).
     project_ids: list[str] | None = None
+    # Who may run work on it ({users, groups}); None: everyone (Agent.people, agent_people.py).
+    people: dict[str, Any] | None = None
     # The token it authenticated with (None: the shared secret).
     token_id: uuid.UUID | None = None
     running: set[uuid.UUID] = field(default_factory=set)
@@ -258,6 +260,7 @@ class AgentGateway:
                 tags=agent.tags,
                 max_concurrency=agent.max_concurrency,
                 project_ids=agent.project_ids,
+                people=agent.people,
                 token_id=token.id if token else None,
             )
             self.connections[agent.id] = conn

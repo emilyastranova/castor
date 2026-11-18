@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { pop, glide } from '$lib/motion';
 	import { routeAllows } from '$lib/routes';
-	import { isAdmin } from '$lib/session';
+	import { isAdmin, me } from '$lib/session';
 	import { invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
-	import type { Agent, AgentToken, Job, SshHost, UUID } from '$lib/api';
+	import type { Agent, AgentPeople, AgentToken, Group, Job, SshHost, UserBrief, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { TopAppBar, Card, Icon, IconButton, Chip, Dialog, Button, TextField, TagInput, Select } from '$lib/m3';
 	import { loadTags, type TagSuggestion } from '$lib/tags';
@@ -18,6 +18,8 @@
 	import SshConfigDialog from '$lib/components/SshConfigDialog.svelte';
 	import TagManagerDialog from '$lib/components/TagManagerDialog.svelte';
 	import AgentProjectsPicker from '$lib/components/AgentProjectsPicker.svelte';
+	import AgentPeoplePicker from '$lib/components/AgentPeoplePicker.svelte';
+	import { usableBy } from '$lib/agentSelector';
 	import PluginAgentsDialog from '$lib/components/PluginAgentsDialog.svelte';
 	import type { PluginAgentType } from '$lib/api';
 
@@ -210,6 +212,23 @@
 	let tagSuggestions = $state<TagSuggestion[]>([]);
 	let concurrency = $state('1');
 	let limitTo = $state<UUID[] | null>(null);
+	/** Who may run work on it; null: everyone. */
+	let peopleFor = $state<AgentPeople | null>(null);
+	// Names for "Who can use it" (the directory and groups, where you may read them).
+	let directory = $state<UserBrief[]>([]);
+	let groupList = $state<Group[]>([]);
+	$effect(() => {
+		api().users.directory().then((u) => (directory = u)).catch(() => {});
+		api().groups.list().then((g) => (groupList = g)).catch(() => {});
+	});
+	function peopleOf(a: Agent): string {
+		if (!a.people) return 'Everyone';
+		const names = [
+			...a.people.users.map((id) => directory.find((u) => u.id === id)?.display_name ?? 'someone'),
+			...a.people.groups.map((id) => groupList.find((g) => g.id === id)?.name ?? 'a group')
+		];
+		return names.length ? names.join(', ') : 'Admins only';
+	}
 	let enrollOpen = $state(false);
 
 	// Project names for the agents' "Projects" line (only those you can see).
@@ -232,6 +251,7 @@
 		editing = a;
 		tags = [...a.tags];
 		limitTo = a.project_ids == null ? null : [...a.project_ids];
+		peopleFor = a.people ? { users: [...a.people.users], groups: [...a.people.groups] } : null;
 		void loadTags('agents').then((t) => (tagSuggestions = t));
 		concurrency = String(a.max_concurrency);
 		segment = a.segment ?? '';
@@ -247,6 +267,7 @@
 				tags,
 				max_concurrency: Number(concurrency) || 1,
 				project_ids: limitTo,
+				people: peopleFor,
 				segment,
 				...(editing.ssh_host_id || editing.plugin ? {} : { route })
 			});
@@ -337,6 +358,13 @@
 						{#if a.segment}<dt>Segment</dt><dd class="truncate text-on-surface" title="Its network segment: where its runs look from">{a.segment}</dd>{/if}
 						{#if a.route}<dt>Route</dt><dd class="truncate text-on-surface"><a class="text-primary hover:underline" href={`/routes?r=${a.route}`}>everything it runs goes through a route</a></dd>{/if}
 						<dt>Projects</dt><dd class="truncate {a.project_ids && !a.project_ids.length ? 'text-error' : 'text-on-surface'}" title={projectsOf(a)}>{projectsOf(a)}</dd>
+						{#if a.people}
+							{@const mine = usableBy(a, me())}
+							<dt>For</dt><dd class="flex min-w-0 items-center gap-1 text-on-surface" title={peopleOf(a)}>
+								<Icon name={mine ? 'person_check' : 'person_off'} size={14} class="shrink-0 {mine ? 'text-primary' : 'text-on-surface-variant'}" />
+								<span class="truncate">{mine ? peopleOf(a) : 'Only some people, not you'}</span>
+							</dd>
+						{/if}
 						{#if (sshOf(a)?.route.length ?? 0) > 1}
 							{@const hops = sshOf(a)!.route.slice(0, -1)}
 							<dt>Via</dt><dd class="truncate font-mono text-[12px] text-on-surface" title="Jump hosts, from the SSH config">{hops.map((h) => h.replace(/:22$/, '')).join(' › ')}</dd>
@@ -480,6 +508,7 @@
 				supporting="Everything it runs goes through this route (a card’s own route is chained after it). For an agent that only gets out through a jumpbox or a proxy." />
 		{/if}
 		<AgentProjectsPicker bind:value={limitTo} supporting="Limit it to some projects to keep their work (and their targets' traffic) on this machine and other projects' work off it." />
+		<AgentPeoplePicker bind:value={peopleFor} users={directory} groups={groupList} />
 	</div>
 	{#snippet actions()}
 		<Button variant="text" onclick={() => (editing = null)}>Cancel</Button>

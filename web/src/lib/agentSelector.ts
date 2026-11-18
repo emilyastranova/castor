@@ -1,4 +1,4 @@
-import type { Agent, AgentSelector } from '$lib/api';
+import type { Agent, AgentSelector, User } from '$lib/api';
 
 /** Where a card or a playbook run goes: as a Select value and back, and in words. Values:
  *  '' any agent, the agent's id, `tag:<tags>` one agent with them, `all:<tags>` every
@@ -18,10 +18,22 @@ export function selectorFrom(value: string): AgentSelector {
 	return m[1] === 'all' ? { tags, all: true } : { tags };
 }
 
-/** The agents that may run a project's jobs (an agent limited to other projects isn't offered). */
-export function agentsFor(agents: Agent[], projectId: string | null | undefined): Agent[] {
-	if (!projectId) return agents;
-	return agents.filter((a) => a.project_ids == null || a.project_ids.includes(projectId));
+/** Whether this person may have work run on the agent (server: agent_people.allowed; keep them the
+ *  same): everyone, unless it's limited to some people; admins always. */
+export function usableBy(agent: Agent, user: User | null | undefined): boolean {
+	const p = agent.people;
+	if (!p) return true;
+	if (!user) return false;
+	if (user.role === 'admin') return true;
+	return p.users.includes(user.id) || p.groups.some((g) => (user.group_ids ?? []).includes(g));
+}
+
+/** The agents that may run a project's jobs (an agent limited to other projects isn't offered),
+ *  and with `user`, only those they may use. */
+export function agentsFor(agents: Agent[], projectId: string | null | undefined, user?: User | null): Agent[] {
+	return agents.filter(
+		(a) => (!projectId || a.project_ids == null || a.project_ids.includes(projectId)) && (user === undefined || usableBy(a, user))
+	);
 }
 
 const hasTags = (a: Agent, tags: string[]) => tags.every((t) => a.tags.includes(t));
