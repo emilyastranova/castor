@@ -453,7 +453,9 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `tests/test_plugin_agents.py` (a Deno fleet plugin; the official `saltstack` against a fake salt-api).
 - Config is `pydantic-settings` with the `CASTOR_` prefix (`config.py`).
 - SQLite uses `NullPool` (aiosqlite connections are bound to the event loop that opened
-  them; the test client runs WebSocket sessions on another loop).
+  them; the test client runs WebSocket sessions on another loop), WAL and a 30 s `busy_timeout` (`db.py`; in the
+  default rollback journal an open read held up every commit). Copy a SQLite database with `db._copy_sqlite`
+  (SQLite's backup API), never a file copy: recent changes can still be in the `-wal` file.
 - Tests use Starlette's `TestClient` with a temp SQLite DB (or
   `CASTOR_TEST_DATABASE_URL`, e.g. a throwaway Postgres container) set via env vars in
   `tests/conftest.py` **before** the app is imported; the `auth` fixture clears the login

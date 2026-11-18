@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import shutil
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -37,10 +36,18 @@ engine = create_async_engine(settings.database_url, echo=False, future=True, **_
 
 if settings.database_url.startswith("sqlite"):
     # SQLite only enforces foreign keys (and so ON DELETE CASCADE) when asked, per connection.
+    # WAL lets readers and a writer work at once (in the default rollback journal an open read
+    # transaction, like the dispatcher's pass, holds up every commit), and a writer waits up to
+    # 30 s for another instead of failing with "database is locked" after 5.
+    _wal = ":memory:" not in settings.database_url
+
     @event.listens_for(engine.sync_engine, "connect")
     def _sqlite_foreign_keys(dbapi_connection, _record) -> None:
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        if _wal:
+            cursor.execute("PRAGMA journal_mode=WAL")
         cursor.close()
 
 
@@ -94,6 +101,19 @@ async def run_migrations(url: str | None = None) -> None:
     await asyncio.to_thread(command.upgrade, cfg, "head")
 
 
+def _copy_sqlite(src: Path, dst: Path) -> None:
+    """A consistent copy of a SQLite database through SQLite's backup API: in WAL mode recent
+    changes can still be in the -wal file, which copying the main file would leave out."""
+    import sqlite3
+
+    source, target = sqlite3.connect(src), sqlite3.connect(dst)
+    try:
+        source.backup(target)
+    finally:
+        target.close()
+        source.close()
+
+
 async def _backup_before_upgrade(probe, url: str) -> None:
     """Copy a SQLite database aside before migrations change it. (Postgres can't be copied
     from here: back it up with pg_dump before updating, see README.)"""
@@ -111,7 +131,7 @@ async def _backup_before_upgrade(probe, url: str) -> None:
     backup = path.parent / "backups" / f"{path.stem}-before-upgrade-{current}{path.suffix}"
     backup.parent.mkdir(parents=True, exist_ok=True)
     if not backup.exists():
-        shutil.copy2(path, backup)
+        _copy_sqlite(path, backup)
     log.info("database upgrade %s → %s; backed up to %s", current, head, backup)
 
 
@@ -129,7 +149,7 @@ async def _repair_orphaned_revision(probe, url: str) -> None:
         path = Path(url.split("///", 1)[-1])
         backup = path.parent / "backups" / f"{path.stem}-before-repair-{current}{path.suffix}"
         backup.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, backup)
+        _copy_sqlite(path, backup)
         log.warning("database is at orphaned revision %s; backed up to %s", current, backup)
     async with probe.begin() as conn:
         await conn.run_sync(repair)
