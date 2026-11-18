@@ -226,7 +226,8 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   try best first or why not, `raw_reason` refuses SYN/UDP scans and ping sweeps, `unfake`), `network_routes.py` (`routes`
   table: hops with vault secrets, `store_hops`/`route_out` (never secrets), `chosen_for`/`rows_for`: card `tasks.route` ("none" =
   direct) → `playbook_runs.route` → `projects.settings.route`, an agent's `agents.route` chained in front; a missing route stops
-  the job, never runs it unrouted; host keys trusted on first use, `host_key_pending` stops it; `payload` (secrets) only in
+  the job, never runs it unrouted; `routes.agents` ({ids, tags (any of)}, null = any agent) limits which agents a job on it goes
+  to (`network_routes.allows`, web `routeAllows`: dispatcher, fan-outs, tests, an agent's own route); host keys trusted on first use, `host_key_pending` stops it; `payload` (secrets) only in
   job.run/route.test/http.request; `outside_scope` makes `enqueue_job` ask for approval), `api/routes.py`, MCP `*_route` tools.
   `{{ route }}` renders `${CASTOR_ROUTE_ARGS}` (unquoted). Agent: `route_chain.py` (stdlib; SSH hops are OpenSSH `-D` with
   ProxyCommand through "stage" SOCKS servers; the box's iptables redirect + kill switch + stand-in DNS 198.18/15) and

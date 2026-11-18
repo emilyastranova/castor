@@ -551,7 +551,7 @@ runs `pipeline-demo` end to end with each command executed under `/bin/sh`.
 
 Chains of hops (SSH jumps, SOCKS and HTTP proxies) a job's traffic goes through to reach networks
 the agent can't reach directly: `routes` (hops with vault-encrypted secrets, `dns`, `strict`,
-`segment`, `last_test`), chosen by `tasks.route`, `playbook_runs.route`, `projects.settings.route`
+`segment`, `agents` (the agents it works from: ids and tags, null = any), `last_test`), chosen by `tasks.route`, `playbook_runs.route`, `projects.settings.route`
 and `agents.route`; `jobs.route_info` records what a run went through and how. They run on agents (a
 route box per route with a container runtime). Tools and commands say how they take one (`route:`)
 and commands where its flags go (`{{ route }}`). All of it is in [ROUTES.md](ROUTES.md).

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { pop, glide } from '$lib/motion';
+	import { routeAllows } from '$lib/routes';
 	import { isAdmin } from '$lib/session';
 	import { invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
@@ -236,7 +237,8 @@
 		segment = a.segment ?? '';
 		route = a.route ?? '';
 		api().routes.list().then((rs) => (routeOptions = [{ value: '', label: 'None', description: 'It reaches targets from its own network' },
-			...rs.map((r) => ({ value: r.id, label: r.name, description: r.label }))])).catch(() => {});
+			// Only routes it may use (some work from certain agents only); its current one stays listed.
+			...rs.filter((r) => r.id === a.route || routeAllows(r, a)).map((r) => ({ value: r.id, label: r.name, description: r.label }))])).catch(() => {});
 	}
 	async function saveAgent() {
 		if (!editing) return;

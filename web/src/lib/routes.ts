@@ -74,6 +74,27 @@ export function hopResult(route: NetworkRoute, hop: RouteHop, index: number): { 
 	return t ? { ok: t.ok, ms: t.ms, error: t.error } : null;
 }
 
+/** Whether a job may take the route from this agent (server: network_routes.allows; keep them the
+ *  same): every agent, unless the route names its agents, or tags one of which the agent has. */
+export function routeAllows(route: NetworkRoute | null | undefined, agent: { id: string; tags: string[] }): boolean {
+	if (!route?.agents) return true;
+	return route.agents.ids.includes(agent.id) || route.agents.tags.some((t) => agent.tags.includes(t));
+}
+
+/** Only the agents every one of these routes works from. */
+export function agentsForRoutes<A extends { id: string; tags: string[] }>(agents: A[], routes: (NetworkRoute | null | undefined)[]): A[] {
+	return agents.filter((a) => routes.every((r) => routeAllows(r, a)));
+}
+
+/** “agents tagged vpn-acme or scanner-01”, for hints. */
+export function routeAgentsWords(route: NetworkRoute, names: (id: string) => string): string {
+	if (!route.agents) return 'any agent';
+	const parts: string[] = [];
+	if (route.agents.tags.length) parts.push(`agents tagged ${route.agents.tags.join(' or ')}`);
+	if (route.agents.ids.length) parts.push(route.agents.ids.map(names).join(', '));
+	return parts.join(' or ') || 'no agent';
+}
+
 /** The options of a route picker for a card, run or project. */
 export function routeOptions(routes: NetworkRoute[], opts: { inherit?: string | null; direct?: boolean } = {}) {
 	const out: { value: string; label: string; description?: string; group?: string; keywords?: string }[] = [];

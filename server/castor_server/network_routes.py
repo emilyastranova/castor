@@ -111,7 +111,7 @@ def route_out(row: m.Route) -> dict[str, Any]:
     return {
         "id": str(row.id), "name": row.name, "description": row.description or "", "tags": row.tags or [],
         "project_ids": row.project_ids or [], "hops": [hop_out(h) for h in hops], "dns": row.dns, "strict": row.strict,
-        "segment": row.segment or "", "label": routing.chain_label(hops), "last_test": row.last_test,
+        "segment": row.segment or "", "agents": row.agents, "label": routing.chain_label(hops), "last_test": row.last_test,
         "pending_keys": sum(1 for h in hops if h.get("host_key_pending")),
         "live": [{"agent_id": a, **st} for a, st in states.items()],
         "created_by": str(row.created_by) if row.created_by else None,
@@ -137,6 +137,66 @@ def can_see(row: m.Route, visible: set[uuid.UUID] | None) -> bool:
 
 def for_project(row: m.Route, project_id: uuid.UUID | str) -> bool:
     return not row.project_ids or str(project_id) in [str(p) for p in row.project_ids]
+
+
+# ---------- which agents can use it ----------
+
+def allows(row: m.Route | None, agent_id: uuid.UUID | str | None, tags: list[str] | set[str] | None) -> bool:
+    """Whether a job may take the route from this agent: every agent, unless the route names its
+    agents (some proxies are only reachable from a VPN or a segment): listed, or with one of its tags."""
+    if row is None or row.agents is None:
+        return True
+    ids = {str(i) for i in row.agents.get("ids") or []}
+    wanted = set(row.agents.get("tags") or [])
+    return (agent_id is not None and str(agent_id) in ids) or bool(wanted & set(tags or []))
+
+
+def allows_all(rows: list[m.Route], agent_id: uuid.UUID | str | None, tags: list[str] | set[str] | None) -> bool:
+    return all(allows(r, agent_id, tags) for r in rows)
+
+
+def agents_words(row: m.Route) -> str:
+    """“agents tagged vpn-acme or 2 named agents”, for messages."""
+    a = row.agents or {}
+    parts = []
+    if a.get("tags"):
+        parts.append("agents tagged " + " or ".join(a["tags"]))
+    if a.get("ids"):
+        n = len(a["ids"])
+        parts.append(f"{n} named agent{'s' if n != 1 else ''}")
+    return " or ".join(parts) or "no agent"
+
+
+async def check_agents(db: AsyncSession, given: routing.RouteAgents | None,
+                       before: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """The stored form of a route's agents: agent ids, tidy tags. None: any agent. An id it already
+    had stays even when there's no such agent here (forgotten, or the route came from another
+    Castor): dropping it could leave the route open to every agent."""
+    if given is None:
+        return None
+    had = {str(i) for i in (before or {}).get("ids") or []}
+    ids: list[str] = []
+    for raw in given.ids:
+        try:
+            key = str(uuid.UUID(str(raw)))
+        except ValueError:
+            raise RouteError(f"agents: no agent {raw}") from None
+        if key not in had and await db.get(m.Agent, uuid.UUID(key)) is None:
+            raise RouteError(f"agents: no agent {raw}")
+        if key not in ids:
+            ids.append(key)
+    tags = sorted({t.strip() for t in given.tags if t and t.strip()})
+    if not ids and not tags:
+        raise RouteError("agents: name at least one agent or tag (or leave it out: any agent)")
+    return {"ids": ids, "tags": tags}
+
+
+async def route_for_choice(db: AsyncSession, choice: str | None, project_id: uuid.UUID | str | None) -> m.Route | None:
+    """The route a playbook run's choice means: its own, "none", or (empty) the project's default."""
+    if choice:
+        return await get(db, choice)
+    project = await db.get(m.Project, uuid.UUID(str(project_id))) if project_id else None
+    return await get(db, ((project.settings or {}).get("route") if project else None) or None)
 
 
 def publish(row: m.Route, name: str = "route.updated", data: dict[str, Any] | None = None) -> None:

@@ -416,11 +416,13 @@ TOOLS += [
           "authorized_keys on that host). host_key pins an SSH hop's key ahead of time; otherwise the first one seen is trusted. "
           "dns: remote (names resolved at the far end, the default) or local; strict (default true): jobs on it run in a container "
           "whose only way out is the route (host jobs are refused). segment: the vantage point name its findings are recorded under "
-          "(default: the route's name). project_ids: the projects that may use it ([] = every project, admins only). Then try it "
-          "with test_route."),
+          "(default: the route's name). project_ids: the projects that may use it ([] = every project, admins only). agents: "
+          "when the first hop is only reachable from some agents (on a VPN, in a segment), {ids: [agent ids], tags: [agent tags]}: "
+          "jobs taking the route only go to those agents or agents with any of the tags (null or left out: any agent). Then try "
+          "it with test_route."),
     _auto("update_route", "PATCH", "/api/routes/{route_id}", "Change a route; only the fields given change. hops replaces the whole "
           "chain: send each kept hop with its id (from get_route) to keep its stored secret, and new ones without an id. A hop that "
-          "now points at another host forgets its trusted host key."),
+          "now points at another host forgets its trusted host key. agents: null opens it to every agent again."),
     _auto("delete_route", "DELETE", "/api/routes/{route_id}", "Delete a route. Cards, projects and agents that use it don't fall back "
           "to going direct: their jobs refuse to run until they get another route. In use, it's refused unless force is true "
           "(route_usage lists who uses it).", **_DESTRUCTIVE),

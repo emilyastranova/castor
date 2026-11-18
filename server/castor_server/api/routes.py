@@ -34,6 +34,8 @@ class RoutePatch(BaseModel):
     dns: str | None = Field(None, pattern="^(remote|local)$")
     strict: bool | None = None
     segment: str | None = Field(None, max_length=80)
+    # Only from these agents; null: any agent (sent as null, it goes back to any).
+    agents: routing.RouteAgents | None = None
 
 
 class TestIn(BaseModel):
@@ -100,7 +102,8 @@ def _tags(tags: list[str]) -> list[str]:
 def _changes(before: m.Route | dict[str, Any], after: m.Route) -> list[str]:
     get = (lambda k: before.get(k)) if isinstance(before, dict) else (lambda k: getattr(before, k))
     words = {"name": "name", "description": "description", "tags": "tags", "project_ids": "projects", "hops": "hops",
-             "dns": "where names are resolved", "strict": "“only through the route”", "segment": "segment"}
+             "dns": "where names are resolved", "strict": "“only through the route”", "segment": "segment",
+             "agents": "agents"}
     return [w for k, w in words.items() if get(k) != getattr(after, k)]
 
 
@@ -129,11 +132,12 @@ async def create_route(body: routing.RouteIn, db: DB, user: Operator) -> dict[st
     name = await _name_free(db, body.name)
     try:
         hops = nr.store_hops(body.hops, [], f"castor route {name}")
+        agents = await nr.check_agents(db, body.agents)
     except RouteError as exc:
         raise HTTPException(422, str(exc)) from exc
     row = m.Route(name=name, description=body.description, tags=_tags(body.tags),
                   project_ids=await _projects(db, user, body.project_ids), hops=hops, dns=body.dns, strict=body.strict,
-                  segment=body.segment.strip(), created_by=user.id)
+                  segment=body.segment.strip(), agents=agents, created_by=user.id)
     db.add(row)
     await db.flush()
     await record_activity(db, type="route.created", message=f"Made the route “{name}” ({routing.chain_label(hops)})",
@@ -152,7 +156,7 @@ async def get_route(route_id: str, db: DB, user: CurrentUser) -> dict[str, Any]:
 @router.patch("/{route_id}")
 async def update_route(route_id: str, body: RoutePatch, db: DB, user: Operator) -> dict[str, Any]:
     row = await _route_or_404(db, user, route_id)
-    before = {k: getattr(row, k) for k in ("name", "description", "tags", "project_ids", "hops", "dns", "strict", "segment")}
+    before = {k: getattr(row, k) for k in ("name", "description", "tags", "project_ids", "hops", "dns", "strict", "segment", "agents")}
     if body.name is not None:
         row.name = await _name_free(db, body.name, row.id)
     if body.description is not None:
@@ -172,6 +176,11 @@ async def update_route(route_id: str, body: RoutePatch, db: DB, user: Operator) 
         row.strict = body.strict
     if body.segment is not None:
         row.segment = body.segment.strip()
+    if "agents" in body.model_fields_set:
+        try:
+            row.agents = await nr.check_agents(db, body.agents, row.agents)
+        except RouteError as exc:
+            raise HTTPException(422, str(exc)) from exc
     changed = _changes(before, row)
     if changed:
         if "hops" in changed:
@@ -246,10 +255,16 @@ async def test_route(route_id: str, body: TestIn, db: DB, user: Operator) -> dic
         conn = gateway.connections.get(body.agent_id)
         if conn is None:
             raise HTTPException(409, "That agent isn't connected")
+        if not nr.allows(row, conn.agent_id, conn.tags):
+            raise HTTPException(409, f"“{row.name}” only works from {nr.agents_words(row)}, and {conn.name} isn't one; "
+                                     "add it to the route's agents first")
     else:
-        able = [c for c in gateway.connections.values() if c.capabilities.get("routes")
+        able = [c for c in gateway.connections.values() if c.capabilities.get("routes") and nr.allows(row, c.agent_id, c.tags)
                 and (not row.project_ids or any(project_allowed(c, p) for p in row.project_ids))]
         if not able:
+            if row.agents is not None:
+                raise HTTPException(409, f"None of the agents “{row.name}” works from ({nr.agents_words(row)}) is connected "
+                                         "and can bring routes up")
             raise HTTPException(409, "No connected agent can bring routes up (agents from before Castor 1.13 can't)")
         conn = min(able, key=lambda c: len(c.running))
     try:

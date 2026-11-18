@@ -616,6 +616,9 @@ class Route(Base, TimestampMixin):
     dns: Mapped[str] = mapped_column(String(8), default="remote")  # remote (at the far end) | local
     strict: Mapped[bool] = mapped_column(Boolean, default=True)  # nothing leaves except through it
     segment: Mapped[str] = mapped_column(String(80), default="", server_default="")  # vantage point label
+    # The agents that can use it, where it's only reachable from some (on a VPN, in a segment):
+    # {ids: [agent ids], tags: [any of these]}. None: every agent.
+    agents: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
     last_test: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 

@@ -3,12 +3,12 @@
 	import { page } from '$app/state';
 	import type { Agent, NetworkRoute, NetworkRouteIn, RouteHopIn, RouteLive, RouteTest, RouteUsage, UUID } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
-	import { Button, Card, Dialog, Icon, Select, Switch, TagInput, TextField, TopAppBar } from '$lib/m3';
+	import { Button, Card, Chip, Dialog, Icon, Select, Switch, TagInput, TextField, TopAppBar } from '$lib/m3';
 	import RouteChain, { type ChainHop } from '$lib/components/routes/RouteChain.svelte';
 	import HopEditor, { type DraftHop } from '$lib/components/routes/HopEditor.svelte';
 	import AgentProjectsPicker from '$lib/components/AgentProjectsPicker.svelte';
 	import LibraryTransfer from '$lib/components/LibraryTransfer.svelte';
-	import { HOP_KINDS, METHOD_WORDS, TONE_CLASS, hopKind, hopResult, routeState } from '$lib/routes';
+	import { HOP_KINDS, METHOD_WORDS, TONE_CLASS, hopKind, hopResult, routeAllows, routeState } from '$lib/routes';
 	import { realtime } from '$lib/realtime.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
 	import { confirmAction } from '$lib/confirm.svelte';
@@ -37,6 +37,8 @@
 		dns: 'remote' | 'local';
 		strict: boolean;
 		segment: string;
+		/** null: every agent; else these agents and any agent with one of the tags. */
+		agents: { ids: UUID[]; tags: string[] } | null;
 		hops: DraftHop[];
 	}
 
@@ -70,7 +72,7 @@
 	function draftOf(r: NetworkRoute): Draft {
 		return {
 			id: r.id, name: r.name, description: r.description, tags: [...r.tags], projects: r.project_ids.length ? [...r.project_ids] : null,
-			dns: r.dns, strict: r.strict, segment: r.segment,
+			dns: r.dns, strict: r.strict, segment: r.segment, agents: r.agents ? { ids: [...r.agents.ids], tags: [...r.agents.tags] } : null,
 			hops: r.hops.map((h) => ({ key: newKey(), id: h.id, kind: h.kind, host: h.host, port: String(h.port), username: h.username, label: h.label,
 				auth: h.auth, secret: { mode: h.has_secret ? 'keep' : h.auth === 'none' ? 'none' : h.auth === 'password' ? 'password' : 'generate',
 					password: '', private_key: '', passphrase: '' }, pin: '', stored: h }))
@@ -81,7 +83,7 @@
 		return { ...d, hops: d.hops.map(({ stored: _s, key: _k, ...rest }) => rest) };
 	}
 	function open(r: NetworkRoute | null, push = true) {
-		draft = r ? draftOf(r) : { id: null, name: '', description: '', tags: [], projects: isAdmin() ? null : [], dns: 'remote', strict: true, segment: '', hops: [blankHop()] };
+		draft = r ? draftOf(r) : { id: null, name: '', description: '', tags: [], projects: isAdmin() ? null : [], dns: 'remote', strict: true, segment: '', agents: null, hops: [blankHop()] };
 		base = JSON.stringify(snapshotOf(draft));
 		selectedHop = r ? null : 0;
 		errors = null;
@@ -120,6 +122,7 @@
 	});
 	$effect(() => {
 		loadTags('library').then((t) => (tagSuggestions = t)).catch(() => {});
+		loadTags('agents').then((t) => (agentTagSuggestions = t)).catch(() => {});
 	});
 
 	// ----- live -----
@@ -211,6 +214,7 @@
 	}
 	function problems(d: Draft): string | null {
 		if (!d.name.trim()) return 'Give the route a name.';
+		if (d.agents && !d.agents.ids.length && !d.agents.tags.length) return 'Pick the agents it works from (or a tag of theirs), or let any agent use it.';
 		for (const [i, h] of d.hops.entries()) {
 			if (!h.host.trim()) return `Hop ${i + 1} needs a host.`;
 			const port = h.port.trim();
@@ -229,7 +233,7 @@
 		if (errors) return;
 		const body: NetworkRouteIn = {
 			name: draft.name.trim(), description: draft.description, tags: draft.tags, project_ids: draft.projects ?? [],
-			hops: draft.hops.map(hopIn), dns: draft.dns, strict: draft.strict, segment: draft.segment.trim()
+			hops: draft.hops.map(hopIn), dns: draft.dns, strict: draft.strict, segment: draft.segment.trim(), agents: draft.agents
 		};
 		saving = true;
 		try {
@@ -287,9 +291,27 @@
 
 	// ----- testing -----
 
+	// The saved route's agents (a test uses the saved route).
 	const testAgents = $derived(
-		agents.filter((a) => a.connected && a.capabilities?.routes && (!draft?.projects?.length || a.project_ids == null || a.project_ids.some((p) => draft!.projects!.includes(p))))
+		agents.filter((a) => a.connected && a.capabilities?.routes && routeAllows(current, a) && (!draft?.projects?.length || a.project_ids == null || a.project_ids.some((p) => draft!.projects!.includes(p))))
 	);
+
+	// ----- which agents can use it -----
+
+	let agentTagSuggestions = $state<TagSuggestion[]>([]);
+	/** Agents that can bring routes up (SSH hosts and plugin machines can't). */
+	const routeAgents = $derived(agents.filter((a) => !a.ssh_host_id && !a.plugin));
+	/** Who it works from now, as the draft says. */
+	const worksFrom = $derived(draft?.agents ? routeAgents.filter((a) => draft!.agents!.ids.includes(a.id) || draft!.agents!.tags.some((t) => a.tags.includes(t))) : []);
+	function limitTo(some: boolean) {
+		if (!draft) return;
+		draft.agents = some ? (draft.agents ?? { ids: [], tags: [] }) : null;
+	}
+	function toggleAgent(id: string) {
+		if (!draft?.agents) return;
+		const ids = draft.agents.ids;
+		draft.agents.ids = ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id];
+	}
 	async function test() {
 		if (!draft?.id) return;
 		testing = true;
@@ -421,6 +443,48 @@
 						</div>
 					{/key}
 				{/if}
+
+				<section class="flex flex-col gap-4" aria-labelledby="route-agents">
+					<h2 id="route-agents" class="title-medium text-on-surface">Which agents can use it</h2>
+					<div class="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Which agents can use it">
+						{#each [{ v: false, t: 'Any agent', d: 'Every agent can reach the first hop.', i: 'public' }, { v: true, t: 'Only some agents', d: 'The first hop is only reachable from some: on a VPN, or in a segment. Jobs on the route only go to them.', i: 'vpn_lock' }] as o (o.t)}
+							{@const on = !!draft.agents === o.v}
+							<button type="button" role="radio" aria-checked={on} disabled={!editable}
+								class="state-layer focus-ring flex items-start gap-3 rounded-md border p-3 text-left {on ? 'border-primary bg-primary-container/40' : 'border-outline-variant'}"
+								onclick={() => limitTo(o.v)}>
+								<Icon name={o.i} size={20} class={on ? 'text-primary' : 'text-on-surface-variant'} />
+								<span class="min-w-0"><span class="block title-small text-on-surface">{o.t}</span><span class="block body-small text-on-surface-variant">{o.d}</span></span>
+							</button>
+						{/each}
+					</div>
+					{#if draft.agents}
+						<TagInput label="Agents tagged (any of)" bind:value={draft.agents.tags} suggestions={agentTagSuggestions} placeholder="vpn-acme" disabled={!editable} />
+						<div class="flex flex-col gap-2">
+							<span class="label-large text-on-surface">And these agents</span>
+							<div class="flex flex-wrap gap-2">
+								{#each routeAgents as a (a.id)}
+									{@const picked = draft.agents.ids.includes(a.id)}
+									{@const byTag = !picked && draft.agents.tags.some((t) => a.tags.includes(t))}
+									<Chip variant="filter" selected={picked || byTag} icon={picked ? 'check' : byTag ? 'sell' : undefined} disabled={!editable || byTag}
+										title={byTag ? 'Has one of the tags' : a.connected ? a.hostname : 'Offline'} onclick={() => toggleAgent(a.id)}>
+										{a.name}{a.connected ? '' : ' (offline)'}
+									</Chip>
+								{/each}
+								{#each draft.agents.ids.filter((id) => !routeAgents.some((a) => a.id === id)) as id (id)}
+									<Chip variant="filter" selected icon="help" disabled={!editable} title="No such agent here (forgotten, or the route came from another Castor)" onclick={() => toggleAgent(id)}>An unknown agent</Chip>
+								{/each}
+							</div>
+						</div>
+						<p class="flex items-start gap-1.5 body-small {worksFrom.length ? 'text-on-surface-variant' : 'text-error'}">
+							<Icon name={worksFrom.length ? 'alt_route' : 'block'} size={16} class="mt-px shrink-0 {worksFrom.length ? 'text-primary' : ''}" />
+							{#if worksFrom.length}
+								Works from {worksFrom.map((a) => a.name).join(', ')} ({worksFrom.filter((a) => a.connected).length} connected). Cards and runs on it wait for one of them.
+							{:else}
+								No agent here matches yet: jobs on it would wait until one does.
+							{/if}
+						</p>
+					{/if}
+				</section>
 
 				<section class="flex flex-col gap-4" aria-labelledby="route-how">
 					<h2 id="route-how" class="title-medium text-on-surface">How jobs use it</h2>

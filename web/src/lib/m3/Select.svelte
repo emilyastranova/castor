@@ -17,6 +17,8 @@
 		value?: string;
 		options: Option[];
 		supporting?: string;
+		/** Shown in place of `supporting`, as a problem. */
+		error?: string | null;
 		disabled?: boolean;
 		class?: string;
 		onchange?: (value: string) => void;
@@ -30,6 +32,7 @@
 		value = $bindable(''),
 		options,
 		supporting,
+		error = null,
 		disabled,
 		class: klass = '',
 		onchange,
@@ -364,5 +367,5 @@
 			</div>
 		{/if}
 	</div>
-	{#if supporting}<p class="px-4 pt-1 body-small text-on-surface-variant">{supporting}</p>{/if}
+	{#if error}<p class="px-4 pt-1 body-small text-error" role="alert">{error}</p>{:else if supporting}<p class="px-4 pt-1 body-small text-on-surface-variant">{supporting}</p>{/if}
 </div>

@@ -3,7 +3,8 @@
 	import RouteChoice from './routes/RouteChoice.svelte';
 	import Reactions from './reactions/Reactions.svelte';
 	import { METHOD_WORDS } from '$lib/routes';
-	import type { RouteMethod } from '$lib/api';
+	import type { NetworkRoute, RouteMethod } from '$lib/api';
+	import { agentsForRoutes, routeAgentsWords } from '$lib/routes';
 	import { hasSpoilers } from '$lib/spoilers';
 	import { originLabel } from '$lib/origin';
 	import { copyableCode } from '$lib/copyCode';
@@ -755,9 +756,31 @@
 	});
 	let columnMenu = $state(false);
 	// A playbook step runs where its run does: one agent per run, never a batch.
-	let agentOptions = $derived(selectorOptions(agentsFor(agents, task.project_id), task.agent_selector, !task.playbook_step_id));
-	let senderOptions = $derived(httpSenderOptions(agentsFor(agents, task.project_id), task.agent_selector));
 	let agentName = (id: UUID | null) => agents.find((a) => a.id === id)?.name ?? '—';
+	// The card's route (its own or the project's default): when it only works from some agents, only they're offered.
+	let cardRoute = $state<NetworkRoute | null>(null);
+	let routedAgents = $derived.by(() => {
+		const able = agentsForRoutes(agentsFor(agents, task.project_id), [cardRoute]);
+		// The agent it's set to stays in the list (with the warning below), so the choice still shows.
+		const pinned = agents.find((a) => a.id === task.agent_selector?.agent_id);
+		return pinned && !able.includes(pinned) ? [...able, pinned] : able;
+	});
+	let routeMismatch = $derived.by(() => {
+		const s = task.agent_selector;
+		if (!cardRoute?.agents || !s) return false;
+		const able = agentsForRoutes(agents, [cardRoute]);
+		if (s.agent_id) return !able.some((a) => a.id === s.agent_id);
+		return !!s.tags?.length && !able.some((a) => s.tags!.every((t) => a.tags.includes(t)));
+	});
+	let routeAgentHint = $derived(
+		!cardRoute?.agents
+			? ''
+			: routeMismatch
+				? `“${cardRoute.name}” only works from ${routeAgentsWords(cardRoute, agentName)}: this isn’t one, so it won’t run`
+				: `Only the agents “${cardRoute.name}” works from`
+	);
+	let agentOptions = $derived(selectorOptions(routedAgents, task.agent_selector, !task.playbook_step_id));
+	let senderOptions = $derived(httpSenderOptions(routedAgents, task.agent_selector));
 	let runFiles = $derived(attachments.filter((a) => a.job_id && a.job_id === selectedJob?.id));
 	let screenshots = $derived(attachments.filter((a) => a.content_type.startsWith('image/')));
 	/** An image's address; a snapshot's changes in place, so its size keeps the browser from showing an old copy. */
@@ -1039,12 +1062,13 @@
 								label="Sent from"
 								bind:value={agentId}
 								options={senderOptions}
-								supporting="The server makes it; an agent only sends it from its network"
+								supporting={routeAgentHint || 'The server makes it; an agent only sends it from its network'}
+								error={routeMismatch ? routeAgentHint : null}
 								onchange={(v) => save({ agent_selector: selectorFrom(v) })}
 							/>
 							{/if}
 							{#if isHttp}
-								<RouteChoice projectId={task.project_id} bind:value={routeId} taskId={task.id} recheck={task.updated_at} onchange={(v) => save({ route: v })} />
+								<RouteChoice projectId={task.project_id} bind:value={routeId} bind:route={cardRoute} taskId={task.id} recheck={task.updated_at} onchange={(v) => save({ route: v })} />
 							{/if}
 							<TextField
 								label="Rate limit (optional)"
@@ -1070,9 +1094,10 @@
 						{:else}
 							<TextField label="Container image" bind:value={image} mono placeholder="run in agent shell" oninput={() => edited('image')} onblur={() => (image.trim() || null) !== task.image && commit('image', { image: image.trim() || null })} />
 						{/if}
-						<Select label="Agent" bind:value={agentId} options={agentOptions} onchange={(v) => save({ agent_selector: selectorFrom(v) })} />
+						<Select label="Agent" bind:value={agentId} options={agentOptions} supporting={routeAgentHint} error={routeMismatch ? routeAgentHint : null}
+							onchange={(v) => save({ agent_selector: selectorFrom(v) })} />
 					</div>
-					<RouteChoice projectId={task.project_id} bind:value={routeId} taskId={task.id} recheck={`${task.updated_at}${task.image}${task.command}`}
+					<RouteChoice projectId={task.project_id} bind:value={routeId} bind:route={cardRoute} taskId={task.id} recheck={`${task.updated_at}${task.image}${task.command}`}
 						onchange={(v) => save({ route: v })} />
 					{#if image.trim()}
 						<TextField

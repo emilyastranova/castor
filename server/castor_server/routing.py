@@ -251,6 +251,15 @@ class HopIn(BaseModel):
         return self
 
 
+class RouteAgents(BaseModel):
+    """The agents a route works from: these, and any agent with one of these tags."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[str] = Field(default_factory=list, max_length=200)
+    tags: list[str] = Field(default_factory=list, max_length=50)
+
+
 class RouteIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -262,6 +271,8 @@ class RouteIn(BaseModel):
     dns: Literal["remote", "local"] = "remote"
     strict: bool = True
     segment: str = Field(default="", max_length=80)
+    # Only from these agents (None: any agent).
+    agents: RouteAgents | None = None
 
 
 def chain_label(hops: list[dict[str, Any]]) -> str:

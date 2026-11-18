@@ -146,6 +146,9 @@ class Dispatcher:
             # Agents with a route of their own (everything they run goes that way).
             agent_routes = {a: r for a, r in (await db.execute(
                 select(m.Agent.id, m.Agent.route).where(m.Agent.route.is_not(None), m.Agent.route != ""))).all()}
+            # Routes that only work from some agents (a proxy reachable from one VPN or segment).
+            limited = {str(r.id): r for r in (await db.execute(select(m.Route).where(m.Route.agents.is_not(None)))).scalars()
+                       if r.agents is not None}
             for job in queued:
                 task = job.task
                 if job.kind in ("http", "mcp", "plugin"):
@@ -163,6 +166,8 @@ class Dispatcher:
                     c for c in gateway.connections.values()
                     if project_allowed(c, task.project_id) and agent_matches(c, job, selector, tool)
                     and (not (job_route or agent_routes.get(c.agent_id)) or route_capable(c, job, tool))
+                    and network_routes.allows(limited.get(str(job_route)), c.agent_id, c.tags)
+                    and network_routes.allows(limited.get(str(agent_routes.get(c.agent_id))), c.agent_id, c.tags)
                 ]
                 if not candidates:
                     continue
@@ -299,7 +304,7 @@ class Dispatcher:
         if selector or rows:
             able = [c for c in gateway.connections.values()
                     if c.capabilities.get("http") and project_allowed(c, task.project_id) and selector_matches(c, selector)
-                    and (not rows or c.capabilities.get("routes"))]
+                    and (not rows or (c.capabilities.get("routes") and network_routes.allows_all(rows, c.agent_id, c.tags)))]
             if not able:
                 return
             via = min(able, key=lambda c: len(c.running))

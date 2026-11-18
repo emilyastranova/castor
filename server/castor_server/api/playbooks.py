@@ -214,10 +214,14 @@ async def _execute_playbook_run(
         raise HTTPException(422, str(exc)) from exc
     # Every agent with the tags: one run each, pinned to it, so each one's results stay apart.
     if selector.get("all"):
+        limit = await network_routes.route_for_choice(db, route, project_id)
         targets = sorted((c for c in gateway.connections.values()
-                          if project_allowed(c, project_id) and selector_matches(c, selector)), key=lambda c: c.name)
+                          if project_allowed(c, project_id) and selector_matches(c, selector)
+                          and network_routes.allows(limit, c.agent_id, c.tags)), key=lambda c: c.name)
         if not targets:
-            raise HTTPException(409, f"No connected agent that runs this project's jobs has the tags {', '.join(selector['tags'])}")
+            raise HTTPException(409, f"No connected agent that runs this project's jobs has the tags {', '.join(selector['tags'])}"
+                                + (f" and is one route “{limit.name}” works from ({network_routes.agents_words(limit)})"
+                                   if limit is not None and limit.agents is not None else ""))
         plans = [({"agent_id": str(c.agent_id)}, f"{spec.name} · {c.name}") for c in targets]
     else:
         plans = [(selector, None)]

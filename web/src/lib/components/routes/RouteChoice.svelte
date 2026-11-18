@@ -18,8 +18,10 @@
 		disabled?: boolean;
 		class?: string;
 		onchange?: (value: string) => void;
+		/** Out: the route it comes to (its own, or the project's default), null when direct. */
+		route?: NetworkRoute | null;
 	}
-	let { projectId, value = $bindable(''), label = 'Network route', inherit = true, taskId = null, recheck, disabled = false, class: klass = '', onchange }: Props = $props();
+	let { projectId, value = $bindable(''), label = 'Network route', inherit = true, taskId = null, recheck, disabled = false, class: klass = '', onchange, route = $bindable(null) }: Props = $props();
 
 	let routes = $state<NetworkRoute[]>([]);
 	let projectDefault = $state<string | null>(null);
@@ -43,7 +45,10 @@
 		api().routes.plan({ task_id: t, route_id: v || null }).then((p) => (plan = p)).catch(() => (plan = null));
 	});
 	const said = $derived(describePlan(plan));
-	const chosen = $derived(routes.find((r) => r.id === (value || projectDefault)));
+	const chosen = $derived(value === 'none' ? undefined : routes.find((r) => r.id === (value || projectDefault)));
+	$effect(() => {
+		route = chosen ?? null;
+	});
 </script>
 
 <div class="flex flex-col gap-1 {klass}">

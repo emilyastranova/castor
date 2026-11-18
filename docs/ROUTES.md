@@ -32,6 +32,27 @@ None of these is a foreign key. A route that's deleted, not for the project, or 
 key changed stops the job with the reason (`RouteError` in the dispatcher). A job never runs
 unrouted because its route went away.
 
+## Which agents can use it
+
+A proxy is often only reachable from some agents (the one on the client's VPN, the one in that
+segment). `routes.agents` says which: `{ids: [agent ids], tags: [agent tags]}`, an agent qualifies
+when it's listed or has **any** of the tags; null (the default) is every agent.
+`network_routes.allows(route, agent_id, tags)` is the rule (web `lib/routes.ts` `routeAllows`; keep
+them the same), applied wherever an agent is chosen for a route:
+
+* the dispatcher: a job only goes to an agent every route it takes allows (the card's, run's or
+  project's route, and the agent's own); an HTTP action's sending agent too (`_to_server`);
+* fan-outs: `{tags, all: true}` cards (`services.broadcast_targets`) and per-agent playbook runs
+  start only on allowed agents;
+* `POST /api/routes/{id}/test` picks an allowed agent, and refuses one that isn't (409);
+* an agent's own `agents.route` must allow it (422).
+
+A card pinned to an agent the route doesn't allow waits (queued) until that changes; the card
+dialog says so under Agent, and its Agent list, like Run Playbook's, offers only allowed agents.
+Ids are kept as given: an id with no agent here (forgotten, or the route came from another Castor)
+matches nothing rather than opening the route up, and only new unknown ids are refused. Renaming or
+merging agent tags (`services.rename_tags`) renames them in routes too.
+
 ## How a job is sent through it
 
 A tool says what it can take in a `route:` block. A command can carry one too, overriding its tool's

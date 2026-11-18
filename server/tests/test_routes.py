@@ -120,12 +120,12 @@ def test_route_crud_keeps_secrets_hidden(client, auth):
     assert client.delete(f"/api/routes/{route['id']}", headers=auth).status_code == 204
 
 
-def _agent(client, name: str, *, box: bool = False, runtimes=("host",)):
+def _agent(client, name: str, *, box: bool = False, runtimes=("host",), tags=()):
     ws = client.websocket_connect("/ws/agent")
     ws.__enter__()
     ws.send_text(json.dumps({
         "type": "hello", "secret": "test-agent-secret", "name": name, "hostname": name, "os": "Linux", "username": "root",
-        "version": "1.13.0", "tags": [name], "max_concurrency": 8,
+        "version": "1.13.0", "tags": [name, *tags], "max_concurrency": 8,
         "capabilities": {"runtimes": list(runtimes), "routes": {"box": box, "ssh": True, "proxychains": False}},
     }))
     hello = json.loads(ws.receive_text())
@@ -311,6 +311,78 @@ def test_agent_route_chains_in_front(client, auth):
         client.patch(f"/api/agents/{agent_id}", json={"route": ""}, headers=auth)
     finally:
         ws.__exit__(None, None, None)
+
+
+def test_a_route_only_goes_to_the_agents_it_works_from(client, auth):
+    project = _project(client, auth, "ROUTE-26-004")
+    pair = f"pair-{uuid.uuid4().hex[:4]}"
+    vpn = f"vpn-{uuid.uuid4().hex[:4]}"
+    ws_a, a = _agent(client, f"on-vpn-{uuid.uuid4().hex[:4]}", tags=(pair, vpn))
+    ws_b, b = _agent(client, f"off-vpn-{uuid.uuid4().hex[:4]}", tags=(pair,))
+    try:
+        # Unknown agents and an empty limit are refused; the limit is kept tidy.
+        assert client.post("/api/routes", json={"name": "x", "hops": [{"kind": "socks5", "host": "10.9.0.1"}],
+                                                "agents": {"ids": [str(uuid.uuid4())]}}, headers=auth).status_code == 422
+        assert client.post("/api/routes", json={"name": "x", "hops": [{"kind": "socks5", "host": "10.9.0.1"}],
+                                                "agents": {"ids": [], "tags": []}}, headers=auth).status_code == 422
+        route = _route(client, auth, strict=False, project_ids=[project["id"]],
+                       hops=[{"kind": "socks5", "host": "10.9.0.1", "port": 9050}], agents={"tags": [vpn, f" {vpn} "]})
+        assert route["agents"] == {"ids": [], "tags": [vpn]}
+
+        # Either agent has the card's tag; only the one on the VPN gets the job.
+        r = client.post(f"/api/projects/{project['id']}/tasks", json={
+            "title": "Through the VPN", "kind": "command", "command": "curl http://intranet", "agent_selector": {"tags": [pair]},
+            "route": route["id"]}, headers=auth)
+        card = r.json()
+        client.post(f"/api/tasks/{card['id']}/run", headers=auth)
+        msg = _job_run(client, auth, ws_a, card["id"])
+        assert msg["job"]["route"]["hops"][0]["port"] == 9050
+        assert client.get(f"/api/tasks/{card['id']}", headers=auth).json()["latest_job"]["agent_id"] == a
+        ws_a.send_text(json.dumps({"type": "job.finished", "job_id": msg["job"]["id"], "exit_code": 0}))
+
+        # A card pinned to an agent the route doesn't work from waits, until the route takes it in.
+        r = client.post(f"/api/projects/{project['id']}/tasks", json={
+            "title": "Pinned elsewhere", "kind": "command", "command": "curl http://intranet", "agent_selector": {"agent_id": b},
+            "route": route["id"]}, headers=auth)
+        pinned = r.json()
+        client.post(f"/api/tasks/{pinned['id']}/run", headers=auth)
+        time.sleep(0.3)
+        assert client.get(f"/api/tasks/{pinned['id']}", headers=auth).json()["latest_job"]["status"] == "queued"
+        r = client.patch(f"/api/routes/{route['id']}", json={"agents": {"ids": [b], "tags": [vpn]}}, headers=auth)
+        assert r.status_code == 200 and r.json()["agents"] == {"ids": [b], "tags": [vpn]}
+        msg = _job_run(client, auth, ws_b, pinned["id"])
+        ws_b.send_text(json.dumps({"type": "job.finished", "job_id": msg["job"]["id"], "exit_code": 0}))
+
+        # Testing from, or giving it as its own route to, an agent it doesn't work from is refused.
+        client.patch(f"/api/routes/{route['id']}", json={"agents": {"tags": [vpn]}}, headers=auth)
+        r = client.post(f"/api/routes/{route['id']}/test", json={"agent_id": b}, headers=auth)
+        assert r.status_code == 409 and "only works from" in r.text
+        r = client.patch(f"/api/agents/{b}", json={"route": route["id"]}, headers=auth)
+        assert r.status_code == 422 and "only works from" in r.text
+
+        # Every agent with the tag: one job, on the agent the route works from.
+        r = client.post(f"/api/projects/{project['id']}/tasks", json={
+            "title": "Everywhere", "kind": "command", "command": "curl http://intranet", "agent_selector": {"tags": [pair], "all": True},
+            "route": route["id"]}, headers=auth)
+        every = r.json()
+        client.post(f"/api/tasks/{every['id']}/run", headers=auth)
+        msg = _job_run(client, auth, ws_a, every["id"])
+        assert not msg["job"].get("target_agent_id") or msg["job"]["target_agent_id"] == a
+        assert len(client.get(f"/api/tasks/{every['id']}/jobs", headers=auth).json()) == 1
+        ws_a.send_text(json.dumps({"type": "job.finished", "job_id": msg["job"]["id"], "exit_code": 0}))
+
+        # Renaming the agent tag renames it on the route; null opens it to every agent again.
+        renamed = f"{vpn}-new"
+        r = client.post("/api/tags/agents/rename", json={"from": [vpn], "to": renamed}, headers=auth)
+        assert r.status_code == 200, r.text
+        assert client.get(f"/api/routes/{route['id']}", headers=auth).json()["agents"]["tags"] == [renamed]
+        r = client.patch(f"/api/routes/{route['id']}", json={"agents": None}, headers=auth)
+        assert r.json()["agents"] is None
+        assert client.patch(f"/api/agents/{b}", json={"route": route["id"]}, headers=auth).status_code == 200
+        client.patch(f"/api/agents/{b}", json={"route": ""}, headers=auth)
+    finally:
+        ws_a.__exit__(None, None, None)
+        ws_b.__exit__(None, None, None)
 
 
 def test_stand_in_addresses_become_names_again():

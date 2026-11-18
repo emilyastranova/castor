@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Agent, AlertRules, PlaybookInputSpec, PlaybookSpec, PlaybookRun, Project, VariableKind, VariableSet } from '$lib/api';
+	import type { Agent, AlertRules, NetworkRoute, PlaybookInputSpec, PlaybookSpec, PlaybookRun, Project, VariableKind, VariableSet } from '$lib/api';
 	import { agentsFor, describeSelector, selectorFrom, selectorOptions } from '$lib/agentSelector';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Dialog, Select, Switch, TextField } from '$lib/m3';
@@ -9,6 +9,7 @@
 	import ListArgInput from './ListArgInput.svelte';
 	import AlertRulesForm from './AlertRulesForm.svelte';
 	import RouteChoice from './routes/RouteChoice.svelte';
+	import { agentsForRoutes } from '$lib/routes';
 
 	interface Props {
 		open: boolean;
@@ -63,6 +64,9 @@
 	let agents = $state<Agent[]>([]);
 	let agentChoice = $state('');
 	let routeChoice = $state('');
+	// The run's route (its own or the project's default): when it only works from some agents, only they're offered.
+	let runRoute = $state<NetworkRoute | null>(null);
+	let routedAgents = $derived(agentsForRoutes(agentsFor(agents, selectedProjectId), [runRoute]));
 	$effect(() => {
 		if (!open) return;
 		api()
@@ -70,18 +74,20 @@
 			.then((a) => (agents = a))
 			.catch(() => (agents = []));
 	});
-	let agentOptions = $derived(selectorOptions(agentsFor(agents, selectedProjectId)));
+	let agentOptions = $derived(selectorOptions(routedAgents));
 	/** With "every agent tagged …": the connected agents it would start a run on. */
 	let fanOut = $derived.by(() => {
 		const s = selectorFrom(agentChoice);
-		return s.all ? agents.filter((a) => a.connected && s.tags!.every((t) => a.tags.includes(t))) : null;
+		return s.all ? routedAgents.filter((a) => a.connected && s.tags!.every((t) => a.tags.includes(t))) : null;
 	});
 	let agentHelp = $derived(
 		!fanOut
 			? `Every step of the run goes to ${describeSelector(selectorFrom(agentChoice), agents)}.`
 			: fanOut.length
 				? `One run on each of ${fanOut.map((a) => a.name).join(', ')}; each run's steps stay on its agent.`
-				: 'No agent with that tag is connected now.'
+				: runRoute?.agents
+					? `No connected agent with that tag is one “${runRoute.name}” works from.`
+					: 'No agent with that tag is connected now.'
 	);
 	let inputValues = $state<Record<string, unknown>>({});
 	let running = $state(false);
@@ -194,7 +200,7 @@
 				bind:value={agentChoice}
 				supporting={agentHelp}
 			/>
-			<RouteChoice projectId={selectedProjectId || null} bind:value={routeChoice} label="Network route (steps that don’t name one)" />
+			<RouteChoice projectId={selectedProjectId || null} bind:value={routeChoice} bind:route={runRoute} label="Network route (steps that don’t name one)" />
 
 			{#if spec.inputs && spec.inputs.length > 0}
 				<div class="flex flex-col gap-3 border-t border-outline-variant/60 pt-3">

@@ -54,6 +54,9 @@ async def update_agent(agent_id: str, body: AgentPatch, db: DB, user: Admin):
         row = await network_routes.get(db, body.route) if body.route else None
         if body.route and row is None:
             raise HTTPException(422, "route: no such route")
+        if row is not None and not network_routes.allows(row, agent.id, agent.tags):
+            raise HTTPException(422, f"route: “{row.name}” only works from {network_routes.agents_words(row)}, and {agent.name} "
+                                     "isn't one of them")
         agent.route = str(row.id) if row else None
         message = (f"Sent everything the agent {agent.name} runs through route “{row.name}”" if row
                    else f"Took the agent {agent.name} off its route")

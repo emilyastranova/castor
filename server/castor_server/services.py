@@ -535,7 +535,14 @@ async def rename_tags(
             if (new := _retag(selector.get("tags"), names, target)) is not None:
                 run.agent_selector = {**selector, "tags": new}
                 runs += 1
-        counts = {"agents": len(changed_agents), "tokens": changed_tokens, "cards": len(changed_tasks), "runs": runs}
+        changed_routes = []  # the agents a route works from, by tag
+        for route in (await db.execute(select(m.Route).where(m.Route.agents.is_not(None)))).scalars().all():
+            limit = route.agents or {}
+            if (new := _retag(limit.get("tags"), names, target)) is not None:
+                route.agents = {**limit, "tags": new}
+                changed_routes.append(route)
+        counts = {"agents": len(changed_agents), "tokens": changed_tokens, "cards": len(changed_tasks), "runs": runs,
+                  "routes": len(changed_routes)}
     else:
         raise TagError(f"unknown kind of tag {kind!r}")
 
@@ -555,6 +562,10 @@ async def rename_tags(
         for agent in changed_agents:
             bus.publish("agent.updated", None, await gateway.agent_out(agent))
         bus.publish("agent_tokens.changed", None, {})
+        from . import network_routes
+
+        for route in changed_routes:
+            network_routes.publish(route)
         gateway._notify()  # queued jobs may match differently now
     return counts
 
@@ -622,15 +633,19 @@ def is_broadcast(task: m.Task) -> bool:
 
 
 async def broadcast_targets(db: AsyncSession, task: m.Task, job: m.Job) -> list:
-    """The connected agents a broadcast card runs on: every one with the tags that can run it."""
+    """The connected agents a broadcast card runs on: every one with the tags that can run it (and,
+    when its route only works from some agents, is one of them)."""
+    from . import network_routes
     from .orchestrator.dispatcher import agent_can_run, project_allowed, selector_matches
     from .orchestrator.gateway import gateway
     from .tool_library import tools_by_id
 
     tool = (await tools_by_id(db)).get(task.tool) if task.tool else None
     selector = {"tags": (task.agent_selector or {}).get("tags") or []}
+    route = await network_routes.get(db, await network_routes.chosen_for(db, task))
     found = [c for c in gateway.connections.values()
-             if project_allowed(c, task.project_id) and selector_matches(c, selector) and agent_can_run(c, job, tool)]
+             if project_allowed(c, task.project_id) and selector_matches(c, selector) and agent_can_run(c, job, tool)
+             and network_routes.allows(route, c.agent_id, c.tags)]
     return sorted(found, key=lambda c: c.name)
 
 

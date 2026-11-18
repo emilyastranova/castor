@@ -1662,6 +1662,8 @@ export interface NetworkRoute {
 	/** Nothing leaves except through the route (container jobs only). */
 	strict: boolean;
 	segment: string;
+	/** The agents it works from (its first hop is only reachable from some); null: every agent. */
+	agents: RouteAgents | null;
 	/** agent → SSH ops@jump:22 → SOCKS5 10.0.0.5:1080 → targets */
 	label: string;
 	last_test: RouteTest | null;
@@ -1670,6 +1672,12 @@ export interface NetworkRoute {
 	created_by: UUID | null;
 	created_at: string | null;
 	updated_at: string | null;
+}
+
+/** These agents, and any agent with one of these tags. */
+export interface RouteAgents {
+	ids: UUID[];
+	tags: string[];
 }
 
 export interface NetworkRouteIn {
@@ -1681,6 +1689,8 @@ export interface NetworkRouteIn {
 	dns?: 'remote' | 'local';
 	strict?: boolean;
 	segment?: string;
+	/** null: every agent again. */
+	agents?: RouteAgents | null;
 }
 
 export interface RouteUsage {
