@@ -1,6 +1,6 @@
 [project]
 name = "castor-agent"
-version = "1.15.1"
+version = "1.15.2"
 description = "Castor execution agent: runs jobs in containers or on the host"
 requires-python = ">=3.10"
 dependencies = [
