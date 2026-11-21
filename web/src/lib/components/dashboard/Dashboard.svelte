@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { maskSpoilers } from '$lib/spoilers';
+	import FlickerText from '../FlickerText.svelte';
 	import Spoilers from '$lib/components/Spoilers.svelte';
 	import type { DashboardSummary, FeedItem, FeedKind, Reaction } from '$lib/api';
 	import { api } from '$lib/api';
@@ -357,7 +358,7 @@
 	<header class="flex flex-wrap items-end justify-between gap-4">
 		<div>
 			<p class="label-large text-on-surface-variant">{today}</p>
-			<h1 class="display-small text-on-surface">{greeting}{firstName ? `, ${firstName}` : ''}</h1>
+			<h1 class="display-small text-on-surface"><FlickerText text="{greeting}{firstName ? `, ${firstName}` : ''}" /></h1>
 			<!-- Hover (or focus) holds the current line; a click moves on. -->
 			<button
 				type="button"

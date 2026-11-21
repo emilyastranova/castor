@@ -172,6 +172,7 @@ Castor's components carry classes for themes to target:
 | `.m3-snackbar` | Snackbars (with `.bg-error-container` for errors) |
 | `.app-shell` | The page behind everything signed in (navigation and content); give it a background to draw on the page |
 | `.job-console` | The job output terminal's frame |
+| `.m3-flicker-letter` | Each letter of the greeting on Home, with its own delay in `--d` (scattered, not left to right). Still by default; `animation: m3-flicker-in 240ms steps(1, end) var(--d) both` flickers it in (keyframes Castor defines, since a theme can't). Put it inside `@media (prefers-reduced-motion: no-preference)` |
 | `.prose-m3` | Rendered markdown (comments, descriptions, notes) |
 | `.material-symbols-rounded` | Every icon |
 | `.label-large`, `-medium`, `-small`, `.title-…`, `.headline-…`, `.body-…`, `.display-…` | The type scale |

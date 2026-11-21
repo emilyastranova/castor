@@ -1,7 +1,7 @@
 # AstraLabs, after the AstraLabs design system (https://astralabs.dev/design): build on void,
 # raise with plate, divide with rule hairlines; bone for text and line work, ash for labels,
-# acid only for action, focus and live signals. Square corners, no drop shadows, Archivo for
-# words, Martian Mono for labels and literals. Dark only. The format: docs/THEME_SPEC.md.
+# acid only for action, focus and live signals. Square corners, no drop shadows, Chakra Petch
+# for words, Martian Mono for labels and literals. Dark only. The format: docs/THEME_SPEC.md.
 id: astralabs
 name: AstraLabs
 description: Carbon and bone, with acid or your theme colour. Square corners, hairline rules, mono labels. Dark only.
@@ -9,14 +9,14 @@ modes: dark
 colour: accent
 default_colour: "#b6ff2e"
 fonts:
-  - https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..900&display=swap
+  - https://fonts.googleapis.com/css2?family=Chakra+Petch:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500;1,600;1,700&display=swap
 font_faces:
   - family: Martian Mono
     src: /fonts/MartianMono-Variable.woff2
     weight: 100 800
     stretch: 75% 112.5%
 type:
-  body: "'Archivo', 'Roboto Flex', system-ui, sans-serif"
+  body: "'Chakra Petch', 'Roboto Flex', system-ui, sans-serif"
   mono: "'Martian Mono', 'Roboto Mono', ui-monospace, monospace"
   icons: sharp
   icon_weight: 300
@@ -147,21 +147,26 @@ css: |
     outline-offset: 3px;
   }
 
+  /* The greeting on Home flickers in, a letter at a time in a scattered order (FlickerText). */
+  @media (prefers-reduced-motion: no-preference) {
+    .m3-flicker-letter {
+      animation: m3-flicker-in 240ms steps(1, end) var(--d) both;
+    }
+  }
+
   /* ---------- type ---------- */
-  /* Archivo carries words: titles heavier and a touch wider, as the system's title and subtitle. */
+  /* Chakra Petch carries words: every heading at 700, its heaviest, as the system's title and subtitle. */
   .display-large,
   .display-medium,
   .display-small,
   .headline-large,
   .headline-medium,
   .headline-small {
-    font-weight: 800;
-    font-stretch: 106%;
+    font-weight: 700;
     letter-spacing: 0;
   }
   .title-large {
-    font-weight: 800;
-    font-stretch: 106%;
+    font-weight: 700;
     letter-spacing: 0.01em;
   }
   .title-medium,
