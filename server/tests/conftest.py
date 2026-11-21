@@ -34,6 +34,61 @@ from fastapi.testclient import TestClient  # noqa: E402
 from castor_server.app import app  # noqa: E402
 
 
+def _watch_sqlite_writers() -> None:
+    """When a test hits "database is locked", say who holds the lock: every connection with an open
+    write transaction, the asyncio task that opened it and where that task is now. (A flaky CI
+    failure where something never let go; this names it the next time it happens.)"""
+    import asyncio
+    import logging
+    import traceback
+
+    from sqlalchemy import event
+
+    from castor_server.db import engine
+
+    if engine.dialect.name != "sqlite":
+        return
+    log = logging.getLogger("castor.tests.sqlite")
+    writers: dict[int, tuple[asyncio.Task | None, str]] = {}
+
+    def task_now() -> asyncio.Task | None:
+        try:
+            return asyncio.current_task()
+        except RuntimeError:
+            return None
+
+    @event.listens_for(engine.sync_engine, "before_cursor_execute")
+    def _write(conn, cursor, statement, parameters, context, executemany) -> None:
+        key = id(conn.connection.dbapi_connection)
+        if key not in writers and statement.lstrip()[:6].upper() in ("INSERT", "UPDATE", "DELETE"):
+            task = task_now()
+            writers[key] = (task, f"{statement.split(chr(10))[0][:120]} (from {task.get_name() if task else '?'})")
+
+    @event.listens_for(engine.sync_engine, "commit")
+    @event.listens_for(engine.sync_engine, "rollback")
+    @event.listens_for(engine.sync_engine, "close")
+    def _done(conn, *args) -> None:
+        dbapi = getattr(conn, "connection", None)
+        writers.pop(id(getattr(dbapi, "dbapi_connection", dbapi)), None)
+
+    @event.listens_for(engine.sync_engine, "handle_error")
+    def _locked(ctx) -> None:
+        if "database is locked" not in str(ctx.original_exception):
+            return
+        lines = [f"database is locked; {len(writers)} open write transaction(s):"]
+        for task, first in list(writers.values()):
+            lines.append(f"- first write: {first}")
+            if task is not None and not task.done():
+                lines.append("  where that task is now:\n" + "".join(
+                    "    " + line for frame in task.get_stack(limit=12) for line in traceback.format_stack(frame, limit=1)))
+            elif task is not None:
+                lines.append("  (that task has finished: its connection was never committed, rolled back or closed)")
+        log.error("\n".join(lines))
+
+
+_watch_sqlite_writers()
+
+
 @pytest.fixture(scope="session")
 def client():
     with TestClient(app) as c:
