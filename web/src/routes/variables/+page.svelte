@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import { readOnlyOrigin, originLabel } from '$lib/origin';
 	import { canEdit } from '$lib/session';
 	import type { VariableKind, VariableSet } from '$lib/api';
@@ -76,7 +77,7 @@
 	]);
 </script>
 
-<svelte:head><title>Variables · Castor</title></svelte:head>
+<svelte:head><title>Variables · {brand.name}</title></svelte:head>
 
 <TopAppBar title="Variables" subtitle="Credentials, keys, listeners and other values commands can use">
 	{#snippet actions()}

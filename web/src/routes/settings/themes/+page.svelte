@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import { pluginOf, readOnlyOrigin } from '$lib/origin';
 	import { page } from '$app/state';
 	import type { Theme } from '$lib/api';
@@ -118,7 +119,7 @@ css: |
 	const modes = { both: 'Light and dark', dark: 'Dark only', light: 'Light only' };
 </script>
 
-<svelte:head><title>Themes · Settings · Castor</title></svelte:head>
+<svelte:head><title>Themes · Settings · {brand.name}</title></svelte:head>
 
 <TopAppBar title="Themes" subtitle="Looks people can pick in their account">
 	{#snippet actions()}

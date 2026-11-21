@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import { page } from '$app/state';
 	import type { SsoProvider } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
@@ -63,7 +64,7 @@
 	const roleLabel = (r: string) => ({ viewer: 'viewers', operator: 'operators', admin: 'admins' })[r] ?? r;
 </script>
 
-<svelte:head><title>Sign-on · Settings · Castor</title></svelte:head>
+<svelte:head><title>Sign-on · Settings · {brand.name}</title></svelte:head>
 
 <TopAppBar title="Sign-on" subtitle="Single sign-on with OpenID Connect or SAML, and password sign-in">
 	{#snippet actions()}

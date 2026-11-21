@@ -55,7 +55,24 @@ export interface Client {
 	name: string;
 	notes: string;
 	created_at: string;
+	/** Its logo (on its projects' exports), and one for dark themes; null: none. */
+	logo_url?: string | null;
+	logo_dark_url?: string | null;
 }
+
+/** The company's branding (Settings → Branding). `name` "" is Castor's own. */
+export interface Branding {
+	name: string;
+	tagline: string;
+	powered_by: boolean;
+	mark_url: string | null;
+	mark_dark_url: string | null;
+	wordmark_url: string | null;
+	wordmark_dark_url: string | null;
+	/** The square logo's type (the installed app's icon says it). */
+	mark_type: string | null;
+}
+export type BrandLogo = 'mark' | 'mark_dark' | 'wordmark' | 'wordmark_dark';
 
 export interface Project {
 	id: UUID;
@@ -1971,7 +1988,24 @@ export function api(fetchFn: Fetch = fetch) {
 		},
 		clients: {
 			list: () => get<Client[]>('/clients'),
-			create: (body: { name: string; notes?: string }) => post<Client>('/clients', body)
+			create: (body: { name: string; notes?: string }) => post<Client>('/clients', body),
+			/** Its logo on its projects' exports (`dark`: for dark themes). */
+			uploadLogo: (id: UUID, file: File, variant: 'light' | 'dark' = 'light') => {
+				const form = new FormData();
+				form.append('file', file);
+				return request<Client>(fetchFn, 'PUT', `/clients/${id}/logo?variant=${variant}`, form);
+			},
+			removeLogo: (id: UUID, variant: 'light' | 'dark' = 'light') => request<Client>(fetchFn, 'DELETE', `/clients/${id}/logo?variant=${variant}`)
+		},
+		branding: {
+			/** Public: the sign-in page reads it too. */
+			get: () => get<Branding>('/branding'),
+			uploadLogo: (kind: BrandLogo, file: File) => {
+				const form = new FormData();
+				form.append('file', file);
+				return request<Branding>(fetchFn, 'PUT', `/branding/logo/${kind}`, form);
+			},
+			removeLogo: (kind: BrandLogo) => request<Branding>(fetchFn, 'DELETE', `/branding/logo/${kind}`)
 		},
 		projects: {
 			members: (id: UUID) => get<UserBrief[]>(`/projects/${id}/members`),
@@ -2719,6 +2753,12 @@ export interface AppSettings {
 	http_allowed_hosts?: string[];
 	/** Runs that ask for approval need someone other than whoever started them. */
 	approval_by_someone_else?: boolean;
+	/** Company branding: the name instead of "Castor" ("": Castor), a line under it on the sign-in
+	 *  page, a line at the foot of exported reports, and "Powered by Castor" where the name replaces it. */
+	brand_name?: string;
+	brand_tagline?: string;
+	report_footer?: string;
+	powered_by?: boolean;
 }
 
 /** People put together: @slug mentions them all; a project shared with it is theirs to see. */

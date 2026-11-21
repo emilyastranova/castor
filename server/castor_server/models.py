@@ -254,6 +254,9 @@ class Client(Base, TimestampMixin):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(String(200), unique=True)
     notes: Mapped[str] = mapped_column(Text, default="")
+    # Its logo (and one for dark themes), in <data_dir>/branding: on its projects' exports (branding.py).
+    logo_file: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    logo_dark_file: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
     projects: Mapped[list[Project]] = relationship(back_populates="client")
 

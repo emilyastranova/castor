@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import type { Group } from '$lib/api';
 	import { Button, Card, Icon, IconButton, TopAppBar } from '$lib/m3';
 	import GroupDialog from '$lib/components/GroupDialog.svelte';
@@ -15,7 +16,7 @@
 	const people = (n: number) => `${n} ${n === 1 ? 'person' : 'people'}`;
 </script>
 
-<svelte:head><title>Groups · Settings · Castor</title></svelte:head>
+<svelte:head><title>Groups · Settings · {brand.name}</title></svelte:head>
 
 <TopAppBar title="Groups" subtitle="People put together: mention them all, share projects with them">
 	{#snippet actions()}

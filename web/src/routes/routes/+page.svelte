@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { Agent, NetworkRoute, NetworkRouteIn, RouteHopIn, RouteLive, RouteTest, RouteUsage, UUID } from '$lib/api';
@@ -349,7 +350,7 @@
 	const status = $derived(current ? routeState(current, agentName) : null);
 </script>
 
-<svelte:head><title>Routes · Castor</title></svelte:head>
+<svelte:head><title>Routes · {brand.name}</title></svelte:head>
 
 <TopAppBar title="Routes" subtitle="How jobs reach networks the agent can’t reach directly: through jumpboxes and proxies">
 	{#snippet actions()}

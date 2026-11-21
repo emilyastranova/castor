@@ -1,5 +1,6 @@
 import type { Handle, HandleFetch } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
+import { brandHead, serverBranding } from '$lib/server/branding';
 
 const API_INTERNAL_URL = (env.API_INTERNAL_URL ?? 'http://localhost:8000').replace(/\/$/, '');
 
@@ -44,7 +45,10 @@ async function defaultThemeJson(): Promise<string> {
 
 export const handle: Handle = async ({ event, resolve }) => {
 	const theme = await defaultThemeJson();
-	const response = await resolve(event, { transformPageChunk: ({ html }) => html.replace('%castor.default_theme%', theme) });
+	const head = brandHead(await serverBranding());
+	const response = await resolve(event, {
+		transformPageChunk: ({ html }) => html.replace('%castor.default_theme%', theme).replace('%castor.brand_head%', head)
+	});
 	// The page lists the same preloads as tags (svelte.config.js preloadStrategy). The header,
 	// one entry per module, outgrows the 4 KB of response headers nginx takes by default.
 	if (!response.headers.has('link')) return response;

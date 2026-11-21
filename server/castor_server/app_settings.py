@@ -50,6 +50,18 @@ class AppSettings(BaseModel):
     # Runs that ask for approval (confirm: true, or a card that asks) need someone other than
     # the person who started them.
     approval_by_someone_else: bool = False
+    # Company branding (branding.py; the logos are uploaded separately): the name instead of
+    # "Castor" (empty: Castor), a line under it on the sign-in page, a line at the foot of every
+    # page of an exported report, and "Powered by Castor" shown where the name replaces it.
+    brand_name: str = Field(default="", max_length=60)
+    brand_tagline: str = Field(default="", max_length=120)
+    report_footer: str = Field(default="", max_length=200)
+    powered_by: bool = True
+
+    @field_validator("brand_name", "brand_tagline", "report_footer")
+    @classmethod
+    def one_line(cls, value: str) -> str:
+        return " ".join(value.split())
 
     @field_validator("http_allow_addresses")
     @classmethod

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import { goto } from '$app/navigation';
 	import type { Activity } from '$lib/api';
 	import { TopAppBar, Chip } from '$lib/m3';
@@ -26,7 +27,7 @@
 	let projectOf = (id: string | null) => data.projects.find((p) => p.id === id);
 </script>
 
-<svelte:head><title>Activity log · Settings · Castor</title></svelte:head>
+<svelte:head><title>Activity log · Settings · {brand.name}</title></svelte:head>
 
 <TopAppBar title="Activity log" subtitle="Everything that happened, in every project and outside them (users, agents, settings)" />
 <div class="flex flex-wrap gap-2 px-6 pb-2">

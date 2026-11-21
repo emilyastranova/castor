@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import type { DirectoryPluginPage } from '$lib/api';
 	import { api } from '$lib/api';
 	import { Button, Icon, IconButton, TopAppBar } from '$lib/m3';
@@ -30,7 +31,7 @@
 	let installable = $derived(!!entry.latest && !entry.taken && !entry.problems.length && (!entry.installed || entry.update));
 </script>
 
-<svelte:head><title>{entry.name} · Plugins · Castor</title></svelte:head>
+<svelte:head><title>{entry.name} · Plugins · {brand.name}</title></svelte:head>
 
 <TopAppBar title={entry.name} subtitle="Plugin directory">
 	{#snippet leading()}<IconButton icon="arrow_back" label="Back to Browse" href="/settings/plugins?tab=browse" />{/snippet}

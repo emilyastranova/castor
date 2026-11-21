@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import type { DirectoryEntry } from '$lib/api';
 	import { api } from '$lib/api';
 	import { Icon, IconButton, TopAppBar } from '$lib/m3';
@@ -25,7 +26,7 @@
 	};
 </script>
 
-<svelte:head><title>{publisher.name} · Plugins · Castor</title></svelte:head>
+<svelte:head><title>{publisher.name} · Plugins · {brand.name}</title></svelte:head>
 
 <TopAppBar title={publisher.name} subtitle="Publisher in the plugin directory">
 	{#snippet leading()}<IconButton icon="arrow_back" label="Back to Browse" href="/settings/plugins?tab=browse" />{/snippet}

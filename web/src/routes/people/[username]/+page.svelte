@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import Spoilers from '$lib/components/Spoilers.svelte';
 	import PersonName from '$lib/components/PersonName.svelte';
 	import type { FeedItem, Person } from '$lib/api';
@@ -107,7 +108,7 @@
 	};
 </script>
 
-<svelte:head><title>{person.display_name} · Castor</title></svelte:head>
+<svelte:head><title>{person.display_name} · {brand.name}</title></svelte:head>
 
 <TopAppBar>
 	<div class="flex items-center gap-3">

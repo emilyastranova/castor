@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import type { AiProvider } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Card, Icon, IconButton, Select, TextField, TopAppBar } from '$lib/m3';
@@ -67,7 +68,7 @@
 	const tokens = (n: number) => (n >= 10000 ? `${Math.round(n / 1000)}k` : String(n));
 </script>
 
-<svelte:head><title>AI · Settings · Castor</title></svelte:head>
+<svelte:head><title>AI · Settings · {brand.name}</title></svelte:head>
 
 <TopAppBar title="AI" subtitle="LLM providers and the models Castor uses, with fallbacks">
 	{#snippet actions()}

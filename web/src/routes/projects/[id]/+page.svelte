@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import { agentsFor } from '$lib/agentSelector';
 	import { startAnyway } from '$lib/blocked';
 	import { goto, invalidateAll } from '$app/navigation';
@@ -334,7 +335,7 @@
 	}
 </script>
 
-<svelte:head><title>{store.project.codename} · Castor</title></svelte:head>
+<svelte:head><title>{store.project.codename} · {brand.name}</title></svelte:head>
 
 <TopAppBar>
 	<ProjectSwitcher project={store.project} />

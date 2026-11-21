@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { Asset, AssetTrigger, AssetTriggerFire, AssetVerdict, Scope, UUID } from '$lib/api';
@@ -360,7 +361,7 @@
 	const FIRE: Record<string, string> = { started: 'text-primary', waiting: 'text-tertiary', failed: 'text-error', limited: 'text-on-surface-variant', skipped: 'text-on-surface-variant' };
 </script>
 
-<svelte:head><title>{project.codename} · Assets · Castor</title></svelte:head>
+<svelte:head><title>{project.codename} · Assets · {brand.name}</title></svelte:head>
 
 <TopAppBar>
 	<ProjectSwitcher {project} />

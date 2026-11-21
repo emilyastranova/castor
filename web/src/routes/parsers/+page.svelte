@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import { pluginOf } from '$lib/origin';
 	import type { ParserInfo, ParserOption, ParseTestResult } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
@@ -248,7 +249,7 @@
 	}
 </script>
 
-<svelte:head><title>Parsers · Castor</title></svelte:head>
+<svelte:head><title>Parsers · {brand.name}</title></svelte:head>
 
 <TopAppBar title="Parsers" subtitle="Turn tool output into typed results · try them live on sample data">
 	{#snippet actions()}

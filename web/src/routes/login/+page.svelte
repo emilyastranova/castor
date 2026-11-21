@@ -1,9 +1,11 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import { goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
 	import { Button, TextField, Icon } from '$lib/m3';
 	import SsoButton from '$lib/components/SsoButton.svelte';
+	import BrandLogo from '$lib/components/BrandLogo.svelte';
 
 	let { data } = $props();
 
@@ -46,19 +48,32 @@
 	const passwordOpen = $derived(data.password_form !== 'collapsed' || !data.providers.length || showPassword || !!error);
 </script>
 
-<svelte:head><title>Sign in · Castor</title></svelte:head>
+<svelte:head><title>Sign in · {brand.name}</title></svelte:head>
 
 <div class="flex min-h-dvh items-center justify-center bg-surface-container p-4">
 	<form class="flex w-full max-w-sm flex-col gap-6 rounded-xl bg-surface-container-lowest p-8 shadow-e1" onsubmit={submit}>
-		<div class="flex items-center gap-3">
-			<span class="flex size-12 items-center justify-center rounded-lg bg-primary-container text-on-primary-container">
-				<Icon name="account_tree" filled />
-			</span>
-			<div>
-				<h1 class="headline-small text-on-surface">Castor</h1>
-				<p class="body-medium text-on-surface-variant">Workflow orchestration task board</p>
+		{#if brand.info?.wordmark_url || brand.info?.wordmark_dark_url}
+			<!-- The company's wordmark (Settings → Branding), with its tagline. -->
+			<div class="flex flex-col gap-2">
+				<h1 class="sr-only">{brand.name}</h1>
+				<BrandLogo kind="wordmark" alt={brand.name} class="h-12 max-w-full self-start" />
+				{#if brand.info?.tagline}<p class="body-medium text-on-surface-variant">{brand.info.tagline}</p>{/if}
 			</div>
-		</div>
+		{:else}
+			<div class="flex items-center gap-3">
+				{#if brand.info?.mark_url || brand.info?.mark_dark_url}
+					<BrandLogo kind="mark" class="size-12 rounded-lg" />
+				{:else}
+					<span class="flex size-12 items-center justify-center rounded-lg bg-primary-container text-on-primary-container">
+						<Icon name="account_tree" filled />
+					</span>
+				{/if}
+				<div>
+					<h1 class="headline-small text-on-surface">{brand.name}</h1>
+					<p class="body-medium text-on-surface-variant">{brand.info?.tagline || (brand.branded ? '' : 'Workflow orchestration task board')}</p>
+				</div>
+			</div>
+		{/if}
 
 		{#if going}
 			<div class="flex flex-col items-center gap-3 py-2 text-center" role="status">
@@ -103,6 +118,9 @@
 		{:else if !data.providers.length}
 			<p class="body-medium text-on-surface-variant">No way to sign in is set up. An administrator can turn password sign-in back on with <code class="font-mono">castor-admin password-login on</code>.</p>
 		{/if}
+		{/if}
+		{#if brand.branded && brand.info?.powered_by}
+			<p class="-mb-2 text-center label-small text-on-surface-variant">Powered by Castor</p>
 		{/if}
 	</form>
 </div>

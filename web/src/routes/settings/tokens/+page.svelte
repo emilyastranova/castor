@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import type { ApiToken } from '$lib/api';
 	import { api } from '$lib/api';
 	import { Button, TopAppBar } from '$lib/m3';
@@ -14,7 +15,7 @@
 	}
 </script>
 
-<svelte:head><title>API tokens · Settings · Castor</title></svelte:head>
+<svelte:head><title>API tokens · Settings · {brand.name}</title></svelte:head>
 
 <TopAppBar title="API tokens" subtitle={`Everyone's personal tokens · ${live} working`}>
 	{#snippet actions()}

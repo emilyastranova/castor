@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import type { AppSettings } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Card, Select, Switch, TextField, TopAppBar } from '$lib/m3';
@@ -44,7 +45,7 @@
 	}));
 </script>
 
-<svelte:head><title>General · Settings · Castor</title></svelte:head>
+<svelte:head><title>General · Settings · {brand.name}</title></svelte:head>
 
 <TopAppBar title="General" subtitle="Settings for everyone on this Castor" />
 

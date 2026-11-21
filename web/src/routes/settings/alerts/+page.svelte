@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import type { AlertChannel } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Card, Icon, IconButton, Switch, TopAppBar } from '$lib/m3';
@@ -40,7 +41,7 @@
 			: 'Only cards and runs that pick it';
 </script>
 
-<svelte:head><title>Alerts · Settings · Castor</title></svelte:head>
+<svelte:head><title>Alerts · Settings · {brand.name}</title></svelte:head>
 
 <TopAppBar title="Alerts" subtitle="Post to chat or any webhook when runs finish, fail, run long or need a decision">
 	{#snippet actions()}

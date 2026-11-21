@@ -829,6 +829,20 @@ Each user's Material You seed is `users.theme_seed` (`""` = the built-in palette
 from it (`m3/theme.ts`, `material-color-utilities`) and caches both palettes for `app.html`
 to apply before first paint.
 
+## Company branding
+
+Settings → Branding (`branding.py`, `api/branding.py`): the instance's name (`brand_name`, "" is Castor), `brand_tagline`,
+`report_footer` and `powered_by` are app_settings; four logos (`mark`, `mark_dark`, `wordmark`, `wordmark_dark`) are files in
+`<data_dir>/branding`, named in the `branding_logos` app_settings row (not an AppSettings field, so `PATCH /api/settings` can't
+set it). `GET /api/branding` and `GET /api/branding/logo/{kind}` are public (the sign-in page); uploads are admins'. Clients have
+`logo_file`/`logo_dark_file` (`/api/clients/{id}/logo`, signed-in only). Logos are served like sign-on logos (SVG allowed, a CSP
+that forbids everything) and versioned by their file name. `branding.changed` (to everyone) carries `branding.public`. Web:
+`lib/brand.svelte.ts` (set from the root layout's load, so titles render with the name on the server too), `BrandLogo`, the
+navigation rail and sign-in page; `hooks.server.ts` fills `%castor.brand_head%` in app.html (favicon, Apple touch icon unless
+the mark is SVG, application name; `lib/server/branding.ts`, 30 s cache) and `routes/manifest.webmanifest` names and pictures
+the installed app. Timeline exports (`report.py`) put the wordmark (or mark and name) and the project's client's logo in the
+header as data URIs and `report_footer` at the foot of every PDF page (`_css_text`: it sits in a CSS string).
+
 ## Instance settings
 
 `app_settings` (key → JSON) holds settings admins change in Settings → General;

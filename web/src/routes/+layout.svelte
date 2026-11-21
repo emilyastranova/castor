@@ -26,6 +26,9 @@
 	import { updates } from '$lib/updates.svelte';
 	import UpdateBanner from '$lib/components/UpdateBanner.svelte';
 	import { revealSpoilers } from '$lib/spoilers';
+	import { brand } from '$lib/brand.svelte';
+	import type { Branding } from '$lib/api';
+	import BrandLogo from '$lib/components/BrandLogo.svelte';
 
 	let { data, children } = $props();
 	let dark = $state(false);
@@ -67,6 +70,18 @@
 		if (theme && (theme.id !== currentTheme().id || theme.css !== currentTheme().css)) applyTheme(theme);
 		dark = isDark();
 	});
+	// The company's name and logos: set before the page renders (titles on the server too), and
+	// again when an admin changes them.
+	// svelte-ignore state_referenced_locally
+	brand.info = data.branding ?? null;
+	$effect.pre(() => {
+		brand.info = data.branding ?? null;
+	});
+	$effect(() =>
+		realtime.subscribe((e) => {
+			if (e.name === 'branding.changed') brand.info = e.data as Branding;
+		})
+	);
 	// An admin changed a theme: load them again (the effect above re-applies yours).
 	$effect(() =>
 		realtime.subscribe((e) => {
@@ -141,7 +156,7 @@
 </script>
 
 <svelte:head>
-	<title>Castor</title>
+	<title>{brand.name}</title>
 </svelte:head>
 <svelte:window onkeydown={shortcut} />
 
@@ -151,9 +166,16 @@
 		<div class="hidden md:contents">
 		<NavigationRail items={nav} current={page.url.pathname}>
 			{#snippet top()}
-				<a href={currentProject.home} class="flex size-12 items-center justify-center rounded-lg bg-primary-container text-on-primary-container" aria-label="Castor home">
-					<Icon name="radar" filled />
-				</a>
+				{#if brand.info?.mark_url || brand.info?.mark_dark_url}
+					<!-- The company's square logo (Settings → Branding) in place of Castor's. -->
+					<a href={currentProject.home} class="flex size-12 items-center justify-center rounded-lg" aria-label="{brand.name} home" title={brand.name}>
+						<BrandLogo kind="mark" class="size-11 rounded-md" />
+					</a>
+				{:else}
+					<a href={currentProject.home} class="flex size-12 items-center justify-center rounded-lg bg-primary-container text-on-primary-container" aria-label="{brand.name} home" title={brand.name}>
+						<Icon name="radar" filled />
+					</a>
+				{/if}
 				<IconButton icon="search" label="Search everything (Ctrl+K)" class="mt-2" onclick={() => palette.show()} />
 			{/snippet}
 			{#snippet bottom()}

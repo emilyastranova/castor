@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import { originLabel, pluginOf, readOnlyOrigin } from '$lib/origin';
 	import { currentProject } from '$lib/currentProject.svelte';
 	import { enter, leave, glide } from '$lib/motion';
@@ -412,7 +413,7 @@ steps:
 	]);
 </script>
 
-<svelte:head><title>Playbooks · Castor</title></svelte:head>
+<svelte:head><title>Playbooks · {brand.name}</title></svelte:head>
 
 <TopAppBar
 	title="Playbooks"

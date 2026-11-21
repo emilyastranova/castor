@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import PersonName from '$lib/components/PersonName.svelte';
 	import type { User, UserRole } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
@@ -112,7 +113,7 @@
 	);
 </script>
 
-<svelte:head><title>Users · Castor</title></svelte:head>
+<svelte:head><title>Users · {brand.name}</title></svelte:head>
 
 <TopAppBar title="Users" subtitle="{users.filter((u) => !u.disabled_at).length} active">
 	{#snippet actions()}

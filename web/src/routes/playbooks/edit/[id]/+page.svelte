@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import { pluginOf, readOnlyOrigin } from '$lib/origin';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { tick } from 'svelte';
@@ -408,7 +409,7 @@
 </script>
 
 <svelte:window onkeydown={onKey} onbeforeunload={(e) => dirty && e.preventDefault()} />
-<svelte:head><title>{spec.name || 'Playbook'} · Editor · Castor</title></svelte:head>
+<svelte:head><title>{spec.name || 'Playbook'} · Editor · {brand.name}</title></svelte:head>
 
 <div class="flex h-full min-h-0 flex-col">
 	<header class="flex items-center gap-3 border-b border-outline-variant px-4 py-2.5">

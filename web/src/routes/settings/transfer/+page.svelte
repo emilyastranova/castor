@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import { goto, invalidateAll } from '$app/navigation';
 	import { Button, Card, Icon, TopAppBar } from '$lib/m3';
 	import ExportDialog from '$lib/components/ExportDialog.svelte';
@@ -10,7 +11,7 @@
 	let importOpen = $state(false);
 </script>
 
-<svelte:head><title>Import and export · Castor</title></svelte:head>
+<svelte:head><title>Import and export · {brand.name}</title></svelte:head>
 
 <TopAppBar title="Import and export" subtitle="Move projects and libraries between Castor instances, or keep a copy" />
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import type { MyPluginSettings } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Card, Icon, TopAppBar } from '$lib/m3';
@@ -50,7 +51,7 @@
 	}
 </script>
 
-<svelte:head><title>Your plugin settings · Castor</title></svelte:head>
+<svelte:head><title>Your plugin settings · {brand.name}</title></svelte:head>
 
 <TopAppBar title="Your plugin settings" subtitle="What plugins ask each person for" />
 

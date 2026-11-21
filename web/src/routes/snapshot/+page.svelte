@@ -1,9 +1,10 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import { TopAppBar } from '$lib/m3';
 	import SnapshotEditor from '$lib/components/SnapshotEditor.svelte';
 </script>
 
-<svelte:head><title>Snapshot · Castor</title></svelte:head>
+<svelte:head><title>Snapshot · {brand.name}</title></svelte:head>
 
 <!-- A picture of any code or terminal output, for a report: paste it, style it, copy or download it.
      Snapshots of a job's output start from its card's console instead. -->

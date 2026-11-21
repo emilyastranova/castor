@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import type { CustomEmoji } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Card, Icon, IconButton, TextField, TopAppBar } from '$lib/m3';
@@ -71,7 +72,7 @@
 	const shown = $derived(emojis.filter((e) => !filter.trim() || e.name.includes(filter.trim().toLowerCase())));
 </script>
 
-<svelte:head><title>Emoji · Settings · Castor</title></svelte:head>
+<svelte:head><title>Emoji · Settings · {brand.name}</title></svelte:head>
 
 <TopAppBar title="Emoji" subtitle="Your own emoji, for everyone to react with" />
 

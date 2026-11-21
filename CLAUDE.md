@@ -64,7 +64,7 @@ connections turn it on.
 
 Regenerate the default Material 3 palette: `cd web && node scripts/gen-tokens.mjs '#4f5bd5'`
 writes `src/lib/m3/tokens.css` (committed, do not hand-edit).
-App icons for installing Castor (`static/manifest.webmanifest`, linked from `app.html`) come from `static/favicon.svg`:
+App icons for installing Castor (the manifest is `routes/manifest.webmanifest/+server.ts`, Castor's or the company's branding) come from `static/favicon.svg`:
 `cd web && sh scripts/gen-icons.sh` writes `static/icons/` (192/512, a maskable 512, Apple's 180; needs ImageMagick 7).
 
 README images (`.github/assets/*.svg`, each in dark and `-light`) are generated with fontTools
@@ -420,6 +420,12 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   Browse tab (`PluginDirectory`, `DirectoryCard`), `routes/settings/plugins/directory/[id]`, `publishers/[id]`. Packs:
   manifest `contents` + `library/<kind>/*.yaml` (`plugin_library.py`), `origin = "plugin:<id>"`, read-only like
   built-ins: check `plugin_library.read_only(origin)` (not `== "builtin"`) in library APIs, web `lib/origin.ts`.
+- Company branding (Settings → Branding): `branding.py` (app_settings `brand_name`, `brand_tagline`, `report_footer`,
+  `powered_by`; logo files in `<data_dir>/branding`, named by the `branding_logos` app_settings row, which isn't an AppSettings
+  field so the settings form can't point it anywhere; `clients.logo_file`/`logo_dark_file`), `api/branding.py` (`/api/branding`
+  and its logos public, served with the sign-on logos' CSP). Web: `lib/brand.svelte.ts` (from the root layout load; every
+  `<title>` ends with `{brand.name}`), `BrandLogo` (light/dark), the rail and sign-in page, `hooks.server.ts` `%castor.brand_head%`
+  (`lib/server/branding.ts`: favicon, touch icon, app name), the manifest route, `report.py` (header logos, footer line).
 - Instance settings admins change in the UI: `app_settings.py` (`AppSettings` fields are the
   keys and defaults), `api/app_settings.py`; web `lib/appSettings.svelte.ts`,
   `routes/settings/general`. Env-level config stays in `config.py`.

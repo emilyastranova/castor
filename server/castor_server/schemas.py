@@ -6,9 +6,10 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .models import AgentStatus, ColumnRole, JobStatus, TaskKind, UserRole
+from .models import Client as m_Client
 
 
 class ORM(BaseModel):
@@ -122,6 +123,20 @@ class ClientOut(ORM):
     name: str
     notes: str
     created_at: datetime
+    # Its logos' addresses (branding.client_logo_url); null: none uploaded.
+    logo_url: str | None = None
+    logo_dark_url: str | None = None
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _logos(cls, data: Any, handler: Any) -> Any:
+        out = handler(data)
+        if isinstance(data, m_Client):
+            from .branding import client_logo_url
+
+            out.logo_url = client_logo_url(data, "light")
+            out.logo_dark_url = client_logo_url(data, "dark")
+        return out
 
 
 class ProjectIn(BaseModel):

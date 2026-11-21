@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import { pop, glide } from '$lib/motion';
 	import { routeAllows } from '$lib/routes';
 	import { isAdmin, me } from '$lib/session';
@@ -306,7 +307,7 @@
 	let agentName = (id: string | null) => agents.find((a) => a.id === id)?.name ?? '—';
 </script>
 
-<svelte:head><title>Agents · Castor</title></svelte:head>
+<svelte:head><title>Agents · {brand.name}</title></svelte:head>
 
 <TopAppBar title="Agents" subtitle="{online} of {agents.length} online">
 	{#snippet actions()}

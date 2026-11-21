@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import type { McpConnection } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Card, Icon, IconButton, TopAppBar } from '$lib/m3';
@@ -49,7 +50,7 @@
 	const argNames = (t: McpConnection['tools'][number]) => Object.keys(t.inputSchema?.properties ?? {});
 </script>
 
-<svelte:head><title>MCP servers · Settings · Castor</title></svelte:head>
+<svelte:head><title>MCP servers · Settings · {brand.name}</title></svelte:head>
 
 <TopAppBar title="MCP servers" subtitle="Other MCP servers whose tools cards and playbooks can call">
 	{#snippet actions()}

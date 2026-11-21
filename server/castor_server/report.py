@@ -192,6 +192,12 @@ def _reactions(reactions: list[dict] | None, images: _Images) -> str:
     return f'<div class="reactions">{"".join(chips)}</div>'
 
 
+def _css_text(text: str) -> str:
+    """Words inside a CSS string in the <style> element (the page footer): no escaping applies there,
+    so take out what could end the string or the element."""
+    return text.replace("\\", "").replace('"', "'").replace("<", "‹").replace(">", "›").replace("\n", " ")
+
+
 def _initials(name: str) -> str:
     words = [w for w in re.split(r"\s+", name.strip()) if w]
     return ("".join(w[0] for w in words[:2]) or "?").upper()
@@ -309,21 +315,39 @@ async def timeline_html(db: AsyncSession, *, project: m.Project, items: list, fi
             rows.append(f'<li class="entry">{avatar}<div class="what">{stamp}{head}{body}</div></li>')
         rows.append("</ol></section>")
 
+    from .branding import for_report
+
+    brand = await for_report(db, project)
     count = len(items)
     title = f"{project.codename} · Timeline"
+    # The company (its wordmark, else its square logo and name) and the project's client, over the heading.
+    company = ""
+    if brand["wordmark"]:
+        company = f'<img class="wordmark" src="{brand["wordmark"]}" alt="{esc(brand["name"] or "Company logo")}">'
+    elif brand["mark"]:
+        company = (f'<img class="mark" src="{brand["mark"]}" alt="">'
+                   f'{"<span class=company-name>" + esc(brand["name"]) + "</span>" if brand["name"] else ""}')
+    elif brand["name"]:
+        company = f'<span class="company-name">{esc(brand["name"])}</span>'
+    client = (f'<img class="client-logo" src="{brand["client_logo"]}" alt="{esc(brand["client_name"])}">'
+              if brand["client_logo"] else "")
+    banner = f'<div class="brand"><span class="company">{company}</span>{client}</div>' if company or client else ""
+    made_with = (f"{esc(brand['name'])}{' (Castor)' if brand['powered_by'] else ''}" if brand["name"] else "Castor")
+    footer = brand["footer"] or title
     meta = (f"{esc(filters.summary())} · {count} {'entry' if count == 1 else 'entries'}"
             f"{' (the newest ' + str(LIMIT) + ')' if truncated else ''}")
     empty = '<p class="empty">Nothing on the timeline for these choices.</p>' if not items else ""
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(title)}</title>
-<style>{_CSS.replace("__FOOTER__", esc(title).replace('"', "'"))}</style></head>
+<style>{_CSS.replace("__FOOTER__", _css_text(footer))}</style></head>
 <body{' class="pdf"' if for_pdf else ''}>
 <header class="top">
+  {banner}
   <p class="codename">{esc(project.codename)}</p>
   <h1>{esc(project.name)}: timeline</h1>
   <p class="meta">{meta}</p>
-  <p class="meta">Exported by {esc(by.display_name)} on {esc(now.strftime("%-d %B %Y at %H:%M"))} ({esc(filters.tz or "UTC")}) from Castor</p>
+  <p class="meta">Exported by {esc(by.display_name)} on {esc(now.strftime("%-d %B %Y at %H:%M"))} ({esc(filters.tz or "UTC")}) from {made_with}</p>
 </header>
 <main>{empty}{"".join(rows)}</main>
 </body></html>"""
@@ -345,6 +369,16 @@ body:not(.pdf) .spoiler:hover, body:not(.pdf) .spoiler:hover * { background: #e4
 body.pdf .top, body.pdf main { max-width: none; padding: 0; }
 .top { padding-top: 32px; padding-bottom: 12px; border-bottom: 1px solid #c7c5d0; margin-bottom: 8px; }
 body.pdf .top { padding-top: 0; }
+.brand { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 18px; }
+.brand .company { display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* Heights set, widths from the picture (an SVG without a size of its own has no width to shrink from). */
+.brand .wordmark { height: 40px; width: auto; max-width: 50%; object-fit: contain; object-position: left center; }
+.brand .mark { height: 36px; width: 36px; object-fit: contain; }
+.brand .company-name { font-size: 16px; font-weight: 500; }
+.brand .client-logo { height: 36px; width: auto; max-width: 40%; object-fit: contain; object-position: right center; margin-left: auto; }
+body.pdf .brand .wordmark { height: 12mm; }
+body.pdf .brand .client-logo, body.pdf .brand .mark { height: 10mm; }
+body.pdf .brand .mark { width: 10mm; }
 .codename { display: inline-block; margin: 0 0 6px; padding: 1px 8px; border-radius: 6px; background: #e4e1e9; color: #46464f;
   font: 500 11px/1.6 "Roboto Mono", "DejaVu Sans Mono", monospace; }
 h1 { margin: 0 0 6px; font-size: 24px; font-weight: 500; line-height: 1.25; }

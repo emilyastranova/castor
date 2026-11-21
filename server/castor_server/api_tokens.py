@@ -95,7 +95,11 @@ RULES: list[tuple[str, str, str]] = [
     ("*", "/api/health", PUBLIC),
     ("*", "/api/auth/login", PUBLIC),
     ("*", "/api/auth/logout", PUBLIC),
-    ("GET", "/api/auth/sso", PUBLIC),  # sign-in options and the provider round trip
+    ("GET", "/api/auth/sso", PUBLIC),
+    ("GET", "/api/branding", PUBLIC),  # the company's name and logos: the sign-in page shows them
+    ("GET", "/api/branding/logo/*", PUBLIC),
+    ("*", "/api/branding/**", "admin"),
+    ("GET", "/api/clients/*/logo", "projects:read"),  # sign-in options and the provider round trip
     ("GET", "/api/auth/sso/**", PUBLIC),
     ("POST", "/api/auth/sso/*/saml/acs", PUBLIC),  # the SAML identity provider's response
     ("GET", "/api/groups", "projects:read"),  # for @mentions

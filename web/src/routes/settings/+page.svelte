@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { Icon, TopAppBar } from '$lib/m3';
@@ -10,7 +11,7 @@
 	});
 </script>
 
-<svelte:head><title>Settings · Castor</title></svelte:head>
+<svelte:head><title>Settings · {brand.name}</title></svelte:head>
 
 <div class="md:hidden">
 	<TopAppBar title="Settings" />

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import type { ApiToken } from '$lib/api';
 	import { api } from '$lib/api';
 	import { Button, IconButton, TopAppBar } from '$lib/m3';
@@ -16,7 +17,7 @@
 	}
 </script>
 
-<svelte:head><title>API tokens · Castor</title></svelte:head>
+<svelte:head><title>API tokens · {brand.name}</title></svelte:head>
 
 <TopAppBar title="API tokens" subtitle="Use Castor from scripts, CI and other tools, as you, with only the access you pick">
 	{#snippet actions()}

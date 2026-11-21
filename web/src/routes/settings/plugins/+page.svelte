@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { brand } from '$lib/brand.svelte';
 	import type { DirectoryEntry, Plugin, PluginLibraryKind, PluginMode } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { goto } from '$app/navigation';
@@ -173,7 +174,7 @@
 				: 'no project yet';
 </script>
 
-<svelte:head><title>Plugins · Settings · Castor</title></svelte:head>
+<svelte:head><title>Plugins · Settings · {brand.name}</title></svelte:head>
 
 <TopAppBar title="Plugins" subtitle="What Castor can do, extended">
 	{#snippet actions()}

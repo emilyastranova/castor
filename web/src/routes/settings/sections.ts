@@ -6,6 +6,7 @@ export const SECTIONS = [
 	{ href: '/settings/groups', icon: 'groups', label: 'Groups', detail: 'Teams to mention and share with' },
 	{ href: '/settings/sso', icon: 'login', label: 'Sign-on', detail: 'Single sign-on and passwords' },
 	{ href: '/settings/tokens', icon: 'key', label: 'API tokens', detail: "Everyone's personal tokens" },
+	{ href: '/settings/branding', icon: 'storefront', label: 'Branding', detail: 'Your name and logos' },
 	{ href: '/settings/themes', icon: 'palette', label: 'Themes', detail: 'Looks people can pick' },
 	{ href: '/settings/emoji', icon: 'add_reaction', label: 'Emoji', detail: 'Your own, to react with' },
 	{ href: '/settings/plugins', icon: 'extension', label: 'Plugins', detail: 'What Castor can do, extended' },
