@@ -581,6 +581,10 @@ class AgentGateway:
                 if stopping and not msg.get("start_failed"):
                     # A service someone stopped: done, whatever it exits with on its stop signal.
                     job.status, job.error = m.JobStatus.succeeded, None
+                shell = await db.get(m.Task, job.task_id)
+                if shell is not None and shell.shell and job.exit_code is not None and not job.error:
+                    # A shell someone left: its exit code is only its last command's (kept on the job).
+                    job.status = m.JobStatus.succeeded
             if job.waiting_input is not None:
                 from ..interactive import finished as interactive_finished
 

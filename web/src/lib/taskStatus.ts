@@ -27,4 +27,4 @@ export const isRunning = (task: Task) =>
 	task.latest_job?.status === 'running' || task.latest_job?.status === 'dispatched' || task.latest_job?.status === 'waiting' || task.run?.status === 'running';
 
 /** The card's kind as an icon: a playbook run, a command, or a person's task. */
-export const kindIcon = (task: Task) => (task.run ? 'account_tree' : task.subtasks?.total ? 'checklist' : task.kind === 'command' ? 'terminal' : 'person');
+export const kindIcon = (task: Task) => (task.run ? 'account_tree' : task.subtasks?.total ? 'checklist' : task.shell ? 'keyboard' : task.kind === 'command' ? 'terminal' : 'person');

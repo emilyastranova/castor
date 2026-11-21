@@ -13,6 +13,7 @@
 	import { snackbar } from '$lib/snackbar.svelte';
 	import PostComposer from './PostComposer.svelte';
 	import MoveWritingDialog from '../MoveWritingDialog.svelte';
+	import ParseOutputDialog from '../ParseOutputDialog.svelte';
 	import Reactions from '../reactions/Reactions.svelte';
 
 	/** One timeline entry; how it looks depends on its kind. */
@@ -87,6 +88,7 @@
 		editing = false;
 	}
 	let moving = $state(false);
+	let parsing = $state(false);
 	async function movePost(toTaskId: string | null) {
 		if (!toTaskId || !item.post || !item.project) return;
 		const r = await api().posts.move(item.post.id, toTaskId);
@@ -155,12 +157,15 @@
 				<span class="rounded bg-surface-container-highest px-1.5 font-mono text-[11px]" title={item.project.name}>{item.project.codename}</span>
 			{/if}
 			<span class="ml-auto shrink-0 {perched ? 'perch-time' : ''}" title={absoluteTime(item.created_at)}>{time}</span>
-			{#if mayChange && !editing}
+			{#if item.post && canEdit() && !editing}
 				<Menu>
 					{#snippet anchor()}<IconButton icon="more_vert" label="Post actions" size="sm" class="-my-1.5" />{/snippet}
-					<MenuItem icon="edit" onclick={() => (editing = true)}>Edit</MenuItem>
-					<MenuItem icon="drive_file_move" onclick={() => (moving = true)}>Move to a card…</MenuItem>
-					<MenuItem icon="delete" danger onclick={removePost}>Delete</MenuItem>
+					{#if mayChange}
+						<MenuItem icon="edit" onclick={() => (editing = true)}>Edit</MenuItem>
+						<MenuItem icon="drive_file_move" onclick={() => (moving = true)}>Move to a card…</MenuItem>
+					{/if}
+					<MenuItem icon="data_object" onclick={() => (parsing = true)}>Parse its output…</MenuItem>
+					{#if mayChange}<MenuItem icon="delete" danger onclick={removePost}>Delete</MenuItem>{/if}
 				</Menu>
 			{/if}
 		</div>
@@ -236,6 +241,10 @@
 	</div>
 </div>
 
+{#if parsing && item.post && item.project}
+	<ParseOutputDialog bind:open={parsing} projectId={item.project.id} source={{ post_id: item.post.id }}
+		onparsed={(job, taskId) => goto(`/projects/${item.project!.id}?task=${taskId}&tab=output&job=${job.id}&view=results`)} />
+{/if}
 {#if moving && item.post && item.project}
 	<MoveWritingDialog bind:open={moving} projectId={item.project.id} what="post" onpick={movePost} />
 {/if}

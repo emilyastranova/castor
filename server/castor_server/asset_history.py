@@ -240,6 +240,8 @@ async def record_absent(db: AsyncSession, job: m.Job, task: m.Task, outputs: lis
     see gets a "not seen" observation (once per run, however often it's parsed again)."""
     if job.status != m.JobStatus.succeeded:
         return  # a scan that failed or was cancelled says nothing about what it didn't reach
+    if job.runner == "manual":
+        return  # output someone brought in (manual_runs.py) is a part of something, not a whole scan
     from .assets import segment_of
 
     started = job.started_at or job.queued_at

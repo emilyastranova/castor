@@ -136,8 +136,10 @@ export interface Job {
 	input_by?: UUID | null;
 	/** What it does: "command" (an agent runs it) or "http" (a request; docs/ACTIONS.md). */
 	kind?: ActionKind;
-	/** "server": the Castor server ran it, not an agent. */
+	/** "server": the Castor server ran it, not an agent. "manual": output someone brought in to parse. */
 	runner?: string | null;
+	/** A manual run: where its output came from. */
+	origin?: ManualOrigin | null;
 	/** An HTTP action sent through an agent: the agent whose network it went out from. */
 	via_agent_id?: UUID | null;
 	/** The network route it went through (no secrets) and how the agent applied it. */
@@ -1263,9 +1265,49 @@ export interface ArgErrors {
 	errors: Record<string, string>;
 }
 
+/** Where a manual run's output came from: pasted, a comment, a timeline post or a run (its lines [from, to)). */
+export interface ManualOrigin {
+	from: 'paste' | 'comment' | 'post' | 'job';
+	id?: string;
+	lines?: [number, number];
+	/** Changed after it came from there. */
+	edited?: boolean;
+}
+
+/** Where output to parse comes from: text, or a comment's, post's or run's. */
+export interface ManualSource {
+	text?: string;
+	comment_id?: UUID;
+	post_id?: UUID;
+	job_id?: UUID;
+	lines?: [number, number];
+}
+
+/** A parser that read something from some output. */
+export interface ParserCandidate {
+	parser: string;
+	type: string;
+	description: string;
+	/** Reads nearly anything (one value per line, the whole text): offered after the others. */
+	generic: boolean;
+	count: number;
+	preview: unknown;
+}
+
+export interface ParserTry {
+	text: string;
+	origin: ManualOrigin;
+	/** The card it belongs on, when the source says (a comment's, a run's). */
+	task_id: UUID | null;
+	project_id: UUID | null;
+	candidates: ParserCandidate[];
+}
+
 export interface Task {
 	/** Run in an interactive terminal (or its library command says so). */
 	tty?: boolean;
+	/** A shell card: starting it opens a shell on the agent to work in. */
+	shell?: boolean;
 	/** Runs until stopped (a typed command's own; a library command's `service:` wins). */
 	service?: ServiceSpec | null;
 	/** HTTP actions: the most requests this card makes ("60/minute"); none: the definition's. */
@@ -1999,6 +2041,9 @@ export function api(fetchFn: Fetch = fetch) {
 			move: (id: UUID, column_id: UUID, position: number, force = false) =>
 				post<Task>(`/tasks/${id}/move`, { column_id, position, ...(force ? { force } : {}) }),
 			run: (id: UUID, force = false) => post<Job>(`/tasks/${id}/run`, force ? { force } : undefined),
+			/** Bring output into the card as a manual run, read with `parser` (or unread; `ai` drafts a parser for it). */
+			manualRun: (id: UUID, body: ManualSource & { parser?: string | null; options?: Record<string, unknown>; ai?: boolean }) =>
+				post<Job>(`/tasks/${id}/manual-runs`, body),
 			/** What it waits on and which cards wait on it. */
 			dependencies: (id: UUID) => get<CardDependencies>(`/tasks/${id}/dependencies`),
 			jobs: (id: UUID) => get<Job[]>(`/tasks/${id}/jobs`),
@@ -2094,6 +2139,8 @@ export function api(fetchFn: Fetch = fetch) {
 			get: (name: string) => get<ParserInfo>(`/parsers/${encodeURIComponent(name)}`),
 			test: (name: string, input: string, options: Record<string, unknown>) =>
 				post<ParseTestResult>(`/parsers/${encodeURIComponent(name)}/test`, { input, options }),
+			/** Every parser that reads something from the output (its text, from its source), best first. */
+			tryAll: (source: ManualSource) => post<ParserTry>('/parsers/try', source),
 			create: (yaml: string) => post<ParserInfo>('/parsers', { yaml }),
 			update: (name: string, yaml: string) => request<ParserInfo>(fetchFn, 'PUT', `/parsers/${encodeURIComponent(name)}`, { yaml }),
 			remove: (name: string) => del(`/parsers/${encodeURIComponent(name)}`),

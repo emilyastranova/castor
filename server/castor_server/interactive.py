@@ -45,9 +45,11 @@ def _subject(job: m.Job) -> str:
 async def on_prompt(db: AsyncSession, job: m.Job, text: str | None) -> None:
     """The agent says the job is (text) or is no longer (None) waiting at a prompt."""
     text = (text or "").strip()[:300] or None
+    task = await db.get(m.Task, job.task_id)
+    if task is not None and task.shell:
+        text = None  # a shell sits at its prompt all the time: nothing to tell anyone
     if text == job.waiting_input:
         return
-    task = await db.get(m.Task, job.task_id)
     if text is None or job.input_by is not None or job.status != m.JobStatus.running:
         if job.waiting_input is not None:
             job.waiting_input = None

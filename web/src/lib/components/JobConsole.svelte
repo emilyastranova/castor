@@ -25,8 +25,12 @@
 		canInteract?: boolean;
 		/** Make a picture of the output (SnapshotDialog), starting from the selected lines. */
 		onsnapshot?: (range: { from: number; to: number } | null) => void;
+		/** Parse the output (the selected text, or null for all of it): ParseOutputDialog. */
+		onparse?: (selection: string | null) => void;
+		/** Take control as soon as it runs (a shell card someone just opened). */
+		autoControl?: boolean;
 	}
-	let { job, oncancel, title, canInteract = false, onsnapshot }: Props = $props();
+	let { job, oncancel, title, canInteract = false, onsnapshot, onparse, autoControl = false }: Props = $props();
 
 	// ---- expand to fill the card ----
 	// The console box animates its real size and position (not a scale transform), so text
@@ -307,6 +311,13 @@
 	$effect(() => {
 		if (!live && controlling) release();
 	});
+	let autoTaken = false;
+	$effect(() => {
+		if (autoControl && ready && job.status === 'running' && tty && canInteract && !controlling && !autoTaken) {
+			autoTaken = true;
+			void takeControl();
+		}
+	});
 	function interrupt() {
 		socket?.send(JSON.stringify({ t: 'signal', name: 'INT' }));
 		term?.focus();
@@ -371,6 +382,9 @@
 			{/if}
 			{#if live && oncancel}
 				<IconButton icon="stop_circle" label="Cancel job" size="sm" class="text-[#ffb4ab]" onclick={() => oncancel(job)} />
+			{/if}
+			{#if onparse && !empty && !live}
+				<IconButton icon="data_object" label="Parse this output (or the selection)" size="sm" class="text-white/70" onclick={() => onparse(term?.getSelection() || null)} />
 			{/if}
 			{#if onsnapshot && !empty}
 				<IconButton icon="photo_camera" label="Snapshot: a picture of the output (or the selected lines)" size="sm" class="text-white/70" onclick={() => onsnapshot(selectedLines())} />

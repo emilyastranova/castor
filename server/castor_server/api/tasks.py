@@ -127,8 +127,12 @@ async def create_task(project_id: str, body: TaskIn, db: DB, user: CurrentUser):
         created_by=user.id,
         **data,
     )
-    if body.command_ref:
+    if body.command_ref and not body.shell:
         await _use_library_command(db, task, body.command_ref, body.command_args)
+    if body.shell:
+        from ..shells import apply as make_shell
+
+        make_shell(task, True)
     db.add(task)
     await db.flush()
     if body.parent_id is not None:  # a subtask of an activity card, at the end of its list
@@ -238,6 +242,13 @@ async def update_task(task_id: str, body: TaskPatch, db: DB, user: CurrentUser):
         edited.append("alerts")
     for key, value in changes.items():
         setattr(task, key, value)
+    if "shell" in changes:
+        from ..shells import apply as make_shell
+
+        task.shell = not changes["shell"]  # so apply sees the change
+        make_shell(task, bool(changes["shell"]))
+        if task.shell:  # its library command (if it had one) gives way to the shell
+            library_ref, library_args = None, None
     if edited:
         await record_activity(db, type="task.updated", message=f"Changed {_fields_said(edited)} of “{task.title}”", project_id=task.project_id,
                               task_id=task.id, payload={"fields": sorted(set(edited))}, **actor_of(user))
@@ -476,7 +487,7 @@ async def _mention(db, task: m.Task, comment: m.Comment, author: m.User, already
 
 FIELD_WORDS = {"command_ref": "command", "command_args": "command", "image": "image", "container_flags": "container flags",
                "agent_selector": "where it runs", "route": "network route", "run_on_move": "run on move", "timeout_s": "timeout", "due_at": "due date", "waits_on": "what it waits on",
-               "custom_fields": "fields", "tty": "interactive"}
+               "custom_fields": "fields", "tty": "interactive", "shell": "shell"}
 
 
 def _fields_said(fields: list[str]) -> str:

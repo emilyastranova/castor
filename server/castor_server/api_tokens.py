@@ -154,6 +154,7 @@ RULES: list[tuple[str, str, str]] = [
     ("POST", "/api/playbook-runs/*/summary", "ai:use"),
     ("POST", "/api/tasks/*/summary", "ai:use"),
     ("POST", "/api/tasks/*/run", "jobs:write"),
+    ("POST", "/api/tasks/*/manual-runs", "jobs:write"),
     ("POST", "/api/tasks/*/subtasks/run", "jobs:write"),
     ("POST", "/api/tasks/*/subtasks/stop", "jobs:write"),
     ("GET", "/api/tasks/*/jobs", "jobs:read"),
@@ -169,6 +170,7 @@ RULES: list[tuple[str, str, str]] = [
     ("POST", "/api/commands/*/render", "library:read"),
     ("POST", "/api/commands/*/try", "jobs:write"),  # runs the action once, on a card made for it
     ("POST", "/api/parsers/*/test", "library:read"),
+    ("POST", "/api/parsers/try", "jobs:read"),  # reads a comment, post or run's output, keeps nothing
     ("POST", "/api/parsers/validate", "library:read"),
     ("POST", "/api/parsers/draft", "ai:use"),
     ("*", "/api/parser-proposals/**", "jobs:rw"),

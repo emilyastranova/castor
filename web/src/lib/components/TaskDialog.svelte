@@ -3,7 +3,7 @@
 	import RouteChoice from './routes/RouteChoice.svelte';
 	import Reactions from './reactions/Reactions.svelte';
 	import { METHOD_WORDS } from '$lib/routes';
-	import type { NetworkRoute, RouteMethod } from '$lib/api';
+	import type { ManualSource, NetworkRoute, RouteMethod } from '$lib/api';
 	import { agentsForRoutes, routeAgentsWords } from '$lib/routes';
 	import { hasSpoilers } from '$lib/spoilers';
 	import { originLabel } from '$lib/origin';
@@ -32,6 +32,7 @@
 	import PriorityGlyph, { priorityOptions } from './PriorityGlyph.svelte';
 	import NameImageDialog from './NameImageDialog.svelte';
 	import MoveWritingDialog from './MoveWritingDialog.svelte';
+	import ParseOutputDialog from './ParseOutputDialog.svelte';
 	import RunPanel from './RunPanel.svelte';
 	import SubtaskPanel from './SubtaskPanel.svelte';
 	import ServicePanel from './ServicePanel.svelte';
@@ -146,6 +147,8 @@
 					? 'output'
 					: 'comments';
 		selectedJobId = params.get('job') ?? task.latest_job?.id ?? null;
+		// A shell someone just opened (New card → Shell): its terminal is theirs as soon as it runs.
+		if (task.shell && params.get('control')) controlOnStart = params.get('control');
 		const view = params.get('view');
 		wantedView = view === 'results' || view === 'changes' ? view : params.get('job') ? 'console' : null;
 		shownLink = linked;
@@ -381,6 +384,7 @@
 			const job = await startAnyway(task.title, (force) => api().tasks.run(task.id, force));
 			if (!job) return; // they chose not to start it while it waits on other cards
 			selectedJobId = job.id;
+			if (task.shell) controlOnStart = job.id;
 			tab = 'output';
 			// Run also moves the card to In Progress; refresh it here in case the live
 			// update is late or the realtime socket is reconnecting.
@@ -389,6 +393,24 @@
 			snackbar.error(err instanceof ApiError ? err.message : 'Could not start job');
 		}
 	}
+	// ---- a shell card: its terminal opens as soon as the shell runs ----
+	let controlOnStart = $state<UUID | null>(null);
+
+	// ---- output brought in to be parsed (a comment's, a run's, or pasted) ----
+	let parseSource = $state<ManualSource | null>(null);
+	let parseOpen = $state(false);
+	function parseFrom(source: ManualSource) {
+		parseSource = source;
+		parseOpen = true;
+	}
+	function parsed(job: Job) {
+		if (!jobs.some((j) => j.id === job.id)) jobs = [job, ...jobs];
+		wantedView = 'results';
+		selectedJobId = job.id;
+		tab = 'output';
+	}
+	const ORIGIN_WORDS: Record<string, string> = { paste: 'pasted', comment: 'from a comment', post: 'from a timeline post', job: 'from a run' };
+
 	// ---- a run waiting for approval ----
 	let rejectReason = $state('');
 	let deciding = $state(false);
@@ -809,7 +831,7 @@
 	let tabs = $derived([
 		...(task.run ? [{ id: 'run', label: 'Run', icon: 'account_tree', badge: undefined }] : []),
 		...(canHaveSubtasks ? [{ id: 'subtasks', label: 'Subtasks', icon: 'checklist', badge: task.subtasks?.total || undefined }] : []),
-		...(task.kind === 'command' ? [{ id: 'output', label: 'Output', icon: 'terminal', badge: jobs.length }] : []),
+		...(task.kind === 'command' || jobs.length ? [{ id: 'output', label: 'Output', icon: 'terminal', badge: jobs.length }] : []),
 		{ id: 'comments', label: 'Comments', icon: 'chat_bubble', badge: comments.length },
 		{ id: 'attachments', label: 'Attachments', icon: 'attach_file', badge: attachments.length },
 		{ id: 'fields', label: 'Fields', icon: 'data_object', badge: Object.keys(task.custom_fields).length },
@@ -879,7 +901,7 @@
 					{:else if activeJob}
 						<Button variant="tonal" icon="stop_circle" onclick={() => cancel(activeJob!)}>Cancel</Button>
 					{:else}
-						<Button icon="play_arrow" onclick={run} disabled={!command.trim() || libDirty}>{task.latest_job?.status === 'failed' ? 'Re-run' : 'Run'}</Button>
+						<Button icon={task.shell ? 'keyboard' : 'play_arrow'} onclick={run} disabled={!command.trim() || libDirty}>{task.shell ? 'Open a shell' : task.latest_job?.status === 'failed' ? 'Re-run' : 'Run'}</Button>
 					{/if}
 				</span>
 			{/if}
@@ -889,9 +911,15 @@
 					<MenuItem icon={task.kind === 'command' ? 'person' : 'terminal'} onclick={() => save({ kind: task.kind === 'command' ? 'manual' : 'command' })}>
 						Convert to {task.kind === 'command' ? 'human task' : 'command'}
 					</MenuItem>
+					{#if !task.command_ref && !isHttp}
+						<MenuItem icon={task.shell ? 'terminal' : 'keyboard'} onclick={() => save({ shell: !task.shell })}>{task.shell ? 'Make it a command again' : 'Make it a shell'}</MenuItem>
+					{/if}
 					{#if task.command_ref}
 						<MenuItem icon="link_off" onclick={detachFromLibrary}>Detach from library</MenuItem>
 					{/if}
+				{/if}
+				{#if editable && !task.run && !task.playbook_step_id}
+					<MenuItem icon="data_object" onclick={() => parseFrom({})}>Parse output…</MenuItem>
 				{/if}
 				{#if editable && !task.playbook_step_id}
 					<MenuItem icon={task.alerts?.channels?.length ? 'notifications_active' : 'campaign'} onclick={() => (alertsOpen = true)}>{task.alerts?.channels?.length ? 'Chat alerts (on)…' : 'Chat alerts…'}</MenuItem>
@@ -1090,7 +1118,20 @@
 							/>
 						</div>
 					{:else}
+					{#if task.shell}
+						<div class="flex items-start gap-3">
+							<Icon name="keyboard" size={20} class="mt-0.5 shrink-0 text-primary" />
+							<div class="min-w-0">
+								<p class="title-small text-on-surface">A shell to work in</p>
+								<p class="body-small text-on-surface-variant">
+									Open it and you’re typing in a shell on the agent (bash where there is one), through the card’s route if it has one. It runs until you type
+									<code class="font-mono">exit</code> or stop it; files you leave in <code class="font-mono">artifacts/</code> come back with the run, and what it printed can be parsed afterwards.
+								</p>
+							</div>
+						</div>
+					{:else}
 					<TextField label="Command" bind:value={command} multiline rows={2} mono oninput={() => edited('command')} onblur={() => command !== task.command && commit('command', { command })} supporting={aiEdit ? `Changed by the AI: ${aiEdit.change ?? 'a corrected command'} (details at the top)` : ''} />
+					{/if}
 					<div class="grid gap-3 sm:grid-cols-2">
 						{#if task.tool}
 							<a href="/library?t={task.tool}" class="flex h-14 items-center gap-2 rounded-xs border border-outline-variant px-4 hover:border-outline" title="The command's tool decides where it runs; see the Library">
@@ -1130,7 +1171,7 @@
 						<span title="A person approves each run before it starts (for runs that change things outside Castor)">
 							<Switch checked={!!task.confirm || !!libraryDef?.spec.confirm} disabled={!!libraryDef?.spec.confirm} label={libraryDef?.spec.confirm ? 'Ask before each run (its definition asks)' : 'Ask before each run'} onchange={(v) => save({ confirm: v })} />
 						</span>
-						{#if !isHttp && !isMcp && !isPluginAction}
+						{#if !isHttp && !isMcp && !isPluginAction && !task.shell}
 						<span title="A real terminal: you can type into it while it runs, full-screen programs (tmux, vim, htop) work, and a run that stops at a prompt tells people.">
 							<Switch checked={!!task.tty || libTty} disabled={libTty} label={libTty ? 'Interactive terminal (its command asks for one)' : 'Interactive terminal'} onchange={(v) => save({ tty: v })} />
 						</span>
@@ -1138,7 +1179,7 @@
 							<Switch checked={!!service} disabled={!!libService} label={libService ? 'Runs until stopped (its command is a service)' : 'Runs until stopped'} onchange={(v) => save({ service: v ? { stop_signal: 'TERM', stop_timeout: 10 } : null })} />
 						</span>
 						{/if}
-						{#if !service}
+						{#if !service && !task.shell}
 						<TextField label="Timeout (s)" bind:value={timeout} type="number" class="w-40 [&_div]:h-10" oninput={() => edited('timeout')} onblur={() => (timeout ? Number(timeout) : null) !== task.timeout_s && commit('timeout', { timeout_s: timeout ? Number(timeout) : null })} />
 						{/if}
 					</div>
@@ -1208,7 +1249,9 @@
 					{/if}
 					{#if selectedJob}
 						<p class="flex flex-wrap items-center gap-x-2 body-small text-on-surface-variant">
-							{#if selectedJob.kind === 'plugin'}
+							{#if selectedJob.runner === 'manual'}
+								<span class="inline-flex items-center gap-1"><Icon name="data_object" size={14} />Output {ORIGIN_WORDS[selectedJob.origin?.from ?? 'paste']}{selectedJob.origin?.edited ? ' (part of it)' : ''}, brought in {absoluteTime(selectedJob.queued_at)}</span>
+							{:else if selectedJob.kind === 'plugin'}
 								Plugin action run by the Castor server · queued {absoluteTime(selectedJob.queued_at)}
 							{:else if selectedJob.kind === 'mcp'}
 								MCP tool call from the Castor server · queued {absoluteTime(selectedJob.queued_at)}
@@ -1267,7 +1310,9 @@
 							{:else if hasResults && outputView === 'changes'}
 								<JobChanges job={selectedJob} onload={(c) => (changeCount = c.base ? c.totals.added + c.totals.removed + c.totals.changed || null : null)} />
 							{:else}
-								<JobConsole job={selectedJob} oncancel={editable ? cancel : undefined} title={task.title} canInteract={editable} onsnapshot={(range) => selectedJob && (snapshot = { jobId: selectedJob.id, range, attachment: null })} />
+								<JobConsole job={selectedJob} oncancel={editable ? cancel : undefined} title={task.title} canInteract={editable} onsnapshot={(range) => selectedJob && (snapshot = { jobId: selectedJob.id, range, attachment: null })}
+									autoControl={controlOnStart === selectedJob.id}
+									onparse={editable && selectedJob.runner !== 'manual' ? (selection) => selectedJob && parseFrom(selection ? { job_id: selectedJob.id, text: selection } : { job_id: selectedJob.id }) : undefined} />
 							{/if}
 						{/key}
 						{#if runFiles.length}
@@ -1323,6 +1368,9 @@
 									<span class="flex-1"></span>
 									{#if canEdit(c) && editingId !== c.id}
 										<IconButton icon="edit" label="Edit comment" size="sm" onclick={() => startEdit(c)} />
+									{/if}
+									{#if editable && editingId !== c.id}
+										<IconButton icon="data_object" label="Parse the output in this comment" size="sm" onclick={() => parseFrom({ comment_id: c.id })} />
 									{/if}
 									{#if canEdit(c) && editingId !== c.id}
 										<IconButton icon="drive_file_move" label="Move comment to another card or the timeline" size="sm" onclick={() => (movingComment = c)} />
@@ -1519,7 +1567,7 @@
 			{#if activeJob}
 				<Button variant="tonal" icon="stop_circle" class="flex-1" onclick={() => cancel(activeJob!)}>Cancel run</Button>
 			{:else}
-				<Button icon="play_arrow" class="flex-1" onclick={run} disabled={!command.trim() || libDirty}>{task.latest_job?.status === 'failed' ? 'Re-run' : 'Run'}</Button>
+				<Button icon={task.shell ? 'keyboard' : 'play_arrow'} class="flex-1" onclick={run} disabled={!command.trim() || libDirty}>{task.shell ? 'Open a shell' : task.latest_job?.status === 'failed' ? 'Re-run' : 'Run'}</Button>
 			{/if}
 		</div>
 	{/if}
@@ -1527,6 +1575,9 @@
 
 {#if intoOpen}
 	<MoveWritingDialog bind:open={intoOpen} projectId={task.project_id} what="card" fromTaskId={task.id} onpick={moveInto} />
+{/if}
+{#if parseOpen}
+	<ParseOutputDialog bind:open={parseOpen} projectId={task.project_id} source={parseSource ?? {}} taskId={task.id} onparsed={parsed} />
 {/if}
 
 {#if images.pending[0]}

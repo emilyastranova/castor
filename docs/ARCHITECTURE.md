@@ -783,6 +783,28 @@ notifies the job's starter, the card's creator, assignees (and assigned groups' 
 tail, `expect.log`, `/api/jobs/{id}/output`) strip terminal escapes (`interactive.plain`);
 `?raw=1` returns the exact bytes.
 
+**Shell cards** (`tasks.shell`, `shells.py`): a command card whose command is `shells.SHELL_COMMAND` (bash -l
+where there is one, else sh -l), with `tty` on and no timeout; `shells.apply` turns it on or off (create/PATCH
+`shell`). It never sets `waiting_input` (a shell always sits at its prompt), and leaving it is `succeeded` whatever
+its last command's exit code (the gateway's `job.finished`; the code is kept). Web: New card → Shell makes it, runs
+it and opens the card with `?control=<job>`, so `JobConsole`'s `autoControl` takes control once it's running.
+
+## Manual runs
+
+Output people bring in to be parsed (`manual_runs.py`, `api/manual_runs.py`): pasted, a comment's or timeline post's
+(`text_of_writing`: their code blocks when they have any) or a run's (`text_of_job`, a shell session's say, or the
+selected text). `POST /api/parsers/try` finds the text and ranks every parser that reads something from it
+(`manual_runs.rank`: the ones that recognise the format by how much they read, then `GENERIC`); nothing is kept.
+`POST /api/tasks/{id}/manual-runs` makes it a job on the card: `runner = "manual"`, finished, `origin` ({from, id,
+edited}), the text as one stdout chunk and one output `results` read by the chosen parser, then `parse_job`, so its
+results table, assets and relationships, changes and summaries work as for any run. Without a parser the output
+spec has none (`outputs._specs` keeps it unvalidated for manual runs) and `parse_job` records it unread
+(`manual_runs.UNREAD`, a mismatch), so `ParserFix` offers a draft; `ai: true` drafts one straight away
+(`manual_runs.draft`, a `ParserProposal`); using it re-reads the run. A manual run never records absences
+(`asset_history.record_absent`). Web: `ParseOutputDialog` (card menu Parse output…, a comment's button, the console's
+parse button, a timeline post's menu, which picks a card or makes one); manual cards show Output when they have runs.
+MCP `try_parsers`, `parse_output`.
+
 ## Alerts
 
 `alerts.py`, `api/alerts.py`. Tables `alert_channels` (kind, name, `fields`, vault-encrypted

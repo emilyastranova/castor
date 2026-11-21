@@ -173,6 +173,8 @@ TOOLS: list[Tool] = [
           "kind": _s("manual or command", enum=["manual", "command"]), "command": _s("Shell command line (kind command)"),
           "command_ref": _s("Library command id (from list_commands)"),
           "command_args": {"type": "object", "description": "Arguments for command_ref"},
+          "shell": {"type": "boolean", "description": "A shell card: starting it opens a shell on the agent for a person to work in "
+                    "(in the card's Output tab); it runs until it's exited. No command needed."},
           "column_id": _s("Column id (from get_board)"), "tags": {"type": "array", "items": {"type": "string"}},
           "agent_selector": _SELECTOR, "route": _s("Network route its traffic goes through: a route id (from list_routes), or \"none\" to go direct even when the "
                      "project has a default; left out: the project's default"),
@@ -643,6 +645,14 @@ TOOLS += [
     _auto("update_parser", "PUT", "/api/parsers/{name}", "Replace a library parser's YAML."),
     _auto("delete_parser", "DELETE", "/api/parsers/{name}", "Delete a library parser.", **_DESTRUCTIVE),
     _auto("test_parser", "POST", "/api/parsers/{name}/test", "Run a parser on some text."),
+    _auto("try_parsers", "POST", "/api/parsers/try", "Which parsers read something from some output, best first, with what each "
+          "read (count and a preview). The output is text, or taken from a comment (comment_id: its code blocks if it has any), a "
+          "timeline post (post_id) or a run (job_id, optionally lines [from, to)). Nothing is kept: use parse_output to bring it "
+          "into a card.", **_UNTRUSTED),
+    _auto("parse_output", "POST", "/api/tasks/{task_id}/manual-runs", "Bring output into a card as a manual run and read it with "
+          "a parser (from try_parsers), so its results become the project's assets and relationships like any run's. The output is "
+          "text, or from a comment, post or run (as for try_parsers). Without a parser it's kept unread; ai: true has the AI draft "
+          "a parser for it (list_parser_drafts / use_parser_draft)."),
     _auto("parser_reference", "GET", "/api/parsers/reference", "Output types and their fields, for writing parsers."),
     # Variables (values of secrets are never shown)
     _auto("list_variable_kinds", "GET", "/api/variables/kinds", "Kinds of variable set (credential, ssh-key…) and their fields."),

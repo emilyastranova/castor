@@ -56,6 +56,10 @@ async def _specs(db: AsyncSession, job: m.Job) -> list[OutputSpec]:
         return [o for o in spec.outputs if o.parser] if spec else []
     specs = []
     for item in raw:
+        if job.runner == "manual" and not item.get("parser") and not item.get("parser_spec"):
+            # Output brought in with no parser chosen yet (manual_runs.py): its stdout, still unread.
+            specs.append(OutputSpec.model_construct(**{**item, "options": item.get("options") or {}, "parser_spec": None}))
+            continue
         try:
             specs.append(OutputSpec.model_validate(item))
         except ValidationError as exc:  # e.g. a parser that has since been removed
@@ -140,6 +144,11 @@ async def parse_job(db: AsyncSession, job: m.Job, *, partial: bool = False) -> l
     for spec in specs:
         parser = _parser_for(spec)
         if parser is None:
+            if job.runner == "manual" and not spec.parser and not spec.parser_spec:
+                # Brought in without a parser: one is still to be chosen.
+                from .manual_runs import UNREAD
+
+                results.append(m.JobOutput(job_id=job.id, name=spec.name, type="string", parser="", error=UNREAD))
             continue
         row = m.JobOutput(job_id=job.id, name=spec.name, type=parser.type, parser=parser.name)
         try:

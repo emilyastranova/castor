@@ -370,6 +370,9 @@ class Task(Base, TimestampMixin):
     alerts: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True, default=None)
     # Run in an interactive terminal (also on when its library command says tty: true).
     tty: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # A shell card: starting it opens a shell on the agent to work in (shells.py); it runs until
+    # it's exited and never alerts for sitting at its prompt.
+    shell: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     # HTTP actions: this card's own limit on its requests ("60/minute"; rate_limits.py).
     rate_limit: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # Ask before each run: a person approves every job of it (its definition can demand it too).
@@ -717,6 +720,9 @@ class Job(Base):
     output_specs: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONType, nullable=True)
     # Interactive terminal (pty): its output is raw terminal output, and people can type.
     tty: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # A manual run (runner "manual", manual_runs.py): output someone brought in to be parsed, and
+    # where it came from: {"from": "paste" | "comment" | "post" | "job", "id": …, "lines": [from, to]}.
+    origin: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
     # A service (runs until stopped): its ServiceSpec at dispatch time. None: an ordinary job.
     service: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
     # The network route it went through (no secrets): {id, name, label, hops, dns, strict, segment,

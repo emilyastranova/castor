@@ -299,6 +299,8 @@ class TaskIn(BaseModel):
     waits_on: list[uuid.UUID] = Field(default_factory=list)
     var_bindings: dict[str, uuid.UUID | None] = Field(default_factory=dict)
     tty: bool = False
+    # A shell card: starting it opens a shell on the agent to work in (its command is the shell).
+    shell: bool = False
     # Runs until stopped (command_spec.ServiceSpec), for a typed command.
     service: dict[str, Any] | None = None
     # HTTP actions: the most requests this card makes ("60/minute"); none: the definition's.
@@ -351,6 +353,7 @@ class TaskPatch(BaseModel):
     # Alerts for this card's runs; channels: [] turns them off.
     alerts: AlertRules | None = None
     tty: bool | None = None
+    shell: bool | None = None
     service: dict[str, Any] | None = None  # {} or null: an ordinary job again
     rate_limit: str | None = None  # null or "" clears it
     confirm: bool | None = None
@@ -409,6 +412,8 @@ class JobOut(ORM):
     # HTTP actions: run by the Castor server ("server"); waiting for a rate limit until resume_at.
     kind: str = "command"
     runner: str | None = None
+    # A manual run (runner "manual"): where its output came from ({from, id, lines}).
+    origin: dict[str, Any] | None = None
     via_agent_id: uuid.UUID | None = None
     # The network route it went through (no secrets) and how the agent applied it.
     route_info: dict[str, Any] | None = None
@@ -498,6 +503,7 @@ class TaskOut(ORM):
     var_bindings: dict[str, str] = Field(default_factory=dict)
     alerts: dict[str, Any] | None = None
     tty: bool = False
+    shell: bool = False
     service: dict[str, Any] | None = None
     rate_limit: str | None = None
     confirm: bool = False

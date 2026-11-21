@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { me } from '$lib/session';
 	import { maskSpoilers } from '$lib/spoilers';
 	import { agentsFor, selectorFrom, selectorOptions } from '$lib/agentSelector';
@@ -23,7 +25,8 @@
 	}
 	let { open = $bindable(false), projectId, columns, column = null, agents, oncreated }: Props = $props();
 
-	let kind = $state<'manual' | 'command'>('manual');
+	/** A shell is a command card whose command is the shell: it opens straight into its terminal. */
+	let kind = $state<'manual' | 'command' | 'shell'>('manual');
 	let title = $state('');
 	let description = $state('');
 	let command = $state('');
@@ -96,6 +99,34 @@
 		parentId = '';
 	}
 
+	/** Make the shell card and open it: it starts (In Progress) and the card opens on its terminal. */
+	async function openShell() {
+		const task = await api().projects.createTask(projectId, {
+			title,
+			description,
+			kind: 'command',
+			shell: true,
+			image: image.trim() || null,
+			column_id: columnId,
+			agent_selector: selectorFrom(agentId),
+			tags,
+			priority: Number(priority),
+			due_at: dueAt,
+			parent_id: parentId || null
+		});
+		oncreated?.(task);
+		const job = task.latest_job ?? (await api().tasks.run(task.id, true));
+		open = false;
+		reset();
+		const url = new URL(page.url);
+		for (const k of ['tab', 'job', 'view', 'comment', 'step']) url.searchParams.delete(k);
+		url.searchParams.set('task', task.id);
+		url.searchParams.set('tab', 'output');
+		url.searchParams.set('job', job.id);
+		url.searchParams.set('control', job.id);
+		await goto(url, { keepFocus: true, noScroll: true });
+	}
+
 	async function submit(e: SubmitEvent) {
 		e.preventDefault();
 		busy = true;
@@ -104,6 +135,10 @@
 			const flags = containerFlagsText.trim()
 				? containerFlagsText.split(/\s+/).filter(Boolean)
 				: [];
+			if (kind === 'shell') {
+				await openShell();
+				return;
+			}
 			const task = await api().projects.createTask(projectId, {
 				title,
 				description,
@@ -160,8 +195,19 @@
 		<div class="flex gap-2">
 			<Chip variant="filter" icon="person" selected={kind === 'manual'} onclick={() => (kind = 'manual')}>Human task</Chip>
 			<Chip variant="filter" icon="terminal" selected={kind === 'command'} onclick={() => (kind = 'command')}>Command</Chip>
+			<Chip variant="filter" icon="keyboard" selected={kind === 'shell'} onclick={() => (kind = 'shell')}>Shell</Chip>
 		</div>
-		<TextField label="Title" bind:value={title} required autofocus placeholder={kind === 'command' ? 'e.g. Ping sweep of 10.0.0.0/24' : 'e.g. Schedule kickoff with SOC'} />
+		<TextField label="Title" bind:value={title} required autofocus placeholder={kind === 'command' ? 'e.g. Ping sweep of 10.0.0.0/24' : kind === 'shell' ? 'e.g. Look around the DMZ jumpbox' : 'e.g. Schedule kickoff with SOC'} />
+		{#if kind === 'shell'}
+			<p class="body-small text-on-surface-variant">
+				A shell on an agent to work in, for when you know what you want to do but not the commands yet. It opens as soon as you make it and runs
+				until you type <code class="font-mono">exit</code>; what it printed can be parsed afterwards.
+			</p>
+			<div class="grid gap-4 sm:grid-cols-2">
+				<Select label="Agent" bind:value={agentId} options={agentOptions} />
+				<TextField label="Container image (optional)" bind:value={image} mono placeholder="the agent’s own shell" supporting="A shell inside this image instead" />
+			</div>
+		{/if}
 		{#if kind === 'command'}
 			<div class="flex gap-2">
 				<Chip variant="filter" icon="menu_book" selected={source === 'library'} onclick={() => (source = 'library')}>From library</Chip>
@@ -230,6 +276,6 @@
 	</form>
 	{#snippet actions()}
 		<Button variant="text" onclick={() => (open = false)}>Cancel</Button>
-		<Button type="submit" form="new-task" loading={busy} icon={kind === 'command' ? 'terminal' : 'add'}>Create card</Button>
+		<Button type="submit" form="new-task" loading={busy} icon={kind === 'command' ? 'terminal' : kind === 'shell' ? 'keyboard' : 'add'}>{kind === 'shell' ? 'Open a shell' : 'Create card'}</Button>
 	{/snippet}
 </Dialog>

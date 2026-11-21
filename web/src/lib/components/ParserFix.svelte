@@ -119,7 +119,7 @@
 		{#if !current}
 			<p class="flex items-start gap-2 body-medium text-on-surface">
 				<Icon name="help" size={18} class="mt-0.5 shrink-0 text-on-surface-variant" />
-				<span>This isn’t in the format <code class="font-mono text-[12.5px]">{parser}</code> reads. A parser written for it can read it{inRun ? ' and the run carries on' : ''}.</span>
+				{#if parser}<span>This isn’t in the format <code class="font-mono text-[12.5px]">{parser}</code> reads. A parser written for it can read it{inRun ? ' and the run carries on' : ''}.</span>{:else}<span>No parser has read this yet. One written for its format can read it, and what it finds becomes the project’s assets.</span>{/if}
 			</p>
 			{#if editable}
 				<div class="flex flex-wrap gap-2">

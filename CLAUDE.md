@@ -239,6 +239,12 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   vantage point (`assets.segment_of`). Web: `routes/routes` (`RouteChain`, `HopEditor`), `RouteChoice` (TaskDialog,
   RunPlaybookDialog, ProjectDialog), agent edit, `lib/routes.ts`. Tests: `tests/test_routes.py`, agent `test_route_chain.py`
   (real OpenSSH against asyncssh servers).
+- Manual work: `manual_runs.py` (output pasted, or from a comment, post or run, ranked against every parser
+  (`rank`) and brought into a card as a finished job with `runner = "manual"`, `origin`, one output `results`; unread
+  without a parser, for the AI to draft one; never records absences), `api/manual_runs.py` (`/api/parsers/try`,
+  `/api/tasks/{id}/manual-runs`), web `ParseOutputDialog`. Shell cards: `tasks.shell`, `shells.py` (the command is
+  the shell, tty, no timeout, no prompt alerts, leaving it succeeds), New card → Shell opens it with `?control=`
+  (`JobConsole` `autoControl`).
 - Tools (Phase 3a): `tool_spec.py` (YAML → `ToolSpec`: `image`, `build` recipe, `host`;
   `way_for` picks one per agent; recipe tags hash the recipe), `tool_library.py` (built-ins
   from `CASTOR_TOOLS_DIR` = `tools/`), `api/tools.py`. Commands say `tool: <id>`; the
