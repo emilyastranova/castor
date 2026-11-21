@@ -559,6 +559,9 @@ class HostLink:
     async def _loop(self) -> None:
         backoff = 2
         while True:
+            # Cleared as an attempt starts, not after it fails: a Reconnect pressed while it was failing
+            # (the error already showing) is kept, rather than lost until the next retry a minute later.
+            self._wake.clear()
             try:
                 await self._session()
                 backoff = 2
@@ -577,7 +580,6 @@ class HostLink:
                 log.exception("ssh host %s", self.name)
                 await self._set("error", f"{type(exc).__name__}: {exc}")
                 backoff = 60
-            self._wake.clear()
             try:
                 await asyncio.wait_for(self._wake.wait(), timeout=backoff)
             except TimeoutError:
