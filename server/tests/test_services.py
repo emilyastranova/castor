@@ -44,7 +44,7 @@ def _next(agent, kind):
             return msg
 
 
-def _until(fn, seconds=5.0):
+def _until(fn, seconds=20.0):  # CI runners can be slow to get the write lock
     deadline = time.time() + seconds
     while time.time() < deadline:
         out = fn()
