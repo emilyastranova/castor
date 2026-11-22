@@ -177,7 +177,9 @@ async def parse_running() -> None:
             except Exception:
                 log.exception("parsing running service %s failed", job.id)
                 await db.rollback()
-            job = await db.get(m.Job, job.id)
+            # Read it again from the database (this session keeps what it loaded before parsing): its
+            # output went on meanwhile and may have set ready_at or matches, which must not be lost.
+            job = await db.get(m.Job, job.id, populate_existing=True)
             if job is not None:
                 job.progress = {**(job.progress or {}), "parsed": {"at": utcnow().isoformat(), "bytes": size}}
                 await db.commit()

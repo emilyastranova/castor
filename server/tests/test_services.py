@@ -44,7 +44,7 @@ def _next(agent, kind):
             return msg
 
 
-def _until(fn, seconds=20.0):  # CI runners can be slow to get the write lock
+def _until(fn, seconds=20.0):
     deadline = time.time() + seconds
     while time.time() < deadline:
         out = fn()
@@ -144,4 +144,44 @@ def test_a_typed_command_can_be_a_service(client, auth):
     assert bad.status_code == 422
     cleared = client.patch(f"/api/tasks/{card.json()['id']}", json={"service": None}, headers=auth).json()
     assert cleared["service"] is None
+    client.delete(f"/api/projects/{project['id']}", headers=auth)
+
+
+def test_parsing_a_running_service_keeps_what_its_output_set_meanwhile(client, auth, monkeypatch):
+    """parse_running records when it parsed: it must not write back the progress it read before
+    parsing, losing a ready_at or matches the service's output set in between."""
+    import asyncio
+
+    from castor_server import models as m
+    from castor_server import outputs, service_jobs
+    from castor_server.db import SessionLocal
+
+    project = _project(client, auth)
+    card = client.post(f"/api/projects/{project['id']}/tasks", json={"title": "Tail", "kind": "command", "command": "tail -f x"},
+                       headers=auth).json()
+
+    async def scenario():
+        async with SessionLocal() as db:
+            job = m.Job(task_id=uuid.UUID(card["id"]), command="tail -f x", status=m.JobStatus.running, stdout_bytes=10,
+                        service={"stop_signal": "TERM", "stop_timeout": 5}, output_specs=[{"name": "lines", "parser": "lines"}])
+            db.add(job)
+            await db.commit()
+            job_id = job.id
+
+        async def parse_while_output_arrives(db, job, partial=False):
+            async with SessionLocal() as other:  # the gateway, recording the output's ready line
+                row = await other.get(m.Job, job.id)
+                row.progress = {**(row.progress or {}), "ready_at": "2026-11-22T00:00:00+00:00"}
+                await other.commit()
+
+        monkeypatch.setattr(outputs, "parse_job", parse_while_output_arrives)
+        await service_jobs.parse_running()
+        async with SessionLocal() as db:
+            progress = (await db.get(m.Job, job_id)).progress
+            (await db.get(m.Job, job_id)).status = m.JobStatus.cancelled
+            await db.commit()
+        return progress
+
+    progress = asyncio.run(scenario())
+    assert progress["ready_at"] and progress["parsed"]["bytes"] == 10
     client.delete(f"/api/projects/{project['id']}", headers=auth)

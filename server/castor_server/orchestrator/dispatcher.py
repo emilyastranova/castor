@@ -290,11 +290,12 @@ class Dispatcher:
             except (ArgumentError, variables.VariableError) as exc:
                 await self._fail_unsent(db, job, task, f"arguments: {exc}")
                 return
-            job.request = {
+            # Set on the job only once it goes: a job that waits for an agent must leave nothing
+            # unsaved behind (it would hold the write lock through the rest of the pump).
+            request = {
                 "args": args,
                 "spec": spec.model_dump(mode="json", include={"args", "vars", "request", "paginate", "batch", "expect", "retry", "rate_limit", "mcp", "plugin"}),
             }
-            job.output_specs = output_specs_for(spec.outputs)
         else:
             spec = CommandSpec.model_validate({"id": "job", "name": task.title, "kind": job.kind, **job.request["spec"]})
         try:
@@ -329,6 +330,9 @@ class Dispatcher:
                 data["box"] = tool_way(via, box)
             gateway.route_payloads[job.id] = data
             job.route_info = {**network_routes.info(rows), "method": "proxy"}
+        if first:
+            job.request = request
+            job.output_specs = output_specs_for(spec.outputs)
         job.runner = "server"
         job.agent_id = None
         job.via_agent_id = via.agent_id if via else None
