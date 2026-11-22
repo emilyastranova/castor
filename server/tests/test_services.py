@@ -95,11 +95,22 @@ def test_a_service_runs_until_stopped(client, auth):
         notes = [x for x in client.get("/api/notifications", headers=auth).json()["items"] if x["kind"] == "job.watch"]
         assert notes and notes[0]["title"] == "“Relay”: A client connected"
 
-        # Parsed while it runs.
-        from castor_server import service_jobs
+        # Parsed while it runs. The app's own loop may have parsed it after the first line, and
+        # parse_every would then hold this one back: forget that parse first.
         import asyncio
 
-        asyncio.run(service_jobs.parse_running())
+        from castor_server import models as m
+        from castor_server import service_jobs
+        from castor_server.db import SessionLocal
+
+        async def parse_now():
+            async with SessionLocal() as db:
+                row = await db.get(m.Job, uuid.UUID(run["id"]))
+                row.progress = {k: v for k, v in (row.progress or {}).items() if k != "parsed"}
+                await db.commit()
+            await service_jobs.parse_running()
+
+        asyncio.run(parse_now())
         outputs = client.get(f"/api/jobs/{run['id']}/outputs", headers=auth).json()
         assert outputs and outputs[0]["value"] == ["relay listening on 9000", "connection from 10.4.4.4", "connection from 10.4.4.4"]
 
