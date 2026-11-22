@@ -322,6 +322,8 @@ class TaskIn(BaseModel):
     rate_limit: str | None = None
     # Ask before each run (a person approves every job).
     confirm: bool = False
+    # Its library command's preview first (a dry run approved before the real run); none: the definition's default.
+    preview: bool | None = None
     # Groups whose members (and admins) approve its runs (ids or @handles); none: the project's.
     approvers: list[str] = Field(default_factory=list)
     # A subtask of this card (an activity in the same project): it stays off the board.
@@ -372,6 +374,7 @@ class TaskPatch(BaseModel):
     service: dict[str, Any] | None = None  # {} or null: an ordinary job again
     rate_limit: str | None = None  # null or "" clears it
     confirm: bool | None = None
+    preview: bool | None = None  # null: its definition's default
     approvers: list[str] | None = None  # group ids (or @handles); [] uses the project's
 
     @field_validator("rate_limit")
@@ -431,6 +434,11 @@ class JobOut(ORM):
     origin: dict[str, Any] | None = None
     # The input files it was given ({name: {file, content}}): an Ansible inventory, a playbook.
     inputs: dict[str, Any] | None = None
+    # Argument values over the card's for this job (a preview's, a retry's failed hosts).
+    args_override: dict[str, Any] | None = None
+    # "preview" (a dry run before the real one), "retry" (only what failed in follows_job_id).
+    purpose: str | None = None
+    follows_job_id: uuid.UUID | None = None
     via_agent_id: uuid.UUID | None = None
     # The network route it went through (no secrets) and how the agent applied it.
     route_info: dict[str, Any] | None = None
@@ -524,6 +532,7 @@ class TaskOut(ORM):
     service: dict[str, Any] | None = None
     rate_limit: str | None = None
     confirm: bool = False
+    preview: bool | None = None
     approvers: list[str] = Field(default_factory=list)
 
     @field_validator("approvers", mode="before")

@@ -237,6 +237,12 @@ TOOLS: list[Tool] = [
          "POST", "/api/jobs/{job_id}/approve", {"job_id": ID["job_id"]}, ("job_id",)),
     Tool("reject_job", "Don't let a run that waits for approval go: it's cancelled, with the reason.",
          "POST", "/api/jobs/{job_id}/reject", {"job_id": ID["job_id"], "reason": _s("Why, for the card")}, ("job_id",)),
+    Tool("retry_plan", "What retrying only what failed in a finished run would run again (its command's retry_failed: "
+         "Ansible's failed and unreachable hosts, say): the argument and its values.",
+         "GET", "/api/jobs/{job_id}/retry-failed", {"job_id": ID["job_id"]}, ("job_id",)),
+    Tool("retry_failed", "Run a card again with only what failed in one of its runs (the values retry_plan shows); "
+         "the card's own arguments stay as they are.",
+         "POST", "/api/jobs/{job_id}/retry-failed", {"job_id": ID["job_id"]}, ("job_id",)),
     Tool("list_commands", "The command library: ids, arguments and what each command does.", "GET", "/api/commands"),
     Tool("get_command", "One library command with its arguments and outputs.", "GET", "/api/commands/{command_id}",
          {"command_id": _s("Command id")}, ("command_id",)),
@@ -361,6 +367,12 @@ _FILE = {"filename": _s("File name"), "content_base64": _s("The file's bytes, ba
 # approves what a plugin may do, in Settings → Plugins), and plugins' panels (pages for people to
 # look at; their handlers are the plugin's own and are reached through the panel).
 TOOLS += [
+    _auto("read_ansible_inventory", "POST", "/api/ssh-hosts/inventory",
+          "The hosts of an Ansible inventory (INI, YAML or ansible-inventory --list JSON, or a run's output that read one): "
+          "how each is reached, its groups, and whether an agent by its name exists. Nothing is added."),
+    _auto("add_ssh_hosts_from_inventory", "POST", "/api/ssh-hosts/from-inventory",
+          "Add the named hosts of an Ansible inventory as SSH hosts, with one key for them all (its public_key must go into "
+          "each host's authorized_keys) and their groups as tags. Hosts not reached over SSH or whose name is taken are skipped."),
     # Cards with subtasks: activity cards that hold other cards, to keep a board tidy
     _auto("consolidate_cards", "POST", "/api/projects/{project_id}/consolidate",
           "Tidy a board: a new card (title, description) holding existing cards of the project (task_ids) as its subtasks, "

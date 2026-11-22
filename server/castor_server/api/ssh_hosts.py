@@ -305,6 +305,140 @@ async def delete_host(host_id: str, db: DB, user: Admin):
     bus.publish("ssh_hosts.changed", None, {"id": row.id})
 
 
+# ---------- from an Ansible inventory ----------
+
+
+class InventoryIn(BaseModel):
+    """An inventory as text (INI, YAML or `ansible-inventory --list` JSON), or a run's output that
+    read one (the Ansible plugin's inventory command, an AWX inventory)."""
+
+    inventory: str | None = Field(default=None, max_length=4 * 1024 * 1024)
+    job_id: uuid.UUID | None = None
+    output: str | None = None
+
+
+class InventoryHostOut(BaseModel):
+    name: str  # in the inventory
+    agent_name: str  # what it would be called in Castor
+    host: str
+    port: int | None
+    user: str
+    groups: list[str]
+    skip: str | None  # why it can't be added (a WinRM host, a template)
+    exists: bool  # an agent by that name is already there
+
+
+class InventoryImport(InventoryIn):
+    names: list[str] = Field(min_length=1, max_length=2000)  # inventory names to add
+    prefix: str = Field(default="", max_length=40)  # before each name, as its agent name
+    username: str = Field(default="", max_length=128)  # for hosts whose inventory says none
+    tags: list[str] = Field(default_factory=list)  # on every one, beside its groups
+    groups_as_tags: bool = True
+    workdir: str = Field(default="castor-jobs", min_length=1, max_length=500)
+    allow_host: bool = True
+    allow_host_install: bool = False
+    max_concurrency: int = Field(default=1, ge=1, le=64)
+    project_ids: list[uuid.UUID] | None = None
+    # One key for all of them: generate one (its public key goes into each host's authorized_keys;
+    # an Ansible run can put it there), or paste one.
+    generate_key: bool = False
+    private_key: str | None = None
+    passphrase: str | None = None
+
+
+class InventoryImported(BaseModel):
+    added: list[SshHostOut]
+    skipped: dict[str, str]  # inventory name: why
+    public_key: str
+
+
+def _agent_name(prefix: str, name: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", f"{prefix}{name}").strip("-._")[:128]
+    return cleaned or "host"
+
+
+async def _inventory_hosts(db, body: InventoryIn) -> list:
+    from .. import ansible_inventory as inv
+
+    try:
+        if body.job_id is not None:
+            rows = (await db.execute(select(m.JobOutput).where(m.JobOutput.job_id == body.job_id, *(
+                [m.JobOutput.name == body.output] if body.output else [])))).scalars().all()
+            found = next((r for r in rows if r.error is None and isinstance(r.value, list)), None)
+            if found is None:
+                raise HTTPException(404, "That run has no output with hosts in it")
+            return inv.from_rows(found.value)
+        if not (body.inventory or "").strip():
+            raise HTTPException(422, "Paste an inventory, or choose a run that read one")
+        return inv.read(body.inventory or "")
+    except inv.InventoryError as exc:
+        raise HTTPException(422, f"inventory: {exc}") from exc
+
+
+@router.post("/inventory", response_model=list[InventoryHostOut])
+async def read_inventory(body: InventoryIn, db: DB, _: Admin, prefix: str = ""):
+    """What adding an inventory's hosts would add: each host, how it's reached, its groups."""
+    hosts = await _inventory_hosts(db, body)
+    names = {n for (n,) in await db.execute(select(m.Agent.name))}
+    return [InventoryHostOut(**h.out(), agent_name=_agent_name(prefix, h.name), exists=_agent_name(prefix, h.name) in names) for h in hosts]
+
+
+@router.post("/from-inventory", response_model=InventoryImported, status_code=201)
+async def add_from_inventory(body: InventoryImport, db: DB, user: Admin):
+    """Add an inventory's hosts (those named) as SSH hosts, with one key for them all. Hosts whose
+    name is taken, or that aren't reached over SSH, are skipped and said why."""
+    hosts = {h.name: h for h in await _inventory_hosts(db, body)}
+    holder = SshHostIn(name="inventory", host="x", generate_key=body.generate_key, private_key=body.private_key, passphrase=body.passphrase)
+    key = _key(holder, "inventory")
+    if key is None:
+        raise HTTPException(422, "Generate a key or paste a private key")
+    token = vault.encrypt(key[0].encode())
+    projects = await existing_projects(db, body.project_ids)
+    taken = {n for (n,) in await db.execute(select(m.Agent.name))}
+    skipped: dict[str, str] = {}
+    made: list[tuple[m.SshHost, m.Agent]] = []
+    for name in dict.fromkeys(body.names):
+        h = hosts.get(name)
+        if h is None:
+            skipped[name] = "it isn't in the inventory"
+            continue
+        if h.skip:
+            skipped[name] = h.skip
+            continue
+        agent_name = _agent_name(body.prefix, h.name)
+        if agent_name in taken:
+            skipped[name] = f"an agent named {agent_name} already exists"
+            continue
+        spec = SshHostIn(name=agent_name, host=h.host, port=h.port, username=h.user or body.username, workdir=body.workdir,
+                         allow_host=body.allow_host, allow_host_install=body.allow_host_install, max_concurrency=body.max_concurrency,
+                         tags=[*body.tags, *(h.groups if body.groups_as_tags else [])])
+        try:
+            _check(spec)
+        except HTTPException as exc:
+            skipped[name] = str(exc.detail)
+            continue
+        agent = m.Agent(name=agent_name, hostname=spec.host, username=spec.username)
+        db.add(agent)
+        await db.flush()
+        row = m.SshHost(agent_id=agent.id, host=spec.host, port=spec.port, username=spec.username, private_key=token, public_key=key[1])
+        _apply(row, agent, spec)
+        agent.project_ids = projects
+        db.add(row)
+        taken.add(agent_name)
+        made.append((row, agent))
+    if made:
+        await record_activity(db, type="ssh_host.added", project_id=None, actor_type="user", actor_id=str(user.id), actor_name=user.username,
+                              message=f"{len(made)} SSH host{'s' if len(made) != 1 else ''} added from an Ansible inventory: "
+                              + ", ".join(a.name for _, a in made[:10]) + (f" and {len(made) - 10} more" if len(made) > 10 else ""))
+    await db.commit()
+    for row, agent in made:
+        await ssh_hosts.reload(row.id, agent.id)
+        bus.publish("agent.updated", None, await gateway.agent_out(agent))
+        _changed(row)
+    parsed = ssh_config.parse(await load_config(db))
+    return InventoryImported(added=[_out(row, agent, parsed) for row, agent in made], skipped=skipped, public_key=key[1])
+
+
 # ---------- the SSH config they share ----------
 
 

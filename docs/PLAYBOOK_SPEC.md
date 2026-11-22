@@ -138,6 +138,8 @@ Every step has these fields:
 | `join` | no | `all` \| `any` \| `always` | Default `all`. When the step may start. See 8.2. |
 | `on_failure` | no | `stop` \| `continue` \| `ask` \| `ai` | Default `stop`. What a failure means. See 8.3. |
 | `ai` | no | object | With `on_failure: ai`: what the AI resolver may do on its own. See 8.3. |
+| `retry_failed` | no | int 0–5 | Command steps whose command has `retry_failed` (commands/README.md), without `for_each`: run again up to this many times with only what failed (Ansible: the failed and unreachable hosts) before `on_failure` applies. See 8.3. |
+| `preview` | no | bool | Command steps whose command has a `preview`: whether its dry run goes first (a person approves the real run after it); unset, the command's default. |
 | `expect` | no | mapping | Command steps only: what a good result looks like. See 8.4. |
 | `for_each` | no | reference or mapping | Command steps only: run once per item of a list. See 5.3. |
 | `rate_limit` | no | string | HTTP action steps only: the most requests the step makes (`60/minute`, `5/second, 2 at once`), on top of the credential's limit. |
@@ -426,6 +428,20 @@ its `expect` doesn't hold.
 | `continue` | The step is `failed`, but what needs it goes ahead with whatever exists, and the run can still succeed. |
 | `ask` | The step pauses as **`attention`** and everyone is notified (in the app, and by webhook if configured). Its dependents wait. |
 | `ai` | Pauses like `ask`, then the AI resolver (Settings → AI) reads the step, its command, the masked end of its output and why it paused, and decides. It acts on its own only within the step's `ai` settings; anything else waits for a person with its suggestion shown (one click applies it). |
+
+Before any of these, a step with `retry_failed: N` whose command says how to retry only what failed
+runs again with just that (its `retry_failed.arg` set to the failed hosts, say), up to N times; the
+step's outputs are then the last attempt's. When a run failed with nothing to narrow it to (it failed
+before any host's result), `on_failure` applies at once.
+
+```yaml
+  - id: deploy
+    name: Deploy
+    command_ref: ansible-playbook
+    args: {repository: "https://git.example.com/infra.git", playbook: deploy.yml}
+    retry_failed: 2
+    on_failure: ask
+```
 
 A paused step is decided in the UI (Playbooks → the run → the step) or with
 `POST /api/playbook-runs/<run id>/steps/<step id>/resolve {"action": …, "note": "…"}`:

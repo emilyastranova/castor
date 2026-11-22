@@ -86,6 +86,11 @@ library_actions:               # actions that are library definitions, for cards
     vars: [{ name: creds, kind: credential, required: false }]
     outputs: [{ name: cracked, parser: json-records, options: { records: cracked } }]
     timeout_minutes: 30
+    # Optional, as on a command definition (commands/README.md): a dry run first, retrying only
+    # what failed, a person approving each run.
+    preview: { label: Check run, args: { check: true }, default: false }
+    retry_failed: { output: cracked, field: host, where: { status: failed }, arg: hosts }
+    confirm: false
 agent_types:                   # kinds of agent: machines a system it talks to manages (below)
   - name: minion
     label: Salt minion
@@ -691,6 +696,7 @@ network):
 - **Library actions** (docs/ACTIONS.md phase 4, built): an action in `library_actions` is handled
   by the same `ctx.actions.on(id, …)` as a button, and gets `run.args`, `run.vars` (variable sets'
   values), `run.job` and `run.signal` (aborted on cancel); it returns `{message, output}`, the
-  output read by the definition's parsers. Castor writes each into the library as
+  output read by the definition's parsers, or `{message, output, error}` when what it did went wrong
+  outside Castor (an AWX job that failed): the card's job fails with `error` and its output is still read. Castor writes each into the library as
   `<plugin id>-<id>` while the plugin is installed; admins can cap them (`actions_rate_limit`). Plugins adding
   agent *types* are built (Agent types, above).

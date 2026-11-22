@@ -20,6 +20,7 @@ STEP_DEFAULTS: dict[str, Any] = {
     "description": "", "command_ref": None, "transform": None, "args": {}, "depends_on": [],
     "skip_if_empty": False, "vars": {}, "when": None, "join": "all", "on_failure": "stop",
     "expect": None, "for_each": None, "ai": None, "rate_limit": None, "send_from": None, "route": None,
+    "retry_failed": 0, "preview": None,
 }
 INPUT_ORDER = ["name", "type", "kind", "description", "required", "default", "example", "choices", "regex"]
 

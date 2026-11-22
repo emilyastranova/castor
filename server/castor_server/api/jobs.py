@@ -217,3 +217,51 @@ async def approve_job(job_id: str, db: DB, user: CurrentUser):
 async def reject_job(job_id: str, body: Decision, db: DB, user: CurrentUser):
     """Don't let it run: it's cancelled, with the reason."""
     return await _decide(job_id, db, user, False, body.reason)
+
+
+class RetryPlan(BaseModel):
+    """What "Retry what failed" would run again: the values for the argument its command names."""
+
+    arg: str
+    values: list[str]
+
+
+@router.get("/{job_id}/retry-failed", response_model=RetryPlan)
+async def retry_failed_plan(job_id: str, db: DB, user: CurrentUser):
+    """What retrying only what failed in this run would cover (its command's `retry_failed`);
+    404 when its command says nothing about it."""
+    from ..services import failed_to_retry
+
+    job = await job_or_404(db, user, parse_uuid(job_id))
+    found = await failed_to_retry(db, job)
+    if found is None:
+        raise HTTPException(404, "Its command doesn't say how to retry only what failed, or its results aren't there")
+    spec, values = found
+    return RetryPlan(arg=spec.retry_failed.arg, values=values)
+
+
+@router.post("/{job_id}/retry-failed", response_model=JobOut, status_code=201)
+async def retry_failed(job_id: str, db: DB, user: CurrentUser):
+    """Run the card again with only what failed in this run (Ansible: the failed and unreachable
+    hosts as its limit); the card's own arguments stay as they are."""
+    from ..command_render import ArgumentError
+    from ..services import active_job_for, publish_task
+    from ..services import retry_failed as retry
+
+    if user.role == m.UserRole.viewer:
+        raise HTTPException(403, "Viewers can't run cards")
+    job = await job_or_404(db, user, parse_uuid(job_id), write=True)
+    if await active_job_for(db, job.task_id) is not None:
+        raise HTTPException(409, "The card is already running")
+    try:
+        new = await retry(db, job, user)
+    except ArgumentError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if new is None:
+        raise HTTPException(409, "Nothing in this run failed that it can retry on its own")
+    await db.commit()
+    task = await db.get(m.Task, job.task_id)
+    if task is not None:
+        await publish_task(db, task)
+    dispatcher.wake()
+    return new

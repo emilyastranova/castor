@@ -91,14 +91,14 @@ async def job_prepare(db: AsyncSession, job: m.Job, task: m.Task, spec: CommandS
     from .command_render import ArgumentError, resolve_args
 
     try:
-        args = resolve_args(spec, await variables.expand_list_refs(db, spec, task.command_args or {}, task.project_id))
+        args = resolve_args(spec, await variables.expand_list_refs(db, spec, {**(task.command_args or {}), **(job.args_override or {})}, task.project_id))
     except (ArgumentError, variables.VariableError) as exc:
         raise InputError(f"arguments: {exc}") from exc
     project = await db.get(m.Project, task.project_id)
     params = {
         "command": spec.id, "args": args,
         "inputs": {name: item["content"] for name, item in out.inputs.items()},
-        "job": {"id": str(job.id), "task_id": str(task.id)},
+        "job": {"id": str(job.id), "task_id": str(task.id), "purpose": job.purpose},
         "card": {"id": str(task.id), "title": task.title},
         "project": {"id": str(project.id), "codename": project.codename, "name": project.name} if project else None,
         "agent": {"id": str(agent.agent_id), "name": agent.name, "tags": list(agent.tags)} if agent is not None else None,

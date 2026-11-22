@@ -380,6 +380,9 @@ class Task(Base, TimestampMixin):
     rate_limit: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # Ask before each run: a person approves every job of it (its definition can demand it too).
     confirm: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # Whether its library command's preview (a dry run, approved before the real run) runs first;
+    # None: the definition's default.
+    preview: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     # Runs until stopped (command_spec.ServiceSpec as JSON), for a typed command; a library
     # command's own `service:` wins.
     service: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
@@ -728,6 +731,14 @@ class Job(Base):
     origin: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
     # The input files it was given ({name: {file, content}}; job_inputs.py), as they were sent.
     inputs: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
+    # Argument values over its card's for this job only (a preview's, or the failed hosts of a
+    # retry); its command was rendered with them.
+    args_override: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
+    # What the job is for: "preview" (a dry run before the real one), "retry" (only what failed
+    # in follows_job_id); None: an ordinary run.
+    purpose: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # The job it comes after: the preview a real run was approved from, the run a retry retries.
+    follows_job_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     # A service (runs until stopped): its ServiceSpec at dispatch time. None: an ordinary job.
     service: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
     # The network route it went through (no secrets): {id, name, label, hops, dns, strict, segment,

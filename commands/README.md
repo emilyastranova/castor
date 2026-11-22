@@ -212,6 +212,42 @@ needs-attention, people on the project are notified (and alert channels that tak
 an operator approves or rejects it on the card; rejected, it's cancelled with the reason. In a
 playbook the step waits. Settings → General can require someone other than whoever started it.
 
+## A dry run first (`preview`)
+
+A command (or plugin action) that can show what it would do without doing it gets a `preview:`:
+argument values over the card's for a preview run, after which a person approves the real run.
+
+```yaml
+preview:
+  label: Check run            # what it's called on the card and in the approval
+  args: {check: true, diff: true}
+  default: false              # false: only cards that turn "Check run first" on; true: every card unless it turns it off
+```
+
+Running the card starts the preview (its own command line, the card's arguments untouched). When it
+succeeds, the real run waits for approval like a `confirm` run, saying its preview is ready, with a
+button to look at the preview's output and results; approve it and the real run goes with the card's
+own arguments. A failed preview stops there. Only a network route toward targets outside the scope
+makes a preview itself ask first: a preview changes nothing. A playbook step previews too (its
+`preview: true|false` overrides the default). A card run on every agent with some tags goes straight to
+the real runs. The Ansible and AWX plugins' playbooks have one (check mode with diffs).
+
+## Retrying only what failed (`retry_failed`)
+
+```yaml
+retry_failed:
+  output: results              # one of its outputs, a list of rows
+  field: host                  # what names a failure in a row
+  where: {status: [failed, unreachable]}   # the rows that are failures (each field: one of these)
+  arg: limit                   # the argument that gets them (a list argument gets a list)
+  join: ","                    # how a text argument joins them (default ",")
+```
+
+A finished run's Output then offers **Retry what failed** with what it found (`web2, db1`): it runs the
+card again with that argument set to only those, once, and the card keeps its own arguments.
+`GET /api/jobs/<id>/retry-failed` says what it would cover, `POST` runs it. A playbook step with
+`retry_failed: N` does it by itself up to N times before its `on_failure` applies.
+
 ## Network routes (`{{ route }}` and `route:`)
 
 A card can go through a network route (Routes: SSH jumps, SOCKS and HTTP proxies). How a tool takes

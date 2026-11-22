@@ -431,6 +431,40 @@
 		}
 	}
 
+	// ---- a preview, and retrying what failed ----
+	let previewLabel = $derived(libraryDef?.spec.preview?.label ?? 'Preview');
+	let retryPlan = $state<{ jobId: UUID; arg: string; values: string[] } | null>(null);
+	let retrying = $state(false);
+	let retryKey = $derived(selectedJob && libraryDef?.spec.retry_failed && ['failed', 'lost'].includes(selectedJob.status) && selectedJob.purpose !== 'preview' ? selectedJob.id : null);
+	$effect(() => {
+		const id = retryKey;
+		if (!id) return;
+		let gone = false;
+		// Its results are parsed just after it ends: ask again for a little while if they weren't there yet.
+		const ask = (left: number) =>
+			api().jobs.retryPlan(id).then(
+				(p) => { if (!gone) retryPlan = { jobId: id, ...p }; },
+				() => { if (!gone && left > 0) timer = setTimeout(() => ask(left - 1), 2000); }
+			);
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		void ask(8);
+		return () => { gone = true; clearTimeout(timer); };
+	});
+	async function retryFailed() {
+		if (!retryPlan) return;
+		retrying = true;
+		try {
+			const job = await api().jobs.retryFailed(retryPlan.jobId);
+			if (!jobs.some((j) => j.id === job.id)) jobs = [job, ...jobs];
+			selectedJobId = job.id;
+			retryPlan = null;
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not retry it');
+		} finally {
+			retrying = false;
+		}
+	}
+
 	async function cancel(job: Job) {
 		try {
 			await api().jobs.cancel(job.id);
@@ -980,11 +1014,18 @@
 				<div class="flex flex-col gap-3 rounded-md bg-tertiary-container p-4 text-on-tertiary-container">
 					<p class="flex items-center gap-2 title-small"><Icon name="front_hand" size={20} />This run waits for approval</p>
 					<p class="body-medium">
-						{libraryDef?.spec.confirm ? `“${libraryDef.name}” asks before each run` : 'This card asks before each run'}: it can change things outside Castor.
+						{#if activeJob.follows_job_id}
+							Its {previewLabel.toLowerCase()} is ready: look at what it would do, then let the real run go.
+						{:else}
+							{libraryDef?.spec.confirm ? `“${libraryDef.name}” asks before each run` : 'This card asks before each run'}: it can change things outside Castor.
+						{/if}
 						Started by {startedBy} {relativeTime(activeJob.queued_at)}.
 						{#if task.approvers?.length}Only {task.approvers.map((id) => `@${people.group(id)?.slug ?? 'a group'}`).join(', ')} (or an admin) can let it go.{/if}
 					</p>
-					<code class="block max-h-32 overflow-auto rounded-sm bg-surface-container-highest p-2 font-mono text-[12.5px] break-all whitespace-pre-wrap text-on-surface">{task.command}</code>
+					<code class="block max-h-32 overflow-auto rounded-sm bg-surface-container-highest p-2 font-mono text-[12.5px] break-all whitespace-pre-wrap text-on-surface">{activeJob.command}</code>
+					{#if activeJob.follows_job_id}
+						<Button variant="outlined" icon="preview" class="w-fit" onclick={() => { selectedJobId = activeJob!.follows_job_id!; wantedView = 'results'; tab = 'output'; }}>Look at the {previewLabel.toLowerCase()}</Button>
+					{/if}
 					{#if editable}
 						<div class="flex flex-wrap items-end gap-2">
 							<TextField label="Why not (if you reject it)" bind:value={rejectReason} class="min-w-48 flex-1" />
@@ -1168,6 +1209,11 @@
 					{/if}
 					<div class="flex flex-wrap items-center gap-4">
 						<Switch bind:checked={runOnMove} label="Run when moved to In Progress" onchange={(v) => save({ run_on_move: v })} />
+						{#if libraryDef?.spec.preview}
+							<span title={`Each run starts with a ${previewLabel.toLowerCase()} (a dry run); a person approves the real run after looking at it`}>
+								<Switch checked={task.preview ?? libraryDef.spec.preview.default ?? true} label={`${previewLabel} first`} onchange={(v) => save({ preview: v === (libraryDef?.spec.preview?.default ?? true) ? null : v })} />
+							</span>
+						{/if}
 						<span title="A person approves each run before it starts (for runs that change things outside Castor)">
 							<Switch checked={!!task.confirm || !!libraryDef?.spec.confirm} disabled={!!libraryDef?.spec.confirm} label={libraryDef?.spec.confirm ? 'Ask before each run (its definition asks)' : 'Ask before each run'} onchange={(v) => save({ confirm: v })} />
 						</span>
@@ -1237,7 +1283,7 @@
 						<div class="flex flex-wrap items-center gap-1">
 							{#each jobs as j (j.id)}
 								<span class="inline-flex" in:pop={{ enabled: liveSide }} animate:glide={{ enabled: liveSide }}><Chip variant="filter" selected={selectedJobId === j.id} onclick={() => (selectedJobId = j.id)}>
-									{j.batch_id ? `${agentName(j.target_agent_id ?? j.agent_id)} · ` : ''}{relativeTime(j.queued_at)} · {j.status}{j.started_at ? ` · ${duration(j.started_at, j.finished_at)}` : ''}
+									{j.purpose === 'preview' ? `${previewLabel} · ` : j.purpose === 'retry' ? 'Retry · ' : ''}{j.batch_id ? `${agentName(j.target_agent_id ?? j.agent_id)} · ` : ''}{relativeTime(j.queued_at)} · {j.status}{j.started_at ? ` · ${duration(j.started_at, j.finished_at)}` : ''}
 								</Chip></span>
 							{/each}
 							{#if selectedJob?.batch_id}
@@ -1275,6 +1321,19 @@
 									<Icon name="alt_route" size={14} />through {ri.name}{ri.method ? ` · ${METHOD_WORDS[ri.method as RouteMethod]?.label ?? ri.method}` : ''}
 								</a>
 							{/if}
+							{#if selectedJob.purpose === 'preview'}
+								<span class="inline-flex items-center gap-1 rounded-sm bg-tertiary-container px-1.5 text-on-tertiary-container" title="A dry run: what the real run would do, for a person to look at before approving it">
+									<Icon name="preview" size={14} />{previewLabel}
+								</span>
+							{:else if selectedJob.purpose === 'retry'}
+								<span class="inline-flex items-center gap-1 rounded-sm bg-secondary-container px-1.5 text-on-secondary-container">
+									<Icon name="replay" size={14} />Retry of what failed{selectedJob.args_override ? `: ${Object.values(selectedJob.args_override).flat().join(', ')}` : ''}
+								</span>
+							{:else if selectedJob.follows_job_id && jobs.some((j) => j.id === selectedJob!.follows_job_id)}
+								<button type="button" class="inline-flex items-center gap-1 text-primary hover:underline" onclick={() => (selectedJobId = selectedJob!.follows_job_id!)}>
+									<Icon name="preview" size={14} />After its {previewLabel.toLowerCase()}
+								</button>
+							{/if}
 							{#if aiStatus.enabled && (selectedJob.status === 'failed' || selectedJob.status === 'lost')}
 								<button type="button" class="ml-auto flex items-center gap-1 label-large text-primary hover:underline disabled:opacity-60" disabled={explaining} onclick={() => explain(selectedJob!.id)}>
 									<Icon name="auto_awesome" size={16} />{explaining ? 'Asking…' : 'Explain this failure'}
@@ -1285,6 +1344,17 @@
 							<div class="rounded-md border border-outline-variant bg-surface-container px-4 py-3">
 								<div class="mb-1 flex items-center gap-1.5 label-large text-on-surface"><Icon name="auto_awesome" size={16} class="text-primary" />Why it failed<span class="ml-auto body-small text-on-surface-variant">{explanation.model}</span><IconButton icon="close" label="Hide" size="sm" onclick={() => (explanation = null)} /></div>
 								<RichText text={explanation.text} projectId={task.project_id} class="body-medium text-on-surface" />
+							</div>
+						{/if}
+						{#if retryPlan && retryPlan.jobId === selectedJob.id && retryPlan.values.length && editable && !activeJob}
+							<div class="flex flex-wrap items-center gap-3 rounded-md bg-surface-container px-4 py-3">
+								<Icon name="replay" size={20} class="text-primary" />
+								<span class="min-w-0 flex-1 body-medium text-on-surface">
+									{retryPlan.values.length === 1 ? '1 thing' : `${retryPlan.values.length} things`} failed in this run:
+									<span class="font-mono text-[13px]">{retryPlan.values.slice(0, 8).join(', ')}{retryPlan.values.length > 8 ? ` and ${retryPlan.values.length - 8} more` : ''}</span>
+									<span class="block body-small text-on-surface-variant">Retrying runs it again with {retryPlan.arg} set to only these; the card keeps its own arguments.</span>
+								</span>
+								<Button variant="tonal" icon="replay" loading={retrying} onclick={retryFailed}>Retry what failed</Button>
 							</div>
 						{/if}
 						{#if selectedJob.inputs && Object.keys(selectedJob.inputs).length}

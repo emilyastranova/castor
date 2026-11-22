@@ -245,6 +245,15 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `assets.map`: its parser's results as assets via `assets.record_bulk`), manifest `HookSpec`, SDK `ctx.hooks.on`. The Ansible
   plugin (castor-plugins `plugins/ansible`) is the user: inventory from assets, a results callback, facts as hosts; its tests are
   `tests/test_plugin_hooks.py` (the official one needs a castor-plugins checkout beside this repo).
+- Previews and retries: a definition's `preview:` (a dry run, its args over the card's; `tasks.preview`, step `preview`) and
+  `retry_failed:` (which output rows failed, into which argument; step `retry_failed: N`). `services.enqueue_job`
+  (`args_override`, `purpose` preview|retry, `follows`, `ask_why`), `render_with`, `after_preview` (from the gateway's finish, before
+  its commit: the real run waits in `approval`), `failed_to_retry`/`retry_failed` (`/api/jobs/{id}/retry-failed`). A job's
+  `args_override` must reach everything that reads its args (command line, inputs, hooks, an action's request); the card's
+  `command_args` never change. Tests: `tests/test_previews.py`; the AWX plugin's (castor-plugins `plugins/awx`, a library action
+  that returns `error` to fail with its output) `tests/test_awx_plugin.py` against a fake AWX.
+  SSH hosts from an Ansible inventory: `ansible_inventory.py` (pure), `/api/ssh-hosts/inventory|from-inventory`, a run's output
+  named `inventory` offers them (web `InventoryHostsDialog`); `tests/test_ansible_inventory.py`.
 - Manual work: `manual_runs.py` (output pasted, or from a comment, post or run, ranked against every parser
   (`rank`) and brought into a card as a finished job with `runner = "manual"`, `origin`, one output `results`; unread
   without a parser, for the AI to draft one; never records absences), `api/manual_runs.py` (`/api/parsers/try`,

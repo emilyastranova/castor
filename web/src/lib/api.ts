@@ -159,6 +159,12 @@ export interface Job {
 	origin?: ManualOrigin | null;
 	/** The input files it was given ({name: {file, content}}): an Ansible inventory, a playbook. */
 	inputs?: Record<string, { file: string; content: string }> | null;
+	/** Argument values over the card's for this job only (a preview's, a retry's failed hosts). */
+	args_override?: Record<string, unknown> | null;
+	/** preview: a dry run before the real one; retry: only what failed in follows_job_id. */
+	purpose?: 'preview' | 'retry' | null;
+	/** The job it comes after: the preview a real run waits behind, the run a retry retries. */
+	follows_job_id?: UUID | null;
 	/** An HTTP action sent through an agent: the agent whose network it went out from. */
 	via_agent_id?: UUID | null;
 	/** The network route it went through (no secrets) and how the agent applied it. */
@@ -331,6 +337,10 @@ export interface PlaybookStepSpec {
 	when?: PlaybookCondition | null;
 	join?: 'all' | 'any' | 'always';
 	on_failure?: 'stop' | 'continue' | 'ask' | 'ai';
+	/** Run again up to this many times with only what failed (its command's retry_failed), before on_failure. */
+	retry_failed?: number;
+	/** Whether its command's preview runs first; unset: the command's default. */
+	preview?: boolean | null;
 	/** on_failure: ai — what the AI resolver may do on its own. */
 	ai?: { allow?: ResolveAction[]; edit_command?: boolean; draft_parsers?: boolean; confidence?: number; max_retries?: number; instructions?: string } | null;
 	expect?: { outputs?: Record<string, Record<string, unknown>>; log?: Record<string, unknown> } | null;
@@ -1251,6 +1261,10 @@ export interface CommandSpec {
 	mcp?: { server: string; tool: string; arguments?: Record<string, unknown> | null; timeout_s?: number } | null;
 	/** A person approves each run (actions that change things outside Castor). */
 	confirm?: boolean;
+	/** A dry run first (argument values over the card's); a person approves the real run after looking at it. */
+	preview?: { args: Record<string, unknown>; label?: string; default?: boolean } | null;
+	/** How to run again only what failed: rows of `output` matching `where` name it by `field`, into argument `arg`. */
+	retry_failed?: { output: string; field: string; where: Record<string, unknown[]>; arg: string; join?: string } | null;
 	/** kind: plugin: an action a plugin defines (its manifest's library_actions). */
 	plugin?: { id: string; action: string; timeout_minutes?: number } | null;
 }
@@ -1333,6 +1347,8 @@ export interface Task {
 	rate_limit?: string | null;
 	/** Ask before each run: a person approves every job (its definition can demand it too). */
 	confirm?: boolean;
+	/** Its library command's preview first; null: the definition's default. */
+	preview?: boolean | null;
 	/** Group ids whose members (and admins) approve its runs; empty: the project's approvers. */
 	approvers?: string[];
 	/** Chat/webhook alerts for its runs (or, on a run card, the playbook run). */
@@ -1837,6 +1853,36 @@ export interface SshConfig {
 	route_errors: Record<string, string>;
 }
 
+/** An Ansible inventory: its text (INI, YAML, ansible-inventory --list JSON), or a run's output that read one. */
+export interface InventorySource {
+	inventory?: string;
+	job_id?: UUID;
+	output?: string;
+}
+export interface InventoryHost {
+	name: string;
+	agent_name: string;
+	host: string;
+	port: number | null;
+	user: string;
+	groups: string[];
+	/** Why it can't be added (a WinRM host, a templated address). */
+	skip: string | null;
+	exists: boolean;
+}
+export interface InventoryImport {
+	names: string[];
+	prefix?: string;
+	username?: string;
+	tags?: string[];
+	groups_as_tags?: boolean;
+	max_concurrency?: number;
+	project_ids?: UUID[] | null;
+	generate_key?: boolean;
+	private_key?: string;
+	passphrase?: string;
+}
+
 export interface SshHostIn {
 	name: string;
 	host: string;
@@ -2149,6 +2195,10 @@ export function api(fetchFn: Fetch = fetch) {
 			/** A run that waits for approval: let it go, or reject it (cancelled, with the reason). */
 			approve: (id: UUID) => post<Job>(`/jobs/${id}/approve`),
 			reject: (id: UUID, reason = '') => post<Job>(`/jobs/${id}/reject`, { reason }),
+			/** What retrying only what failed would cover (404: its command doesn't say). */
+			retryPlan: (id: UUID) => get<{ arg: string; values: string[] }>(`/jobs/${id}/retry-failed`),
+			/** Run the card again with only what failed in this run. */
+			retryFailed: (id: UUID) => post<Job>(`/jobs/${id}/retry-failed`),
 			summary: (id: UUID) => get<AiSummary | null>(`/jobs/${id}/summary`),
 			summarize: (id: UUID) => post<AiSummary>(`/jobs/${id}/summary`),
 			artifacts: (id: UUID) => get<Attachment[]>(`/jobs/${id}/artifacts`),
@@ -2375,7 +2425,13 @@ export function api(fetchFn: Fetch = fetch) {
 			remove: (id: UUID) => del(`/ssh-hosts/${id}`),
 			config: () => get<SshConfig>('/ssh-config'),
 			checkConfig: (text: string) => post<SshConfig>('/ssh-config/check', { text }),
-			saveConfig: (text: string) => request<SshConfig>(fetchFn, 'PUT', '/ssh-config', { text })
+			saveConfig: (text: string) => request<SshConfig>(fetchFn, 'PUT', '/ssh-config', { text }),
+			/** An Ansible inventory's hosts (text, or a run's output that read one): nothing is added. */
+			readInventory: (body: InventorySource, prefix = '') =>
+				post<InventoryHost[]>(`/ssh-hosts/inventory?prefix=${encodeURIComponent(prefix)}`, body),
+			/** Add the named ones as SSH hosts, with one key for them all. */
+			fromInventory: (body: InventorySource & InventoryImport) =>
+				post<{ added: SshHost[]; skipped: Record<string, string>; public_key: string }>('/ssh-hosts/from-inventory', body)
 		},
 		agentTokens: {
 			list: () => get<{ tokens: AgentToken[]; shared_secret_allowed: boolean }>('/agent-tokens'),

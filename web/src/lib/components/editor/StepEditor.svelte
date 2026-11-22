@@ -179,6 +179,7 @@
 	});
 	let failureSummary = $derived.by(() => {
 		const parts = [{ stop: 'Stop', continue: 'Continue', ask: 'Ask a person', ai: 'AI decides' }[step.on_failure ?? 'stop']];
+		if (step.retry_failed) parts.push(`retries what failed${step.retry_failed > 1 ? ` up to ${step.retry_failed}×` : ''}`);
 		if (step.skip_if_empty) parts.push('skips when empty');
 		if (expectOutputs.length || expectLog) parts.push('has expectations');
 		return parts.join(' · ');
@@ -304,6 +305,15 @@
 			{/each}
 		{/if}
 
+		{#if cmd?.spec.preview}
+			{@const label = cmd.spec.preview.label ?? 'Preview'}
+			{@const dflt = cmd.spec.preview.default ?? true}
+			<Switch
+				checked={step.preview ?? dflt}
+				label={`${label} first (a person approves the real run after it)`}
+				onchange={(on) => set('preview', on === dflt ? undefined : on)}
+			/>
+		{/if}
 		{@render fold('each', 'Run once per item', 'stacks', eachSummary)}
 		{#if open.has('each')}
 		<Switch
@@ -408,6 +418,14 @@
 		]}
 		onchange={(x) => set('on_failure', x as PlaybookStepSpec['on_failure'])}
 	/>
+	{#if cmd?.spec.retry_failed && !step.for_each}
+		<Select
+			label="First, retry only what failed"
+			value={String(step.retry_failed ?? 0)}
+			options={[0, 1, 2, 3, 5].map((n) => ({ value: String(n), label: n ? `Up to ${n} time${n > 1 ? 's' : ''} (${cmd?.spec.retry_failed?.arg} = what failed)` : 'No' }))}
+			onchange={(x) => set('retry_failed', Number(x) || undefined)}
+		/>
+	{/if}
 	{#if step.on_failure === 'ai'}
 		{@const ai = step.ai ?? {}}
 		{@const allow = ai.allow ?? ['retry', 'skip']}

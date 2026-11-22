@@ -22,6 +22,7 @@
 	import AgentPeoplePicker from '$lib/components/AgentPeoplePicker.svelte';
 	import { usableBy } from '$lib/agentSelector';
 	import PluginAgentsDialog from '$lib/components/PluginAgentsDialog.svelte';
+	import InventoryHostsDialog from '$lib/components/InventoryHostsDialog.svelte';
 	import type { PluginAgentType } from '$lib/api';
 
 	let { data } = $props();
@@ -69,6 +70,7 @@
 		sshEditing = h;
 		sshOpen = true;
 	}
+	let inventoryOpen = $state(false);
 	function sshSaved(h: SshHost) {
 		sshHosts = [...sshHosts.filter((x) => x.id !== h.id), h];
 	}
@@ -316,6 +318,7 @@
 			<IconButton icon="sell" label="Agent tags: rename or merge" onclick={() => (agentTagsOpen = true)} />
 			<Button variant="text" icon="route" onclick={() => (sshConfigOpen = true)}>SSH config</Button>
 			<Button variant="text" icon="terminal" onclick={addSshHost}>Add SSH host</Button>
+			<Button variant="text" icon="lan" onclick={() => (inventoryOpen = true)}>From an inventory</Button>
 			{#if pluginTypes.length}<Button variant="text" icon="extension" onclick={() => (pluginOpen = true)}>Add from a plugin</Button>{/if}
 			<Button variant="tonal" icon="add" onclick={() => { revealed = null; enrollOpen = true; }}>Enroll agent</Button>
 		{/if}
@@ -331,6 +334,7 @@
 			<div class="flex flex-wrap justify-center gap-2">
 				<Button icon="add" onclick={() => { revealed = null; enrollOpen = true; }}>Enroll an agent</Button>
 				{#if isAdmin()}<Button variant="outlined" icon="terminal" onclick={addSshHost}>Add SSH host</Button>{/if}
+				{#if isAdmin()}<Button variant="outlined" icon="lan" onclick={() => (inventoryOpen = true)}>From an Ansible inventory</Button>{/if}
 				{#if isAdmin() && pluginTypes.length}<Button variant="outlined" icon="extension" onclick={() => (pluginOpen = true)}>Add from a plugin</Button>{/if}
 			</div>
 		</div>
@@ -497,6 +501,7 @@
 </div>
 
 <PluginAgentsDialog bind:open={pluginOpen} types={pluginTypes} onimported={imported} />
+<InventoryHostsDialog bind:open={inventoryOpen} onadded={(made) => (sshHosts = [...sshHosts.filter((x) => !made.some((y) => y.id === x.id)), ...made])} />
 
 <Dialog open={editing !== null} title="Edit agent {editing?.name ?? ''}" onclose={() => (editing = null)}>
 	<div class="flex flex-col gap-5 pt-2 pb-2">

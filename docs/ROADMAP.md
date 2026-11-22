@@ -45,15 +45,6 @@ own, a vendor's, or a community collection:
 
 ## Running work
 
-### More for Ansible
-The [Ansible plugin](https://github.com/emilyastranova/castor-plugins/tree/main/plugins/ansible) runs playbooks from Git or
-the Library on agents, with an inventory from assets, vault credentials and per-host results. Still to come:
-- **A check run as a preview:** `--check --diff` first, a person approves what it would change, then the real run.
-- **Retrying only the hosts that failed** (or were unreachable) as a playbook step's `on_failure`.
-- **AWX / Ansible Automation Platform:** launch job templates through its API and bring their results back, for teams
-  that already run Ansible there.
-- **Ansible inventory as agents:** hosts of an inventory as machines Castor can run on (an agent type).
-
 ### More for network routes
 [Routes](https://github.com/emilyastranova/castor/wiki/Routes) send jobs through SSH jumps and SOCKS
 and HTTP proxies today. Still to come:

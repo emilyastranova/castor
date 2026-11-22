@@ -801,6 +801,10 @@ class ServerRunner:
         text = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False, indent=2) if output is not None else ""
         if text:
             await self._log(run, text if text.endswith("\n") else text + "\n", stream="stdout")
+        if result.get("error"):
+            # It ran and says what it did went wrong (an AWX job that failed): the job fails, its
+            # output is still read.
+            return 1, str(result["error"])[:2000]
         return 0, None
 
     @staticmethod

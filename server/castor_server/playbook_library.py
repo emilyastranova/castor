@@ -157,6 +157,10 @@ async def check_against_library(db: AsyncSession, spec: PlaybookSpec) -> list[st
                 if arg.required and arg.default is None and arg.name not in step.args:
                     problems.append(f"step {step.id}: required argument {arg.name} is not bound")
             problems += await _check_step_vars(db, spec, step, cmd)
+            if step.retry_failed and cmd.retry_failed is None:
+                problems.append(f"step {step.id}: retry_failed needs a command that says what to retry ({cmd.id} has no retry_failed)")
+            if step.preview is not None and cmd.preview is None:
+                problems.append(f"step {step.id}: preview needs a command with a preview ({cmd.id} has none)")
             if (step.rate_limit or step.send_from) and cmd.kind != "http":
                 problems.append(f"step {step.id}: rate_limit and send_from are for HTTP actions ({cmd.id} is {cmd.kind or 'a command'})")
         expect = step.expectation()

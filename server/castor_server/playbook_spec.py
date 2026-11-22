@@ -142,6 +142,12 @@ class PlaybookStepSpec(BaseModel):
     # ai: pause like ask, then let the AI resolver decide (see `ai`); it leaves to people
     # whatever it isn't sure of or isn't allowed to do.
     on_failure: Literal["stop", "continue", "ask", "ai"] = "stop"
+    # Command steps whose command has `retry_failed`: run again up to this many times with only
+    # what failed (Ansible: the failed and unreachable hosts) before on_failure applies.
+    retry_failed: int = Field(default=0, ge=0, le=5)
+    # Command steps whose command has a `preview`: whether it previews first (a person approves
+    # the real run after it); none: the command's default.
+    preview: bool | None = None
     # on_failure: ai settings (defaults when omitted).
     ai: AiStepConfig | None = None
     # Command steps: what a successful result should look like (playbook_conditions.Expect).
@@ -227,6 +233,10 @@ class PlaybookStepSpec(BaseModel):
             raise ValueError(f"step {self.id}: for_each is for command steps (a transform already works on the whole list)")
         if self.for_each is None and uses_item(list(self.args.values())):
             raise ValueError(f"step {self.id}: {{{{ item }}}} can only be used in a step with for_each")
+        if self.transform is not None and (self.retry_failed or self.preview is not None):
+            raise ValueError(f"step {self.id}: retry_failed and preview are for command steps")
+        if self.for_each is not None and self.retry_failed:
+            raise ValueError(f"step {self.id}: retry_failed is for steps without for_each (each item is its own run)")
         if self.transform is not None and self.expect is not None:
             raise ValueError(f"step {self.id}: expect is for command steps (a transform's result is what you made it)")
         for slot, value in self.vars.items():

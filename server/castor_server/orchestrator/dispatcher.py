@@ -285,7 +285,7 @@ class Dispatcher:
                 await self._fail_unsent(db, job, task, f"its {({'http': 'HTTP', 'mcp': 'MCP'}).get(job.kind, 'plugin')} action is no longer in the library")
                 return
             try:
-                expanded = await variables.expand_list_refs(db, spec, task.command_args or {}, task.project_id)
+                expanded = await variables.expand_list_refs(db, spec, {**(task.command_args or {}), **(job.args_override or {})}, task.project_id)
                 args = resolve_args(spec, expanded)
             except (ArgumentError, variables.VariableError) as exc:
                 await self._fail_unsent(db, job, task, f"arguments: {exc}")

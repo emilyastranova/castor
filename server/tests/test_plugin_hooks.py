@@ -194,6 +194,10 @@ def test_the_ansible_plugin_prepares_an_inventory_and_reads_its_results(client, 
         assert json.loads(ws.receive_text())["type"] == "hello.ok"
         agent = next(a for a in client.get("/api/agents", headers=auth).json() if a["name"] == name)
         playbook = "- hosts: all\n  tasks:\n    - ansible.builtin.ping:\n"
+        # A check run when a card asks for one; retrying the failed and unreachable hosts as the limit.
+        defn = client.get("/api/commands/ansible-playbook-inline", headers=auth).json()["spec"]
+        assert defn["preview"]["args"] == {"check": True, "diff": True} and defn["preview"]["default"] is False
+        assert defn["retry_failed"]["arg"] == "limit" and defn["retry_failed"]["where"] == {"status": ["failed", "unreachable"]}
         card = client.post(f"/api/projects/{pid}/tasks", json={
             "title": "Ping the web servers", "kind": "command", "command_ref": "ansible-playbook-inline",
             "command_args": {"playbook": playbook, "asset_filter": "roles:web"}, "agent_selector": {"agent_id": agent["id"]}}, headers=auth).json()
@@ -229,6 +233,18 @@ def test_the_ansible_plugin_prepares_an_inventory_and_reads_its_results(client, 
         web01 = wait(lambda: next((h for h in client.get(f"/api/projects/{pid}/assets?type=host", headers=auth).json()["items"]
                                    if h["fields"].get("ip") == "10.88.0.5" and h["fields"].get("os")), None), "the facts on the host")
         assert web01["fields"]["os"] == "Debian 12" and web01["fields"]["mac"] == "52:54:00:aa:bb:cc"
+
+        # ansible-inventory --list as rows Castor adds as SSH hosts.
+        listed = {"_meta": {"hostvars": {"w1": {"ansible_host": "10.0.0.1", "ansible_user": "deploy", "ansible_port": 2222},
+                                         "win": {"ansible_connection": "winrm"}}},
+                  "all": {"children": ["ungrouped", "prod"]}, "prod": {"children": ["web"]}, "web": {"hosts": ["w1", "win"]}}
+        read = client.post("/api/parsers/ansible-inventory/test", json={"input": json.dumps(listed)}, headers=auth)
+        assert read.status_code == 200 and not read.json().get("error"), read.text
+        rows = {r["name"]: r for r in read.json()["value"]}
+        assert rows["w1"] == {"name": "w1", "host": "10.0.0.1", "port": 2222, "user": "deploy", "groups": ["prod", "web"], "skip": None}
+        assert "winrm" in rows["win"]["skip"]
+        hosts = client.post("/api/ssh-hosts/inventory", json={"inventory": json.dumps(listed)}, headers=auth).json()
+        assert {h["name"]: (h["host"], h["port"], h["user"], h["groups"]) for h in hosts}["w1"] == ("10.0.0.1", 2222, "deploy", ["prod", "web"])
     finally:
         ws.__exit__(None, None, None)
         client.delete(f"/api/plugins/{plugin['id']}", headers=auth)

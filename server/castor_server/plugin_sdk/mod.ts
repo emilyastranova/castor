@@ -148,7 +148,9 @@ export interface AssetCreated {
 /** What an action hands back: a message for the run, and (library actions) its `output`, the
  *  job's output that the definition's parsers read: text, or anything JSON (an array of records
  *  for json-records, an object for json-value). */
-export type ActionResult = string | { message?: string; output?: unknown } | void;
+/** `error` (library actions): what it did went wrong (an outside job that failed); the card's job fails
+ *  with it, and its `output` is still read by the definition's parsers. Throwing fails it with no output. */
+export type ActionResult = string | { message?: string; output?: unknown; error?: string } | void;
 
 /** A machine an agent type reaches (a Salt minion, a Puppet node): each one an admin brings in
  *  becomes a Castor agent. `id` is the machine's id in your system and must stay the same; `tags`
@@ -593,7 +595,7 @@ async function onRequest(method: string, params: Record<string, unknown>): Promi
     try {
       const result = await handler(run);
       if (typeof result === "string") return { message: result, output: result };
-      return { message: result?.message ?? "", output: result?.output ?? null };
+      return { message: result?.message ?? "", output: result?.output ?? null, ...(result?.error ? { error: String(result.error) } : {}) };
     } finally {
       aborts.delete(runId);
     }

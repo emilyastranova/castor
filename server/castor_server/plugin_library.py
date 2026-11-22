@@ -199,6 +199,7 @@ def action_items(manifest: Any, parsers: list[Any] | None = None) -> list[Item]:
                 "id": f"{manifest.id}-{a.id}", "name": a.name, "description": a.description,
                 "tags": list(dict.fromkeys([*a.tags, "plugin"])), "kind": "plugin",
                 "args": a.args, "vars": a.vars, "outputs": a.outputs, "rate_limit": a.rate_limit,
+                "preview": a.preview, "retry_failed": a.retry_failed, "confirm": a.confirm or None,
                 "plugin": {"id": manifest.id, "action": a.id, "timeout_minutes": a.timeout_minutes},
             }
             try:

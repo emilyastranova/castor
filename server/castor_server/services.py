@@ -308,13 +308,21 @@ async def active_job_for(db: AsyncSession, task_id: uuid.UUID) -> m.Job | None:
 
 
 async def enqueue_job(
-    db: AsyncSession, task: m.Task, user: m.User | None, *, reason: str = "manual"
+    db: AsyncSession, task: m.Task, user: m.User | None, *, reason: str = "manual",
+    args_override: dict[str, Any] | None = None, purpose: str | None = None, follows: m.Job | None = None,
+    ask_why: str = "",
 ) -> m.Job:
     """Create a queued Job for a command task. Caller must commit and then pump the dispatcher.
 
     A card set to run on every agent with some tags (`agent_selector: {tags, all: true}`) gets
     one job per connected agent that has them and can run it, as one batch; the first is
-    returned. With none connected it queues one job for the first such agent to come."""
+    returned. With none connected it queues one job for the first such agent to come.
+
+    A library command with a `preview:` starts with its preview (purpose "preview", its argument
+    values over the card's); `after_preview` asks for the real run once it succeeds. `args_override`
+    and `purpose` make a job of another kind (a retry of what failed: purpose "retry"), `follows` is
+    the job it comes after, and `ask_why` makes a person approve it, saying why. Raises
+    command_render.ArgumentError when an override doesn't fit the command."""
     from .command_render import ArgumentError
 
     try:
@@ -324,10 +332,15 @@ async def enqueue_job(
 
     spec = await load_spec(db, task.command_ref) if task.command_ref else None
     kind = spec.kind if spec else "command"
+    override = dict(args_override or {})
+    if (purpose is None and follows is None and spec is not None and spec.preview is not None and kind in ("command", "plugin")
+            and (task.preview if task.preview is not None else spec.preview.default) and not is_broadcast(task)):
+        purpose, override = "preview", {**override, **spec.preview.args}
     # A person lets each run go first: the definition demands it, or the card asks, or it goes
-    # through a network route toward targets outside the project's scope.
-    ask = bool(task.confirm or (spec and spec.confirm))
-    why = ""
+    # through a network route toward targets outside the project's scope. A preview changes
+    # nothing, so only the route asks before one; the run after it asks instead.
+    ask = bool(ask_why) or (purpose != "preview" and bool(task.confirm or (spec and spec.confirm)))
+    why = ask_why
     if not ask and kind in ("command", "http"):
         from . import network_routes
 
@@ -342,11 +355,18 @@ async def enqueue_job(
 
     run_as = await agent_people.run_as_for(db, task, user)
 
+    command = task.command
+    if override and spec is not None:
+        command = await render_with(db, task, spec, override) if kind == "command" else await _action_line(db, task, spec, override)
+
     def new_job(**extra: Any) -> m.Job:
         return m.Job(
             kind=kind,
             task_id=task.id,
-            command=task.command,
+            command=command,
+            args_override=override or None,
+            purpose=purpose,
+            follows_job_id=follows.id if follows is not None else None,
             image=task.image,
             tool=task.tool,
             container_flags=list(task.container_flags or []),
@@ -391,6 +411,85 @@ async def enqueue_job(
     for job in jobs:
         publish_job(job, task.project_id)
     return jobs[0]
+
+
+async def render_with(db: AsyncSession, task: m.Task, spec: Any, override: dict[str, Any]) -> str:
+    """The card's command line with some argument values changed for one job (the card keeps its own)."""
+    from .command_render import ArgumentError, render_command, resolve_args
+    from .variables import VariableError, expand_list_refs
+
+    args = {**(task.command_args or {}), **override}
+    try:
+        expanded = await expand_list_refs(db, spec, args, task.project_id)
+    except VariableError as exc:
+        raise ArgumentError({"args": str(exc)}) from exc
+    resolve_args(spec, expanded)  # raises for values that don't fit
+    return render_command(spec, expanded)
+
+
+async def _action_line(db: AsyncSession, task: m.Task, spec: Any, override: dict[str, Any]) -> str:
+    """An action's one-line summary with some argument values changed for one job."""
+    from .command_render import ArgumentError, resolve_args
+    from .http_render import preview_line
+    from .variables import VariableError, expand_list_refs
+
+    try:
+        expanded = await expand_list_refs(db, spec, {**(task.command_args or {}), **override}, task.project_id)
+    except VariableError as exc:
+        raise ArgumentError({"args": str(exc)}) from exc
+    return preview_line(spec, resolve_args(spec, expanded))
+
+
+async def after_preview(db: AsyncSession, task: m.Task, job: m.Job) -> m.Job | None:
+    """A preview ended: once it succeeded, the real run waits for a person to approve it after
+    looking at the preview; a failed one stops there. Called as the job's result is recorded,
+    before anything moves on (a playbook step mustn't take the preview for its run). Doesn't commit."""
+    if job.purpose != "preview" or job.status == m.JobStatus.cancelled:
+        return None
+    spec = await load_spec(db, task.command_ref) if task.command_ref else None
+    label = spec.preview.label if spec is not None and spec.preview is not None else "Preview"
+    user = await db.get(m.User, job.created_by) if job.created_by else None
+    if job.status != m.JobStatus.succeeded:
+        await record_activity(db, type="job.preview_failed", project_id=task.project_id, task_id=task.id,
+                              message=f"The {label.lower()} of “{task.title}” failed, so the real run didn't start",
+                              payload={"job_id": str(job.id)}, actor_type="system", actor_name="castor")
+        return None
+    if task.archived_at is not None:
+        return None
+    real = await enqueue_job(db, task, user, reason=f"after its {label.lower()}", follows=job,
+                             ask_why=f"its {label.lower()} is ready: look at what it would do")
+    return real
+
+
+async def failed_to_retry(db: AsyncSession, job: m.Job) -> tuple[Any, list[str]] | None:
+    """What a finished run would retry (its command's `retry_failed`): (spec, values), or None
+    when the command says nothing about it or the output isn't there."""
+    task = await db.get(m.Task, job.task_id)
+    if task is None or not task.command_ref or not job.status.is_terminal or job.purpose == "preview":
+        return None
+    spec = await load_spec(db, task.command_ref)
+    if spec is None or spec.retry_failed is None:
+        return None
+    row = (await db.execute(select(m.JobOutput).where(m.JobOutput.job_id == job.id,
+                                                      m.JobOutput.name == spec.retry_failed.output))).scalars().first()
+    if row is None or row.error is not None:
+        return None
+    return spec, spec.retry_failed.values(row.value)
+
+
+async def retry_failed(db: AsyncSession, job: m.Job, user: m.User | None, *, reason: str = "retrying what failed") -> m.Job | None:
+    """Run the card again with only what failed in `job` (its command's `retry_failed` argument);
+    None when nothing did. Doesn't commit."""
+    found = await failed_to_retry(db, job)
+    if found is None or not found[1]:
+        return None
+    spec, values = found
+    r = spec.retry_failed
+    arg = next(a for a in spec.args if a.name == r.arg)
+    task = await db.get(m.Task, job.task_id)
+    value: Any = values if arg.type == "list" else r.join.join(values)
+    return await enqueue_job(db, task, user, reason=f"{reason}: {', '.join(values[:5])}" + (f" and {len(values) - 5} more" if len(values) > 5 else ""),
+                             args_override={r.arg: value}, purpose="retry", follows=job)
 
 
 async def ask_approval(db: AsyncSession, task: m.Task, job: m.Job, user: m.User | None, count: int = 1, why: str = "") -> None:
@@ -1496,7 +1595,7 @@ async def _advance(
     def set_result(step_id: str, **fields: Any) -> None:
         """Record a step's result, keeping how its condition was evaluated."""
         prev = results.get(step_id) or {}
-        keep = {k: prev[k] for k in ("condition", "resolution", "history", "items") if k in prev}
+        keep = {k: prev[k] for k in ("condition", "resolution", "history", "items", "retries") if k in prev}
         results[step_id] = {**keep, **fields, "finished_at": utcnow().isoformat()}
 
     jobs: list[m.Job] = []
@@ -1706,6 +1805,16 @@ async def _advance(
                                     parse={"output": name, "parser": parser})
                     changed = True
                     continue
+            if job.status == m.JobStatus.failed and step.retry_failed and task is not None and job.purpose != "preview":
+                tries = int(result.get("retries") or 0)
+                again = await retry_failed(db, job, user, reason=f"retry {tries + 1} of {step.retry_failed}") if tries < step.retry_failed else None
+                if again is not None:
+                    # Not judged: the retry is the step's run now (its outputs are the retry's).
+                    results[step.id] = {**result, "retries": tries + 1}
+                    latest_jobs[task.id] = again
+                    jobs.append(again)
+                    changed = True
+                    continue
             if job.status == m.JobStatus.succeeded and step.expect is not None:
                 await check_expect(step, task, str(job.id), job)
                 changed = True
@@ -1871,6 +1980,7 @@ async def _prepare_command_step(
         # (`send_from`, docs/ACTIONS.md). Its own rate limit goes on its card.
         task.agent_selector = dict(step.send_from or {})
         task.rate_limit = step.rate_limit
+    task.preview = step.preview
     bindings = {}
     for slot, value in step.vars.items():
         ref = PLACEHOLDER_RE.match(value.strip())

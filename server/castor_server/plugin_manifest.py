@@ -60,6 +60,11 @@ class LibraryActionSpec(BaseModel):
     outputs: list[dict[str, Any]] = Field(default_factory=list, max_length=20)
     timeout_minutes: int = Field(30, ge=1, le=720)
     rate_limit: str | None = None  # a suggestion, as an HTTP action's
+    # As on a command definition (commands/README.md): a dry run first, retrying only what failed,
+    # a person approving each run.
+    preview: dict[str, Any] | None = None
+    retry_failed: dict[str, Any] | None = None
+    confirm: bool = False
 
 
 SLOTS = ("asset.panel", "card.tab", "project.page", "page.script")

@@ -841,6 +841,29 @@ method `hook`): `job.prepare` (a failure fails the job with the reason) and `ass
 the plugin's answer recorded through `assets.record_bulk`, also what `POST …/assets/bulk` uses, credited to the run and parser).
 Only for the plugin's own commands and parsers (`origin = plugin:<id>`), in projects it's on.
 
+## Previews and retrying what failed
+
+A definition's `preview:` (command_spec.PreviewSpec: argument overrides, label, default) and `retry_failed:`
+(RetryFailedSpec: output, field, where, arg, join), commands and plugin actions. `services.enqueue_job` takes
+`args_override`, `purpose`, `follows` and `ask_why`: a card whose definition previews (`tasks.preview`, null = the
+definition's default; a step's `preview` goes on its card) gets a preview job first (`jobs.purpose = "preview"`, its
+`args_override` and a command line rendered with them, `services.render_with`); the card's `command_args` never change.
+When the preview's result is recorded (gateway `_on_job_finished`, before the commit, so nothing takes it for the card's
+run having ended) `services.after_preview` queues the real run in `approval` with `follows_job_id` = the preview, or records
+`job.preview_failed`. `services.retry_failed` reads the run's `retry_failed.output`, and queues a job with only those values
+(`purpose = "retry"`, `follows_job_id` = the run); `GET|POST /api/jobs/{id}/retry-failed`; a playbook step's `retry_failed: N`
+calls it from `_advance` (`step_results[step].retries`). Overrides reach the agent's command line, input files and plugin
+hooks (`job_inputs`, `plugin_hooks`) and an action's request (dispatcher). Web: TaskDialog's Output (preview and retry
+chips, Retry what failed, the approval's Look at the check run), the card's "… first" switch, StepEditor.
+
+## SSH hosts from an Ansible inventory
+
+`ansible_inventory.py` (pure: INI with ranges, YAML, `ansible-inventory --list` JSON, or rows a run read; vars only for
+reaching a host, templates never evaluated), `POST /api/ssh-hosts/inventory` (what would be added) and
+`/from-inventory` (one key for them all, groups as tags, taken names and non-SSH hosts skipped). A run's output named
+`inventory` (rows `{name, host, port, user, groups, skip}`: the Ansible plugin's `ansible-inventory` command, the AWX
+plugin's inventory action) offers **Add its hosts** on the card's Output (admins). Web `InventoryHostsDialog`.
+
 ## Company branding
 
 Settings → Branding (`branding.py`, `api/branding.py`): the instance's name (`brand_name`, "" is Castor), `brand_tagline`,

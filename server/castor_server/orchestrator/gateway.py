@@ -612,7 +612,14 @@ class AgentGateway:
                     actor_name=conn.name,
                     payload={"job_id": str(job.id), "exit_code": job.exit_code},
                 )
-                await self._maybe_advance(db, task, job)
+                if job.purpose == "preview":
+                    from ..services import after_preview
+
+                    # Its real run waits for approval now (in this commit: nothing may see the
+                    # preview as the card's run having ended).
+                    await after_preview(db, task, job)
+                else:
+                    await self._maybe_advance(db, task, job)
                 await alerts.job_finished(db, task, job, conn.name)
                 plugin_events.emit(db, "job.finished", task.project_id, plugin_events.job_data(job, task),
                                     by=await db.get(m.User, job.created_by) if job.created_by else None)

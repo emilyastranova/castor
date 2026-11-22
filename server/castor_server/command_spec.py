@@ -345,6 +345,59 @@ class ServiceSpec(BaseModel):
         return value or None
 
 
+class PreviewSpec(BaseModel):
+    """A dry run first (`preview:`): each run of the command starts as a preview job with these
+    argument values over the card's (Ansible's check: true and diff: true, Terraform's plan), and
+    once it succeeds a person approves the real run after looking at what it would do."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    args: dict[str, Any] = Field(min_length=1)
+    # What the preview is called in the card and the approval ("Check run").
+    label: str = Field(default="Preview", min_length=1, max_length=40)
+    # Whether cards preview unless they turn it off (a card's `preview`).
+    default: bool = True
+
+
+class RetryFailedSpec(BaseModel):
+    """How to run again only what failed (`retry_failed:`): the rows of one of its outputs whose
+    fields have these values name what failed, and one argument takes them (Ansible: the results
+    rows with status failed or unreachable, their host, into limit). A card's "Retry what failed"
+    and a playbook step's `retry_failed: N` use it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    output: str
+    field: str = Field(min_length=1, max_length=64)
+    # field: value or [values]: a row is a failure when every field listed has one of its values.
+    where: dict[str, Any] = Field(min_length=1)
+    arg: str
+    # For a text argument: how the values are joined (a list argument gets the list).
+    join: str = ","
+
+    @field_validator("where")
+    @classmethod
+    def check_where(cls, value: dict[str, Any]) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for key, want in value.items():
+            values = want if isinstance(want, list) else [want]
+            if not values or not all(isinstance(v, (str, int, float, bool)) for v in values):
+                raise ValueError(f"where.{key}: a value or a list of values")
+            out[str(key)] = values
+        return out
+
+    def values(self, rows: Any) -> list[str]:
+        """What failed, in order and once each, from the output's value (a list of rows)."""
+        found: list[str] = []
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict) or not all(row.get(k) in want for k, want in self.where.items()):
+                continue
+            value = row.get(self.field)
+            if value not in (None, "") and str(value) not in found:
+                found.append(str(value))
+        return found
+
+
 class CommandSpec(BaseModel):
     id: str
     name: str
@@ -380,6 +433,10 @@ class CommandSpec(BaseModel):
     # Ask before each run: a person approves every job of it (actions that change things outside
     # Castor, like posting to a customer's channel). A card can ask too; it can't stop asking.
     confirm: bool = False
+    # A dry run a person looks at before each real run (PreviewSpec).
+    preview: PreviewSpec | None = None
+    # Running again only what failed (RetryFailedSpec).
+    retry_failed: RetryFailedSpec | None = None
     # How this command takes a network route, over its tool's (routing.RouteCaps).
     route: RouteCaps | None = None
     # kind: mcp.
@@ -501,6 +558,26 @@ class CommandSpec(BaseModel):
             if undefined := sorted(set(PLACEHOLDER.findall(item.content)) - names):
                 raise ValueError(f"inputs.{item.name}: uses undefined arguments: {', '.join(undefined)}")
 
+    def _check_preview_and_retry(self, names: set[str], outputs: set[str]) -> None:
+        if self.preview is not None:
+            if self.kind not in ("command", "plugin"):
+                raise ValueError("preview: only for commands and plugin actions")
+            if self.service is not None or self.tty:
+                raise ValueError("preview: not for services or interactive commands")
+            if unknown := sorted(set(self.preview.args) - names):
+                raise ValueError(f"preview.args: not arguments of this command: {', '.join(unknown)}")
+        if self.retry_failed is not None:
+            r = self.retry_failed
+            if self.kind not in ("command", "plugin"):
+                raise ValueError("retry_failed: only for commands and plugin actions")
+            if r.output not in outputs:
+                raise ValueError(f"retry_failed.output: {r.output} isn't one of its outputs")
+            arg = next((a for a in self.args if a.name == r.arg), None)
+            if arg is None:
+                raise ValueError(f"retry_failed.arg: {r.arg} isn't one of its arguments")
+            if arg.type not in ("string", "text", "list"):
+                raise ValueError(f"retry_failed.arg: {r.arg} must be a string or list argument")
+
     @model_validator(mode="after")
     def check_template(self) -> CommandSpec:
         names = [a.name for a in self.args]
@@ -529,6 +606,7 @@ class CommandSpec(BaseModel):
         if unknown:
             raise ValueError(f"template uses undeclared vars slots: {', '.join(unknown)}")
         self._check_inputs(text, set(names))
+        self._check_preview_and_retry(set(names), set(outputs))
         by_name = {a.name: a for a in self.args}
         for arg in self.args:
             if arg.show_if is None:

@@ -43,7 +43,7 @@ async def prepare(db: AsyncSession, job: m.Job, task: m.Task, spec: CommandSpec 
     out = Prepared()
     if spec is not None and spec.inputs and spec.kind == "command":
         try:
-            args = await variables.expand_list_refs(db, spec, task.command_args or {}, task.project_id)
+            args = await variables.expand_list_refs(db, spec, {**(task.command_args or {}), **(job.args_override or {})}, task.project_id)
             contents = render_inputs(spec, args)
         except (ArgumentError, variables.VariableError) as exc:
             raise InputError(f"inputs: {exc}") from exc
