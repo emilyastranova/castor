@@ -1491,3 +1491,54 @@ async def run_fire(db: AsyncSession, fire: m.AssetTriggerFire, trig: m.AssetTrig
         fire.status = "failed"
         fire.reason = str(exc)[:500]
         return False
+
+
+async def record_bulk(db: AsyncSession, project_id: uuid.UUID, assets: list[dict[str, Any]], links: list[dict[str, Any]], *,
+                      source: str, parser: str | None = None, task_id: uuid.UUID | None = None, job_id: uuid.UUID | None = None,
+                      actor_id: uuid.UUID | None = None) -> tuple[Batch, dict[str, m.Asset], list[dict[str, str]], int]:
+    """Many assets ({ref, type, fields, secret}) and relationships between them ({from, to, kind,
+    fields, note}, from/to a ref of these or an asset id in the project) at once, each merged with
+    what the project knows. What can't be recorded is skipped and said, not refused. Returns (batch,
+    refs, skipped, links seen); the caller settles the batch. A plugin's bulk import and its
+    assets.map hook (plugin_hooks.py) both come through here."""
+    from sqlalchemy import inspect as sa_inspect
+
+    batch, refs, skipped = Batch(project_id), {}, []
+    for i, item in enumerate(assets):
+        ref = item.get("ref") or None
+        try:
+            if item.get("secret") and type_of(str(item.get("type"))).name != "credential":
+                raise AssetError("only credentials have a secret")
+            asset = await observe(db, project_id, str(item.get("type")), dict(item.get("fields") or {}), batch=batch, source=source,
+                                  parser=parser, task_id=task_id, job_id=job_id, actor_id=actor_id, secret=item.get("secret"))
+        except AssetError as exc:
+            skipped.append({"ref": ref or f"assets[{i}]", "reason": str(exc)})
+            continue
+        if ref:
+            refs[str(ref)] = asset
+
+    async def resolve(name: str) -> m.Asset | None:
+        if name in refs:
+            a = refs[name]
+            state = sa_inspect(a)
+            return None if state.deleted or state.was_deleted else a
+        try:
+            a = await db.get(m.Asset, uuid.UUID(name))
+        except ValueError:
+            return None
+        return a if a is not None and a.project_id == project_id else None
+
+    linked = 0
+    for i, lk in enumerate(links):
+        kind = LINK_KINDS.get(str(lk.get("kind")))
+        src, dst = await resolve(str(lk.get("from"))), await resolve(str(lk.get("to")))
+        why = (f"no relationship {lk.get('kind')!r}" if kind is None else f"no asset {lk.get('from')!r}" if src is None
+               else f"no asset {lk.get('to')!r}" if dst is None
+               else f"“{kind.forward}” doesn't go {src.type} → {dst.type}" if not kind.fits(src.type, dst.type) else "")
+        if why:
+            skipped.append({"ref": f"links[{i}]", "reason": why})
+            continue
+        if await link(db, project_id, src, dst, kind.name, batch=batch, source=source, parser=parser, task_id=task_id,
+                      job_id=job_id, actor_id=actor_id, fields=dict(lk.get("fields") or {}), note=lk.get("note") or None) is not None:
+            linked += 1
+    return batch, refs, skipped, linked

@@ -726,6 +726,8 @@ class Job(Base):
     # A manual run (runner "manual", manual_runs.py): output someone brought in to be parsed, and
     # where it came from: {"from": "paste" | "comment" | "post" | "job", "id": …, "lines": [from, to]}.
     origin: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
+    # The input files it was given ({name: {file, content}}; job_inputs.py), as they were sent.
+    inputs: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
     # A service (runs until stopped): its ServiceSpec at dispatch time. None: an ordinary job.
     service: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
     # The network route it went through (no secrets): {id, name, label, hops, dns, strict, segment,

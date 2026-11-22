@@ -157,6 +157,8 @@ export interface Job {
 	runner?: string | null;
 	/** A manual run: where its output came from. */
 	origin?: ManualOrigin | null;
+	/** The input files it was given ({name: {file, content}}): an Ansible inventory, a playbook. */
+	inputs?: Record<string, { file: string; content: string }> | null;
 	/** An HTTP action sent through an agent: the agent whose network it went out from. */
 	via_agent_id?: UUID | null;
 	/** The network route it went through (no secrets) and how the agent applied it. */
@@ -293,7 +295,7 @@ export interface SmbHostResult {
 
 export interface PlaybookInputSpec {
 	name: string;
-	type: 'string' | 'number' | 'boolean' | 'list' | 'varset';
+	type: 'string' | 'number' | 'boolean' | 'list' | 'varset' | 'text';
 	/** varset inputs: the variable kind to pick a set of. */
 	kind?: string | null;
 	description: string;
@@ -1133,7 +1135,7 @@ export interface JobDetail extends Job {
 	outputs: JobOutput[];
 }
 
-export type ArgType = 'string' | 'number' | 'boolean' | 'list' | 'varset';
+export type ArgType = 'string' | 'number' | 'boolean' | 'list' | 'varset' | 'text';
 
 export interface ArgSpec {
 	name: string;

@@ -195,6 +195,10 @@ async def parse_job(db: AsyncSession, job: m.Job, *, partial: bool = False) -> l
             from .assets import ingest_outputs
 
             batch = await ingest_outputs(db, job, task, results, partial=partial)
+            # What a plugin's own parsers read, as the assets and relationships its assets.map hook says.
+            from .plugin_hooks import assets_map
+
+            await assets_map(db, job, task, results)
             if not batch.read and not partial:
                 from .assets_text import after_job_output
 

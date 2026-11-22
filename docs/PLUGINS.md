@@ -39,7 +39,7 @@ allows more.
 | **Library content** | Commands, tools, parsers, playbooks, themes, variable kinds, shipped in the plugin and read-only (duplicate to customise), like built-ins | An "AD toolkit" pack; a hashcat tool and command |
 | **Actions** | Buttons on a card, an asset, a run or a project, and entries in Ctrl+K, that call the plugin; an action can take a file | "Import .nessus file", "Create Jira issue", "Crack with hashcat" |
 | **Event handlers** | The plugin is told when something happens (`job.finished`, `assets.changed`, `task.moved`, `run.finished`, `comment.created`…) | Enrich new hosts from Shodan; post findings to a SIEM |
-| **Hooks** | Synchronous decisions Castor asks the plugin for: map parsed results to assets and relationships, a playbook transform op, a trigger condition, a search provider | A parser for a tool Castor doesn't know, with its asset mapping |
+| **Hooks** | Decisions Castor asks the plugin's code for while it works, with a deadline: a command's input files and environment as it's sent (`job.prepare`), what its parser's results are as assets and relationships (`assets.map`); later, a playbook transform op, a trigger condition, a search provider | The **Ansible** plugin: an inventory from the project's assets, facts as hosts |
 | **MCP tools** | Tools AI assistants call through Castor's MCP server, answered by the plugin | "Look this host up in Shodan", "Open a Jira issue for this finding" |
 | **UI slots** | A panel in a sandboxed iframe: a card tab, an asset dialog panel, a project Home tile, a settings page, a Relationships graph overlay | A BloodHound attack-path tab; a Jira tab on a card |
 | **Settings** | Fields the admin fills in at install (per instance, optionally per project); secret ones go to the vault | An API key, a base URL, a default severity |
@@ -256,9 +256,36 @@ JSON-RPC 2.0 over the process's stdin/stdout, both ways:
 
 Anything else a plugin prints goes to its log, so stray output can't break the wire.
 
-Hooks have a deadline (2 s by default, configurable per hook kind); a hook that misses it is
-skipped and logged. Actions and events run in the background with progress shown on the button
-and in the feed.
+Hooks have a deadline (`timeout_seconds`, 15 s by default, at most 60). Actions and events run in
+the background with progress shown on the button and in the feed.
+
+### Hooks
+
+Declared in the manifest, answered with `ctx.hooks.on(kind, handler)` (plugin_hooks.py):
+
+```yaml
+contents: [commands, parsers]
+hooks:
+  - kind: job.prepare        # commands: [ids] (default: all the plugin's own commands)
+    timeout_seconds: 20
+  - kind: assets.map         # parsers: [ids] (default: all the plugin's own parsers)
+    parsers: [ansible-hosts]
+```
+
+- **`job.prepare`**: just before one of the plugin's own commands is sent, Castor asks with
+  `{command, args, inputs, job, card, project, agent}` (`args` checked, with defaults; `inputs` the
+  command's input files as its definition filled them) and takes `{inputs: {name: content | {content,
+  filename, executable}}, env: {NAME: value}}`: input files (the definition's replaced, or new ones)
+  and plain environment (capitals, not `CASTOR_…`; secrets come from the vault). The dispatcher asks
+  before it changes anything about the job, so no database lock waits on the plugin. A hook that
+  throws, misses its deadline, or whose plugin is off or not in the project fails the job with the
+  reason: it never runs without what it was meant to get. What the inputs held is kept on the job.
+- **`assets.map`**: after one of the plugin's own parsers read a run, Castor asks with `{parser,
+  output, type, value, job, card, project}` and takes `{assets, links}` in `ctx.assets.bulk`'s shape,
+  recorded through `assets.record_bulk` and credited to the run and its parser. A hook that fails is
+  logged; the run's results stand.
+
+Hooks only run for projects the plugin is on, and are sent nothing secret.
 
 ### The SDK
 
@@ -536,8 +563,8 @@ castor-plugins' `plugins/`.
 | **D** (built) | Unrestricted runtime, the warning flow, restricted and safe mode, `page.script`; `ctx.api.upload` | **DOCX report** (sandboxed: it writes the document itself, no library needed) and **Watch folder** (unrestricted: it reads a folder on the server) |
 | **E** (built) | The directory, update checks, publisher pages; library content in plugins (packs) | The directory repository and its checks; **Mail DNS checks**, a pack |
 
-Hooks (asset mappers, transforms, trigger conditions) arrive with the phase that first needs one,
-now D or later.
+Hooks: `job.prepare` and `assets.map` are built (for the Ansible plugin). Transform ops, trigger
+conditions and search providers arrive with the plugin that first needs one.
 
 ### Events (phase B)
 

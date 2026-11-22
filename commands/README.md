@@ -28,7 +28,7 @@ container_flags:                     # optional: extra flags passed to docker/po
   - --network=bridge
 args:
   - name: targets
-    type: string                 # string | number | boolean | list
+    type: string                 # string | number | boolean | list | text (several lines)
     description: CIDR range or host list
     required: true
     example: 192.168.0.0/24
@@ -65,6 +65,32 @@ The **Parsers** page in the UI lists these with their options and lets you try e
 built-in sample data or your own pasted output, with the result updating as you type. It
 also writes the `outputs:` entry for you to paste here. Options are checked when a command
 is saved, so a typo or an invalid pattern is reported then rather than after a run.
+
+## Input files (`inputs`)
+
+A command can get files before it runs: a playbook, an inventory, a config. Each is filled from the
+arguments as written (`{{ name }}`: no shell quoting, since it's a file; a list is one value per line)
+and the command refers to it as `{{ input.name }}`, which renders as `"${CASTOR_INPUT_NAME}"`, the
+file's path (in the job's `.castor/inputs/`, removed after the job and never collected as an
+artifact). A `text` argument takes several lines for them.
+
+```yaml
+args:
+  - {name: playbook, type: text, required: true}
+  - {name: hosts, type: list}
+inputs:
+  - name: playbook
+    filename: site.yml          # what tools that look at the extension see (default: the name)
+    content: "{{ playbook }}"
+  - name: inventory
+    content: "[all]\n{{ hosts }}\n"
+command: ansible-playbook -i {{ input.inventory }} {{ input.playbook }}
+```
+
+Variable values never go in an input file (use the command's environment), and neither do
+`{{ work }}` or other inputs. A plugin's command can have its inputs filled or replaced by the
+plugin as the job is sent (its `job.prepare` hook, docs/PLUGINS.md): the Ansible plugin builds the
+inventory from the project's assets that way. The card's Output shows what each run was given.
 
 ## Variable sets (credentials, keys, listeners, ...)
 

@@ -239,6 +239,12 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   vantage point (`assets.segment_of`). Web: `routes/routes` (`RouteChain`, `HopEditor`), `RouteChoice` (TaskDialog,
   RunPlaybookDialog, ProjectDialog), agent edit, `lib/routes.ts`. Tests: `tests/test_routes.py`, agent `test_route_chain.py`
   (real OpenSSH against asyncssh servers).
+- Command inputs (`inputs:` on a definition, `{{ input.name }}`, `text` args): `job_inputs.py` (filled at dispatch, delivered as
+  `job.run` files in `.castor/inputs/`, kept in `jobs.inputs`; prepared before the job is changed, so no lock waits on a plugin).
+  Plugin hooks: `plugin_hooks.py` (`job.prepare`: a plugin's command's inputs and env as it's sent, a failure fails the job;
+  `assets.map`: its parser's results as assets via `assets.record_bulk`), manifest `HookSpec`, SDK `ctx.hooks.on`. The Ansible
+  plugin (castor-plugins `plugins/ansible`) is the user: inventory from assets, a results callback, facts as hosts; its tests are
+  `tests/test_plugin_hooks.py` (the official one needs a castor-plugins checkout beside this repo).
 - Manual work: `manual_runs.py` (output pasted, or from a comment, post or run, ranked against every parser
   (`rank`) and brought into a card as a finished job with `runner = "manual"`, `origin`, one output `results`; unread
   without a parser, for the AI to draft one; never records absences), `api/manual_runs.py` (`/api/parsers/try`,

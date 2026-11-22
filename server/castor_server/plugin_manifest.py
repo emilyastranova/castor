@@ -1,6 +1,5 @@
 """A plugin's manifest, `castor-plugin.yaml` (docs/PLUGINS.md): who it is, what it runs, what it
-asks for. Castor refuses a manifest it doesn't understand rather than guessing, and refuses what
-this version can't do yet (hooks) with a clear reason."""
+asks for. Castor refuses a manifest it doesn't understand rather than guessing."""
 
 from __future__ import annotations
 
@@ -158,6 +157,22 @@ TYPE_NAME = r"^[a-z][a-z0-9_]{1,15}$"
 KIND_NAME = r"^[a-z][a-z0-9_]{1,23}$"
 
 
+class HookSpec(BaseModel):
+    """A decision Castor asks the plugin's code for while it works (plugin_hooks.py, SDK
+    `ctx.hooks.on(kind, …)`), with a deadline. `job.prepare`: just before one of the plugin's own
+    commands is sent, its input files and environment (an inventory from the project's assets).
+    `assets.map`: after one of its own parsers read a run, the assets and relationships that is."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["job.prepare", "assets.map"]
+    # job.prepare: which of the plugin's commands (its library/commands ids); empty: all of them.
+    commands: list[str] = Field(default_factory=list, max_length=50)
+    # assets.map: which of the plugin's parsers (library/parsers ids); empty: all of them.
+    parsers: list[str] = Field(default_factory=list, max_length=50)
+    timeout_seconds: int = Field(15, ge=1, le=60)
+
+
 class AgentTypeSpec(BaseModel):
     """A kind of agent the plugin adds (plugin_agents.py): the machines a system it talks to already
     manages (Salt minions, Puppet nodes), each one a Castor agent. The plugin lists them and runs
@@ -256,7 +271,7 @@ class Manifest(BaseModel):
     library_actions: list[LibraryActionSpec] = Field(default_factory=list, max_length=50)
     mcp_tools: list[McpToolSpec] = Field(default_factory=list, max_length=40)
     agent_types: list[AgentTypeSpec] = Field(default_factory=list, max_length=10)
-    hooks: list[dict[str, Any]] = Field(default_factory=list)
+    hooks: list[HookSpec] = Field(default_factory=list, max_length=10)
     ui: list[UiSpec] = Field(default_factory=list)
     settings: list[SettingSpec] = Field(default_factory=list)
     # Library content it ships in library/<kind>/*.yaml (plugin_library.py): read-only, removed with it.
@@ -343,6 +358,16 @@ class Manifest(BaseModel):
                 raise ValueError(f"ui.{u.id}: page.script runs in Castor's own page, which only unrestricted plugins may do")
         if self.agent_types and self.main is None:
             raise ValueError("agent_types: a plugin with agent types needs code to run jobs (main)")
+        kinds = [h.kind for h in self.hooks]
+        if len(kinds) != len(set(kinds)):
+            raise ValueError("hooks: each kind once")
+        if self.hooks and self.main is None:
+            raise ValueError("hooks: a plugin with hooks needs code to answer them (main)")
+        for h in self.hooks:
+            if h.kind == "job.prepare" and "commands" not in self.contents:
+                raise ValueError("hooks: job.prepare prepares the plugin's own commands (contents: commands)")
+            if h.kind == "assets.map" and "parsers" not in self.contents:
+                raise ValueError("hooks: assets.map maps what the plugin's own parsers read (contents: parsers)")
         self._check_kinds()
         return self
 
@@ -374,12 +399,11 @@ class Manifest(BaseModel):
                 raise ValueError(f"link_kinds.{k.name}: how it reads (forward, and reverse from the other end)")
 
     def not_yet(self) -> list[str]:
-        """What this manifest asks for that this Castor can't do yet (phase A)."""
-        out = []
-        for field in ("hooks",):
-            if getattr(self, field):
-                out.append(f"{field}: not supported yet (see docs/PLUGINS.md)")
-        return out
+        """What this manifest asks for that this Castor can't do yet (nothing, for now)."""
+        return []
+
+    def hook(self, kind: str) -> HookSpec | None:
+        return next((h for h in self.hooks if h.kind == kind), None)
 
     def action(self, action_id: str) -> ActionSpec | None:
         return next((a for a in self.actions if a.id == action_id), None)

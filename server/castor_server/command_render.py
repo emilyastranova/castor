@@ -11,12 +11,14 @@ import shlex
 from typing import Any
 
 from .command_spec import (
+    INPUT_PLACEHOLDER,
     PLACEHOLDER,
     VAR_PLACEHOLDER,
     WORK_PLACEHOLDER,
     WORK_REF,
     ArgSpec,
     CommandSpec,
+    input_env,
 )
 from .routing import ROUTE_PLACEHOLDER, ROUTE_REF
 
@@ -152,9 +154,30 @@ def render_command(spec: CommandSpec, values: dict[str, Any]) -> str:
     # {{ route }}: the tool's route flags, filled in by the agent (empty when it isn't routed).
     rendered = ROUTE_PLACEHOLDER.sub(lambda _: ROUTE_REF, rendered)
     rendered = PLACEHOLDER.sub(lambda m: _shell_words(by_name[m.group(1)], resolved[m.group(1)]), rendered)
+    # {{ input.name }}: the input file's path, set by the runtime (inputs are written before it runs).
+    rendered = INPUT_PLACEHOLDER.sub(lambda m: f'"${{{input_env(m.group(1))}}}"', rendered)
     # Variable fields become references to environment variables the agent sets at run
     # time, so no value (secret or not) is ever part of the stored command line.
     rendered = VAR_PLACEHOLDER.sub(
         lambda m: f'"${{CASTOR_VAR_{m.group(1).upper()}_{m.group(2).upper()}}}"', rendered
     )
     return re.sub(r"[ \t]{2,}", " ", rendered).strip()
+
+
+def _input_text(value: Any) -> str:
+    """An argument as it goes into an input file: as written, a list one value per line."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, list):
+        return "\n".join(str(v) for v in value)
+    return str(value)
+
+
+def render_inputs(spec: CommandSpec, values: dict[str, Any]) -> dict[str, str]:
+    """{input name: its content}, filled from the arguments (no shell quoting: it's a file)."""
+    if not spec.inputs:
+        return {}
+    resolved = resolve_args(spec, values)
+    return {i.name: PLACEHOLDER.sub(lambda m: _input_text(resolved.get(m.group(1))), i.content) for i in spec.inputs}

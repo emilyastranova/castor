@@ -107,6 +107,20 @@
 				{projectId}
 				onchange={(v) => set(arg.name, v)}
 			/>
+		{:else if arg.type === 'text'}
+			<!-- Several lines (a playbook, extra vars): one value, as written. -->
+			<TextField
+				label={arg.name}
+				required={arg.required}
+				mono
+				multiline
+				rows={6}
+				value={asText(values[arg.name])}
+				placeholder={arg.default !== null && arg.default !== undefined ? `default: ${asText(arg.default)}` : arg.example ? asText(arg.example) : ''}
+				error={errors[arg.name] ?? null}
+				supporting={hint(arg.description, null, flagHint(arg))}
+				oninput={(e) => set(arg.name, (e.currentTarget as HTMLTextAreaElement).value)}
+			/>
 		{:else}
 			<TextField
 				label={arg.name}

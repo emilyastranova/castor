@@ -73,6 +73,8 @@
 	};
 	const MAX_COLUMNS = 24;
 
+	/** Columns of a list<object> that lead, in this order (the rest keep theirs). */
+	const LEADING = ['host', 'name', 'title', 'id', 'key', 'status', 'state', 'task', 'url', 'ip', 'hostname', 'port'];
 	/** Rows and their columns, before filtering: a table type, or any list of objects (list<object>). */
 	let base = $derived.by((): { columns: ResultColumn[]; rows: Record<string, unknown>[] } | null => {
 		if (error || !Array.isArray(value)) return null;
@@ -88,6 +90,12 @@
 			const rows = value.filter(isObject);
 			const keys: string[] = [];
 			for (const r of rows) for (const k of Object.keys(r)) if (!keys.includes(k) && keys.length < MAX_COLUMNS) keys.push(k);
+			// What a row is and how it went first: Postgres keeps an object's keys by length, not as written.
+			const first = (k: string) => {
+				const i = LEADING.indexOf(k);
+				return i < 0 ? LEADING.length : i;
+			};
+			keys.sort((a, b) => first(a) - first(b));
 			return { columns: keys.map((k) => ({ key: k, label: k })), rows };
 		}
 		return null;

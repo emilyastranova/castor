@@ -169,11 +169,15 @@ def test_manifests_and_packages_are_checked(client, auth):
     admin_scope = preview(client, auth, probe("adm", perms="admin")).json()["detail"]
     assert "plugins can't have it" in admin_scope
 
-    # A manifest asking for what this Castor can't do yet: previewed with its problems, not installed.
+    # A manifest asking for what this Castor won't run now: previewed with its problems, not installed.
     later = zip_files({"castor-plugin.yaml": PROBE_MANIFEST.format(n="later", version="1.0.0", perms="")
-                       + "hooks: [{kind: asset-mapper}]\nruntime: unrestricted\n", "main.ts": PROBE_MAIN})
+                       + "runtime: unrestricted\n", "main.ts": PROBE_MAIN})
     p = preview(client, auth, later).json()
-    assert any("unrestricted" in x for x in p["problems"]) and any(x.startswith("hooks:") for x in p["problems"])
+    assert any("unrestricted" in x for x in p["problems"])
+    # A hook Castor doesn't have is refused outright.
+    unknown_hook = zip_files({"castor-plugin.yaml": PROBE_MANIFEST.format(n="hookx", version="1.0.0", perms="")
+                              + "hooks: [{kind: asset-mapper}]\n", "main.ts": PROBE_MAIN})
+    assert "hooks" in str(preview(client, auth, unknown_hook).json()["detail"])
     r = client.post("/api/plugins", json={"token": p["token"], "approve": True}, headers=auth)
     assert r.status_code == 422 and "unrestricted" in r.json()["detail"]
     # Approving is required, and only admins see any of it.

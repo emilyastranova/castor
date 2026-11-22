@@ -45,34 +45,14 @@ own, a vendor's, or a community collection:
 
 ## Running work
 
-### Ansible playbooks
-Run Ansible playbooks from Castor, with their results on the card like any other run. (They're
-not Castor's own playbooks, which chain library commands; an Ansible playbook could be one step
-of those.)
-- **Where they come from:** an Ansible playbook in the library (YAML, edited like other
-  definitions) or a Git repository (a path in it and a branch or tag; roles and collections from
-  its `requirements.yml`). Repositories could come through "More repositories" above.
-- **Where they run:** an `ansible` tool (an image, or a recipe pinning `ansible-core` and the
-  collections), on an agent like any command, with `ansible-playbook` in the job's work directory.
-  The agent needs to reach the hosts it targets, so the agent picker matters as for commands.
-- **Inventory from Castor:** hosts from a target list, from the project's assets (a host query,
-  by scope group or tag, with services and facts as host variables), or an inventory file in the
-  repository. The rendered inventory is shown before the run.
-- **Credentials from the vault:** SSH keys, become passwords and Ansible Vault passwords come from
-  variable sets as files and environment, never in the command line or the inventory as stored;
-  secrets are masked in the log as for every job.
-- **Arguments:** extra vars, tags and skip tags, limit, and check mode (`--check --diff`) as typed
-  arguments on the card. A check run could be a preview a person approves before the real run.
-- **Results:** a JSON callback read by a built-in parser into per-host, per-task results (ok,
-  changed, failed, unreachable, skipped), shown as a table on the card, compared between runs
-  (what changed since last time), and feeding assets (facts gathered, hosts unreachable).
-- **In playbooks and triggers:** an Ansible playbook as a step of a Castor playbook, with
-  `on_failure` (retry the hosts that failed, or only the unreachable ones), and as something a
-  trigger can start.
-- **Open questions:** whether it's a new kind of library item or a command definition with a
-  built-in `ansible` kind; how much of AWX/Ansible Automation Platform to talk to instead of
-  running Ansible directly; and how this meets "Agent types from plugins" (Ansible inventory as
-  agents).
+### More for Ansible
+The [Ansible plugin](https://github.com/emilyastranova/castor-plugins/tree/main/plugins/ansible) runs playbooks from Git or
+the Library on agents, with an inventory from assets, vault credentials and per-host results. Still to come:
+- **A check run as a preview:** `--check --diff` first, a person approves what it would change, then the real run.
+- **Retrying only the hosts that failed** (or were unreachable) as a playbook step's `on_failure`.
+- **AWX / Ansible Automation Platform:** launch job templates through its API and bring their results back, for teams
+  that already run Ansible there.
+- **Ansible inventory as agents:** hosts of an inventory as machines Castor can run on (an agent type).
 
 ### More for network routes
 [Routes](https://github.com/emilyastranova/castor/wiki/Routes) send jobs through SSH jumps and SOCKS

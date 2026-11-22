@@ -429,6 +429,8 @@ class JobOut(ORM):
     runner: str | None = None
     # A manual run (runner "manual"): where its output came from ({from, id, lines}).
     origin: dict[str, Any] | None = None
+    # The input files it was given ({name: {file, content}}): an Ansible inventory, a playbook.
+    inputs: dict[str, Any] | None = None
     via_agent_id: uuid.UUID | None = None
     # The network route it went through (no secrets) and how the agent applied it.
     route_info: dict[str, Any] | None = None

@@ -829,6 +829,18 @@ Each user's Material You seed is `users.theme_seed` (`""` = the built-in palette
 from it (`m3/theme.ts`, `material-color-utilities`) and caches both palettes for `app.html`
 to apply before first paint.
 
+## Command inputs and plugin hooks
+
+A command definition's `inputs:` (command_spec.InputSpec; `{{ input.name }}` renders `"${CASTOR_INPUT_NAME}"`) are filled
+from the card's arguments as written (command_render.render_inputs) by `job_inputs.prepare` as the dispatcher sends the job,
+then by its plugin's `job.prepare` hook if it has one, and delivered like variable files (`job.run` `files`, in
+`.castor/inputs/`, the env var holding the path); `jobs.inputs` keeps what each held ({name: {file, content}}), shown on the
+card's Output. The dispatcher prepares them before it changes anything about the job (`db.no_autoflush`), so no write lock waits
+on a plugin. Hooks (plugin_hooks.py; manifest `hooks: [{kind, commands|parsers, timeout_seconds}]`; SDK `ctx.hooks.on`, request
+method `hook`): `job.prepare` (a failure fails the job with the reason) and `assets.map` (after `outputs.parse_job`'s own ingest,
+the plugin's answer recorded through `assets.record_bulk`, also what `POST …/assets/bulk` uses, credited to the run and parser).
+Only for the plugin's own commands and parsers (`origin = plugin:<id>`), in projects it's on.
+
 ## Company branding
 
 Settings → Branding (`branding.py`, `api/branding.py`): the instance's name (`brand_name`, "" is Castor), `brand_tagline`,

@@ -14,8 +14,9 @@ from .http_spec import Batch, Expect, HttpRequest, Paginate, Retry, check_rate
 from .routing import ROUTE, ROUTE_PLACEHOLDER, RouteCaps
 
 # "varset" is for playbook inputs only (pick a variable set of `kind`); commands take
-# variable sets through `vars` slots instead.
-ArgType = Literal["string", "number", "boolean", "list", "varset"]
+# variable sets through `vars` slots instead. "text" is several lines (a playbook, extra vars):
+# one word on the command line, as written in an input file.
+ArgType = Literal["string", "number", "boolean", "list", "varset", "text"]
 
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -30,6 +31,16 @@ SLOT_NAME = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 WORK = "work"
 WORK_PLACEHOLDER = re.compile(r"\{\{\s*work\s*\}\}")
 WORK_REF = '"${CASTOR_WORK}"'
+# {{ input.name }}: one of the command's input files (CommandSpec.inputs), written into the job's
+# .castor/inputs/ before it runs; it renders as "${CASTOR_INPUT_NAME}", the file's path.
+INPUT = "input"
+INPUT_PLACEHOLDER = re.compile(r"\{\{\s*input\.([a-z][a-z0-9_]*)\s*\}\}")
+INPUT_DIR = ".castor/inputs"
+FILENAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+
+
+def input_env(name: str) -> str:
+    return f"CASTOR_INPUT_{name.upper()}"
 
 
 def work_path(source: str) -> str:
@@ -110,7 +121,44 @@ class VarSlot(BaseModel):
     def check_name(cls, value: str) -> str:
         if not SLOT_NAME.match(value):
             raise ValueError("slot names are lowercase letters, digits and underscores")
+        if value == INPUT:
+            raise ValueError("input is reserved: {{ input.name }} is one of the command's input files")
         return value
+
+
+class InputSpec(BaseModel):
+    """A file the job gets before it runs (an Ansible playbook, an inventory, a config), in its
+    .castor/inputs/ (removed afterwards, never collected). `content` is filled from the arguments
+    as written ({{ name }}: no shell quoting; a list is one value per line); variable values never
+    go in it. The command refers to it as {{ input.name }}. A plugin's job.prepare hook can fill or
+    replace it as the job is sent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    # Its file name (what tools that look at the extension see); default: the name.
+    filename: str | None = None
+    content: str = ""
+    executable: bool = False
+    description: str = ""
+
+    @field_validator("name")
+    @classmethod
+    def check_name(cls, value: str) -> str:
+        if not SLOT_NAME.match(value):
+            raise ValueError("input names are lowercase letters, digits and underscores")
+        return value
+
+    @field_validator("filename")
+    @classmethod
+    def check_filename(cls, value: str | None) -> str | None:
+        if value is not None and not FILENAME.match(value):
+            raise ValueError("a file name: letters, digits, dots, dashes and underscores")
+        return value
+
+    @property
+    def file(self) -> str:
+        return self.filename or self.name
 
 
 class OutputSpec(BaseModel):
@@ -316,6 +364,8 @@ class CommandSpec(BaseModel):
     # Runs until stopped (ServiceSpec): a listener, relay, capture or log tail.
     service: ServiceSpec | None = None
     args: list[ArgSpec] = Field(default_factory=list)
+    # Files the job gets before it runs (kind command): {{ input.name }} in the command line.
+    inputs: list[InputSpec] = Field(default_factory=list, max_length=20)
     vars: list[VarSlot] = Field(default_factory=list)
     command: str = ""
     outputs: list[OutputSpec] = Field(default_factory=list)
@@ -431,6 +481,26 @@ class CommandSpec(BaseModel):
             raise ValueError("{{ route }} is for commands; an http action goes through its route by itself")
         return self
 
+    def _check_inputs(self, text: str, names: set[str]) -> None:
+        declared = [i.name for i in self.inputs]
+        if self.inputs and self.kind != "command":
+            raise ValueError("inputs: only for commands (kind command)")
+        if len(declared) != len(set(declared)):
+            raise ValueError("input names must be unique")
+        files = [i.file for i in self.inputs]
+        if len(files) != len(set(files)):
+            raise ValueError("input file names must be unique")
+        used = set(INPUT_PLACEHOLDER.findall(text))
+        if missing := sorted(used - set(declared)):
+            raise ValueError(f"template uses undeclared inputs: {', '.join(missing)}")
+        for item in self.inputs:
+            if VAR_PLACEHOLDER.search(INPUT_PLACEHOLDER.sub("", item.content)):
+                raise ValueError(f"inputs.{item.name}: variable values never go in an input file (use the command's environment)")
+            if WORK_PLACEHOLDER.search(item.content) or INPUT_PLACEHOLDER.search(item.content):
+                raise ValueError(f"inputs.{item.name}: {{{{ work }}}} and {{{{ input.… }}}} are for the command line")
+            if undefined := sorted(set(PLACEHOLDER.findall(item.content)) - names):
+                raise ValueError(f"inputs.{item.name}: uses undefined arguments: {', '.join(undefined)}")
+
     @model_validator(mode="after")
     def check_template(self) -> CommandSpec:
         names = [a.name for a in self.args]
@@ -455,9 +525,10 @@ class CommandSpec(BaseModel):
             raise ValueError("vars slot names must be unique")
         if set(slots) & set(names):
             raise ValueError("a vars slot can't have the same name as an argument")
-        unknown = sorted({s for s, _ in VAR_PLACEHOLDER.findall(text)} - set(slots))
+        unknown = sorted({s for s, _ in VAR_PLACEHOLDER.findall(text)} - set(slots) - {INPUT})
         if unknown:
             raise ValueError(f"template uses undeclared vars slots: {', '.join(unknown)}")
+        self._check_inputs(text, set(names))
         by_name = {a.name: a for a in self.args}
         for arg in self.args:
             if arg.show_if is None:

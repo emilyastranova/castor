@@ -1287,6 +1287,24 @@
 								<RichText text={explanation.text} projectId={task.project_id} class="body-medium text-on-surface" />
 							</div>
 						{/if}
+						{#if selectedJob.inputs && Object.keys(selectedJob.inputs).length}
+							<!-- What the run was given (an Ansible inventory, a playbook), as it was sent. -->
+							<details class="group rounded-md border border-outline-variant/70">
+								<summary class="state-layer flex cursor-pointer list-none items-center gap-2 rounded-md px-3 py-2 label-large text-on-surface">
+									<Icon name="description" size={18} class="text-on-surface-variant" />Input files
+									<span class="body-small text-on-surface-variant">{Object.values(selectedJob.inputs).map((i) => i.file).join(', ')}</span>
+									<Icon name="expand_more" size={18} class="ml-auto text-on-surface-variant transition-transform group-open:rotate-180" />
+								</summary>
+								<div class="flex flex-col gap-3 px-3 pb-3">
+									{#each Object.entries(selectedJob.inputs) as [name, input] (name)}
+										<div class="flex flex-col gap-1">
+											<span class="font-mono label-medium text-on-surface-variant">{input.file}</span>
+											<pre class="max-h-64 overflow-auto rounded-sm bg-surface-container px-3 py-2 font-mono text-[12px] text-on-surface">{input.content || '(empty)'}</pre>
+										</div>
+									{/each}
+								</div>
+							</details>
+						{/if}
 						<AiSummary jobId={selectedJob.id} finished={['succeeded', 'failed', 'lost'].includes(selectedJob.status)} projectId={task.project_id} {editable} />
 						{#if hasResults}
 							<div class="flex h-9 w-fit shrink-0 overflow-hidden rounded-full border border-outline" role="group" aria-label="Run view">

@@ -605,43 +605,9 @@ async def bulk_assets(project_id: str, body: BulkIn, db: DB, user: CurrentUser) 
         if task is None or task.project_id != project.id:
             raise HTTPException(422, "task_id: not a card in this project")
     source = "plugin" if user.plugin_id else "import"
-    batch, refs, skipped = A.Batch(project.id), {}, []
-    for i, item in enumerate(body.assets):
-        ref = item.ref or None
-        try:
-            if item.secret and A.type_of(item.type).name != "credential":
-                raise A.AssetError("only credentials have a secret")
-            asset = await A.observe(db, project.id, item.type, item.fields, batch=batch, source=source, parser=user.plugin_id,
-                                    task_id=body.task_id, actor_id=user.id, secret=item.secret)
-        except A.AssetError as exc:
-            skipped.append({"ref": ref or f"assets[{i}]", "reason": str(exc)})
-            continue
-        if ref:
-            refs[ref] = asset
-
-    async def resolve(name: str) -> m.Asset | None:
-        if name in refs:
-            a = refs[name]
-            state = sa_inspect(a)
-            return None if state.deleted or state.was_deleted else a
-        try:
-            a = await db.get(m.Asset, uuid.UUID(name))
-        except ValueError:
-            return None
-        return a if a is not None and a.project_id == project.id else None
-
-    linked = 0
-    for i, lk in enumerate(body.links):
-        kind = A.LINK_KINDS.get(lk.kind)
-        src, dst = await resolve(lk.from_), await resolve(lk.to)
-        why = (f"no relationship {lk.kind!r}" if kind is None else f"no asset {lk.from_!r}" if src is None else f"no asset {lk.to!r}" if dst is None
-               else f"“{kind.forward}” doesn't go {src.type} → {dst.type}" if not kind.fits(src.type, dst.type) else "")
-        if why:
-            skipped.append({"ref": f"links[{i}]", "reason": why})
-            continue
-        if await A.link(db, project.id, src, dst, kind.name, batch=batch, source=source, parser=user.plugin_id, task_id=body.task_id,
-                        actor_id=user.id, fields=lk.fields, note=lk.note or None) is not None:
-            linked += 1
+    batch, refs, skipped, linked = await A.record_bulk(
+        db, project.id, [a.model_dump() for a in body.assets], [lk.model_dump(by_alias=True) for lk in body.links],
+        source=source, parser=user.plugin_id, task_id=body.task_id, actor_id=user.id)
     created = len(batch.created())
     updated = sum(1 for c in batch.changes.values() if c.event == "updated")
     out_refs = {k: str(v.id) for k, v in refs.items() if not (sa_inspect(v).deleted or sa_inspect(v).was_deleted)}

@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import selectinload
 
-from .. import agent_people, network_routes, routing, variables
+from .. import agent_people, job_inputs, network_routes, routing, variables
 from .. import models as m
 from ..artifacts import collect_patterns, new_token
 from ..command_library import load_spec
@@ -184,11 +184,19 @@ class Dispatcher:
                         len(c.running),
                     ),
                 )
+                spec = await load_spec(db, task.command_ref) if task.command_ref else None
+                # Its input files (and its plugin's job.prepare hook), before anything about the job
+                # changes: nothing may hold the write lock while a plugin answers.
+                try:
+                    with db.no_autoflush:
+                        prepared = await job_inputs.prepare(db, job, task, spec, conn)
+                except job_inputs.InputError as exc:
+                    await self._fail_unsent(db, job, task, str(exc))
+                    continue
                 way = tool_way(conn, tool) if tool else None
                 if way is not None:
                     # The image the tool resolves to on this agent, kept on the job.
                     job.image = way.get("ref") if way["kind"] in ("image", "build") else None
-                spec = await load_spec(db, task.command_ref) if task.command_ref else None
                 route_payload = None
                 try:
                     rows = await network_routes.rows_for(db, task, agent_routes.get(conn.agent_id))
@@ -210,6 +218,7 @@ class Dispatcher:
                 except variables.VariableError as exc:
                     await self._fail_unsent(db, job, task, f"variables: {exc}")
                     continue
+                job_inputs.attach(prepared, resolved, job)
                 if route_payload is not None:
                     resolved.secrets = [*resolved.secrets, *network_routes.secrets_of(rows)]
                     job.route_info = network_routes.info(rows)

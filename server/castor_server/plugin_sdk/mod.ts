@@ -243,6 +243,54 @@ export interface Context {
   mcp: { on<A = Record<string, unknown>>(name: string, handler: (call: McpCall<A>) => unknown): void };
   /** Answer one of the manifest's `agent_types`: the machines it reaches, and running jobs on them. */
   agents: { on(type: string, handler: AgentTypeHandler): void };
+  /** Answer one of the manifest's `hooks`: decisions Castor asks for while it works, with a deadline
+   *  (the hook's `timeout_seconds`). Register these in `activate`. */
+  hooks: {
+    on(kind: "job.prepare", handler: (call: JobPrepareCall) => JobPrepared | void | Promise<JobPrepared | void>): void;
+    on(kind: "assets.map", handler: (call: AssetsMapCall) => AssetsMapped | void | Promise<AssetsMapped | void>): void;
+  };
+}
+
+/** `job.prepare`: one of the plugin's commands is about to be sent to a machine. */
+export interface JobPrepareCall {
+  /** The command's library id. */
+  command: string;
+  /** Its arguments, checked and with defaults (lists as arrays). */
+  args: Record<string, unknown>;
+  /** Its input files as its definition filled them: {name: content}. */
+  inputs: Record<string, string>;
+  job: { id: string; task_id: string };
+  card: { id: string; title: string };
+  project: { id: string; codename: string; name: string };
+  /** The machine it's going to. */
+  agent: { id: string; name: string; tags: string[] } | null;
+  log: Logger;
+}
+
+/** What the job gets: input files (new ones, or the definition's replaced) and plain environment
+ *  (names in capitals, not CASTOR_…). Nothing secret: secrets come from the vault. */
+export interface JobPrepared {
+  inputs?: Record<string, string | { content: string; filename?: string; executable?: boolean }>;
+  env?: Record<string, string>;
+}
+
+/** `assets.map`: one of the plugin's parsers read a run. */
+export interface AssetsMapCall {
+  parser: string;
+  output: string;
+  type: string;
+  /** What the parser read. */
+  value: unknown;
+  job: { id: string; task_id: string; finished_at: string | null };
+  card: { id: string; title: string };
+  project: { id: string; codename: string; name: string };
+  log: Logger;
+}
+
+/** The assets and relationships that is, as `ctx.assets.bulk` takes them. */
+export interface AssetsMapped {
+  assets?: { ref?: string; type: string; fields: Record<string, unknown> }[];
+  links?: { from: string; to: string; kind: string; fields?: Record<string, unknown>; note?: string }[];
 }
 
 /** A call of one of the plugin's MCP tools (manifest `mcp_tools`), by an assistant acting for a person. */
@@ -413,6 +461,7 @@ const aborts = new Map<string, AbortController>();
 const uiHandlers = new Map<string, { handler: (call: UiCall) => unknown; readOnly: boolean }>();
 const mcpHandlers = new Map<string, (call: McpCall) => unknown>();
 const agentTypes = new Map<string, AgentTypeHandler>();
+const hookHandlers = new Map<string, (call: never) => unknown>();
 const eventHandlers = new Map<string, ((event: PluginEvent) => void | Promise<void>)[]>();
 let definition: PluginDefinition | null = null;
 
@@ -439,6 +488,12 @@ async function onRequest(method: string, params: Record<string, unknown>): Promi
           mcpHandlers.set(name, handler as (call: McpCall) => unknown);
         },
       },
+      hooks: {
+        on: (kind: string, handler: (call: never) => unknown) => {
+          if (kind !== "job.prepare" && kind !== "assets.map") throw new CastorError(`ctx.hooks.on: “${kind}” isn't a hook (job.prepare, assets.map)`);
+          hookHandlers.set(kind, handler);
+        },
+      },
       agents: {
         on: (type, handler) => {
           if (!/^[a-z][a-z0-9-]{0,39}$/.test(type)) throw new CastorError(`ctx.agents.on: “${type}” isn't an agent type name (manifest agent_types)`);
@@ -460,6 +515,7 @@ async function onRequest(method: string, params: Record<string, unknown>): Promi
       ui: [...uiHandlers].map(([name, h]) => ({ name, read_only: h.readOnly })),
       mcp: [...mcpHandlers.keys()],
       agents: [...agentTypes.keys()],
+      hooks: [...hookHandlers.keys()],
     };
   }
   if (method === "agent.list") {
@@ -551,6 +607,12 @@ async function onRequest(method: string, params: Record<string, unknown>): Promi
     if (!entry) throw new CastorError(`This plugin has no handler “${params.name}” (ctx.ui.on)`);
     const call = { ...(params as unknown as UiCall), log: rootLog };
     const result = await entry.handler(call);
+    return result === undefined ? null : result;
+  }
+  if (method === "hook") {
+    const handler = hookHandlers.get(String(params.kind)) as ((call: unknown) => unknown) | undefined;
+    if (!handler) throw new CastorError(`This plugin has no handler for the hook “${params.kind}” (ctx.hooks.on)`);
+    const result = await handler({ ...params, log: rootLog });
     return result === undefined ? null : result;
   }
   if (method === "mcp") {
