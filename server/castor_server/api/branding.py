@@ -43,7 +43,7 @@ async def branding_logo(kind: Kind, db: DB):
 @router.put("/branding/logo/{kind}")
 async def upload_branding_logo(kind: Kind, db: DB, user: Admin, file: Annotated[UploadFile, File()]) -> dict[str, Any]:
     """A logo (SVG, PNG, WebP, JPEG or GIF, up to 512 KB): `mark` is square (the navigation rail,
-    the browser tab, the installed app), `wordmark` horizontal (the sign-in page, exports); the
+    the browser tab; the installed app stays Castor's), `wordmark` horizontal (the sign-in page, exports); the
     `_dark` ones are for dark themes (optional)."""
     try:
         name = branding.save(kind, await file.read(branding.MAX_BYTES + 1))

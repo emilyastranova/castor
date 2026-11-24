@@ -64,7 +64,7 @@ connections turn it on.
 
 Regenerate the default Material 3 palette: `cd web && node scripts/gen-tokens.mjs '#4f5bd5'`
 writes `src/lib/m3/tokens.css` (committed, do not hand-edit).
-App icons for installing Castor (the manifest is `routes/manifest.webmanifest/+server.ts`, Castor's or the company's branding) come from `static/favicon.svg`:
+App icons for installing Castor (the manifest is `routes/manifest.webmanifest/+server.ts`, always Castor's own, whatever the branding) come from `static/favicon.svg`:
 `cd web && sh scripts/gen-icons.sh` writes `static/icons/` (192/512, a maskable 512, Apple's 180; needs ImageMagick 7).
 
 README images (`.github/assets/*.svg`, each in dark and `-light`) are generated with fontTools
@@ -442,7 +442,7 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   field so the settings form can't point it anywhere; `clients.logo_file`/`logo_dark_file`), `api/branding.py` (`/api/branding`
   and its logos public, served with the sign-on logos' CSP). Web: `lib/brand.svelte.ts` (from the root layout load; every
   `<title>` ends with `{brand.name}`), `BrandLogo` (light/dark), the rail and sign-in page, `hooks.server.ts` `%castor.brand_head%`
-  (`lib/server/branding.ts`: favicon, touch icon, app name), the manifest route, `report.py` (header logos, footer line).
+  (`lib/server/branding.ts`: the tab's favicon; the manifest, touch icon and app name stay Castor's), `report.py` (header logos, footer line).
 - Instance settings admins change in the UI: `app_settings.py` (`AppSettings` fields are the
   keys and defaults), `api/app_settings.py`; web `lib/appSettings.svelte.ts`,
   `routes/settings/general`. Env-level config stays in `config.py`.

@@ -84,7 +84,7 @@
 	}
 
 	const SLOTS: { kind: BrandLogo; title: string; detail: string; dark: boolean }[] = [
-		{ kind: 'mark', title: 'Square logo', detail: 'The navigation rail, the browser tab and the installed app', dark: false },
+		{ kind: 'mark', title: 'Square logo', detail: 'The navigation rail and the browser tab', dark: false },
 		{ kind: 'mark_dark', title: 'Square logo, dark themes', detail: 'Optional: when the light one doesn’t show on dark', dark: true },
 		{ kind: 'wordmark', title: 'Wordmark', detail: 'The sign-in page and exported reports', dark: false },
 		{ kind: 'wordmark_dark', title: 'Wordmark, dark themes', detail: 'Optional: the sign-in page in a dark theme', dark: true }
@@ -102,7 +102,7 @@
 			<h2 class="title-medium text-on-surface">Name</h2>
 			<div class="grid gap-4 sm:grid-cols-2">
 				<TextField label="Company or team name" bind:value={name} placeholder="Castor"
-					supporting="In browser tabs, the installed app and exports, instead of Castor" />
+					supporting="In browser tabs and exports, instead of Castor" />
 				<TextField label="Tagline (optional)" bind:value={tagline} placeholder="Offensive security" supporting="Under the name on the sign-in page" />
 			</div>
 			<Switch bind:checked={poweredBy} label="Show “Powered by Castor”" />

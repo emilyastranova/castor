@@ -1,5 +1,5 @@
-/** The company's branding on the server side (hooks.server.ts, the manifest): its name and square
- *  logo, from the public /api/branding, cached briefly. */
+/** The company's branding on the server side (hooks.server.ts): its square logo for the tab,
+ *  from the public /api/branding, cached briefly. */
 import { env } from '$env/dynamic/private';
 import type { Branding } from '$lib/api';
 
@@ -26,17 +26,14 @@ export async function serverBranding(): Promise<Branding | null> {
 
 const attr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-/** The <head> tags that name and picture the app: the tab's icon, the installed app's. */
+/** The <head> tags that picture the app: the tab's icon follows the company's branding; the installed
+ *  app (manifest, home-screen icon, app name) is always Castor with its kanban icon. */
 export function brandHead(b: Branding | null): string {
-	const name = attr(b?.name || 'Castor');
-	const icon = b?.mark_url;
-	// Apple's home-screen icon has to be a raster image: an SVG logo leaves Castor's there.
-	const touch = icon && b?.mark_type && b.mark_type !== 'image/svg+xml' ? icon : '/icons/apple-touch-icon.png';
 	return [
-		`<link rel="icon" href="${attr(icon || '/favicon.svg')}" />`,
+		`<link rel="icon" href="${attr(b?.mark_url || '/favicon.svg')}" />`,
 		'<link rel="manifest" href="/manifest.webmanifest" />',
-		`<link rel="apple-touch-icon" href="${attr(touch)}" />`,
-		`<meta name="application-name" content="${name}" />`,
-		`<meta name="apple-mobile-web-app-title" content="${name}" />`
+		'<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />',
+		'<meta name="application-name" content="Castor" />',
+		'<meta name="apple-mobile-web-app-title" content="Castor" />'
 	].join('\n\t\t');
 }

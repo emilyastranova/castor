@@ -1,7 +1,8 @@
 """Company branding (Settings → Branding): the instance's name, a tagline, a square mark and a
 horizontal wordmark (each with an optional version for dark themes), a footer line for reports, and
 logos per client. They show on the sign-in page, at the top of the navigation rail, in the browser
-tab and installed app, and on timeline exports (with the project's client's logo).
+tab, and on timeline exports (with the project's client's logo). The installed app stays Castor, with
+its own icon.
 
 The words are app_settings (brand_name, brand_tagline, report_footer, powered_by). Uploaded files
 live in `<data_dir>/branding`; which file is which is the `branding_logos` app_settings row, which
