@@ -440,8 +440,7 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
 - Company branding (Settings → Branding): `branding.py` (app_settings `brand_name`, `brand_tagline`, `report_footer`,
   `powered_by`; logo files in `<data_dir>/branding`, named by the `branding_logos` app_settings row, which isn't an AppSettings
   field so the settings form can't point it anywhere; `clients.logo_file`/`logo_dark_file`), `api/branding.py` (`/api/branding`
-  and its logos public, served with the sign-on logos' CSP). Web: `lib/brand.svelte.ts` (from the root layout load; every
-  `<title>` ends with `{brand.name}`), `BrandLogo` (light/dark), the rail and sign-in page, `hooks.server.ts` `%castor.brand_head%`
+  and its logos public, served with the sign-on logos' CSP). Web: `lib/brand.svelte.ts` (from the root layout load; every `<title>` ends with `{brand.windowName}`: the company's name, Castor in the installed app), `BrandLogo` (light/dark), the rail and sign-in page, `hooks.server.ts` `%castor.brand_head%`
   (`lib/server/branding.ts`: the tab's favicon; the manifest, touch icon and app name stay Castor's), `report.py` (header logos, footer line).
 - Instance settings admins change in the UI: `app_settings.py` (`AppSettings` fields are the
   keys and defaults), `api/app_settings.py`; web `lib/appSettings.svelte.ts`,

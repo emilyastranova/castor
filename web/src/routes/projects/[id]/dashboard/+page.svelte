@@ -7,7 +7,7 @@
 	let { data } = $props();
 </script>
 
-<svelte:head><title>{data.project.codename} · Home · {brand.name}</title></svelte:head>
+<svelte:head><title>{data.project.codename} · Home · {brand.windowName}</title></svelte:head>
 
 <TopAppBar>
 	<ProjectSwitcher project={data.project} />

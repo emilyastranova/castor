@@ -37,7 +37,7 @@
 	let myId = $derived(me()?.id);
 </script>
 
-<svelte:head><title>People · {brand.name}</title></svelte:head>
+<svelte:head><title>People · {brand.windowName}</title></svelte:head>
 
 <TopAppBar title="People" subtitle="{people.length} {people.length === 1 ? 'person' : 'people'} · open cards and activity in the projects you can see">
 	{#snippet actions()}

@@ -15,7 +15,7 @@
 	}
 </script>
 
-<svelte:head><title>API tokens · Settings · {brand.name}</title></svelte:head>
+<svelte:head><title>API tokens · Settings · {brand.windowName}</title></svelte:head>
 
 <TopAppBar title="API tokens" subtitle={`Everyone's personal tokens · ${live} working`}>
 	{#snippet actions()}

@@ -26,7 +26,7 @@
 	};
 </script>
 
-<svelte:head><title>{publisher.name} · Plugins · {brand.name}</title></svelte:head>
+<svelte:head><title>{publisher.name} · Plugins · {brand.windowName}</title></svelte:head>
 
 <TopAppBar title={publisher.name} subtitle="Publisher in the plugin directory">
 	{#snippet leading()}<IconButton icon="arrow_back" label="Back to Browse" href="/settings/plugins?tab=browse" />{/snippet}

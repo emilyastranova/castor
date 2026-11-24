@@ -119,7 +119,7 @@ css: |
 	const modes = { both: 'Light and dark', dark: 'Dark only', light: 'Light only' };
 </script>
 
-<svelte:head><title>Themes · Settings · {brand.name}</title></svelte:head>
+<svelte:head><title>Themes · Settings · {brand.windowName}</title></svelte:head>
 
 <TopAppBar title="Themes" subtitle="Looks people can pick in their account">
 	{#snippet actions()}

@@ -77,7 +77,7 @@
 	]);
 </script>
 
-<svelte:head><title>Variables · {brand.name}</title></svelte:head>
+<svelte:head><title>Variables · {brand.windowName}</title></svelte:head>
 
 <TopAppBar title="Variables" subtitle="Credentials, keys, listeners and other values commands can use">
 	{#snippet actions()}

@@ -113,7 +113,7 @@
 	);
 </script>
 
-<svelte:head><title>Users · {brand.name}</title></svelte:head>
+<svelte:head><title>Users · {brand.windowName}</title></svelte:head>
 
 <TopAppBar title="Users" subtitle="{users.filter((u) => !u.disabled_at).length} active">
 	{#snippet actions()}

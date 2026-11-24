@@ -350,7 +350,7 @@
 	const status = $derived(current ? routeState(current, agentName) : null);
 </script>
 
-<svelte:head><title>Routes · {brand.name}</title></svelte:head>
+<svelte:head><title>Routes · {brand.windowName}</title></svelte:head>
 
 <TopAppBar title="Routes" subtitle="How jobs reach networks the agent can’t reach directly: through jumpboxes and proxies">
 	{#snippet actions()}

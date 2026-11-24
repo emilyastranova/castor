@@ -68,7 +68,7 @@
 	const tokens = (n: number) => (n >= 10000 ? `${Math.round(n / 1000)}k` : String(n));
 </script>
 
-<svelte:head><title>AI · Settings · {brand.name}</title></svelte:head>
+<svelte:head><title>AI · Settings · {brand.windowName}</title></svelte:head>
 
 <TopAppBar title="AI" subtitle="LLM providers and the models Castor uses, with fallbacks">
 	{#snippet actions()}

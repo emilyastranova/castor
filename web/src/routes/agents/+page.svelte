@@ -309,7 +309,7 @@
 	let agentName = (id: string | null) => agents.find((a) => a.id === id)?.name ?? '—';
 </script>
 
-<svelte:head><title>Agents · {brand.name}</title></svelte:head>
+<svelte:head><title>Agents · {brand.windowName}</title></svelte:head>
 
 <TopAppBar title="Agents" subtitle="{online} of {agents.length} online">
 	{#snippet actions()}

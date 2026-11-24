@@ -11,7 +11,7 @@
 	});
 </script>
 
-<svelte:head><title>Settings · {brand.name}</title></svelte:head>
+<svelte:head><title>Settings · {brand.windowName}</title></svelte:head>
 
 <div class="md:hidden">
 	<TopAppBar title="Settings" />

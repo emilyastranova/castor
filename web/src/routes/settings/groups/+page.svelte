@@ -16,7 +16,7 @@
 	const people = (n: number) => `${n} ${n === 1 ? 'person' : 'people'}`;
 </script>
 
-<svelte:head><title>Groups · Settings · {brand.name}</title></svelte:head>
+<svelte:head><title>Groups · Settings · {brand.windowName}</title></svelte:head>
 
 <TopAppBar title="Groups" subtitle="People put together: mention them all, share projects with them">
 	{#snippet actions()}

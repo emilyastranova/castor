@@ -41,7 +41,7 @@
 			: 'Only cards and runs that pick it';
 </script>
 
-<svelte:head><title>Alerts · Settings · {brand.name}</title></svelte:head>
+<svelte:head><title>Alerts · Settings · {brand.windowName}</title></svelte:head>
 
 <TopAppBar title="Alerts" subtitle="Post to chat or any webhook when runs finish, fail, run long or need a decision">
 	{#snippet actions()}

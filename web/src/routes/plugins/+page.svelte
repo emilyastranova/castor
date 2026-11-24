@@ -51,7 +51,7 @@
 	}
 </script>
 
-<svelte:head><title>Your plugin settings · {brand.name}</title></svelte:head>
+<svelte:head><title>Your plugin settings · {brand.windowName}</title></svelte:head>
 
 <TopAppBar title="Your plugin settings" subtitle="What plugins ask each person for" />
 

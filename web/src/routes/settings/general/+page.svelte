@@ -45,7 +45,7 @@
 	}));
 </script>
 
-<svelte:head><title>General · Settings · {brand.name}</title></svelte:head>
+<svelte:head><title>General · Settings · {brand.windowName}</title></svelte:head>
 
 <TopAppBar title="General" subtitle="Settings for everyone on this Castor" />
 

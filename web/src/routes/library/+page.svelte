@@ -379,7 +379,7 @@ build:
 	let toolName = (id: string | null | undefined) => tools.find((t) => t.id === id)?.name ?? null;
 </script>
 
-<svelte:head><title>Library · {brand.name}</title></svelte:head>
+<svelte:head><title>Library · {brand.windowName}</title></svelte:head>
 <svelte:window onkeydown={windowKey} />
 
 <TopAppBar title="Library" subtitle="{tools.length} tools · {commandCount} commands · what cards and playbooks run">

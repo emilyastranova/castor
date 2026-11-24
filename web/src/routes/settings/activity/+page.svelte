@@ -27,7 +27,7 @@
 	let projectOf = (id: string | null) => data.projects.find((p) => p.id === id);
 </script>
 
-<svelte:head><title>Activity log · Settings · {brand.name}</title></svelte:head>
+<svelte:head><title>Activity log · Settings · {brand.windowName}</title></svelte:head>
 
 <TopAppBar title="Activity log" subtitle="Everything that happened, in every project and outside them (users, agents, settings)" />
 <div class="flex flex-wrap gap-2 px-6 pb-2">

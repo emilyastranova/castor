@@ -2,4 +2,4 @@
 	import { brand } from '$lib/brand.svelte';
 </script>
 
-<svelte:head><title>{brand.name}</title></svelte:head>
+<svelte:head><title>{brand.windowName}</title></svelte:head>

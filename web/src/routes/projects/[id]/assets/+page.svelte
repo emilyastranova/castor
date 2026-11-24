@@ -467,7 +467,7 @@
 	const FIRE: Record<string, string> = { started: 'text-primary', waiting: 'text-tertiary', failed: 'text-error', limited: 'text-on-surface-variant', skipped: 'text-on-surface-variant' };
 </script>
 
-<svelte:head><title>{project.codename} · Assets · {brand.name}</title></svelte:head>
+<svelte:head><title>{project.codename} · Assets · {brand.windowName}</title></svelte:head>
 
 <svelte:window {onkeydown} />
 

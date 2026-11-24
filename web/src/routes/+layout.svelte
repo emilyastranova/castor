@@ -156,7 +156,7 @@
 </script>
 
 <svelte:head>
-	<title>{brand.name}</title>
+	<title>{brand.windowName}</title>
 </svelte:head>
 <svelte:window onkeydown={shortcut} />
 

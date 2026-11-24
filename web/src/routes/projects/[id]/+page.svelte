@@ -335,7 +335,7 @@
 	}
 </script>
 
-<svelte:head><title>{store.project.codename} · {brand.name}</title></svelte:head>
+<svelte:head><title>{store.project.codename} · {brand.windowName}</title></svelte:head>
 
 <TopAppBar>
 	<ProjectSwitcher project={store.project} />

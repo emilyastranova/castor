@@ -249,7 +249,7 @@
 	}
 </script>
 
-<svelte:head><title>Parsers · {brand.name}</title></svelte:head>
+<svelte:head><title>Parsers · {brand.windowName}</title></svelte:head>
 
 <TopAppBar title="Parsers" subtitle="Turn tool output into typed results · try them live on sample data">
 	{#snippet actions()}

@@ -17,7 +17,7 @@
 	}
 </script>
 
-<svelte:head><title>API tokens · {brand.name}</title></svelte:head>
+<svelte:head><title>API tokens · {brand.windowName}</title></svelte:head>
 
 <TopAppBar title="API tokens" subtitle="Use Castor from scripts, CI and other tools, as you, with only the access you pick">
 	{#snippet actions()}

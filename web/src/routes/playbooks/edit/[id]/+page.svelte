@@ -409,7 +409,7 @@
 </script>
 
 <svelte:window onkeydown={onKey} onbeforeunload={(e) => dirty && e.preventDefault()} />
-<svelte:head><title>{spec.name || 'Playbook'} · Editor · {brand.name}</title></svelte:head>
+<svelte:head><title>{spec.name || 'Playbook'} · Editor · {brand.windowName}</title></svelte:head>
 
 <div class="flex h-full min-h-0 flex-col">
 	<header class="flex items-center gap-3 border-b border-outline-variant px-4 py-2.5">

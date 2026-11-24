@@ -48,7 +48,7 @@
 	const passwordOpen = $derived(data.password_form !== 'collapsed' || !data.providers.length || showPassword || !!error);
 </script>
 
-<svelte:head><title>Sign in · {brand.name}</title></svelte:head>
+<svelte:head><title>Sign in · {brand.windowName}</title></svelte:head>
 
 <div class="flex min-h-dvh items-center justify-center bg-surface-container p-4">
 	<form class="flex w-full max-w-sm flex-col gap-6 rounded-xl bg-surface-container-lowest p-8 shadow-e1" onsubmit={submit}>

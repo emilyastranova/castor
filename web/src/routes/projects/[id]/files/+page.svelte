@@ -291,7 +291,7 @@
 		col === 'name' ? (sort === 'name' ? 'arrow_downward' : '') : col === 'size' ? (sort === 'largest' ? 'arrow_downward' : sort === 'smallest' ? 'arrow_upward' : '') : sort === 'newest' ? 'arrow_downward' : sort === 'oldest' ? 'arrow_upward' : '';
 </script>
 
-<svelte:head><title>{project.codename} · Files · {brand.name}</title></svelte:head>
+<svelte:head><title>{project.codename} · Files · {brand.windowName}</title></svelte:head>
 <svelte:window {onkeydown} />
 
 <TopAppBar>

@@ -413,7 +413,7 @@ steps:
 	]);
 </script>
 
-<svelte:head><title>Playbooks · {brand.name}</title></svelte:head>
+<svelte:head><title>Playbooks · {brand.windowName}</title></svelte:head>
 
 <TopAppBar
 	title="Playbooks"

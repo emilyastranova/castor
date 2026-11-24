@@ -92,7 +92,7 @@
 	const urlOf = (kind: BrandLogo) => info[`${kind}_url` as const];
 </script>
 
-<svelte:head><title>Branding · Settings · {brand.name}</title></svelte:head>
+<svelte:head><title>Branding · Settings · {brand.windowName}</title></svelte:head>
 
 <TopAppBar title="Branding" subtitle="Your company’s name and logos, where people see Castor" />
 

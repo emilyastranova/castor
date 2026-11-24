@@ -174,7 +174,7 @@
 				: 'no project yet';
 </script>
 
-<svelte:head><title>Plugins · Settings · {brand.name}</title></svelte:head>
+<svelte:head><title>Plugins · Settings · {brand.windowName}</title></svelte:head>
 
 <TopAppBar title="Plugins" subtitle="What Castor can do, extended">
 	{#snippet actions()}

@@ -31,7 +31,7 @@
 	let installable = $derived(!!entry.latest && !entry.taken && !entry.problems.length && (!entry.installed || entry.update));
 </script>
 
-<svelte:head><title>{entry.name} · Plugins · {brand.name}</title></svelte:head>
+<svelte:head><title>{entry.name} · Plugins · {brand.windowName}</title></svelte:head>
 
 <TopAppBar title={entry.name} subtitle="Plugin directory">
 	{#snippet leading()}<IconButton icon="arrow_back" label="Back to Browse" href="/settings/plugins?tab=browse" />{/snippet}

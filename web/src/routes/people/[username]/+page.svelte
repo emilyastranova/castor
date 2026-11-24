@@ -108,7 +108,7 @@
 	};
 </script>
 
-<svelte:head><title>{person.display_name} · {brand.name}</title></svelte:head>
+<svelte:head><title>{person.display_name} · {brand.windowName}</title></svelte:head>
 
 <TopAppBar>
 	<div class="flex items-center gap-3">

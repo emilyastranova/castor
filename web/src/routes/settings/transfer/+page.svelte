@@ -11,7 +11,7 @@
 	let importOpen = $state(false);
 </script>
 
-<svelte:head><title>Import and export · {brand.name}</title></svelte:head>
+<svelte:head><title>Import and export · {brand.windowName}</title></svelte:head>
 
 <TopAppBar title="Import and export" subtitle="Move projects and libraries between Castor instances, or keep a copy" />
 

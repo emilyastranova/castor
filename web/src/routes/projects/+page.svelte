@@ -29,7 +29,7 @@
 	const online = $derived(data.agents.filter((a) => a.connected).length);
 </script>
 
-<svelte:head><title>Projects · {brand.name}</title></svelte:head>
+<svelte:head><title>Projects · {brand.windowName}</title></svelte:head>
 
 <TopAppBar title="Choose a project" subtitle="{data.projects.length} project{data.projects.length === 1 ? '' : 's'} · {online} agent{online === 1 ? '' : 's'} online">
 	{#snippet actions()}
