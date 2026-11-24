@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { Asset, AssetTrigger, AssetTriggerFire, AssetVerdict, Scope, UUID } from '$lib/api';
-	import { api, ApiError } from '$lib/api';
+	import { api, ApiError, saveBlob } from '$lib/api';
 	import { Button, Dialog, Icon, IconButton, Select, Switch, Tabs, TextField, TopAppBar } from '$lib/m3';
 	import ProjectSwitcher from '$lib/components/ProjectSwitcher.svelte';
 	import AssetDialog from '$lib/components/AssetDialog.svelte';
@@ -23,7 +23,9 @@
 	import { relativeTime, absoluteTime } from '$lib/format';
 	import { canEdit } from '$lib/session';
 	import { aiStatus } from '$lib/ai.svelte';
-	import { enter, leave } from '$lib/motion';
+	import { enter, leave, pop } from '$lib/motion';
+	import { copyText } from '$lib/copyCode';
+	import { toCsv } from '$lib/csv';
 
 	let { data } = $props();
 	let project = $derived(data.project);
@@ -78,6 +80,8 @@
 			live = liveChange;
 			items = res.items;
 			total = res.total;
+			// What's chosen stays chosen while it's still listed.
+			if (selected.size) selected = new Set([...selected].filter((id) => res.items.some((a) => a.id === id)));
 			counts = res.counts;
 			suggestedCount = res.suggested;
 			loaded = true;
@@ -356,12 +360,130 @@
 		}
 	}
 
+	// ---- choosing several (Inventory and Suggested) ----
+	let selected = $state(new Set<UUID>());
+	let anchor = $state<UUID | null>(null);
+	let choosing = $derived(selected.size > 0);
+	let chosen = $derived(items.filter((a) => selected.has(a.id)));
+	let working = $state(false);
+	// Another tab, or the other half of Suggested, starts afresh.
+	$effect(() => {
+		void tab;
+		void showDismissed;
+		clearSelection();
+	});
+	function toggleChosen(a: Asset, range = false) {
+		const next = new Set(selected);
+		const order = shown;
+		if (range && anchor) {
+			const i = order.findIndex((x) => x.id === anchor);
+			const j = order.findIndex((x) => x.id === a.id);
+			if (i >= 0 && j >= 0) {
+				const on = !selected.has(a.id);
+				for (const x of order.slice(Math.min(i, j), Math.max(i, j) + 1)) on ? next.add(x.id) : next.delete(x.id);
+				selected = next;
+				anchor = a.id;
+				return;
+			}
+		}
+		next.has(a.id) ? next.delete(a.id) : next.add(a.id);
+		selected = next;
+		anchor = a.id;
+	}
+	function selectAll() {
+		selected = new Set(items.map((a) => a.id));
+	}
+	function clearSelection() {
+		selected = new Set();
+		anchor = null;
+	}
+	/** A row's click: while choosing (or with Shift, Ctrl or Cmd) it chooses; otherwise it opens. */
+	function activate(a: Asset, e: MouseEvent) {
+		if (choosing || e.shiftKey || e.ctrlKey || e.metaKey) {
+			e.preventDefault();
+			toggleChosen(a, e.shiftKey);
+			return;
+		}
+		openAsset(a.id);
+	}
+	function onkeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape' && choosing && !assetOpen && !(e.target as HTMLElement).closest('dialog')) {
+			e.preventDefault();
+			clearSelection();
+		}
+	}
+	const noun = (n: number) => (n === 1 ? 'asset' : 'assets');
+	async function copyChosen() {
+		const ok = await copyText(chosen.map((a) => a.label).join('\n'));
+		if (ok) snackbar.show(`Copied ${chosen.length} ${noun(chosen.length)}`);
+		else snackbar.error('Couldn’t copy them');
+	}
+	function csvChosen() {
+		const keys = [...new Set(chosen.flatMap((a) => Object.keys(a.fields)))].filter((k) => k !== 'look');
+		const rows = chosen.map((a) => [a.type, a.label, ...keys.map((k) => (a.fields[k] === undefined ? '' : show(a.fields[k]))), a.scope_groups.join(' '), a.last_seen]);
+		saveBlob(toCsv(['type', 'asset', ...keys, 'scope', 'last_seen'], rows), `${project.codename}-assets.csv`, 'text/csv');
+	}
+	async function deleteChosen() {
+		const list = chosen;
+		const one = list.length === 1;
+		if (!(await confirmAction({
+			title: one ? `Delete ${list[0].label}?` : `Delete ${list.length} assets?`,
+			message: `${one ? 'It goes' : 'They go'} with ${one ? 'its' : 'their'} history, relationships and evidence. A later run that finds ${one ? 'it' : 'them'} again records ${one ? 'it' : 'them'} as new. This can’t be undone.`,
+			confirmLabel: 'Delete'
+		}))) return;
+		working = true;
+		try {
+			const r = await api().assets.removeMany(project.id, list.map((a) => a.id));
+			snackbar.show(one ? `Deleted ${list[0].label}` : `Deleted ${r.deleted} assets`);
+			const gone = new Set(list.map((a) => a.id));
+			items = items.filter((a) => !gone.has(a.id));
+			clearSelection();
+			void load(true);
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not delete them');
+		} finally {
+			working = false;
+		}
+	}
+	async function decideChosen(confirm: boolean) {
+		const ids = chosen.map((a) => a.id);
+		working = true;
+		try {
+			const r = await api().assets.decide(project.id, confirm ? 'confirm' : 'dismiss', ids);
+			snackbar.show(`${confirm ? (showDismissed ? 'Restored' : 'Confirmed') : 'Dismissed'} ${r.done}`);
+			const gone = new Set(ids);
+			items = items.filter((a) => !gone.has(a.id));
+			clearSelection();
+			void load(true);
+		} catch (err) {
+			snackbar.error(err instanceof ApiError ? err.message : 'Could not do that');
+		} finally {
+			working = false;
+		}
+	}
+
 	const SOURCE_ICON: Record<string, string> = { comment: 'chat', post: 'forum', card: 'description', note: 'push_pin', output: 'terminal', ai: 'image' };
 
 	const FIRE: Record<string, string> = { started: 'text-primary', waiting: 'text-tertiary', failed: 'text-error', limited: 'text-on-surface-variant', skipped: 'text-on-surface-variant' };
 </script>
 
 <svelte:head><title>{project.codename} · Assets · {brand.name}</title></svelte:head>
+
+<svelte:window {onkeydown} />
+
+{#snippet checkbox(a: Asset)}
+	<input
+		type="checkbox"
+		class="size-[18px] cursor-pointer align-middle accent-[var(--md-sys-color-primary)]"
+		checked={selected.has(a.id)}
+		aria-label="Choose {a.label}"
+		onclick={(e) => {
+			// No preventDefault: the browser would undo the tick after Svelte sets it.
+			e.stopPropagation();
+			toggleChosen(a, e.shiftKey);
+		}}
+	/>
+{/snippet}
 
 <TopAppBar>
 	<ProjectSwitcher {project} />
@@ -515,10 +637,11 @@
 						{#each shown as a (a.id)}
 							{@const m = a.mentions[0]}
 							{@const v = verdicts[a.id]}
-							<li class="flex flex-wrap items-start gap-x-3 gap-y-1 px-3 py-2.5" in:enter={{ enabled: live }} out:leave={{ enabled: live }}>
+							<li class="flex flex-wrap items-start gap-x-3 gap-y-1 px-3 py-2.5 {selected.has(a.id) ? 'bg-secondary-container/60' : ''}" in:enter={{ enabled: live }} out:leave={{ enabled: live }}>
+								<span class="mt-px shrink-0">{@render checkbox(a)}</span>
 								<Icon name={assetTypes.get(a.type)?.icon ?? 'radar'} size={18} class="mt-0.5 shrink-0 text-on-surface-variant" />
 								<div class="min-w-0 flex-1">
-									<button type="button" class="font-mono text-[13px] text-on-surface hover:underline" onclick={() => openAsset(a.id)}>{a.label}</button>
+									<button type="button" class="font-mono text-[13px] text-on-surface hover:underline" onclick={(e) => activate(a, e)}>{a.label}</button>
 									<span class="ml-1 body-small text-on-surface-variant">{assetTypes.get(a.type)?.label ?? a.type}</span>
 									{#if v}
 										<p class="mt-1 flex flex-wrap items-center gap-1.5 body-small">
@@ -566,6 +689,16 @@
 					<table class="w-full body-medium">
 						<thead class="bg-surface-container-low text-left body-small text-on-surface-variant">
 							<tr>
+								<th class="w-10 py-2 pr-1 pl-3">
+									<input
+										type="checkbox"
+										class="size-[18px] cursor-pointer align-middle accent-[var(--md-sys-color-primary)]"
+										checked={items.length > 0 && selected.size === items.length}
+										indeterminate={choosing && selected.size < items.length}
+										aria-label={choosing ? 'Choose none' : `Choose all ${items.length}`}
+										onclick={() => (choosing ? clearSelection() : selectAll())}
+									/>
+								</th>
 								{#if !current}<th class="px-3 py-2 font-medium">Type</th>{/if}
 								<th class="px-3 py-2 font-medium">{current?.label ?? 'Asset'}</th>
 								{#if current}
@@ -579,7 +712,8 @@
 						</thead>
 						<tbody>
 							{#each items as a (a.id)}
-								<tr class="cursor-pointer border-t border-outline-variant/50 hover:bg-on-surface/5" onclick={() => openAsset(a.id)} in:enter={{ enabled: live }} out:leave={{ enabled: live }}>
+								<tr class="cursor-pointer border-t border-outline-variant/50 {selected.has(a.id) ? 'bg-secondary-container/60' : 'hover:bg-on-surface/5'}" onclick={(e) => activate(a, e)} in:enter={{ enabled: live }} out:leave={{ enabled: live }}>
+									<td class="w-10 py-2 pr-1 pl-3">{@render checkbox(a)}</td>
 									{#if !current}<td class="px-3 py-2 whitespace-nowrap text-on-surface-variant"><span class="flex items-center gap-1.5"><Icon name={assetTypes.get(a.type)?.icon ?? 'radar'} size={16} />{assetTypes.get(a.type)?.label ?? a.type}</span></td>{/if}
 									<td class="px-3 py-2">
 										<span class="flex items-center gap-1.5 font-mono text-[13px] text-on-surface">
@@ -690,6 +824,47 @@
 		{/if}
 	</div>
 </div>
+
+<!-- What's chosen, and what to do with it -->
+{#if choosing && (tab === 'inventory' || tab === 'suggested')}
+	<div class="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+4.5rem)] z-20 flex justify-center px-4 md:bottom-6" role="region" aria-label="Chosen assets">
+		<div in:pop class="pointer-events-auto flex max-w-full flex-wrap items-center gap-1 rounded-xl bg-inverse-surface py-1.5 pr-2 pl-4 text-inverse-on-surface shadow-e3">
+			<p class="mr-2 label-large whitespace-nowrap"><span class="tabular-nums">{selected.size}</span> chosen</p>
+			<button type="button" class="state-layer flex h-10 items-center gap-1.5 rounded-full px-3 label-large" onclick={copyChosen}>
+				<Icon name="content_copy" size={18} />Copy
+			</button>
+			{#if tab === 'inventory'}
+				<button type="button" class="state-layer flex h-10 items-center gap-1.5 rounded-full px-3 label-large" onclick={csvChosen}>
+					<Icon name="download" size={18} />CSV
+				</button>
+			{/if}
+			{#if canEdit()}
+				{#if tab === 'inventory'}
+					<button type="button" class="state-layer flex h-10 items-center gap-1.5 rounded-full px-3 label-large disabled:opacity-50" disabled={working} onclick={deleteChosen}>
+						<Icon name="delete" size={18} />Delete
+					</button>
+				{:else if showDismissed}
+					<button type="button" class="state-layer flex h-10 items-center gap-1.5 rounded-full px-3 label-large disabled:opacity-50" disabled={working} onclick={() => decideChosen(true)}>
+						<Icon name="undo" size={18} />Restore
+					</button>
+				{:else}
+					<button type="button" class="state-layer flex h-10 items-center gap-1.5 rounded-full px-3 label-large disabled:opacity-50" disabled={working} onclick={() => decideChosen(false)}>
+						<Icon name="block" size={18} />Dismiss
+					</button>
+					<button type="button" class="state-layer flex h-10 items-center gap-1.5 rounded-full px-3 label-large disabled:opacity-50" disabled={working} onclick={() => decideChosen(true)}>
+						<Icon name="check" size={18} />Confirm
+					</button>
+				{/if}
+			{/if}
+			{#if selected.size < items.length}
+				<button type="button" class="state-layer flex h-10 items-center rounded-full px-3 label-large" onclick={selectAll}>All {items.length}</button>
+			{/if}
+			<button type="button" class="state-layer flex size-10 items-center justify-center rounded-full" aria-label="Clear the choice (Esc)" title="Clear the choice (Esc)" onclick={clearSelection}>
+				<Icon name="close" size={20} />
+			</button>
+		</div>
+	</div>
+{/if}
 
 <AssetDialog bind:open={assetOpen} assetId={openId} projectId={project.id} onopenasset={openAsset} onshowgraph={showInGraph} onchanged={() => { void load(true); void api().assets.scope(project.id).then((x) => (scope = x)); }} />
 <TriggerDialog bind:open={triggerOpen} projectId={project.id} trigger={editingTrigger} onsaved={() => void loadTriggers()} />

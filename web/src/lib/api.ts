@@ -2564,6 +2564,8 @@ export function api(fetchFn: Fetch = fetch) {
 			dismiss: (id: UUID) => post<Asset>(`/assets/${id}/dismiss`),
 			decide: (projectId: UUID, action: 'confirm' | 'dismiss', ids: UUID[]) =>
 				post<{ done: number }>(`/projects/${projectId}/assets/suggested`, { action, ids }),
+			/** Delete several of a project's assets at once. */
+			removeMany: (projectId: UUID, ids: UUID[]) => post<{ deleted: number }>(`/projects/${projectId}/assets/delete`, { ids }),
 			merge: (id: UUID, into: UUID) => post<Asset>(`/assets/${id}/merge`, { into }),
 			/** The AI's advice on suggested assets (nothing changes): real, noise or unsure, with a reason. */
 			sortSuggested: (projectId: UUID, guidance: string, ids: UUID[] = []) =>

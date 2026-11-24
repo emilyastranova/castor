@@ -558,6 +558,8 @@ TOOLS += [
     _auto("add_asset", "POST", "/api/projects/{project_id}/assets", "Record an asset by hand."),
     _auto("update_asset", "PATCH", "/api/assets/{asset_id}", "Set an asset's fields (not its identity) and/or its description (markdown)."),
     _auto("delete_asset", "DELETE", "/api/assets/{asset_id}", "Delete an asset.", **_DESTRUCTIVE),
+    _auto("delete_assets", "POST", "/api/projects/{project_id}/assets/delete", "Delete several of a project's assets at once.",
+          **_DESTRUCTIVE),
     _auto("import_assets", "POST", "/api/projects/{project_id}/assets/import", "Add many assets at once (text or rows)."),
     _auto("collect_assets", "POST", "/api/projects/{project_id}/assets/collect",
           "Gather assets from the project's job results again, and suggest the ones its comments, posts, cards and notes mention."),

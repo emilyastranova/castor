@@ -692,6 +692,26 @@ async def delete_asset(asset_id: str, db: DB, user: CurrentUser):
     bus.publish("assets.changed", pid, {"project_id": str(pid)})
 
 
+class AssetIdsIn(BaseModel):
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=1000)
+
+
+@router.post("/projects/{project_id}/assets/delete")
+async def delete_assets(project_id: str, body: AssetIdsIn, db: DB, user: CurrentUser) -> dict[str, int]:
+    """Delete several of a project's assets at once (ids from elsewhere are ignored), with one feed entry."""
+    project = await project_or_404(db, user, parse_uuid(project_id), write=True)
+    rows = (await db.execute(select(m.Asset).where(m.Asset.project_id == project.id, m.Asset.id.in_(body.ids)))).scalars().all()
+    if not rows:
+        return {"deleted": 0}
+    said = f"Removed the {rows[0].type} {rows[0].label}" if len(rows) == 1 else f"Removed {A.describe(A._counts(rows))}"
+    for a in rows:
+        await db.delete(a)
+    await record_activity(db, type="assets.deleted", message=said, project_id=project.id, **actor_of(user))
+    await db.commit()
+    bus.publish("assets.changed", project.id, {"project_id": str(project.id)})
+    return {"deleted": len(rows)}
+
+
 async def _confirm(db: DB, asset: m.Asset, user: m.User) -> None:
     """A person says a suggested (or dismissed) asset is real: it joins the inventory, and to
     triggers it's new."""

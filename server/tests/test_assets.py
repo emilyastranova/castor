@@ -206,3 +206,16 @@ def test_assets_have_descriptions_and_scope_takes_one_entry(client, auth):
     s = client.post(f"/api/projects/{p['id']}/scope/add", json={"entry": "10.9.0.1", "group": "ot"}, headers=auth).json()
     assert s["groups"] == [{"name": "OT", "include": ["10.8.0.0/24", "10.9.0.1"]}]
     assert client.get(f"/api/assets/{a['id']}", headers=auth).json()["scope_groups"] == ["OT"]
+
+
+def test_deleting_several_assets_at_once(client, auth):
+    p, other = _project(client, auth), _project(client, auth)
+    ids = [client.post(f"/api/projects/{p['id']}/assets", json={"type": "host", "fields": {"ip": f"10.7.0.{i}"}}, headers=auth).json()["id"]
+           for i in (1, 2, 3)]
+    theirs = client.post(f"/api/projects/{other['id']}/assets", json={"type": "host", "fields": {"ip": "10.7.0.9"}}, headers=auth).json()["id"]
+    r = client.post(f"/api/projects/{p['id']}/assets/delete", json={"ids": ids[:2] + [theirs]}, headers=auth)
+    assert r.status_code == 200 and r.json() == {"deleted": 2}  # another project's asset is left alone
+    assert [a["id"] for a in _list(client, auth, p)["items"]] == [ids[2]]
+    assert _list(client, auth, other)["total"] == 1
+    feed = client.get(f"/api/projects/{p['id']}/activity", headers=auth).json()
+    assert any(a["type"] == "assets.deleted" and a["message"] == "Removed 2 hosts" for a in feed)
