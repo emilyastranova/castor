@@ -102,6 +102,36 @@ def test_shell_cards(client, auth):
     assert asyncio.run(prompt()) is None
 
 
+def test_a_shell_through_a_strict_route_needs_an_image(client, auth):
+    """A strict route takes only containers: a shell in the agent's own shell is refused before it
+    starts (with the reason), one in an image opens, and a route that isn't strict lets it."""
+    project = _project(client, auth)
+    route = client.post("/api/routes", json={"name": f"strict-{uuid.uuid4().hex[:6]}", "strict": True, "hops": [
+        {"kind": "socks5", "host": "10.0.0.5", "port": 1080}]}, headers=auth).json()
+    card = _card(client, auth, project, shell=True, route=route["id"])
+    r = client.post(f"/api/tasks/{card['id']}/run", headers=auth)
+    assert r.status_code == 409 and "needs a container" in r.json()["detail"] and route["name"] in r.json()["detail"]
+    # Before the card exists: the New card dialog asks with the project and what it would be.
+    client.patch(f"/api/projects/{project['id']}", json={"settings": {"route": route["id"]}}, headers=auth)
+    plan = client.post("/api/routes/plan", json={"project_id": project["id"], "shell": True}, headers=auth).json()
+    assert plan["route"]["id"] == route["id"] and "needs a container" in plan["host"]["error"] and plan["container"]["ways"]
+    assert plan["runs_in"] == "host"  # no image: the agent's own shell
+    assert client.post("/api/routes/plan", json={"project_id": project["id"], "shell": True, "image": "alpine"},
+                       headers=auth).json()["runs_in"] == "container"
+
+    client.patch(f"/api/tasks/{card['id']}", json={"image": "docker.io/library/debian:stable-slim"}, headers=auth)
+    job = client.post(f"/api/tasks/{card['id']}/run", headers=auth)
+    assert job.status_code == 201, job.text
+    client.post(f"/api/jobs/{job.json()['id']}/cancel", headers=auth)
+
+    loose = client.post("/api/routes", json={"name": f"loose-{uuid.uuid4().hex[:6]}", "strict": False, "hops": [
+        {"kind": "socks5", "host": "10.0.0.5", "port": 1080}]}, headers=auth).json()
+    other = _card(client, auth, project, shell=True, route=loose["id"])
+    job = client.post(f"/api/tasks/{other['id']}/run", headers=auth)
+    assert job.status_code == 201, job.text
+    client.post(f"/api/jobs/{job.json()['id']}/cancel", headers=auth)
+
+
 def test_a_drafted_parser_reads_unread_output(client, auth):
     """What the AI drafts for output brought in without a parser reads it, and its results become assets."""
     from castor_server import models as m

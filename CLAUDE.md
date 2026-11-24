@@ -259,7 +259,9 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   without a parser, for the AI to draft one; never records absences), `api/manual_runs.py` (`/api/parsers/try`,
   `/api/tasks/{id}/manual-runs`), web `ParseOutputDialog`. Shell cards: `tasks.shell`, `shells.py` (the command is
   the shell, tty, no timeout, no prompt alerts, leaving it succeeds), New card → Shell opens it with `?control=`
-  (`JobConsole` `autoControl`).
+  (`JobConsole` `autoControl`). Where it opens: web `ShellWhere.svelte` (the agent's own shell, `lib/shells.ts` presets Debian/Alpine,
+  or any image); a strict route refuses a shell with no image before it starts (`shells.route_refusal`, a 409 from run; the route
+  plan's `runs_in: host` for it).
 - Tools (Phase 3a): `tool_spec.py` (YAML → `ToolSpec`: `image`, `build` recipe, `host`;
   `way_for` picks one per agent; recipe tags hash the recipe), `tool_library.py` (built-ins
   from `CASTOR_TOOLS_DIR` = `tools/`), `api/tools.py`. Commands say `tool: <id>`; the

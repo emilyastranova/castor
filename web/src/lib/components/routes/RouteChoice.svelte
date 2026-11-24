@@ -20,8 +20,10 @@
 		onchange?: (value: string) => void;
 		/** Out: the route it comes to (its own, or the project's default), null when direct. */
 		route?: NetworkRoute | null;
+		/** Say nothing when it can't go through (something next to it explains, as a shell's picker does). */
+		quietRefusal?: boolean;
 	}
-	let { projectId, value = $bindable(''), label = 'Network route', inherit = true, taskId = null, recheck, disabled = false, class: klass = '', onchange, route = $bindable(null) }: Props = $props();
+	let { projectId, value = $bindable(''), label = 'Network route', inherit = true, taskId = null, recheck, disabled = false, class: klass = '', onchange, route = $bindable(null), quietRefusal = false }: Props = $props();
 
 	let routes = $state<NetworkRoute[]>([]);
 	let projectDefault = $state<string | null>(null);
@@ -54,7 +56,7 @@
 <div class="flex flex-col gap-1 {klass}">
 	<Select {label} bind:value {options} {disabled} onchange={(v) => onchange?.(v)}
 		supporting={chosen ? chosen.label : value === 'none' ? 'From the agent’s own network' : 'From the agent’s own network (no route)'} />
-	{#if said}
+	{#if said && (said.ok || !quietRefusal)}
 		<p class="flex items-start gap-1.5 px-1 body-small {said.ok ? 'text-on-surface-variant' : 'text-error'}" role={said.ok ? undefined : 'alert'}>
 			<Icon name={said.ok ? 'alt_route' : 'block'} size={16} class="mt-px shrink-0 {said.ok ? 'text-primary' : ''}" />
 			<span>{said.text}{!said.ok ? '. It won’t run until that changes.' : ''}</span>

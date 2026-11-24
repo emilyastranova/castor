@@ -1793,7 +1793,8 @@ export interface RoutePlan {
 	route: { id: UUID; name: string; label: string; strict: boolean; dns: string } | null;
 	container: { ways?: RouteMethod[]; error?: string } | null;
 	host: { ways?: RouteMethod[]; error?: string } | null;
-	runs_in?: 'container' | 'either';
+	/** host: a shell with no image, in the agent's own shell. */
+	runs_in?: 'container' | 'either' | 'host';
 }
 
 export interface JobRoute {
@@ -2394,7 +2395,7 @@ export function api(fetchFn: Fetch = fetch) {
 			test: (id: UUID, body: { agent_id?: UUID | null; target?: string | null }) => post<RouteTest>(`/routes/${id}/test`, body),
 			acceptHostKey: (id: UUID, hopId: string) => post<NetworkRoute>(`/routes/${id}/hops/${encodeURIComponent(hopId)}/accept-host-key`),
 			fromSshHost: (body: { ssh_host_id: UUID; name: string; project_ids?: UUID[] }) => post<NetworkRoute>('/routes/from-ssh-host', body),
-			plan: (body: { route_id?: string | null; task_id?: UUID | null; command_ref?: string | null; agent_id?: UUID | null }) =>
+			plan: (body: { route_id?: string | null; task_id?: UUID | null; command_ref?: string | null; agent_id?: UUID | null; project_id?: UUID | null; shell?: boolean; image?: string | null }) =>
 				post<RoutePlan>('/routes/plan', body)
 		},
 		reactions: {

@@ -58,6 +58,10 @@ class PlanIn(BaseModel):
     task_id: uuid.UUID | None = None
     command_ref: str | None = None
     agent_id: uuid.UUID | None = None
+    # A card not made yet: its project (for the project's default route) and what it would be.
+    project_id: uuid.UUID | None = None
+    shell: bool = False
+    image: str | None = None
 
 
 # ---------- helpers ----------
@@ -338,10 +342,19 @@ async def plan_route(body: PlanIn, db: DB, user: CurrentUser) -> dict[str, Any]:
     tool_id = (task.tool if task else None) or (spec.tool if spec else None)
     tool = (await tools_by_id(db)).get(tool_id) if tool_id else None
     route_id = body.route_id or (await nr.chosen_for(db, task) if task else None)
+    if not route_id and task is None and body.project_id:
+        from ..access import project_or_404
+
+        project = await project_or_404(db, user, body.project_id)
+        route_id = (project.settings or {}).get("route") or None
     if route_id == routing.NONE or not route_id:
         return {"route": None, "container": None, "host": None}
     row = await _route_or_404(db, user, route_id)
     command = task.command if task else ""
+    if body.shell and task is None:
+        from ..shells import SHELL_COMMAND
+
+        command = SHELL_COMMAND
     if spec is not None and not command:
         from ..command_render import render_command
 
@@ -361,5 +374,8 @@ async def plan_route(body: PlanIn, db: DB, user: CurrentUser) -> dict[str, Any]:
                                                                      strict=row.strict, agent=agent_caps)]}
         except RouteError as exc:
             out[where] = {"error": str(exc)}
-    out["runs_in"] = "container" if (task and task.image) or (tool and (tool.image or tool.build)) or (spec and spec.image) else "either"
+    out["runs_in"] = "container" if (task and task.image) or (body.image and task is None) or (tool and (tool.image or tool.build)) or (spec and spec.image) else "either"
+    # A shell with no image opens in the agent's own shell (shells.route_refusal).
+    if out["runs_in"] == "either" and not tool and ((task and task.shell) or (task is None and body.shell)):
+        out["runs_in"] = "host"
     return out

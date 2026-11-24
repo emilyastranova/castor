@@ -109,6 +109,10 @@ export function describePlan(plan: RoutePlan | null): { ok: boolean; text: strin
 	if (!plan?.route) return null;
 	const c = plan.container, h = plan.host;
 	const first = (w?: RouteMethod[]) => (w?.length ? METHOD_WORDS[w[0]].label : '');
+	if (plan.runs_in === 'host') {
+		if (h?.ways?.length) return { ok: true, text: `Goes through “${plan.route.name}” by ${first(h.ways)}` };
+		return { ok: false, text: h?.error ?? 'It can’t go through this route' };
+	}
 	if (plan.runs_in === 'container' || !h?.ways) {
 		if (c?.ways?.length) return { ok: true, text: `Goes through “${plan.route.name}” by ${first(c.ways)}${plan.route.dns === 'local' ? '' : ', names resolved at the far end'}` };
 		return { ok: false, text: c?.error ?? h?.error ?? 'It can’t go through this route' };

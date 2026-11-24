@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Spoilers from './Spoilers.svelte';
 	import RouteChoice from './routes/RouteChoice.svelte';
+	import ShellWhere from './ShellWhere.svelte';
 	import Reactions from './reactions/Reactions.svelte';
 	import { METHOD_WORDS } from '$lib/routes';
 	import type { ManualSource, NetworkRoute, RouteMethod } from '$lib/api';
@@ -175,6 +176,8 @@
 	let libArgs = $state<Record<string, unknown>>({});
 	let libErrors = $state<Record<string, string>>({});
 	let libDirty = $state(false);
+	/** A shell card that can't open where it's set to (its route takes only containers). */
+	let shellBlocked = $state(false);
 	let savingArgs = $state(false);
 
 	$effect(() => {
@@ -935,7 +938,7 @@
 					{:else if activeJob}
 						<Button variant="tonal" icon="stop_circle" onclick={() => cancel(activeJob!)}>Cancel</Button>
 					{:else}
-						<Button icon={task.shell ? 'keyboard' : 'play_arrow'} onclick={run} disabled={!command.trim() || libDirty}>{task.shell ? 'Open a shell' : task.latest_job?.status === 'failed' ? 'Re-run' : 'Run'}</Button>
+						<Button icon={task.shell ? 'keyboard' : 'play_arrow'} onclick={run} disabled={!command.trim() || libDirty || (task.shell && shellBlocked)}>{task.shell ? 'Open a shell' : task.latest_job?.status === 'failed' ? 'Re-run' : 'Run'}</Button>
 					{/if}
 				</span>
 			{/if}
@@ -1182,14 +1185,18 @@
 									<span class="block truncate font-mono body-medium text-on-surface">{task.tool}</span>
 								</span>
 							</a>
-						{:else}
+						{:else if !task.shell}
 							<TextField label="Container image" bind:value={image} mono placeholder="run in agent shell" oninput={() => edited('image')} onblur={() => (image.trim() || null) !== task.image && commit('image', { image: image.trim() || null })} />
 						{/if}
 						<Select label="Agent" bind:value={agentId} options={agentOptions} supporting={agentHint} error={agentProblem}
 							onchange={(v) => save({ agent_selector: selectorFrom(v) })} />
 					</div>
 					<RouteChoice projectId={task.project_id} bind:value={routeId} bind:route={cardRoute} taskId={task.id} recheck={`${task.updated_at}${task.image}${task.command}`}
-						onchange={(v) => save({ route: v })} />
+						quietRefusal={task.shell} onchange={(v) => save({ route: v })} />
+					{#if task.shell && !task.tool}
+						<ShellWhere bind:image projectId={task.project_id} taskId={task.id} {routeId} recheck={`${task.updated_at}${task.image}`} bind:blocked={shellBlocked}
+							onchange={(v) => (v || null) !== task.image && save({ image: v || null })} />
+					{/if}
 					{#if image.trim()}
 						<TextField
 							label="Container flags (optional)"
@@ -1655,7 +1662,7 @@
 			{#if activeJob}
 				<Button variant="tonal" icon="stop_circle" class="flex-1" onclick={() => cancel(activeJob!)}>Cancel run</Button>
 			{:else}
-				<Button icon={task.shell ? 'keyboard' : 'play_arrow'} class="flex-1" onclick={run} disabled={!command.trim() || libDirty}>{task.shell ? 'Open a shell' : task.latest_job?.status === 'failed' ? 'Re-run' : 'Run'}</Button>
+				<Button icon={task.shell ? 'keyboard' : 'play_arrow'} class="flex-1" onclick={run} disabled={!command.trim() || libDirty || (task.shell && shellBlocked)}>{task.shell ? 'Open a shell' : task.latest_job?.status === 'failed' ? 'Re-run' : 'Run'}</Button>
 			{/if}
 		</div>
 	{/if}

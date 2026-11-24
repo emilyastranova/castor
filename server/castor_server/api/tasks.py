@@ -389,6 +389,11 @@ async def run(task_id: str, db: DB, user: CurrentUser, body: RunIn | None = None
             raise _blocked(exc) from exc
     if body is not None and body.agent_selector is not None:
         task.agent_selector = await _selector(db, body.agent_selector, task.project_id)
+    if task.shell:
+        from ..shells import route_refusal
+
+        if reason := await route_refusal(db, task):
+            raise HTTPException(409, reason)
     job, moved = await start_run(db, task, user)
     await db.commit()
     await publish_task(db, task, "task.moved" if moved else "task.updated")

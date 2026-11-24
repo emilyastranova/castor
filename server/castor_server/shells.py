@@ -28,3 +28,21 @@ def apply(task: m.Task, on: bool) -> None:
         if task.command == SHELL_COMMAND:
             task.command = ""
         task.tty = False
+
+
+async def route_refusal(db, task: m.Task) -> str | None:
+    """Why this shell can't open through its route where it would run (None: it can). A shell
+    with no image runs in the agent's own shell, and a strict route ("Only through the route")
+    takes only containers; refused before it starts instead of failing once it's sent."""
+    from . import network_routes, routing
+
+    if not task.shell or task.image or task.tool:
+        return None
+    route = await network_routes.get(db, await network_routes.chosen_for(db, task))
+    if route is None:
+        return None
+    try:
+        routing.plan(routing.SHELL, task.command, in_container=False, strict=route.strict, agent={})
+    except routing.RouteError as exc:
+        return f"The route “{route.name}”: {exc}"
+    return None

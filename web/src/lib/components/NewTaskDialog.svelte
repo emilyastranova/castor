@@ -14,6 +14,7 @@
 	import DueDateField from './DueDateField.svelte';
 	import CommandArgsForm from './CommandArgsForm.svelte';
 	import VarBindings from './VarBindings.svelte';
+	import ShellWhere from './ShellWhere.svelte';
 
 	interface Props {
 		open?: boolean;
@@ -40,6 +41,8 @@
 	let dueAt = $state<string | null>(null);
 	let runOnMove = $state(true);
 	let busy = $state(false);
+	/** The shell can't open where it's set to (its route takes only containers). */
+	let shellBlocked = $state(false);
 	// Inside a card: the new one is a subtask of it (off the board). Cards that can hold subtasks:
 	// the board's cards, not a playbook run's.
 	let parentId = $state('');
@@ -203,10 +206,8 @@
 				A shell on an agent to work in, for when you know what you want to do but not the commands yet. It opens as soon as you make it and runs
 				until you type <code class="font-mono">exit</code>; what it printed can be parsed afterwards.
 			</p>
-			<div class="grid gap-4 sm:grid-cols-2">
-				<Select label="Agent" bind:value={agentId} options={agentOptions} />
-				<TextField label="Container image (optional)" bind:value={image} mono placeholder="the agent’s own shell" supporting="A shell inside this image instead" />
-			</div>
+			<Select label="Agent" bind:value={agentId} options={agentOptions} />
+			<ShellWhere bind:image {projectId} bind:blocked={shellBlocked} />
 		{/if}
 		{#if kind === 'command'}
 			<div class="flex gap-2">
@@ -276,6 +277,6 @@
 	</form>
 	{#snippet actions()}
 		<Button variant="text" onclick={() => (open = false)}>Cancel</Button>
-		<Button type="submit" form="new-task" loading={busy} icon={kind === 'command' ? 'terminal' : kind === 'shell' ? 'keyboard' : 'add'}>{kind === 'shell' ? 'Open a shell' : 'Create card'}</Button>
+		<Button type="submit" form="new-task" loading={busy} disabled={kind === 'shell' && shellBlocked} icon={kind === 'command' ? 'terminal' : kind === 'shell' ? 'keyboard' : 'add'}>{kind === 'shell' ? 'Open a shell' : 'Create card'}</Button>
 	{/snippet}
 </Dialog>
