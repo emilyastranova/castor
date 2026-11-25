@@ -517,6 +517,8 @@ export interface AssetType {
 	plural: string;
 	icon: string;
 	identity: string[];
+	/** Any one of `identity` identifies it (a host: an address or a hostname); otherwise it needs all of them. */
+	identity_any?: boolean;
 	default_field: string;
 	fields: { name: string; label: string; type: 'text' | 'number' | 'bool' | 'list' }[];
 	/** The plugin that adds it; "removed" when that plugin is gone but assets of the type remain. */

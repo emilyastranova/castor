@@ -206,6 +206,17 @@
 	let importOpen = $state(false);
 	let importType = $state('ip');
 	let importText = $state('');
+	let addDef = $derived(assetTypes.get(addType));
+	/** What it still needs to be identified ("an address or a hostname"), or null when it has enough. */
+	let addNeeds = $derived.by(() => {
+		const t = addDef;
+		if (!t || !t.identity.length) return null;
+		const label = (n: string) => (t.fields.find((x) => x.name === n)?.label ?? n).toLowerCase();
+		const set = (n: string) => !!addFields[n]?.trim();
+		if (t.identity_any) return t.identity.some(set) ? null : t.identity.map(label).join(' or ');
+		const missing = t.identity.filter((n) => !set(n));
+		return missing.length ? missing.map(label).join(' and ') : null;
+	});
 	async function add() {
 		try {
 			await api().assets.add(project.id, { type: addType, fields: addFields, secret: addType === 'credential' && addSecret ? addSecret : undefined });
@@ -902,16 +913,19 @@
 		<Select label="Type" bind:value={addType} options={assetTypes.list.map((t) => ({ value: t.name, label: t.label }))} />
 		{#each assetTypes.get(addType)?.fields ?? [] as f (f.name)}
 			{#if f.name !== 'fingerprint'}
-				<TextField label="{f.label}{assetTypes.get(addType)?.identity.includes(f.name) ? ' *' : ''}" value={addFields[f.name] ?? ''} oninput={(e) => (addFields = { ...addFields, [f.name]: (e.currentTarget as HTMLInputElement).value })} mono={f.type !== 'text'} />
+				<TextField label="{f.label}{addDef?.identity.includes(f.name) && !addDef.identity_any ? ' *' : ''}" value={addFields[f.name] ?? ''} oninput={(e) => (addFields = { ...addFields, [f.name]: (e.currentTarget as HTMLInputElement).value })} mono={f.type !== 'text'} />
 			{/if}
 		{/each}
+		{#if addDef?.identity_any}
+			<p class="px-1 body-small text-on-surface-variant">Either the {addDef.identity.map((n) => (addDef?.fields.find((x) => x.name === n)?.label ?? n).toLowerCase()).join(' or the ')} is enough.</p>
+		{/if}
 		{#if addType === 'credential'}
 			<TextField label="Secret (password, hash or key)" type="password" bind:value={addSecret} supporting="Encrypted with the vault; shown only when someone reveals it." />
 		{/if}
 	</div>
 	{#snippet actions()}
 		<Button variant="text" onclick={() => (addOpen = false)}>Cancel</Button>
-		<Button icon="check" onclick={add}>Add</Button>
+		<Button icon="check" disabled={!!addNeeds} title={addNeeds ? `Needs ${addNeeds}` : undefined} onclick={add}>Add</Button>
 	{/snippet}
 </Dialog>
 

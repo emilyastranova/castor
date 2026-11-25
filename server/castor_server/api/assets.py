@@ -128,6 +128,8 @@ async def asset_types(db: DB, _: CurrentUser) -> list[dict[str, Any]]:
     types = [*A.TYPES.values(), *(A.orphan_type(n) for n in sorted(there - set(A.TYPES)))]
     return [
         {"name": t.name, "label": t.label, "plural": t.plural, "icon": t.icon, "identity": list(t.identity),
+         # Any one of the identity fields will do (a host: an address or a hostname); otherwise all of them.
+         "identity_any": t.name == "host",
          "default_field": A.default_field(t.name), "plugin": t.plugin, "description": t.description,
          "fields": [{"name": f.name, "label": f.label, "type": f.type} for f in t.fields]}
         for t in types
