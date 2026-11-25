@@ -2475,7 +2475,7 @@ export function api(fetchFn: Fetch = fetch) {
 				if (src.directory) form.append('directory', src.directory);
 				return request<PluginPreview>(fetchFn, 'POST', '/plugins/preview', form);
 			},
-			install: (body: { token: string; source: string; approve: boolean; project_ids: UUID[]; all_projects: boolean; settings?: Record<string, unknown>; secrets?: Record<string, string | null>; per_user?: string[]; confirm?: string }) =>
+			install: (body: { token: string; source: string; approve: boolean; project_ids?: UUID[]; all_projects?: boolean; settings?: Record<string, unknown>; secrets?: Record<string, string | null>; per_user?: string[]; confirm?: string }) =>
 				post<Plugin>('/plugins', body),
 			/** Restricted mode (no unrestricted plugins) and safe mode (no plugin runs). */
 			mode: () => get<PluginMode>('/plugin-mode'),
@@ -3216,8 +3216,10 @@ export interface ProjectPluginAction extends PluginActionSpec {
 export interface PluginPanel {
 	plugin: { id: string; name: string; icon_url: string | null };
 	id: string;
-	slot: 'asset.panel' | 'card.tab' | 'project.page' | 'page.script';
+	slot: 'asset.panel' | 'card.tab' | 'project.page' | 'nav.page' | 'page.script';
 	title: string;
+	/** nav.page: its name in the navigation rail ("" = the title). */
+	label?: string;
 	path: string;
 	icon: string;
 	asset_types: string[];

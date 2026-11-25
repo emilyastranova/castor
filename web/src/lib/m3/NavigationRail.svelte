@@ -27,7 +27,7 @@
 <nav class="flex h-full w-20 shrink-0 flex-col items-center gap-3 bg-surface py-3 short:gap-2 short:py-2" aria-label="Main">
 	{@render top?.()}
 	<div class="flex min-h-0 w-full flex-1 flex-col items-center gap-3 overflow-y-auto py-1 [scrollbar-width:none] short:gap-1">
-		{#each items as item (item.label)}
+		{#each items as item (`${item.href}|${item.label}`)}
 			{#if item.divider}<span class="h-px w-10 shrink-0 bg-outline-variant" aria-hidden="true"></span>{/if}
 			<a
 				href={item.href}
@@ -46,7 +46,7 @@
 						<span class="absolute -top-1 right-2 min-w-4 rounded-full bg-error px-1 text-center text-on-error label-small">{item.badge}</span>
 					{/if}
 				</span>
-				<span class="m3-rail-label label-medium shorter:sr-only {active(item) ? 'text-on-surface' : 'text-on-surface-variant'}">{item.label}</span>
+				<span class="m3-rail-label label-medium max-w-full truncate px-1 shorter:sr-only {active(item) ? 'text-on-surface' : 'text-on-surface-variant'}">{item.label}</span>
 			</a>
 		{/each}
 	</div>

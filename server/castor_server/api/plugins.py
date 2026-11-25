@@ -223,8 +223,9 @@ class InstallIn(BaseModel):
     source: str = Field("", max_length=500)
     # The admin saw and approved what the manifest asks for (and, for an update, anything new).
     approve: bool = False
-    project_ids: list[uuid.UUID] = Field(default_factory=list)
-    all_projects: bool = False
+    # Its projects. Left out on an update, they stay as they are (and so do its settings, unless sent).
+    project_ids: list[uuid.UUID] | None = None
+    all_projects: bool | None = None
     settings: dict[str, Any] = Field(default_factory=dict)
     secrets: dict[str, str | None] = Field(default_factory=dict)
     # Settings each person sets for themselves (an API key everyone brings) instead of one shared value.

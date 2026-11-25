@@ -302,10 +302,12 @@ def missing_settings(man: Manifest, p: m.Plugin) -> list[str]:
 
 
 async def install(db: AsyncSession, user: m.User, pkg: plugin_package.Package, *, source: str,
-                  project_ids_in: list[uuid.UUID], all_projects: bool, values: dict[str, Any] | None = None,
+                  project_ids_in: list[uuid.UUID] | None, all_projects: bool | None, values: dict[str, Any] | None = None,
                   secrets_in: dict[str, Any] | None = None, per_user: list[str] | None = None) -> m.Plugin:
     """A new plugin, or a newer (or different) release of one already here. The caller has the
-    admin's approval of what the manifest asks for. Commits; the plugin starts in the background."""
+    admin's approval of what the manifest asks for. Commits; the plugin starts in the background.
+    An update keeps the plugin's settings, secrets, per-person choices and projects: only what's
+    sent changes (projects only when `project_ids_in` or `all_projects` is given)."""
     from . import plugin_library
     from .services import actor_of, record_activity
 
@@ -338,7 +340,7 @@ async def install(db: AsyncSession, user: m.User, pkg: plugin_package.Package, *
     else:
         p = m.Plugin(id=man.id, name=man.name, version=man.version, publisher=man.publisher, description=man.description,
                      manifest=man.model_dump(mode="json"), runtime=man.runtime, source=source, checksum=pkg.checksum,
-                     path=rel, enabled=True, all_projects=all_projects, granted=grants(man), installed_by=user.id)
+                     path=rel, enabled=True, all_projects=bool(all_projects), granted=grants(man), installed_by=user.id)
         set_per_user(man, p, per_user or [])
         p.settings, p.secrets = check_settings(man, values or {}, secrets_in, names={s.name for s in man.settings} - set(p.per_user))
         db.add(p)
@@ -347,8 +349,11 @@ async def install(db: AsyncSession, user: m.User, pkg: plugin_package.Package, *
         p.user_id = account.id
         await record_activity(db, type="plugin.installed", message=f"Installed the plugin {man.name} {man.version}", project_id=None,
                               payload={"id": man.id, "permissions": man.permissions, "runtime": man.runtime}, **actor_of(user))
-    if existing is None or project_ids_in or all_projects != p.all_projects:
-        await set_projects(db, p, project_ids_in, all_projects)
+    if existing is None:
+        await set_projects(db, p, project_ids_in or [], bool(all_projects))
+    elif project_ids_in is not None or all_projects is not None:
+        await set_projects(db, p, project_ids_in if project_ids_in is not None else await project_ids(db, p.id),
+                           p.all_projects if all_projects is None else all_projects)
     await plugin_library.apply(db, p.id, pkg.library)
     await db.commit()
     register_types(p.id, man)

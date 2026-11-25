@@ -20,6 +20,8 @@
 	import NotificationBell from '$lib/components/NotificationBell.svelte';
 	import PhoneNav from '$lib/components/PhoneNav.svelte';
 	import { currentProject } from '$lib/currentProject.svelte';
+	import { pluginPanels } from '$lib/plugins.svelte';
+	import { pluginPageHref } from '$lib/pluginPages';
 	import AccountDialog from '$lib/components/AccountDialog.svelte';
 	import { notifications } from '$lib/notifications.svelte';
 	import { version } from '$lib/version.svelte';
@@ -40,6 +42,10 @@
 		{ href: currentProject.board, icon: 'view_kanban', label: 'Board', exact: true },
 		{ href: currentProject.assets, icon: 'radar', label: 'Assets', exact: true },
 		{ href: currentProject.files, icon: 'folder_open', label: 'Files', exact: true },
+		// Pages the current project's plugins add (manifest `ui` slot nav.page).
+		...(currentProject.id
+			? pluginPanels.for(currentProject.id, 'nav.page').map((p) => ({ href: pluginPageHref(currentProject.id!, p), icon: p.icon, label: p.label || p.title }))
+			: []),
 		{ href: '/playbooks', icon: 'account_tree', label: 'Playbooks', divider: true },
 		{ href: '/library', icon: 'handyman', label: 'Library' },
 		{ href: '/variables', icon: 'key', label: 'Variables' },
@@ -50,6 +56,9 @@
 		{ href: '/people', icon: 'groups', label: 'People' },
 		...(data.user?.role === 'admin' ? [{ href: '/settings', icon: 'settings', label: 'Settings' }] : [])
 	]);
+	$effect(() => {
+		if (data.user && currentProject.id) void pluginPanels.load(currentProject.id);
+	});
 	let accountOpen = $state(false);
 
 	onMount(() => {

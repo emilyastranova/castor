@@ -100,16 +100,21 @@
 		installing = true;
 		error = null;
 		try {
+			// An update keeps its settings and projects (the form isn't shown): send only the approval.
 			const p = await api().plugins.install({
 				token: preview.token,
 				source: preview.source,
 				approve: approved,
-				project_ids: projectIds,
-				all_projects: allProjects,
-				settings: Object.fromEntries(Object.entries(values).filter(([k]) => !own.has(k))),
-				secrets: Object.fromEntries(Object.entries(secrets).filter(([k, v]) => v !== '' && !own.has(k))),
-				per_user: perUser,
-				confirm: unrestricted ? confirmId.trim() : undefined
+				confirm: unrestricted ? confirmId.trim() : undefined,
+				...(isUpdate
+					? {}
+					: {
+							project_ids: projectIds,
+							all_projects: allProjects,
+							settings: Object.fromEntries(Object.entries(values).filter(([k]) => !own.has(k))),
+							secrets: Object.fromEntries(Object.entries(secrets).filter(([k, v]) => v !== '' && !own.has(k))),
+							per_user: perUser
+						})
 			});
 			open = false;
 			oninstalled(p);
@@ -137,6 +142,7 @@
 	);
 	const SLOTS: Record<string, string> = {
 		'project.page': 'a tab on the Assets page',
+		'nav.page': 'a page in the navigation rail',
 		'card.tab': 'a tab on cards',
 		'asset.panel': 'a panel on assets',
 		'page.script': 'a script in Castor’s own page'

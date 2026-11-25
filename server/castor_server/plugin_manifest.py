@@ -67,7 +67,7 @@ class LibraryActionSpec(BaseModel):
     confirm: bool = False
 
 
-SLOTS = ("asset.panel", "card.tab", "project.page", "page.script")
+SLOTS = ("asset.panel", "card.tab", "project.page", "nav.page", "page.script")
 
 
 def mcp_tool_name(plugin_id: str, name: str) -> str:
@@ -112,9 +112,12 @@ class UiSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")
-    # Where: a panel in an asset's dialog, a tab on a card, or a page of its own in a project.
-    slot: Literal["asset.panel", "card.tab", "project.page", "page.script"]
+    # Where: a panel in an asset's dialog, a tab on a card, a tab on a project's Assets page, or
+    # (nav.page) a page of its own in a project, reached from the navigation rail.
+    slot: Literal["asset.panel", "card.tab", "project.page", "nav.page", "page.script"]
     title: str = Field(min_length=1, max_length=60)
+    # nav.page: its name in the navigation rail, which has room for a word (default: the title).
+    label: str = Field("", max_length=14)
     path: str = Field(pattern=r"^[A-Za-z0-9_./-]+\.(html?|m?js)$")  # the page (or page.script's script), in the plugin
     icon: str = Field("extension", pattern=r"^[a-z0-9_]{1,40}$")  # a Material Symbols name
     # asset.panel: the asset types it's shown for (empty: every type).

@@ -58,7 +58,7 @@
 	class="flex shrink-0 items-stretch border-t border-outline-variant/60 bg-surface-container pb-[env(safe-area-inset-bottom)] md:hidden"
 	aria-label="Main"
 >
-	{#each pinned as i (i.label)}
+	{#each pinned as i (`${i.href}|${i.label}`)}
 		<a href={i.href} class="group flex h-16 flex-1 flex-col items-center justify-center gap-1 outline-none" aria-current={active(i) ? 'page' : undefined}>
 			{@render item(i.icon, i.label, active(i))}
 		</a>
@@ -102,7 +102,7 @@
 	</div>
 
 	<ul class="grid grid-cols-3 gap-1 px-3">
-		{#each rest as i (i.label)}
+		{#each rest as i (`${i.href}|${i.label}`)}
 			<li>
 				<a
 					href={i.href}

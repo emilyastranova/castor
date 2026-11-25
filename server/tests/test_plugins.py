@@ -267,6 +267,27 @@ def test_updates_ask_again_for_new_permissions(client, auth):
     client.delete(f"/api/plugins/{pid}", headers=auth)
 
 
+def test_updates_keep_settings_and_projects(client, auth):
+    n = uuid.uuid4().hex[:6]
+    pid = install(client, auth, probe(n), all_projects=True, settings={"greeting": "hi there"}, secrets={"key": "s3cret"})["id"]
+    for version in ("1.1.0", "1.2.0"):
+        p = preview(client, auth, probe(n, version=version)).json()
+        # 1.1.0 as the dialog sends it (only the approval), 1.2.0 with an explicit setting.
+        extra = {} if version == "1.1.0" else {"settings": {"greeting": "changed"}}
+        r = client.post("/api/plugins", json={"token": p["token"], "approve": True, **extra}, headers=auth)
+        assert r.status_code == 201, r.text
+        out = r.json()
+        assert out["all_projects"] is True and out["secrets_set"] == ["key"]
+        assert out["settings"]["greeting"] == ("hi there" if version == "1.1.0" else "changed")
+    # Projects change on an update only when they're sent.
+    mine = project(client, auth)
+    p = preview(client, auth, probe(n, version="1.3.0")).json()
+    out = client.post("/api/plugins", json={"token": p["token"], "approve": True, "all_projects": False, "project_ids": [mine["id"]]},
+                      headers=auth).json()
+    assert out["all_projects"] is False and out["project_ids"] == [mine["id"]] and out["settings"]["greeting"] == "changed"
+    client.delete(f"/api/plugins/{pid}", headers=auth)
+
+
 def test_a_plugin_that_imports_from_outside_is_refused(client, auth):
     n = uuid.uuid4().hex[:6]
     sneaky = PROBE_MAIN.replace('import { definePlugin } from "@castor/plugin";',
@@ -636,6 +657,7 @@ permissions: [projects:read, assets:write]
 ui:
   - {{id: page, slot: project.page, title: Overview, path: ui/page.html}}
   - {{id: side, slot: asset.panel, title: Side, path: ui/page.html, asset_types: [host]}}
+  - {{id: nav, slot: nav.page, title: Attack paths, label: Paths, icon: route, path: ui/page.html}}
 """
 PANEL_MAIN = """
 import { definePlugin } from "@castor/plugin";
@@ -668,7 +690,8 @@ def test_plugin_panels(client, auth):
         running(client, auth, pid)
         panels = client.get(f"/api/projects/{p['id']}/plugin-panels", headers=auth).json()
         mine = [x for x in panels if x["plugin"]["id"] == pid]
-        assert [(x["id"], x["slot"]) for x in mine] == [("page", "project.page"), ("side", "asset.panel")]
+        assert [(x["id"], x["slot"]) for x in mine] == [("page", "project.page"), ("side", "asset.panel"), ("nav", "nav.page")]
+        assert (mine[2]["label"], mine[2]["icon"]) == ("Paths", "route")
         assert mine[1]["asset_types"] == ["host"]
         assert not [x for x in client.get(f"/api/projects/{other['id']}/plugin-panels", headers=auth).json() if x["plugin"]["id"] == pid]
 

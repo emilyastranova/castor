@@ -107,11 +107,12 @@ mcp_tools:                     # tools for AI assistants on Castor's MCP server,
 hooks: []
 ui:                            # its pages, shown in Castor in sandboxed frames (phase C)
   - id: paths
-    slot: project.page         # project.page (a tab on the Assets page), card.tab, asset.panel
+    slot: project.page         # project.page (a tab on the Assets page), nav.page (the rail), card.tab, asset.panel
     title: Attack paths
     path: ui/paths.html        # inside the plugin; its CSS, scripts and images sit next to it
     icon: route                # a Material Symbols name
   - { id: asset-path, slot: asset.panel, title: Path to Domain Admins, path: ui/paths.html, asset_types: [user, host], height: 140 }
+  - { id: graph, slot: nav.page, title: Attack graph, label: Graph, icon: hub, path: ui/graph.html }  # label: its word in the rail
 settings:
   - { name: info_findings, label: "Record informational findings", type: bool, default: false }
   - { name: api_url, label: Salt API URL, type: text, network: true }   # it may reach the host an admin sets here
@@ -389,8 +390,13 @@ host you set in …"). The official example is **SaltStack minions** (castor-plu
 ### UI slots (phase C)
 
 A slot is an HTML page in the plugin's folder that Castor shows in a frame: `project.page` (a tab
-on the project's Assets page, filling it), `card.tab` (a tab in the card dialog) and `asset.panel`
-(a section of the asset dialog, for the `asset_types` listed or all). `run.panel`,
+on the project's Assets page, filling it), `nav.page` (an item in the navigation rail, after Home,
+Board, Assets and Files, opening a page of its own that it fills, at
+`/projects/<project>/plugins/<plugin>/<ui id>`; the rail shows its `icon` and `label`, up to 14
+characters, or its title; on phones it's in the More sheet), `card.tab` (a tab in the card dialog)
+and `asset.panel` (a section of the asset dialog, for the `asset_types` listed or all). Like the
+rail's other project pages, a `nav.page` follows the current project, and shows only while the
+plugin is enabled in it. `run.panel`,
 `project.home`, `settings.page` and `graph.overlay` come later.
 
 **How it's kept apart.** The server serves the plugin's files at
@@ -426,7 +432,7 @@ Castor.onTheme((t) => redraw());      // the theme changed (light/dark, colours,
 The theme reaches the page as CSS variables on `:root`: the colour roles (`--primary`,
 `--on-surface`, `--surface-container`, `--outline-variant`, `--error-container`…), `--font`,
 `--mono` and `--radius-small|medium|large`; a base style already uses them. The frame's height
-follows the page's content, or fills the tab for `project.page`. Opening another card or asset
+follows the page's content, or fills the tab for `project.page` and the page for `nav.page`. Opening another card or asset
 loads the page again with its new context.
 
 **Handlers.** `ctx.ui.on(name, handler, { readOnly })` in `main.ts` answers `Castor.call`. The
