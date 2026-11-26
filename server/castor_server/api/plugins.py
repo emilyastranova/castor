@@ -187,10 +187,12 @@ def panel_icon_url(p: m.Plugin, ui: Any) -> str | None:
 
 @router.post("/plugins/preview")
 async def preview(db: DB, _: Admin, file: Annotated[UploadFile | None, File()] = None,
-                  url: Annotated[str | None, Form()] = None, directory: Annotated[str | None, Form()] = None) -> dict[str, Any]:
-    """Upload a plugin's .zip, give an https URL to one, or name a plugin in the directory (its
-    newest release, checked against its SHA-256), and see what it is and asks for, before anything
-    of it runs. Send the token back to install it."""
+                  url: Annotated[str | None, Form()] = None, directory: Annotated[str | None, Form()] = None,
+                  repository: Annotated[str | None, Form()] = None, path: Annotated[str | None, Form()] = None) -> dict[str, Any]:
+    """Upload a plugin's .zip, give an https URL to one, name a plugin in the directory (its
+    newest release, checked against its SHA-256), or a plugin repository and the plugin's folder in
+    it (fetched now and packed), and see what it is and asks for, before anything of it runs. Send
+    the token back to install it."""
     release = None
     if file is not None:
         data, source = await file.read(MAX_URL_DOWNLOAD + 1), f"upload:{file.filename or 'plugin.zip'}"
@@ -203,6 +205,10 @@ async def preview(db: DB, _: Admin, file: Annotated[UploadFile | None, File()] =
         except plugin_directory.DirectoryError as exc:
             raise HTTPException(422, str(exc)) from exc
         source = f"directory:{entry.id}"
+    elif repository:
+        from .plugin_repos import package_for_preview
+
+        data, source = await package_for_preview(db, repository, path or "")
     elif url:
         data, source = await _download(url.strip()), url.strip()
     else:

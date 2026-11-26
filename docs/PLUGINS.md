@@ -464,6 +464,7 @@ call must belong to the project, and the plugin must be enabled there.
 | `plugin_storage` | plugin id, scope ("" or a project id), key, JSON value (≤ 1 MB) |
 | `plugin_runs` | each time someone ran an action: on what, the file's name and size, status, progress, message |
 | `plugin_logs` | what it logged or printed (the newest 2000 per plugin) |
+| `plugin_repositories` | a Git repository plugins come from: name, URL, branch or tag, `auth` (none, https, ssh), username, `secret` and `passphrase` (vault), `known_hosts` (trusted on first use), the last fetch's commit, time and error |
 | `users.plugin_id` | marks a plugin's service account: never signs in, isn't listed among people; `access.member_project_ids` makes it see the plugin's projects |
 
 The audit trail is the activity log (`plugin.installed`, `plugin.updated`, `plugin.changed`,
@@ -496,7 +497,13 @@ Admins only (session, or a token with the `admin` scope):
 - `GET /api/plugin-directory` (every plugin, its newest release, installed or not, an update or
   not), `GET /api/plugin-directory/plugins/{id}` (release notes, the manifest, the README, why it
   can't be installed here), `…/plugins/{id}/icon`, `GET /api/plugin-directory/publishers/{id}`,
-  `POST /api/plugin-directory/check` (update check now)
+  `POST /api/plugin-directory/check` (update check now, the directory's and the repositories')
+- `POST /api/plugins/preview` with `repository: <id>` and `path: <folder>`: that folder of a plugin
+  repository, fetched now and packed (source `repo:<repository id>:<folder>`)
+- `GET|POST /api/plugin-repositories`, `PATCH|DELETE /api/plugin-repositories/{id}`,
+  `POST …/{id}/fetch`, `POST …/{id}/forget-host-keys`, `GET /api/plugin-repositories/plugins` (every
+  plugin in them, installed or not, an update or not), `GET …/{id}/icon?path=<folder>`. Secrets are
+  write-only; the answer has `has_secret`, and an SSH key's `public_key`.
 
 Anyone who can change an enabled project: `GET /api/projects/{id}/plugin-actions`,
 `POST /api/plugins/{id}/actions/{action}` (a form: `project_id`, optional `task_id`/`asset_id`, the
@@ -505,7 +512,9 @@ file), or `POST /api/plugin-actions/run` (the same as JSON, the file as base64);
 records many assets and relationships at once (what `ctx.assets.bulk` calls, open to everyone who
 can change assets). MCP: `list_plugin_actions`, `run_plugin_action`, `get_plugin_run`,
 `list_plugin_runs`, `bulk_assets`, and `list_plugins` for admins; installing, configuring and
-removing plugins stay in the UI, where an admin approves them.
+removing plugins stay in the UI, where an admin approves them. For repositories, MCP lists them
+(`list_plugin_repositories`, `browse_plugin_repositories`) and fetches one
+(`fetch_plugin_repository`); adding or changing one, which holds Git credentials, is the UI's.
 
 ## The directory
 
@@ -551,6 +560,40 @@ like `obsidian-releases`, which also holds the official plugins. `directory.json
   install; the directory's plugin page says when this Castor is too old.
 
 Signatures (Sigstore) come later, once there are publishers to verify.
+
+## Plugin repositories
+
+Your own sources of plugins, next to the directory: Git repositories, public or private, added in
+Settings → Plugins → Repositories (`plugin_repos.py`, `api/plugin_repos.py`). Castor's server runs
+the real `git` client (the server image has git and the OpenSSH client), so whatever git can fetch
+works: `https://` and `http://`, `ssh://` and `git@host:team/repo.git`, `git://`, `file://` and
+local paths, and remote helpers an operator allows.
+
+- **Layout:** every folder with a `castor-plugin.yaml` is a plugin (the castor-plugins repository
+  is one: `plugins/<id>/`). Installing packs the folder exactly as castor-plugins'
+  `scripts/pack.py` does (leaving out `samples/`, `dist/`, `node_modules/`, `deno.json`,
+  `deno.lock` and `*_test.ts`; fixed timestamps, so the same files make the same .zip) and opens the
+  usual preview. Symlinks and submodules are skipped. Nothing in a repository is vetted.
+- **Branch or tag:** `ref` (empty: the default branch). Each fetch is one commit deep into a bare
+  clone under `<data_dir>/plugins/.repos/<id>.git`; files are read from git's objects
+  (`ls-tree`, `cat-file`), never checked out.
+- **Signing in:** none; HTTPS with a username and a token or password (handed to git by a
+  `GIT_ASKPASS` script reading its environment; GitLab's username is `oauth2`, Bitbucket's
+  `x-token-auth`, GitHub's anything); or an SSH key, pasted (with its passphrase, if any) or made
+  by Castor, whose public half is shown to add as a read-only deploy key. Secrets are
+  vault-encrypted, write-only in the API, and reach git only through its environment or a 0600 file
+  in a private temporary folder removed after; a URL with a password in it is refused.
+- **Host keys:** SSH host keys are trusted on first use and kept per repository (`known_hosts`).
+  A changed key fails the fetch until an admin forgets the trusted one.
+- **Isolation:** git runs with no global config (`HOME` is the temporary folder), credential
+  helpers, hooks and terminal prompts off, ssh with no config file and no agent, and only the
+  transports in `CASTOR_PLUGIN_GIT_PROTOCOLS` (default `https:http:ssh:git:file`; `ext::`, which runs
+  a command, is never on unless an operator adds it). The system git config (`/etc/gitconfig`:
+  proxies, certificate authorities) and proxy variables still apply. `CASTOR_PLUGIN_GIT_TIMEOUT`
+  (180 s) bounds a fetch.
+- **Updates:** the daily check (and Check now) fetches each enabled repository a plugin was
+  installed from and records a newer `version:` of the same id and publisher, as the directory
+  does. Review the update packs it again. Removing a repository leaves its plugins installed.
 
 ## Library content (packs)
 

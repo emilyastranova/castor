@@ -2468,11 +2468,15 @@ export function api(fetchFn: Fetch = fetch) {
 			list: () => get<Plugin[]>('/plugins'),
 			get: (id: string) => get<Plugin>(`/plugins/${id}`),
 			/** A .zip (or an https URL to one): what it is and asks for, before anything runs. */
-			preview: (src: { file?: File; url?: string; directory?: string }) => {
+			preview: (src: { file?: File; url?: string; directory?: string; repository?: string; path?: string }) => {
 				const form = new FormData();
 				if (src.file) form.append('file', src.file);
 				if (src.url) form.append('url', src.url);
 				if (src.directory) form.append('directory', src.directory);
+				if (src.repository) {
+					form.append('repository', src.repository);
+					form.append('path', src.path ?? '');
+				}
 				return request<PluginPreview>(fetchFn, 'POST', '/plugins/preview', form);
 			},
 			install: (body: { token: string; source: string; approve: boolean; project_ids?: UUID[]; all_projects?: boolean; settings?: Record<string, unknown>; secrets?: Record<string, string | null>; per_user?: string[]; confirm?: string }) =>
@@ -2490,7 +2494,14 @@ export function api(fetchFn: Fetch = fetch) {
 			directoryPlugin: (id: string) => get<DirectoryPluginPage>(`/plugin-directory/plugins/${encodeURIComponent(id)}`),
 			publisher: (id: string) => get<DirectoryPublisher & { plugins: DirectoryEntry[] }>(`/plugin-directory/publishers/${encodeURIComponent(id)}`),
 			/** Look for newer releases of installed plugins now. */
-			checkUpdates: () => post<{ updates: { id: string; name: string; from: string; to: string }[] }>('/plugin-directory/check'),
+			checkUpdates: () => post<{ updates: { id: string; name: string; from: string; to: string }[]; error?: string | null }>('/plugin-directory/check'),
+			repositories: () => get<PluginRepository[]>('/plugin-repositories'),
+			addRepository: (body: PluginRepositoryIn) => post<PluginRepository>('/plugin-repositories', body),
+			updateRepository: (id: UUID, body: Partial<PluginRepositoryIn>) => request<PluginRepository>(fetchFn, 'PATCH', `/plugin-repositories/${id}`, body),
+			removeRepository: (id: UUID) => del(`/plugin-repositories/${id}`),
+			fetchRepository: (id: UUID) => post<PluginRepository>(`/plugin-repositories/${id}/fetch`),
+			forgetHostKeys: (id: UUID) => post<PluginRepository>(`/plugin-repositories/${id}/forget-host-keys`),
+			repositoryPlugins: () => get<{ plugins: RepoPlugin[]; errors: { repository: UUID; name: string; error: string }[] }>('/plugin-repositories/plugins'),
 			remove: (id: string) => del(`/plugins/${id}`),
 			logs: (id: string, limit = 200) => get<PluginLogEntry[]>(`/plugins/${id}/logs?limit=${limit}`),
 			/** How much of its actions' rate limit is in use now (null: it has none). */
@@ -3113,6 +3124,69 @@ export interface DirectoryPublisher {
 }
 
 /** A plugin in the directory: nothing in it is vetted; installing shows what it asks for first. */
+/** A Git repository plugins are installed from (Settings → Plugins → Repositories). */
+export interface PluginRepository {
+	id: UUID;
+	name: string;
+	/** Any URL git takes: https://…, ssh://…, git@host:org/repo, git://…, file://… */
+	url: string;
+	/** A branch or tag ("" = the default branch). */
+	ref: string;
+	auth: 'none' | 'https' | 'ssh';
+	username: string;
+	has_secret: boolean;
+	has_passphrase: boolean;
+	ssh_url: boolean;
+	/** SSH: the key's public half, to add to the repository as a (read-only) deploy key. */
+	public_key: string | null;
+	/** SSH host keys trusted on first use. */
+	host_keys: { host: string; type: string; fingerprint: string }[];
+	enabled: boolean;
+	commit: string | null;
+	fetched_at: string | null;
+	error: string | null;
+	/** Plugins at the fetched commit (null: not fetched). */
+	plugins: number | null;
+	created_at: string | null;
+}
+
+export interface PluginRepositoryIn {
+	name: string;
+	url: string;
+	ref?: string;
+	auth?: 'none' | 'https' | 'ssh';
+	username?: string;
+	/** Write-only: left out keeps it, "" clears it. */
+	secret?: string | null;
+	passphrase?: string | null;
+	/** SSH: make a key on the server (see `public_key`). */
+	generate_key?: boolean;
+	enabled?: boolean;
+}
+
+/** A plugin folder in a plugin repository. */
+export interface RepoPlugin {
+	path: string;
+	id: string;
+	name: string;
+	version: string;
+	publisher: string;
+	description: string;
+	homepage: string;
+	has_icon: boolean;
+	/** Its castor-plugin.yaml can't be read. */
+	problem: string | null;
+	repository: { id: UUID; name: string };
+	/** What an install from it is recorded as (Plugin.source). */
+	source: string;
+	icon_url: string | null;
+	installed: string | null;
+	/** Installed from this very folder. */
+	installed_here: boolean;
+	taken: boolean;
+	update: boolean;
+}
+
 export interface DirectoryEntry {
 	id: string;
 	name: string;

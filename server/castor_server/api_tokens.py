@@ -219,6 +219,8 @@ RULES: list[tuple[str, str, str]] = [
     ("*", "/api/plugin-mode", "admin"),
     ("*", "/api/plugin-directory", "admin"),
     ("*", "/api/plugin-directory/**", "admin"),
+    ("*", "/api/plugin-repositories", "admin"),
+    ("*", "/api/plugin-repositories/**", "admin"),
     # Plugins' MCP tools: reading; a tool that changes things also needs projects:write (api/plugin_tools.py).
     ("GET", "/api/plugin-tools", "projects:read"),
     ("POST", "/api/plugin-tools/*/*", "projects:read"),

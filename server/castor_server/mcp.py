@@ -364,7 +364,7 @@ _FILE = {"filename": _s("File name"), "content_base64": _s("The file's bytes, ba
 # Everything else a person can do in the UI, one endpoint each. Left out on purpose: revealing
 # secrets, user accounts, AI providers and alert channels (they hold keys and webhook secrets),
 # import/export, file downloads, terminal snapshots (drawn in the browser; attach_file takes the picture), and installing, configuring or removing plugins (an admin
-# approves what a plugin may do, in Settings → Plugins), and plugins' panels (pages for people to
+# approves what a plugin may do, in Settings → Plugins), adding or changing plugin repositories (they hold Git credentials), and plugins' panels (pages for people to
 # look at; their handlers are the plugin's own and are reached through the panel).
 TOOLS += [
     _auto("read_ansible_inventory", "POST", "/api/ssh-hosts/inventory",
@@ -596,7 +596,16 @@ TOOLS += [
     _auto("get_plugin_publisher", "GET", "/api/plugin-directory/publishers/{publisher_id}",
           "A publisher in the plugin directory and its plugins (admins).", **_UNTRUSTED),
     _auto("check_plugin_updates", "POST", "/api/plugin-directory/check",
-          "Look for newer releases of installed plugins now (admins). Nothing updates by itself."),
+          "Look for newer releases of installed plugins now, in the directory and the plugin repositories (admins). "
+          "Nothing updates by itself."),
+    _auto("list_plugin_repositories", "GET", "/api/plugin-repositories",
+          "The Git repositories plugins are installed from (admins): URL, branch or tag, how Castor signs in (never the "
+          "secret), trusted SSH host keys, the last fetch and its error."),
+    _auto("browse_plugin_repositories", "GET", "/api/plugin-repositories/plugins",
+          "Every plugin in the plugin repositories as last fetched (admins), and whether it's installed or has an update. "
+          "Nothing in them is vetted; installing stays in Settings → Plugins.", **_UNTRUSTED),
+    _auto("fetch_plugin_repository", "POST", "/api/plugin-repositories/{repo_id}/fetch",
+          "Fetch a plugin repository now (admins), to see its newest plugins."),
     _auto("list_plugin_actions", "GET", "/api/projects/{project_id}/plugin-actions",
           "What the project's plugins offer: each action, where (project, card, asset) and whether it takes a file."),
     _auto("run_plugin_action", "POST", "/api/plugin-actions/run",

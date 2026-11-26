@@ -299,9 +299,6 @@ def newer(candidate: str | None, installed: str) -> bool:
 async def check_updates(force: bool = True) -> list[dict[str, str]]:
     """Look up each installed plugin the directory lists (same id and publisher) and record the
     newest release when it's newer. Admins are told once per new version."""
-    from .accounts import active_admin_ids
-    from .notifications import notify
-
     found: list[dict[str, str]] = []
     d = await directory(force=force)
     if force:
@@ -311,21 +308,15 @@ async def check_updates(force: bool = True) -> list[dict[str, str]]:
         now = datetime.now(UTC)
         for p in plugins:
             entry = d.entry(p.id)
-            if entry is None or entry.publisher != p.publisher:
-                continue
+            if entry is None or entry.publisher != p.publisher or p.source.startswith("repo:"):
+                continue  # one from a plugin repository is checked there (plugin_repos.check_updates)
             try:
                 release = await latest(entry)
             except DirectoryError as exc:
                 log.info("update check for %s: %s", p.id, exc)
                 continue
             p.checked_at = now
-            version = release.version if release and newer(release.version, p.version) else None
-            if version and version != p.latest_version:
-                await notify(db, kind="plugin.update", title=f"{p.name} {version} is available",
-                             body=f"Installed: {p.version}. Review what it asks for before updating.",
-                             link="/settings/plugins", subject=f"plugin-update:{p.id}", user_ids=await active_admin_ids(db),
-                             payload={"id": p.id, "from": p.version, "to": version}, webhooks=False)
-            p.latest_version = version
+            version = await note_latest(db, p, release.version if release else None)
             if version:
                 found.append({"id": p.id, "name": p.name, "from": p.version, "to": version})
         await db.commit()
@@ -333,21 +324,54 @@ async def check_updates(force: bool = True) -> list[dict[str, str]]:
     return found
 
 
+async def note_latest(db: Any, p: m.Plugin, candidate: str | None) -> str | None:
+    """Record `candidate` as the plugin's latest version when it's newer than the installed one,
+    telling admins once per new version. Returns it, or None when there's nothing newer."""
+    from .accounts import active_admin_ids
+    from .notifications import notify
+
+    version = candidate if newer(candidate, p.version) else None
+    if version and version != p.latest_version:
+        await notify(db, kind="plugin.update", title=f"{p.name} {version} is available",
+                     body=f"Installed: {p.version}. Review what it asks for before updating.",
+                     link="/settings/plugins", subject=f"plugin-update:{p.id}", user_ids=await active_admin_ids(db),
+                     payload={"id": p.id, "from": p.version, "to": version}, webhooks=False)
+    p.latest_version = version
+    return version
+
+
+async def check_repositories() -> list[dict[str, str]]:
+    """The plugin repositories' side of the update check (plugin_repos.check_updates)."""
+    from .plugin_repos import check_updates as check_repos
+
+    async with SessionLocal() as db:
+        found = await check_repos(db)
+        await db.commit()
+    bus.publish("plugins.changed", None, {"updates": len(found)})
+    return found
+
+
 async def check_forever() -> None:
     """Started with the app: an update check now and then every CASTOR_PLUGIN_UPDATE_INTERVAL
-    seconds, while the directory is on and Settings → Plugins allows it."""
+    seconds, while Settings → Plugins allows it: the directory's (while it's on), then the plugin
+    repositories' (each fetched)."""
     from . import app_settings
 
     await asyncio.sleep(30)  # let startup finish first
     while True:
         try:
-            if enabled():
-                async with SessionLocal() as db:
-                    on = (await app_settings.load(db)).plugin_update_checks
-                if on:
-                    await check_updates()
-        except asyncio.CancelledError:
-            raise
-        except Exception:  # never let a bad answer stop the loop
-            log.exception("plugin update check failed")
+            async with SessionLocal() as db:
+                on = (await app_settings.load(db)).plugin_update_checks
+        except Exception:
+            log.exception("plugin update check: settings")
+            on = False
+        for run, wanted in ((check_updates, enabled()), (check_repositories, True)):
+            if not (on and wanted):
+                continue
+            try:
+                await run()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # never let a bad answer stop the loop, or one side stop the other
+                log.exception("plugin update check failed")
         await asyncio.sleep(max(300, settings.plugin_update_interval))

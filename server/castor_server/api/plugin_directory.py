@@ -141,9 +141,22 @@ async def publisher_page(publisher_id: str, db: DB, _: Admin) -> dict[str, Any]:
 
 @router.post("/plugin-directory/check")
 async def check_now(_: Admin) -> dict[str, Any]:
-    """Look for newer releases of installed plugins now (the daily check does the same)."""
-    try:
-        updates = await D.check_updates()
-    except D.DirectoryError as exc:
-        raise HTTPException(503, str(exc)) from exc
-    return {"updates": updates}
+    """Look for newer versions of installed plugins now, in the directory and the plugin
+    repositories (the daily check does the same)."""
+    updates, error = [], None
+    if D.enabled():
+        try:
+            updates = await D.check_updates()
+        except D.DirectoryError as exc:
+            error = str(exc)
+    updates += await D.check_repositories()
+    if error and not updates and not await _any_repository():
+        raise HTTPException(503, error)
+    return {"updates": updates, "error": error}
+
+
+async def _any_repository() -> bool:
+    from ..db import SessionLocal
+
+    async with SessionLocal() as db:
+        return (await db.execute(select(m.PluginRepository.id).limit(1))).first() is not None

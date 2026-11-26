@@ -15,9 +15,13 @@
 		projects: ProjectSummary[];
 		/** A plugin in the directory: its newest release is fetched (and checked) when this opens. */
 		directoryId?: string | null;
+		/** A plugin in a plugin repository: fetched and packed when this opens. */
+		repository?: { id: string; path: string; name: string } | null;
 		oninstalled: (p: Plugin) => void;
 	}
-	let { open = $bindable(false), projects, directoryId = null, oninstalled }: Props = $props();
+	let { open = $bindable(false), projects, directoryId = null, repository = null, oninstalled }: Props = $props();
+	/** It comes from somewhere already chosen (the directory or a repository), not a file or link. */
+	let chosen = $derived(Boolean(directoryId || repository));
 
 	let file = $state<File | null>(null);
 	let url = $state('');
@@ -46,7 +50,7 @@
 			preview = null;
 			approved = false;
 			confirmId = '';
-			if (directoryId) void check();
+			if (chosen) void check();
 		}
 	});
 
@@ -54,7 +58,9 @@
 		checking = true;
 		error = null;
 		try {
-			preview = await api().plugins.preview(directoryId ? { directory: directoryId } : file ? { file } : { url: url.trim() });
+			preview = await api().plugins.preview(
+				repository ? { repository: repository.id, path: repository.path } : directoryId ? { directory: directoryId } : file ? { file } : { url: url.trim() }
+			);
 			const m = preview.manifest;
 			values = Object.fromEntries(m.settings.filter((s) => s.type !== 'secret' && s.default !== null).map((s) => [s.name, s.default]));
 			secrets = {};
@@ -151,9 +157,11 @@
 
 <Dialog bind:open title={preview ? (isUpdate ? `Update ${preview.manifest.name}` : `Install ${preview.manifest.name}`) : 'Install a plugin'} icon="extension" size="md">
 	<div class="flex flex-col gap-4 pt-1 pb-2">
-		{#if !preview && directoryId}
+		{#if !preview && chosen}
 			<div class="flex items-center gap-3 py-6 body-medium text-on-surface-variant" role="status">
-				{#if checking}<Icon name="progress_activity" class="animate-spin" />Downloading {directoryId} from the directory and checking it…{/if}
+				{#if checking}<Icon name="progress_activity" class="animate-spin" />{repository
+						? `Fetching ${repository.name} and packing ${repository.path || 'its plugin'}…`
+						: `Downloading ${directoryId} from the directory and checking it…`}{/if}
 			</div>
 		{:else if !preview}
 			<p class="body-medium text-on-surface-variant">
@@ -432,9 +440,9 @@
 		{#if error}<p class="body-small text-error" role="alert">{error}</p>{/if}
 	</div>
 	{#snippet actions()}
-		{#if preview && !directoryId}<Button variant="text" class="mr-auto" onclick={() => (preview = null)}>Back</Button>{/if}
+		{#if preview && !chosen}<Button variant="text" class="mr-auto" onclick={() => (preview = null)}>Back</Button>{/if}
 		<Button variant="text" onclick={() => (open = false)}>Cancel</Button>
-		{#if !preview && directoryId}
+		{#if !preview && chosen}
 			{#if error}<Button icon="refresh" onclick={check}>Try again</Button>{/if}
 		{:else if !preview}
 			<Button icon="search" loading={checking} disabled={!file && !url.trim().startsWith('https://')} onclick={check}>Check it</Button>

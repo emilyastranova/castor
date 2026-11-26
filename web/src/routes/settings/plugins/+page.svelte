@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { brand } from '$lib/brand.svelte';
-	import type { DirectoryEntry, Plugin, PluginLibraryKind, PluginMode } from '$lib/api';
+	import type { DirectoryEntry, Plugin, PluginLibraryKind, PluginMode, RepoPlugin } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { Button, Card, Icon, IconButton, Menu, MenuItem, Switch, Tabs, TopAppBar } from '$lib/m3';
 	import { appSettings } from '$lib/appSettings.svelte';
 	import PluginDirectory from '$lib/components/PluginDirectory.svelte';
+	import PluginRepositories from '$lib/components/PluginRepositories.svelte';
 	import { confirmAction } from '$lib/confirm.svelte';
 	import { realtime } from '$lib/realtime.svelte';
 	import { snackbar } from '$lib/snackbar.svelte';
@@ -50,17 +51,33 @@
 	/** Installing (or updating) from the directory: its id. */
 	let fromDirectory = $state<string | null>(null);
 	let directoryVersion = $state(0);
+	/** Installing (or updating) from a plugin repository: which, and the plugin's folder in it. */
+	let fromRepository = $state<{ id: string; path: string; name: string } | null>(null);
 	const installFromDirectory = (id: string) => {
 		fromDirectory = id;
+		fromRepository = null;
+		installOpen = true;
+	};
+	const installFromRepository = (r: { id: string; path: string; name: string }) => {
+		fromDirectory = null;
+		fromRepository = r;
 		installOpen = true;
 	};
 	const installFile = () => {
 		fromDirectory = null;
+		fromRepository = null;
 		installOpen = true;
 	};
+	/** Where an installed plugin's update comes from: its repository (source repo:<id>:<folder>), else the directory. */
+	function reviewUpdate(p: Plugin) {
+		const m = /^repo:([0-9a-f-]{36}):(.*)$/.exec(p.source);
+		if (m) installFromRepository({ id: m[1], path: m[2], name: 'its repository' });
+		else installFromDirectory(p.id);
+	}
 
-	let tab = $derived(page.url.searchParams.get('tab') === 'browse' ? 'browse' : 'installed');
-	const setTab = (id: string) => goto(id === 'browse' ? '?tab=browse' : '?', { replaceState: true, noScroll: true, keepFocus: true });
+	const TABS = ['installed', 'browse', 'repositories'] as const;
+	let tab = $derived(TABS.find((t) => t === page.url.searchParams.get('tab')) ?? 'installed');
+	const setTab = (id: string) => goto(id === 'installed' ? '?' : `?tab=${id}`, { replaceState: true, noScroll: true, keepFocus: true });
 	let updates = $derived(list.filter((p) => p.latest_version));
 
 	$effect(() => void appSettings.load());
@@ -181,12 +198,31 @@
 		<Button icon="upload_file" variant={tab === 'browse' ? 'outlined' : 'filled'} onclick={installFile}>Install from a file</Button>
 	{/snippet}
 </TopAppBar>
-<div class="px-6"><Tabs tabs={[{ id: 'installed', label: 'Installed', icon: 'extension', badge: list.length }, { id: 'browse', label: 'Browse', icon: 'storefront' }]} value={tab} onchange={setTab} /></div>
+<div class="px-6">
+	<Tabs
+		tabs={[
+			{ id: 'installed', label: 'Installed', icon: 'extension', badge: list.length },
+			{ id: 'browse', label: 'Browse', icon: 'storefront' },
+			{ id: 'repositories', label: 'Repositories', icon: 'source' }
+		]}
+		value={tab}
+		onchange={setTab}
+	/>
+</div>
 
 <div class="flex-1 overflow-auto px-6 pb-10">
 	{#if tab === 'browse'}
 	<div class="max-w-4xl pt-3">
-		<PluginDirectory version={directoryVersion} oninstall={(e: DirectoryEntry) => installFromDirectory(e.id)} />
+		<PluginDirectory
+			version={directoryVersion}
+			oninstall={(e: DirectoryEntry) => installFromDirectory(e.id)}
+			onrepoinstall={(p: RepoPlugin) => installFromRepository({ id: p.repository.id, path: p.path, name: p.repository.name })}
+			onmanage={() => setTab('repositories')}
+		/>
+	</div>
+	{:else if tab === 'repositories'}
+	<div class="max-w-4xl pt-3">
+		<PluginRepositories onchanged={() => directoryVersion++} />
 	</div>
 	{:else}
 	<div class="flex max-w-4xl flex-col gap-3 pt-3">
@@ -257,14 +293,14 @@
 							{/if}
 						</p>
 						<p class="mt-0.5 body-small text-on-surface-variant">
-							{#if p.source.startsWith('directory:')}<Icon name="storefront" size={14} class="mr-0.5 align-[-2px]" />{/if}{p.publisher ? `by ${p.publisher} · ` : ''}<code class="font-mono">{p.id}</code>{p.has_code ? ` · in ${where(p)}` : ''} · installed {relativeTime(p.installed_at)}{p.installed_by ? ` by ${p.installed_by}` : ''}
+							{#if p.source.startsWith('directory:')}<Icon name="storefront" size={14} class="mr-0.5 align-[-2px]" />{:else if p.source.startsWith('repo:')}<Icon name="source" size={14} class="mr-0.5 align-[-2px]" />{/if}{p.publisher ? `by ${p.publisher} · ` : ''}<code class="font-mono">{p.id}</code>{p.has_code ? ` · in ${where(p)}` : ''} · installed {relativeTime(p.installed_at)}{p.installed_by ? ` by ${p.installed_by}` : ''}
 						</p>
 						{#if p.description}<p class="mt-1 body-medium text-on-surface">{p.description}</p>{/if}
 						{#if p.latest_version}
 							<div class="mt-2 flex flex-wrap items-center gap-2 rounded-md bg-tertiary-container/60 px-3 py-1.5 body-small text-on-surface">
 								<Icon name="upgrade" size={16} class="text-tertiary" />
-								<span class="flex-1">{p.latest_version} is available in the plugin directory.</span>
-								<Button variant="text" onclick={() => installFromDirectory(p.id)}>Review the update</Button>
+								<span class="flex-1">{p.latest_version} is available in {p.source.startsWith('repo:') ? 'its repository' : 'the plugin directory'}.</span>
+								<Button variant="text" onclick={() => reviewUpdate(p)}>Review the update</Button>
 							</div>
 						{/if}
 					</div>
@@ -361,5 +397,5 @@
 	{/if}
 </div>
 
-<PluginInstallDialog bind:open={installOpen} projects={data.projects} directoryId={fromDirectory} oninstalled={(p) => { const was = list.find((x) => x.id === p.id); put(p); directoryVersion++; snackbar.show(`${was ? 'Updated' : 'Installed'} ${p.name} ${p.version}`); }} />
+<PluginInstallDialog bind:open={installOpen} projects={data.projects} directoryId={fromDirectory} repository={fromRepository} oninstalled={(p) => { const was = list.find((x) => x.id === p.id); put(p); directoryVersion++; snackbar.show(`${was ? 'Updated' : 'Installed'} ${p.name} ${p.version}`); }} />
 <PluginDialog bind:open={configOpen} plugin={configuring} projects={data.projects} onchanged={(p) => { put(p); snackbar.show(`Saved ${p.name}`); }} />

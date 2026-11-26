@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     github_api_url: str = "https://api.github.com"
     github_token: str = ""
     plugin_update_interval: int = 86400  # seconds between update checks
+    # Plugin repositories (plugin_repos.py): the git transports Castor lets git use (GIT_ALLOW_PROTOCOL,
+    # colon separated; add a remote helper's name, e.g. "codecommit", to allow it) and how long a fetch may take.
+    plugin_git_protocols: str = "https:http:ssh:git:file"
+    plugin_git_timeout: int = 180
     # HTTP actions (docs/ACTIONS.md) and alert channels: addresses (CIDRs, comma separated)
     # exempt from the outbound block on loopback, link-local and reserved addresses, on top of
     # Settings → General. HTTP actions the server runs at once, and the most of a response it

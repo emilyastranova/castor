@@ -3,9 +3,11 @@
 # AI reads. The root .dockerignore lets only those and the server package in.
 FROM docker.io/library/python:3.12-slim
 WORKDIR /app
-# Pango (and fonts) for WeasyPrint, which renders timeline exports as PDF.
+# Pango (and fonts) for WeasyPrint, which renders timeline exports as PDF; git and the OpenSSH
+# client for plugin repositories (plugin_repos.py).
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 fonts-roboto-unhinted fonts-dejavu-core \
+      git openssh-client ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 COPY server/pyproject.toml ./

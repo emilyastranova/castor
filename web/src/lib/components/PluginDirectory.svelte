@@ -1,16 +1,22 @@
 <script lang="ts">
-	import type { DirectoryEntry, PluginDirectory } from '$lib/api';
+	import type { DirectoryEntry, PluginDirectory, RepoPlugin } from '$lib/api';
 	import { api, ApiError } from '$lib/api';
 	import { Button, Icon, TextField } from '$lib/m3';
 	import DirectoryCard from './DirectoryCard.svelte';
+	import RepoPlugins from './RepoPlugins.svelte';
 
-	/** Settings → Plugins → Browse: the plugin directory, searchable, with what's installed here. */
+	/** Settings → Plugins → Browse: the plugins in your plugin repositories, then the plugin
+	 *  directory, searchable together, with what's installed here. */
 	interface Props {
 		oninstall: (e: DirectoryEntry) => void;
+		/** A plugin in one of the plugin repositories. */
+		onrepoinstall: (p: RepoPlugin) => void;
+		/** Open the Repositories tab. */
+		onmanage?: () => void;
 		/** Bumped by the page after an install, to show the new state. */
 		version?: number;
 	}
-	let { oninstall, version = 0 }: Props = $props();
+	let { oninstall, onrepoinstall, onmanage, version = 0 }: Props = $props();
 
 	let dir = $state<PluginDirectory | null>(null);
 	let loading = $state(false);
@@ -46,6 +52,12 @@
 </script>
 
 <div class="flex flex-col gap-3">
+	<div class="flex flex-wrap items-center gap-2">
+		<TextField label="Search plugins" bind:value={query} class="min-w-56 flex-1" />
+		{#if dir?.enabled !== false}<Button variant="text" icon="refresh" loading={loading} onclick={() => load(true)}>Refresh</Button>{/if}
+	</div>
+	<RepoPlugins oninstall={onrepoinstall} {version} {query} {onmanage} />
+	<h2 class="mt-2 title-medium text-on-surface">The plugin directory</h2>
 	<p class="max-w-[70ch] body-small text-on-surface-variant">
 		The plugin directory lists plugins anyone can publish. Nobody reviews them: installing one shows what it asks for, and it runs sandboxed unless it says otherwise and
 		you allow it. Releases come from each plugin's GitHub repository, checked against their published SHA-256.
@@ -53,13 +65,12 @@
 	{#if dir && !dir.enabled}
 		<div class="flex items-start gap-3 rounded-lg border border-dashed border-outline-variant px-4 py-6 body-medium text-on-surface-variant">
 			<Icon name="cloud_off" class="mt-0.5 shrink-0" />
-			<p>The plugin directory is turned off on this server (<code class="font-mono">CASTOR_PLUGIN_DIRECTORY_URL</code> is empty). Install plugins from their .zip instead.</p>
+			<p>
+				The plugin directory is turned off on this server (<code class="font-mono">CASTOR_PLUGIN_DIRECTORY_URL</code> is empty). Install plugins from your own
+				repositories{#if onmanage}&nbsp;(<button type="button" class="text-primary hover:underline" onclick={onmanage}>Repositories</button>){/if} or from their .zip.
+			</p>
 		</div>
 	{:else}
-		<div class="flex flex-wrap items-center gap-2">
-			<TextField label="Search plugins" bind:value={query} class="min-w-56 flex-1" />
-			<Button variant="text" icon="refresh" loading={loading} onclick={() => load(true)}>Refresh</Button>
-		</div>
 		{#if tags.length}
 			<div class="flex flex-wrap gap-1.5" role="group" aria-label="Tags">
 				{#each tags as t (t)}

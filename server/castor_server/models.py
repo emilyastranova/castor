@@ -1480,6 +1480,31 @@ class PluginUserSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
 
 
+class PluginRepository(Base, TimestampMixin):
+    """A Git repository plugins are installed from (plugin_repos.py): any URL the git client takes,
+    public or private. Each folder in it with a castor-plugin.yaml is a plugin, packed like
+    castor-plugins' pack.py. Its secret (an HTTPS token or password, or an SSH private key) is
+    vault-encrypted and only ever reaches git through its environment or a private file."""
+
+    __tablename__ = "plugin_repositories"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(120))
+    url: Mapped[str] = mapped_column(String(1000))
+    ref: Mapped[str] = mapped_column(String(200), default="", server_default="")  # a branch or tag; "" = its default branch
+    auth: Mapped[str] = mapped_column(String(16), default="none", server_default="none")  # none | https | ssh
+    username: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    secret: Mapped[str | None] = mapped_column(Text, nullable=True)  # vault: the token/password, or the SSH key
+    passphrase: Mapped[str | None] = mapped_column(Text, nullable=True)  # vault: the SSH key's, if it has one
+    # SSH host keys, trusted on first use (OpenSSH known_hosts lines); cleared to trust a new one.
+    known_hosts: Mapped[str] = mapped_column(Text, default="", server_default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    commit: Mapped[str | None] = mapped_column(String(64), nullable=True)  # what the last fetch found
+    fetched_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+
 class PluginStorage(Base):
     """A plugin's own key-value space: instance-wide (scope "") or per project (its id)."""
 

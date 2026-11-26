@@ -437,7 +437,13 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   directory off (`CASTOR_PLUGIN_DIRECTORY_URL=""`) so tests never reach GitHub. Directory (phase E): `plugin_directory.py`
   (`directory.json` from `CASTOR_PLUGIN_DIRECTORY_URL`, releases from the GitHub API, SHA-256 checked, `check_updates`
   daily → `plugins.latest_version` and admin notifications), `api/plugin_directory.py`, preview with `directory`; web
-  Browse tab (`PluginDirectory`, `DirectoryCard`), `routes/settings/plugins/directory/[id]`, `publishers/[id]`. Packs:
+  Browse tab (`PluginDirectory`, `DirectoryCard`), `routes/settings/plugins/directory/[id]`, `publishers/[id]`. Plugin
+  repositories (docs/PLUGINS.md): `plugin_repos.py` runs the real `git` (transports in `CASTOR_PLUGIN_GIT_PROTOCOLS`; never put a
+  secret in argv, a URL or git config: HTTPS through `GIT_ASKPASS` and its env, SSH through a 0600 key file in a temp folder;
+  ssh `known_hosts` per repository, trusted on first use), a bare clone one commit deep read with `ls-tree`/`cat-file`, folders
+  with a castor-plugin.yaml packed like castor-plugins' pack.py, source `repo:<id>:<folder>`; `plugin_directory.check_forever`
+  runs the directory's and the repositories' checks; web `PluginRepositories`, `PluginRepositoryDialog`, `RepoPlugins` (in
+  Browse); tests `tests/test_plugin_repos.py` (file://, `git http-backend` behind Basic auth, an asyncssh server). Packs:
   manifest `contents` + `library/<kind>/*.yaml` (`plugin_library.py`), `origin = "plugin:<id>"`, read-only like
   built-ins: check `plugin_library.read_only(origin)` (not `== "builtin"`) in library APIs, web `lib/origin.ts`.
 - Company branding (Settings → Branding): `branding.py` (app_settings `brand_name`, `brand_tagline`, `report_footer`,
