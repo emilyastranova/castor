@@ -26,7 +26,7 @@
 <svelte:document onclick={onDocClick} onkeydown={onKey} />
 
 <div class="relative inline-block {klass}" bind:this={root}>
-	<div onclick={() => (open = !open)} role="presentation">{@render anchor?.()}</div>
+	<div class="max-w-full" onclick={() => (open = !open)} role="presentation">{@render anchor?.()}</div>
 	{#if open}
 		<div
 			class="absolute z-40 min-w-48 overflow-hidden rounded-xs bg-surface-container py-2 shadow-e2 {side ? 'bottom-0 left-full ml-3 min-w-60' : `${up ? 'bottom-full mb-1' : 'mt-1'} ${align === 'right' ? 'right-0' : 'left-0'}`}"

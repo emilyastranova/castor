@@ -36,11 +36,11 @@
 	}
 </script>
 
-<Menu bind:open align="left" class="min-w-0">
+<Menu bind:open align="left" class="max-w-full min-w-0">
 	{#snippet anchor()}
 		<button
 			type="button"
-			class="state-layer focus-ring -mx-2 flex min-w-0 items-center gap-1 rounded-md px-2 py-0.5 text-left"
+			class="state-layer focus-ring -mx-2 flex max-w-[calc(100%+1rem)] min-w-0 items-center gap-1 rounded-md px-2 py-0.5 text-left"
 			aria-haspopup="menu"
 			aria-expanded={open}
 			title="Switch project"

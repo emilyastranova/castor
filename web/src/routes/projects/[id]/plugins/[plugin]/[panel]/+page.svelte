@@ -23,17 +23,24 @@
 
 <svelte:head><title>{project.codename} · {panel?.title ?? 'Plugin'} · {brand.windowName}</title></svelte:head>
 
+<!-- The page's name sits beside the project's, so the plugin's frame starts right under the bar. -->
 <TopAppBar>
-	<ProjectSwitcher {project} />
+	<div class="flex min-w-0 items-center gap-3">
+		<div class="min-w-0 shrink"><ProjectSwitcher {project} /></div>
+		{#if panel}
+			<span class="h-8 w-px shrink-0 bg-outline-variant" aria-hidden="true"></span>
+			<h1 class="flex max-w-[55%] min-w-0 shrink-0 items-center gap-2 title-large text-on-surface">
+				<Icon name={panel.icon} src={panel.icon_url} class="shrink-0 text-primary" />
+				<span class="truncate">{panel.title}</span>
+				<span class="hidden shrink-0 body-small text-on-surface-variant sm:inline">· {panel.plugin.name}</span>
+			</h1>
+		{/if}
+	</div>
 </TopAppBar>
 
 <div class="flex min-h-0 flex-1 flex-col overflow-auto">
-	<div class="mx-auto flex h-full min-h-[34rem] w-full flex-col gap-3 px-6 pt-2 pb-4">
+	<div class="mx-auto flex h-full min-h-[34rem] w-full flex-col gap-3 px-6 pb-4">
 		{#if panel}
-			<h1 class="flex items-center gap-2 title-large text-on-surface">
-				<Icon name={panel.icon} src={panel.icon_url} class="text-primary" />{panel.title}
-				<span class="body-small text-on-surface-variant">· {panel.plugin.name}</span>
-			</h1>
 			{#key panel.url}
 				<PluginFrame {panel} projectId={project.id} fill />
 			{/key}
