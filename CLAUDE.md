@@ -418,7 +418,8 @@ exercised on the original dev machine; SQLite is what the tests and dev loop use
   `…/panels/{ui}/call` answers them (REST as the plugin, or `ctx.ui.on` handlers; viewers only GET and `readOnly`); web
   `PluginFrame.svelte` is the postMessage bridge (in AssetDialog, TaskDialog tabs, Assets page tabs, and `nav.page` pages:
   rail items after Files from `pluginPanels.for(project, 'nav.page')` in the root layout, `routes/projects/[id]/plugins/[plugin]/[panel]`,
-  `lib/pluginPages.ts`). Unrestricted plugins
+  `lib/pluginPages.ts`). A panel's `icon` may be a file in the plugin (`UiSpec.icon_file`, checked like the plugin's
+  icon, served at `/api/plugins/{id}/ui/{ui}/icon`, the panel's `icon_url`); m3 `Icon` `src` draws it as a mask in `currentColor`. Unrestricted plugins
   (phase D): `runtime: unrestricted` runs with `--allow-all`, only while restricted mode is off (`plugins.restricted`:
   `CASTOR_PLUGINS_RESTRICTED` lock or `app_settings.plugins_restricted`, changed only via `PUT /api/plugin-mode`);
   install needs the id typed (`confirm`); `CASTOR_PLUGINS_SAFE_MODE` runs none; `page.script` (unrestricted only) loads

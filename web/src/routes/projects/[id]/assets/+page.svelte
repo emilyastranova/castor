@@ -512,7 +512,7 @@
 				{ id: 'suggested', label: 'Suggested', icon: 'lightbulb', badge: suggestedCount || undefined },
 				{ id: 'relationships', label: 'Relationships', icon: 'hub' },
 				{ id: 'triggers', label: 'Triggers', icon: 'bolt', badge: waiting.length || undefined },
-				...pagePanels.map((p) => ({ id: `plugin:${p.plugin.id}:${p.id}`, label: p.title, icon: p.icon }))
+				...pagePanels.map((p) => ({ id: `plugin:${p.plugin.id}:${p.id}`, label: p.title, icon: p.icon, iconSrc: p.icon_url }))
 			]}
 			bind:value={tab}
 		/>

@@ -657,7 +657,7 @@ permissions: [projects:read, assets:write]
 ui:
   - {{id: page, slot: project.page, title: Overview, path: ui/page.html}}
   - {{id: side, slot: asset.panel, title: Side, path: ui/page.html, asset_types: [host]}}
-  - {{id: nav, slot: nav.page, title: Attack paths, label: Paths, icon: route, path: ui/page.html}}
+  - {{id: nav, slot: nav.page, title: Attack paths, label: Paths, icon: ui/paths.svg, path: ui/page.html}}
 """
 PANEL_MAIN = """
 import { definePlugin } from "@castor/plugin";
@@ -679,9 +679,14 @@ def test_plugin_panels(client, auth):
     pid = f"panel-{n}"
     files = {"castor-plugin.yaml": PANEL_MANIFEST.format(n=n), "main.ts": PANEL_MAIN,
              "ui/page.html": "<!doctype html><html><head><title>x</title></head><body>hi<script src='page.js'></script></body></html>",
-             "ui/page.js": "document.body.append('!')", "notes.ts": "export {}"}
+             "ui/page.js": "document.body.append('!')", "notes.ts": "export {}",
+             "ui/paths.svg": '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 20 20 4"/></svg>'}
     missing = {k: v for k, v in files.items() if k != "ui/page.html"}
     assert "ui/page.html isn't in the .zip" in preview(client, auth, zip_files(missing)).json()["detail"]
+    no_icon = {k: v for k, v in files.items() if k != "ui/paths.svg"}
+    assert "ui.nav.icon: ui/paths.svg isn't in the .zip" in preview(client, auth, zip_files(no_icon)).json()["detail"]
+    active = {**files, "ui/paths.svg": '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"></svg>'}
+    assert "ui.nav.icon: ui/paths.svg has" in preview(client, auth, zip_files(active)).json()["detail"]
 
     p = project(client, auth)
     other = project(client, auth)
@@ -691,7 +696,12 @@ def test_plugin_panels(client, auth):
         panels = client.get(f"/api/projects/{p['id']}/plugin-panels", headers=auth).json()
         mine = [x for x in panels if x["plugin"]["id"] == pid]
         assert [(x["id"], x["slot"]) for x in mine] == [("page", "project.page"), ("side", "asset.panel"), ("nav", "nav.page")]
-        assert (mine[2]["label"], mine[2]["icon"]) == ("Paths", "route")
+        assert (mine[2]["label"], mine[2]["icon"]) == ("Paths", "ui/paths.svg")
+        assert mine[0]["icon_url"] is None  # a Material Symbols name
+        icon = client.get(mine[2]["icon_url"], headers=auth)
+        assert icon.status_code == 200 and icon.headers["content-type"] == "image/svg+xml"
+        assert "sandbox" in icon.headers["content-security-policy"] and b"M4 20" in icon.content
+        assert client.get(f"/api/plugins/{pid}/ui/page/icon", headers=auth).status_code == 404
         assert mine[1]["asset_types"] == ["host"]
         assert not [x for x in client.get(f"/api/projects/{other['id']}/plugin-panels", headers=auth).json() if x["plugin"]["id"] == pid]
 

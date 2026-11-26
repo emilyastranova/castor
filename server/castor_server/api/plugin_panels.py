@@ -24,7 +24,7 @@ from ..access import can_see, project_or_404, visible_project_ids
 from ..config import settings
 from ..deps import DB, CurrentUser, parse_uuid
 from ..plugin_runtime import SDK_DIR, PluginRuntimeError
-from .plugins import icon_url
+from .plugins import icon_url, panel_icon_url
 
 router = APIRouter(tags=["plugins"])
 
@@ -111,7 +111,7 @@ async def project_panels(project_id: str, db: DB, user: CurrentUser) -> list[dic
             if ui.slot == "page.script":
                 continue
             out.append({"plugin": {"id": p.id, "name": p.name, "icon_url": icon_url(p)}, **ui.model_dump(mode="json"),
-                        "url": page_url(p, ui.path)})
+                        "icon_url": panel_icon_url(p, ui), "url": page_url(p, ui.path)})
     return out
 
 

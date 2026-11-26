@@ -110,7 +110,7 @@ ui:                            # its pages, shown in Castor in sandboxed frames 
     slot: project.page         # project.page (a tab on the Assets page), nav.page (the rail), card.tab, asset.panel
     title: Attack paths
     path: ui/paths.html        # inside the plugin; its CSS, scripts and images sit next to it
-    icon: route                # a Material Symbols name
+    icon: route                # a Material Symbols name, or a file of its own: ui/paths.svg (SVG, PNG, WebP)
   - { id: asset-path, slot: asset.panel, title: Path to Domain Admins, path: ui/paths.html, asset_types: [user, host], height: 140 }
   - { id: graph, slot: nav.page, title: Attack graph, label: Graph, icon: hub, path: ui/graph.html }  # label: its word in the rail
 settings:
@@ -398,6 +398,14 @@ and `asset.panel` (a section of the asset dialog, for the `asset_types` listed o
 rail's other project pages, a `nav.page` follows the current project, and shows only while the
 plugin is enabled in it. `run.panel`,
 `project.home`, `settings.page` and `graph.overlay` come later.
+
+A slot's `icon` is a Material Symbols name, or a file in the plugin (SVG, PNG or WebP, up to
+256 KB, checked like the plugin's icon, `ui.<id>.icon` in the error) for one of its own. Castor
+draws the file as a silhouette in the colour around it (a CSS mask), as it does the symbols, so it
+follows the theme and the rail's active state: draw it in one colour on a transparent background,
+square, at 24×24. The panel list gives its address as `icon_url`
+(`GET /api/plugins/{id}/ui/{ui id}/icon`, served like the plugin's icon); `icon_url` is null for a
+symbol.
 
 **How it's kept apart.** The server serves the plugin's files at
 `/api/plugin-ui/<plugin>/<signature>/<path>` (`api/plugin_panels.py`). The signature is an HMAC of

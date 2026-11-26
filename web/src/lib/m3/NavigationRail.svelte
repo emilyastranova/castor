@@ -5,6 +5,8 @@
 	export interface NavItem {
 		href: string;
 		icon: string;
+		/** An icon file instead of the symbol (a plugin page's own). */
+		iconSrc?: string | null;
 		label: string;
 		badge?: number | string;
 		/** Active only on this exact path (for a link that's the parent of other items). */
@@ -41,7 +43,7 @@
 						? 'bg-secondary-container text-on-secondary-container'
 						: 'text-on-surface-variant group-hover:text-on-surface'}"
 				>
-					<Icon name={item.icon} filled={active(item)} />
+					<Icon name={item.icon} src={item.iconSrc} filled={active(item)} />
 					{#if item.badge}
 						<span class="absolute -top-1 right-2 min-w-4 rounded-full bg-error px-1 text-center text-on-error label-small">{item.badge}</span>
 					{/if}

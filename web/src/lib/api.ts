@@ -3221,7 +3221,9 @@ export interface PluginPanel {
 	/** nav.page: its name in the navigation rail ("" = the title). */
 	label?: string;
 	path: string;
+	/** A Material Symbols name, or a file in the plugin (then `icon_url` is where it's served). */
 	icon: string;
+	icon_url?: string | null;
 	asset_types: string[];
 	height: number;
 	/** The page's signed address. */

@@ -207,6 +207,7 @@ RULES: list[tuple[str, str, str]] = [
     ("*", "/api/projects/*/asset-links", "assets:rw"),
     ("POST", "/api/plugins/*/actions/*", "projects:write"),  # a plugin's action on a project you can change
     ("GET", "/api/plugins/*/icon", ANY),
+    ("GET", "/api/plugins/*/ui/*/icon", ANY),
     ("GET", "/api/plugin-ui/**", PUBLIC),  # a panel's files: the signed address is the credential
     ("GET", "/api/projects/*/plugin-panels", "projects:read"),
     ("POST", "/api/plugins/*/panels/*/call", "projects:read"),  # reads only with a token; changes need a session

@@ -41,14 +41,14 @@
 	}
 </script>
 
-{#snippet item(icon: string, label: string, on: boolean, alert = false)}
+{#snippet item(icon: string, label: string, on: boolean, alert = false, src: string | null = null)}
 	<span
 		data-active={on || undefined}
 		class="m3-rail-ind state-layer relative flex h-8 w-14 items-center justify-center rounded-full transition-colors group-focus-visible:outline-3 group-focus-visible:outline-offset-2 group-focus-visible:outline-secondary {on
 			? 'bg-secondary-container text-on-secondary-container'
 			: 'text-on-surface-variant'}"
 	>
-		<Icon name={icon} filled={on} />
+		<Icon name={icon} {src} filled={on} />
 		{#if alert}<span class="absolute top-0.5 right-2.5 size-2 rounded-full bg-error" aria-hidden="true"></span>{/if}
 	</span>
 	<span class="m3-rail-label label-medium {on ? 'text-on-surface' : 'text-on-surface-variant'}">{label}</span>
@@ -60,7 +60,7 @@
 >
 	{#each pinned as i (`${i.href}|${i.label}`)}
 		<a href={i.href} class="group flex h-16 flex-1 flex-col items-center justify-center gap-1 outline-none" aria-current={active(i) ? 'page' : undefined}>
-			{@render item(i.icon, i.label, active(i))}
+			{@render item(i.icon, i.label, active(i), false, i.iconSrc ?? null)}
 		</a>
 	{/each}
 	<button type="button" class="group flex h-16 flex-1 flex-col items-center justify-center gap-1 outline-none" onclick={() => palette.show()}>
@@ -112,7 +112,7 @@
 						? 'bg-secondary-container text-on-secondary-container'
 						: 'text-on-surface'}"
 				>
-					<Icon name={i.icon} filled={active(i)} />
+					<Icon name={i.icon} src={i.iconSrc} filled={active(i)} />
 					<span class="label-medium">{i.label}</span>
 				</a>
 			</li>

@@ -1,8 +1,11 @@
 <script lang="ts">
+	import Icon from './Icon.svelte';
 	interface Tab {
 		id: string;
 		label: string;
 		icon?: string;
+		/** An icon file instead of the symbol (a plugin's own). */
+		iconSrc?: string | null;
 		badge?: number;
 	}
 	interface Props {
@@ -27,7 +30,7 @@
 				onchange?.(tab.id);
 			}}
 		>
-			{#if tab.icon}<span class="material-symbols-rounded text-[20px]">{tab.icon}</span>{/if}
+			{#if tab.iconSrc}<Icon name="" src={tab.iconSrc} size={20} />{:else if tab.icon}<span class="material-symbols-rounded text-[20px]">{tab.icon}</span>{/if}
 			{tab.label}
 			{#if tab.badge}<span class="rounded-full bg-surface-container-highest px-1.5 label-small">{tab.badge}</span>{/if}
 			{#if value === tab.id}

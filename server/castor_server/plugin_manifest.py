@@ -119,18 +119,25 @@ class UiSpec(BaseModel):
     # nav.page: its name in the navigation rail, which has room for a word (default: the title).
     label: str = Field("", max_length=14)
     path: str = Field(pattern=r"^[A-Za-z0-9_./-]+\.(html?|m?js)$")  # the page (or page.script's script), in the plugin
-    icon: str = Field("extension", pattern=r"^[a-z0-9_]{1,40}$")  # a Material Symbols name
+    # A Material Symbols name, or an icon of its own: an SVG, PNG or WebP file in the plugin, drawn as a
+    # silhouette in the colour around it (like the symbols), so draw it in one colour on transparent.
+    icon: str = Field("extension", pattern=r"^(?:[a-z0-9_]{1,40}|[A-Za-z0-9_./-]+\.(?:svg|png|webp))$")
     # asset.panel: the asset types it's shown for (empty: every type).
     asset_types: list[str] = Field(default_factory=list)
     # Its height to start with, in pixels; the page can resize itself.
     height: int = Field(320, ge=80, le=2000)
 
-    @field_validator("path")
+    @field_validator("path", "icon")
     @classmethod
     def _path(cls, v: str) -> str:
         if v.startswith("/") or ".." in v.split("/"):
             raise ValueError("a path inside the plugin")
         return v
+
+    @property
+    def icon_file(self) -> str | None:
+        """The icon's file in the plugin, when it isn't a Material Symbols name."""
+        return self.icon if "." in self.icon else None
 
 
 class SettingSpec(BaseModel):

@@ -165,6 +165,26 @@ async def plugin_icon(plugin_id: str, db: DB, _: CurrentUser):
         "X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=86400"})
 
 
+@router.get("/plugins/{plugin_id}/ui/{ui_id}/icon")
+async def panel_icon(plugin_id: str, ui_id: str, db: DB, _: CurrentUser):
+    """A panel's own icon (its `icon` names a file in the plugin), served like the plugin's."""
+    from fastapi.responses import Response
+
+    p = await db.get(m.Plugin, plugin_id)
+    ui = next((u for u in P.manifest_of(p).ui if u.id == ui_id), None) if p else None
+    path = (P.folder_of(p) / ui.icon_file) if ui and ui.icon_file else None
+    if path is None or not path.is_file():
+        raise HTTPException(404, "No icon")
+    return Response(path.read_bytes(), media_type=plugin_package.icon_type(ui.icon_file), headers={
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
+        "X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=86400"})
+
+
+def panel_icon_url(p: m.Plugin, ui: Any) -> str | None:
+    """Where the browser gets a panel's own icon (None: a Material Symbols name)."""
+    return f"/api/plugins/{p.id}/ui/{ui.id}/icon?v={p.checksum[:10]}" if ui.icon_file else None
+
+
 @router.post("/plugins/preview")
 async def preview(db: DB, _: Admin, file: Annotated[UploadFile | None, File()] = None,
                   url: Annotated[str | None, Form()] = None, directory: Annotated[str | None, Form()] = None) -> dict[str, Any]:

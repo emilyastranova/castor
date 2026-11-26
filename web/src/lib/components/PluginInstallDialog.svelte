@@ -377,7 +377,7 @@
 						{/each}
 						{#each m.ui ?? [] as u (u.id)}
 							<li class="flex items-start gap-2 body-medium text-on-surface">
-								<Icon name={u.icon} size={18} class="mt-0.5 shrink-0 text-on-surface-variant" />
+								<Icon name={u.icon.includes('.') ? 'extension' : u.icon} size={18} class="mt-0.5 shrink-0 text-on-surface-variant" />
 								<span>
 									<b class="font-medium">{u.title}</b>, {SLOTS[u.slot]}{u.slot === 'asset.panel' && u.asset_types.length ? ` (${u.asset_types.join(', ')})` : ''}
 									<span class="block body-small text-on-surface-variant">A page of its own, sandboxed: no network, and only what the plugin itself may see.</span>

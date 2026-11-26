@@ -44,7 +44,7 @@
 		{ href: currentProject.files, icon: 'folder_open', label: 'Files', exact: true },
 		// Pages the current project's plugins add (manifest `ui` slot nav.page).
 		...(currentProject.id
-			? pluginPanels.for(currentProject.id, 'nav.page').map((p) => ({ href: pluginPageHref(currentProject.id!, p), icon: p.icon, label: p.label || p.title }))
+			? pluginPanels.for(currentProject.id, 'nav.page').map((p) => ({ href: pluginPageHref(currentProject.id!, p), icon: p.icon, iconSrc: p.icon_url, label: p.label || p.title }))
 			: []),
 		{ href: '/playbooks', icon: 'account_tree', label: 'Playbooks', divider: true },
 		{ href: '/library', icon: 'handyman', label: 'Library' },

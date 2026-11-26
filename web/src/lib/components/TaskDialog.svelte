@@ -873,7 +873,7 @@
 		{ id: 'attachments', label: 'Attachments', icon: 'attach_file', badge: attachments.length },
 		{ id: 'fields', label: 'Fields', icon: 'data_object', badge: Object.keys(task.custom_fields).length },
 		{ id: 'history', label: 'History', icon: 'history' },
-		...cardPanels.map((p) => ({ id: `plugin:${p.plugin.id}:${p.id}`, label: p.title, icon: p.icon, badge: undefined }))
+		...cardPanels.map((p) => ({ id: `plugin:${p.plugin.id}:${p.id}`, label: p.title, icon: p.icon, iconSrc: p.icon_url, badge: undefined }))
 	]);
 </script>
 

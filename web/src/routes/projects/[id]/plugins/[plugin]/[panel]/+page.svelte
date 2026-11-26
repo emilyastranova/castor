@@ -31,7 +31,7 @@
 	<div class="mx-auto flex h-full min-h-[34rem] w-full flex-col gap-3 px-6 pt-2 pb-4">
 		{#if panel}
 			<h1 class="flex items-center gap-2 title-large text-on-surface">
-				<Icon name={panel.icon} class="text-primary" />{panel.title}
+				<Icon name={panel.icon} src={panel.icon_url} class="text-primary" />{panel.title}
 				<span class="body-small text-on-surface-variant">· {panel.plugin.name}</span>
 			</h1>
 			{#key panel.url}
